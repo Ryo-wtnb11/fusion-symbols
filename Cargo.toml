@@ -8,7 +8,7 @@ members = ["racah-py"]
 # covers every symmetry family this crate provides.
 [package]
 name = "fusion-symbols"
-version = "0.2.4"
+version = "0.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Fusion and recoupling symbols for symmetric tensors: exact SU(2) recoupling, and runtime Clebsch-Gordan / F- / R-coefficient generation for SU(N), SO(N), and Sp(2N) (successor of the racah crate)"
@@ -43,7 +43,7 @@ num-bigint = "0.4"
 num-rational = "0.4"
 num-traits = "0.2"
 # R-symbols and twists of braided categories are complex (`fibonacci`,
-# `category_data`). Default `std` feature kept: `Complex64::norm` and
+# `tables`). Default `std` feature kept: `Complex64::norm` and
 # `from_polar` need it.
 num-complex = "0.4"
 # Dense factorization backend for the SU(N) CGC pipeline (nullspace = full SVD,

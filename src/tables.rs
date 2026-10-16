@@ -28,7 +28,8 @@
 //! # Relationship to the closed-form Fibonacci
 //!
 //! [`crate::fibonacci`] evaluates the same category from formulas. The two
-//! agree physically but not bitwise, so they have different authority
+//! agree bitwise on R, but not on F, dimensions and twist (within a few
+//! ulp), so they have different authority
 //! fingerprints by design: sharing one would let data computed under one set
 //! of coefficients be reused under the other.
 

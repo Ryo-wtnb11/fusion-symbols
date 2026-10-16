@@ -7,6 +7,8 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-16
+
 ### Added
 
 - **Non-Lie fusion categories, first slice (symtn #2016):**
@@ -28,8 +30,8 @@ value/gauge rule noted below.
   repository `Ryo-wtnb11/racah` → `Ryo-wtnb11/fusion-symbols` (GitHub
   redirects the old URL). The modules, API and every coefficient value are
   unchanged: replace `racah::` with `fusion_symbols::`. The published
-  `racah` 0.2.4 stays on crates.io; `fusion-symbols` is its successor and is
-  not published yet. The authority fingerprint bytes keep their `racah:`
+  `racah` 0.2.4 stays on crates.io; `fusion-symbols` is its successor
+  (first release of this name). The authority fingerprint bytes keep their `racah:`
   prefix, because a fingerprint changes only with a specification
   correction, never with a rename. The Python bindings keep the import name
   `racah` for now.
@@ -459,7 +461,8 @@ SU(2) provider this rule is mechanized by `su2_authority_fingerprint()`: its
 epoch is bumped only on such a value-affecting release, so a fingerprint change
 and a breaking release are one reviewable event.
 
-[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.2.1...v0.2.2

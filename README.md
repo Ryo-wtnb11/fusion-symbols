@@ -15,9 +15,8 @@ on any tensor-network engine.
 This crate succeeds the [`racah`](https://crates.io/crates/racah) crate on
 crates.io (0.2.4), with the same modules and API under `fusion_symbols::`.
 
-`fusion-symbols` itself is not published yet. The Python bindings in
-[`racah-py/`](racah-py/README.md) keep the import name `racah` for now and
-cover the Lie-group families.
+The Python bindings in [`racah-py/`](racah-py/README.md) keep the import name
+`racah` for now and cover the Lie-group families.
 
 The first families are the compact Lie groups — Racah–Wigner calculus:
 irreducible representations, Clebsch–Gordan coefficients, and recoupling
@@ -82,12 +81,9 @@ For any admissible irreps of a supported group:
 
 ```toml
 [dependencies]
-# until fusion-symbols is published:
-fusion-symbols = { git = "https://github.com/Ryo-wtnb11/fusion-symbols" }
+fusion-symbols = "0.3"
 # generated SU(N)/SO(N)/Sp(2N) families:
-# fusion-symbols = { git = "https://github.com/Ryo-wtnb11/fusion-symbols", features = ["cgc-gen"] }
-# the same API, released under the old name:
-# racah = "0.2.4"
+# fusion-symbols = { version = "0.3", features = ["cgc-gen"] }
 ```
 
 | Feature | Adds | Pulls in |
@@ -167,7 +163,7 @@ assert!(Irrep::from_dynkin_in(&GroupId::so(7).unwrap(), &[0, 0, 1]).is_err());
 | Layer | For | Where |
 |---|---|---|
 | **User Guide** | Learning the library, task by task | [`docs/user-guide/`](docs/user-guide/README.md) |
-| **API Reference** | Exact per-item semantics, shapes, errors | `cargo doc --open` (docs.rs once published; [racah 0.2.4 on docs.rs](https://docs.rs/racah)) |
+| **API Reference** | Exact per-item semantics, shapes, errors | `cargo doc --open` ([docs.rs](https://docs.rs/fusion-symbols)) |
 | **Theory** | The mathematics behind the objects | [`docs/theory.pdf`](docs/theory.pdf) ([source](docs/theory.tex)) |
 | **Gauge specification** | The normative basis/sign/ordering conventions (frozen) | [`docs/gauge.md`](docs/gauge.md), [`docs/gauge_soN.md`](docs/gauge_soN.md) |
 | **Developer docs** | Changing fusion-symbols itself | [`docs/developer/`](docs/developer/README.md), [`AGENTS.md`](AGENTS.md), [`tools/README.md`](tools/README.md) |

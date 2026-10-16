@@ -54,6 +54,9 @@ with no signal anywhere. Under this freeze the arrow points the other way:
   label for the current build's output. `sun_authority_fingerprint()`,
   `bcd_authority_fingerprint()`, and `su2_authority_fingerprint()` change only
   when the specification they cite is corrected.
+- The fingerprint strings keep their `racah:` prefix **permanently**: they are
+  identifiers, not a crate name. The rename to `fusion-symbols` does not change
+  them, and no later change should "fix" the prefix.
 
 ### Operational rule for changing a value
 
