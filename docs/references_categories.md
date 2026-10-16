@@ -1,4 +1,4 @@
-# Provenance: non-Lie categories (`abelian`, `cu1`, `fibonacci`, `tables`)
+# Provenance: non-Lie categories (`abelian`, `cu1`, `tables`)
 
 ## Abelian groups (`abelian` module)
 
@@ -26,26 +26,14 @@
 | Measured TKS values | `tests/fixtures/tks_cu1_oracle.jl` → `tests/fixtures/tks-0.3.9-cu1-values.txt` (Julia 1.11.6, signed zeros recorded), compared bit for bit in `tests/cu1_values.rs`; every nonzero value is identical. Deliberate deviation: TKS `Rsymbol` gives `-0.0` on inadmissible `R^{ab}_{0-}` with charged `a` (`-convert(Float64, N)`, `N = 0`; 30 tuples over the fixture labels), this crate `+0.0` (the crate-wide exact-zero contract, as symtn) |
 | Ported implementation | [symtn](https://github.com/Ryo-wtnb11/symtn-rs) `symtn-sectors/src/cu1.rs` at `2a6c152315bb271dc5e56b5f1f034ca818ef999d`; every value bit-identical (`tests/cu1_values.rs`). Deliberate differences: labels span the full `u32` (symtn's codec stops at `u32::MAX - 1`, which symtn validates itself), so the 6 recorded fusions summing to exactly `u32::MAX` succeed here; and `N` is exact everywhere (symtn's checked N fails above its bound). Only `CU1Irrep::fusion`, which must produce the labels, reports an overflow, above `u32::MAX` |
 
-## Closed-form Fibonacci (`fibonacci` module)
-
-| Field | Value |
-| --- | --- |
-| Reference | TensorKitSectors.jl `0.3.9`, registry git-tree-sha1 `9f536263310aae90df175337d586a1655104aae3` (verified against the local copy `~/.julia/packages/TensorKitSectors/VuA9Z`) |
-| `dim`, `Nsymbol`, `Fsymbol`, `Rsymbol`, fusion order | `src/anyons.jl`: `dim(a::FibonacciAnyon)` (l. 83), `FibonacciAnyonProdIterator` iteration (l. 96), `Nsymbol` (l. 111), `Fsymbol` (l. 115), `Rsymbol` (l. 139) |
-| Frobenius–Schur phase | no override; generic `src/sectors.jl:frobenius_schur_phase_from_Fsymbol` (l. 463) |
-| Twist | no override; generic `src/sectors.jl:twist_from_Rsymbol` (l. 647) |
-| R and twist values | correctly rounded binary64 of `e^{4πi/5}`, `e^{-3πi/5}`, `e^{-4πi/5}` from the table generator (`tools/anyonwiki/gen_category_tables.py`; check rows `R 2 2 1`, `R 2 2 2`, `T 2`), not libm `cispi`/`from_polar`. TKS 0.3.9's measured `cispi` values are ≤ 3 ulp away; F and `dim` equal TKS bit for bit (`src/fibonacci.rs::tests::matches_measured_tensorkitsectors_values`) |
-| Ported implementation | [symtn](https://github.com/Ryo-wtnb11/symtn-rs) `tenet-sectors/src/fibonacci.rs` at `957ccc05737f0841b6a98047880aba201bee63a1`; values bit-identical except the three phases above, which differ by the pinned (1,1), (2,1), (1,1) ulp (`tests/tenet_values.rs`) |
-
-The Fibonacci bodies of `anyons.jl` are textually identical in
-TensorKitSectors 0.3.6 and 0.3.9.
-
-## Pinned Fibonacci table (`tables` module)
+## Pinned tables (`tables` module)
 
 Every number the table provider ships is traceable to the rows below. The crate
 performs no derivation of the *source* data: it parses the committed tables and
 derives only the API-level quantities that TensorKitSectors also derives
-(dimension, Frobenius–Schur phase, twist).
+(dimension, Frobenius–Schur phase, twist). The closed-form Fibonacci module
+of 0.3.0 was removed (#134); `TableCategory::fibonacci()` is the single
+Fibonacci path.
 
 ### Authority — AnyonWiki database (exact symbols)
 
@@ -56,42 +44,71 @@ derives only the API-level quantities that TensorKitSectors also derives
 | License | MIT, Copyright (c) 2026 AnyonWiki — copied to `data/anyonwiki-badbfe2/LICENSE` |
 | Category file | `AlgebraicStructures/FusionCategories/MultFreeFusionCategories/Rank1-7.json`, SHA-256 `383cb2db58ae839f73c3d67ad79186e6ee44d69c32fd8fb202d1a4089ca7e859` (64.7 MB, 989 categories; not committed) |
 | Fusion-ring file | `AlgebraicStructures/FusionRings/mult1.json`, SHA-256 `66117d72d204a5359ef43e584ed46cfe503240558aa8b9c381922b4861aa1153` (not committed) |
-| Category | `anyonwiki_code [2,1,0,2,1,2,1]` (ring `2_1_0_2`, associator `f = 1`, braiding `b = 2`, pivotal `p = 1`), uuid `37fa4e42-97c6-11f1-9d0f-9b7fe5c504f9`, `in_unitary_gauge: true` |
-| Fusion ring | uuid `d810a768-812e-11f1-8f24-516eff0ae265`, `mult_tab` (`N_{ab}^c = mult_tab[a][b][c]`) |
-| Committed extract | `data/anyonwiki-badbfe2/fibonacci.json`: the entry's exact `f_symbols` / `r_symbols` / `p_symbols` / `quantum_dimensions` / `twists` (qqb_ids), its `numeric_*` values, uuid, code, references, software, the ring's `mult_tab`, and the source paths and hashes |
+| Identity | (commit, `uuid`). The `anyonwiki_code` `[rank, multiplicity, non-self-dual, ring, associator f, braiding b (0 = none), pivotal p]` is accepted by `TableCategory::by_code` for this commit only: codes are not stable across database versions (CategoryData.jl's differ for most braided entries, Fibonacci's chirality index among them) |
 
 A qqb_id `a0_a1_…_an__i` is the `i`-th root of `a0 + a1 x + … + an x^n`, roots
 ordered real first (ascending), then conjugate pairs by real part, then
 imaginary part (database README, "Conventions used").
 
+### Selection
+
+All 989 entries are listed in the generated status index
+(`src/tables/catalog.rs`, `INDEX`); a query for any other uuid or code is
+`TableError::UnknownCategory`.
+
+| Status | Rule | Count |
+| --- | --- | --- |
+| shipped | `is_unitary`, `in_unitary_gauge`, and every signed quantum dimension `d_a = \|1 / F^{a ā a}_a[1,1]\|` (checked at 80 digits), rank ≤ 4 | 74 (58 braided, 16 fusion-only) |
+| `NotShipped` | as shipped, rank 5–7 (dimension check on `numeric_*`, tolerance 1e-9) | 303 |
+| `NonUnitary` | `is_unitary` false | 608 |
+| `PivotalNotUnitary` | `is_unitary` true but dimensions ≠ `\|1/F\|`: the four `[7,1,2,11,2,b,1]` entries (negative dimensions; a suspected upstream defect). The generator aborts if any other entry fails | 4 |
+
+The dimension rule is exactly the condition under which TensorKitSectors'
+derivations from F and R (below) are the database's own dimension,
+Frobenius–Schur phase and twist. It is not "pivotal index 1" (the unitary
+pivotal of `[4,1,0,1,1,2,·]` is `p = 2`) and not "all `p_symbols` = 1":
+AnyonWiki's convention is `d_a = p_a / F^{a ā a}_a[1,1]`, so the unitary
+structure has `p_a = κ_a`, which is `−1` for the semion and SU(2)₃'s spin ½.
+
 Key mapping onto the shipped record layout: AnyonWiki F
 `a_b_c_d_e_α_β_f_γ_δ` → `a b c d α e β γ f δ` (Bridgeman's `a b c d α e β μ f ν`,
 so `μ ↔ γ`, `ν ↔ δ`); R `a_b_c_α_β` → `a b c α β`. All multiplicity slots are
-`1`. The pivotal coefficients are all `1` and are not shipped.
+`1`. Pivotal coefficients are not shipped.
 
 ### Projection — correctly rounded binary64, offline
 
 `tools/anyonwiki/gen_category_tables.py` (recorded run: Python 3.14.6, mpmath
-1.3.0) evaluates each qqb_id with `mpmath.polyroots` at 80 significant digits,
-orders the roots by the database convention, checks the residual, rounds the
-real and imaginary parts to nearest binary64 (`float(mpf)`), and confirms the
-rounding is unchanged at 160 digits. It writes
+1.3.0, 2.7 s) reads the database checkout (both SHA-256s verified),
+classifies every entry, evaluates each qqb_id of a shipped entry with
+`mpmath.polyroots` at 80 significant digits, orders the roots by the database
+convention, checks the residual, rounds the real and imaginary parts to
+nearest binary64 (`float(mpf)`), confirms the rounding is unchanged at 160
+digits, and aborts if any value is more than 4 ulp from AnyonWiki's
+`numeric_*`. It writes
 
-- `data/anyonwiki-badbfe2/fibonacci/{Nabc,F,R}.txt`, the shipped tables, as
-  shortest round-trip decimals in the layouts `a b c Nabc`,
-  `a b c d α e β μ f ν Re Im`, `a b c α μ Re Im`;
-- `tests/fixtures/anyonwiki-fibonacci-check.txt`, one row per symbol with its
-  qqb_id, the generated value and AnyonWiki's `numeric_*` value.
+- `data/anyonwiki-badbfe2/N/<ring code>.txt` (16), `F/<code>.txt` (35) and
+  `R/<code>.txt` (58, braided entries only), the shipped tables, as shortest
+  round-trip decimals in the layouts `a b c Nabc`, `a b c d α e β μ f ν Re Im`,
+  `a b c α μ Re Im`. N and F files are shared by content; an F file is named
+  after the lowest code using it. 137,640 bytes in total;
+- `src/tables/catalog.rs`, the shipped entries (`include_str!` of their files
+  and their `TableProvenance`) and the status index;
+- `tests/fixtures/anyonwiki-badbfe2-check.txt`, one block per shipped entry:
+  each symbol with its qqb_id, the generated value and AnyonWiki's `numeric_*`
+  value, and the exact quantum dimensions and twists.
 
-`tests/tables_anyonwiki.rs` checks every shipped value: (a) bit-equal to the
-generator output, (b) within 4 ulp of AnyonWiki's `numeric_*` (which are not
-correctly rounded: `R^{ττ}_𝟙` differs by 2 ulp in the real part, 1 in the
-imaginary), (c) its minimal polynomial vanishes to rounding at it.
+`tests/tables_anyonwiki.rs` checks every shipped value of every entry: (a)
+bit-equal to the generator output, (b) within 4 ulp of AnyonWiki's `numeric_*`,
+(c) its minimal polynomial vanishes to rounding at it; that the rows are
+exactly the admissible symbols; and that the derived dimensions and twists
+meet AnyonWiki's within 32ε.
 
 ### The `Complex64` projection epoch
 
 Epoch identifier:
-**`fusion-symbols/tables/anyonwiki-badbfe2/projection/2026-10-16`**.
+**`fusion-symbols/tables/anyonwiki-badbfe2/projection/2026-10-16`** (unchanged
+by #134: the conversion is the same; only the selection and file layout are
+new, and those are in each entry's provenance and fingerprint).
 
 1. Each exact symbol is rounded correctly to binary64 offline (above).
 2. At load, split each record on ASCII whitespace; the trailing two fields
@@ -103,18 +120,33 @@ Epoch identifier:
 Changing any step is a new epoch identifier, and therefore a new authority
 fingerprint. symtn's earlier epoch `tenet-category-data/projection/2026-07-27`
 (step 1 replaced by "parse CategoryData.jl's 20-decimal export") maps to this
-one: every table F, R and N value is bit-identical (`tests/tenet_values.rs`), only the
-source, the decimal spelling of F and R, and the fingerprint are new.
+one: every Fibonacci F, R and N value is bit-identical (`tests/tenet_values.rs`).
 
-### Category identity, ordering, and gauge
+### Identity, ordering, gauge, fingerprint
 
 | Field | Value |
 | --- | --- |
-| Object ordering | Fusion-ring element order, one-based: `1 = 𝟙`, `2 = τ`. Frozen; not re-sorted |
-| Braiding | AnyonWiki `b = 2`: `R^{ττ}_𝟙 = e^{+4πi/5}`, `R^{ττ}_τ = e^{-3πi/5}`, as TensorKitSectors `FibonacciAnyon` (`anyons.jl:Rsymbol`). The other braiding (`b = 1`) is the conjugate and is not shipped; `tables::tests::shipped_braiding_is_tensorkits_not_its_mirror` pins the choice |
-| Gauge | Source gauge, loaded verbatim (unitary). Identical to the TensorKitSectors closed-form F block `[1/φ, 1/√φ; 1/√φ, −1/φ]` |
+| Object ordering | Fusion-ring element order, one-based, `1` = unit. Frozen; not re-sorted |
+| Gauge | Source gauge, loaded verbatim (unitary), named constructors included. No conversion to TensorKitSectors' gauge |
+| Provenance | One generated `TableProvenance` per entry (uuid and fusion-ring uuid in `source_entry`, code in `category_key`) |
+| Fingerprint | Canonical provenance bytes, then the N, F and R texts verbatim (a fusion-only entry has an empty R section). All 74 prehashes and file digests are pinned (`tables::tests::shipped_tables_and_fingerprints_are_pinned`). Fibonacci's file bytes equal 0.3.0's `FibonacciTable`; its fingerprint differs only through the uniform provenance strings |
+| Braiding | `TableCategory::is_braided`; R and twist of a fusion-only entry are `TableError::NoBraiding` (`_checked`) or a panic |
 
-### Cross-checks (not authorities)
+### Named constructors and TensorKitSectors 0.3.9
+
+`tests/fixtures/tks_anyons_oracle.jl` (Julia 1.11.6, TensorKitSectors 0.3.9)
+prints `FibonacciAnyon` and `IsingAnyon` as IEEE bits to
+`tests/fixtures/tks-0.3.9-anyons-values.txt`. `tests/tables_reference.rs`
+checks a stated object map and vertex gauge `u` (a witness, not a search):
+`N` exact, `F_here = F_TKS · u^{ab}_e u^{ec}_d / (u^{bc}_f u^{af}_d)`,
+`R_here = R_TKS · u^{ab}_c / u^{ba}_c`, and dim, FS phase and twist, within 32ε.
+
+| Constructor | Code, uuid | Relation to TensorKitSectors |
+| --- | --- | --- |
+| `fibonacci()` | `[2,1,0,2,1,2,1]`, `37fa4e42-97c6-11f1-9d0f-9b7fe5c504f9` | `FibonacciAnyon`, identity map, `u ≡ 1` (same gauge, same braiding `R^{ττ}_𝟙 = e^{+4πi/5}`; `[2,1,0,2,1,1,1]` is the mirror and fails). Entrywise ulp distances to TKS's f64 pinned: `±F^{τττ}_τ[𝟙,𝟙]` (1, 0) (`1/φ` = `0.6180339887498948` there, correctly rounded `0.6180339887498949` here), `R^{ττ}_𝟙` (1, 1), `R^{ττ}_τ` (2, 1), `dim τ` (1, 0), `θ_τ` (2, 3); everything else bitwise |
+| `ising()` | `[3,1,0,1,1,1,1]`, `37fa4e56-97c6-11f1-907a-eb6ab8e8bc11` | `IsingAnyon` under TKS `(I, σ, ψ)` → `(1, 3, 2)` with `u^{σσ}_ψ = −1` (R identical; six F entries change sign). `u ≡ 1` and the mirror braiding `[3,1,0,1,1,4,1]` fail |
+
+### Fibonacci cross-checks (not authorities)
 
 | Source | Pin | Check |
 | --- | --- | --- |

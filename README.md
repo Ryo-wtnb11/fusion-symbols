@@ -21,8 +21,9 @@ The Python bindings in [`racah-py/`](racah-py/README.md) keep the import name
 The first families are the compact Lie groups — Racah–Wigner calculus:
 irreducible representations, Clebsch–Gordan coefficients, and recoupling
 coefficients (3j / 6j / F / R) for SU(2), SU(N), SO(N), and Sp(2N). Non-Lie
-fusion categories sit beside them as their own top-level modules: Fibonacci in
-closed form and from pinned AnyonWiki tables, the abelian groups Z2,
+fusion categories sit beside them as their own top-level modules: the
+multiplicity-free unitary categories of rank ≤ 4 (Fibonacci, Ising, …) from
+pinned AnyonWiki tables, the abelian groups Z2,
 Z_N, U(1) with fermion parity, and CU(1) = U(1) ⋊ C, now; Deligne products next. The first consumer is
 [symtn](https://github.com/Ryo-wtnb11/symtn-rs).
 
@@ -43,13 +44,12 @@ answer.
 | Sp(2r) | `fusion_symbols::bcd` (series `C`) | `cgc-gen` | `r` Dynkin labels |
 | Z2, Z_N, U(1), fermion parity | `fusion_symbols::abelian` | *(default)* | `Z2Irrep`, `ZNIrrep` (charge, runtime `N`), `U1Irrep` (`i32`), `FermionParity` |
 | CU(1) = U(1) ⋊ C (`O(2)`) | `fusion_symbols::cu1` | *(default)* | `CU1Irrep` (twice charge `u32`, TensorKitSectors `s`) |
-| Fibonacci (closed form) | `fusion_symbols::fibonacci` | *(default)* | `FibonacciObject::{Vacuum, Tau}` |
-| Fibonacci (AnyonWiki table) | `fusion_symbols::tables` | *(default)* | one-based `TableObject(1..=2)` |
+| Unitary multiplicity-free categories, rank ≤ 4 (AnyonWiki tables: 74 entries incl. Fibonacci, Ising) | `fusion_symbols::tables` | *(default)* | `TableCategory` (`by_uuid`, `by_code`, `fibonacci()`, `ising()`); one-based `TableObject(1..=rank)` |
 
 The non-Lie modules follow the `su2` conventions (label methods `dim` / `dual`
 / `frobenius_schur` / `twist` / `fusion`; `nsymbol` / `f_symbol` /
 `r_symbol` with `_checked` variants; an authority fingerprint) and
-TensorKitSectors index order and gauge; R-symbols and twists are
+TensorKitSectors index order (and, for the closed forms, gauge); R-symbols and twists are
 `num_complex::Complex64` (`f64` for the real abelian and CU(1) braidings). Their provenance is in
 [`docs/references_categories.md`](docs/references_categories.md).
 
@@ -59,9 +59,12 @@ The `tables` tables come from the
 MIT, commit `badbfe2`), which stores every symbol exactly as an algebraic
 number. An offline generator (`tools/anyonwiki/gen_category_tables.py`) rounds
 each one correctly to binary64; the crate ships that output and parses it, with
-no runtime dependency. The shipped Fibonacci entry has TensorKit's gauge and
-braiding (`R^{ττ}_𝟙 = e^{+4πi/5}`), and it is cross-checked bit for bit
-against `JCBridgeman/smallRankUnitaryFusionData` and CategoryData.jl.
+no runtime dependency. Every entry is in AnyonWiki's gauge. Fibonacci is
+TensorKit's `FibonacciAnyon` in TensorKit's own gauge and braiding
+(`R^{ττ}_𝟙 = e^{+4πi/5}`); Ising has `IsingAnyon`'s braiding and F in a
+gauge differing by the vertex gauge `u^{σσ}_ψ = −1`. Non-unitary entries and
+entries above rank 4 are refused with a typed `Unsupported` error; a
+fusion-only category returns `NoBraiding` for R and twists.
 
 ## What fusion-symbols computes
 

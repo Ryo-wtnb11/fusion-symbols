@@ -7,8 +7,34 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Breaking
+
+- **`tables` generalised (fusion-symbols #134):** `tables::FibonacciTable`
+  (`try_new`, `PROVENANCE`) is replaced by `tables::TableCategory`, and the
+  closed-form `fibonacci` module is removed (`FibonacciObject`,
+  `FibonacciError`, `fibonacci_nsymbol`, `fibonacci_f_symbol[_checked]`,
+  `fibonacci_r_symbol[_checked]`, `fibonacci_authority_fingerprint`).
+  `TableCategory::fibonacci()` is the single Fibonacci path: its N/F/R
+  values and table bytes are those of `FibonacciTable`; against the removed
+  closed form, R is bit-identical and `±F^{τττ}_τ[𝟙,𝟙]`, `dim τ` and `θ_τ`
+  are correctly rounded instead of TensorKitSectors' f64 arithmetic (1–2
+  ulp). Its authority fingerprint changes (uniform per-entry provenance
+  strings; the projection epoch is unchanged). Migrate with
+  `TableCategory::fibonacci()` and one-based `TableObject(1..=2)`.
+
 ### Added
 
+- **`tables::TableCategory` (fusion-symbols #134):** every multiplicity-free
+  AnyonWiki (`badbfe2`) entry that is unitary with dimensions
+  `|1/F^{aāa}_a[1,1]|`, up to rank 4 — 74 categories, 58 braided — selected
+  by `by_uuid`, `by_code` (pinned commit only) or the named `fibonacci()`
+  and `ising()`, in AnyonWiki's gauge (Ising differs from TensorKitSectors'
+  `IsingAnyon` by the vertex gauge `u^{σσ}_ψ = −1`). New `TableError`
+  variants `UnknownCategory`, `Unsupported { reason: UnsupportedReason }`
+  (`NonUnitary`, `PivotalNotUnitary`, `NotShipped`) and `NoBraiding`;
+  `is_braided`, `twist_checked`, `uuid`, `code`, `rank`, `provenance`,
+  `shipped_uuids`. Pentagon, hexagon, unitarity and ribbon checks run over
+  every shipped entry.
 - **`cu1` (symtn #2016, fusion-symbols #128):** CU(1) = U(1) ⋊ C in
   closed form following TensorKitSectors 0.3.9 `CU1Irrep` (labels as
   twice charge and `s`, its F gauge and R signs), with the per-family

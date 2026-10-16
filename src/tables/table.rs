@@ -31,16 +31,47 @@ impl core::fmt::Display for TableObject {
     }
 }
 
+/// Why an entry of the pinned database is not available as a
+/// [`TableCategory`](super::TableCategory).
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[non_exhaustive]
+pub enum UnsupportedReason {
+    /// The entry is not unitary. Its dimension, Frobenius–Schur phase and
+    /// twist are not the TensorKitSectors derivations from `F` and `R` that
+    /// this crate returns, so it is refused rather than mis-evaluated.
+    NonUnitary,
+    /// Flagged unitary upstream, but its quantum dimensions are not
+    /// `|1 / F^{a ā a}_a[𝟙, 𝟙]|` (the four `[7,1,2,11,2,b,1]` entries of the
+    /// pinned commit, a suspected upstream defect). Refused for the same
+    /// reason as [`NonUnitary`](Self::NonUnitary).
+    PivotalNotUnitary,
+    /// Supported, but above the rank this build ships.
+    NotShipped,
+}
+
+impl core::fmt::Display for UnsupportedReason {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter.write_str(match self {
+            Self::NonUnitary => "the category is not unitary",
+            Self::PivotalNotUnitary => {
+                "the stored pivotal structure is not the unitary one (dimensions differ from |1/F|)"
+            }
+            Self::NotShipped => "the category is supported but not shipped in this build",
+        })
+    }
+}
+
 /// Error from a table provider: an import defect or a rejected query.
 ///
-/// The import variants (everything except [`UnknownObject`] and
-/// [`NotAdmissible`]) name a defect in the embedded data or in this crate's
-/// reading of it, never a caller mistake: the tables ship with the crate, so
-/// in a released build they are unreachable and the tests are what keep them
-/// so. The two query variants are the checked surface's answers to a caller.
+/// The import variants ([`FieldCount`] through [`FusionAxiom`]) name a defect
+/// in the embedded data or in this crate's reading of it, never a caller
+/// mistake: the tables ship with the crate, so in a released build they are
+/// unreachable and the tests are what keep them so. The others are answers to
+/// a caller: a category that is unknown or unsupported, and the checked
+/// queries' rejections.
 ///
-/// [`UnknownObject`]: TableError::UnknownObject
-/// [`NotAdmissible`]: TableError::NotAdmissible
+/// [`FieldCount`]: TableError::FieldCount
+/// [`FusionAxiom`]: TableError::FusionAxiom
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum TableError {
@@ -99,6 +130,15 @@ pub enum TableError {
         /// Which axiom failed, and for which object.
         detail: String,
     },
+    /// No entry of the pinned database has this uuid or code.
+    UnknownCategory,
+    /// The pinned database has the entry, but this crate does not provide it.
+    Unsupported {
+        /// Why not.
+        reason: UnsupportedReason,
+    },
+    /// An R-symbol or twist was requested from a category without a braiding.
+    NoBraiding,
     /// A query named a label outside `1..=rank`.
     UnknownObject {
         /// The offending label.
@@ -151,6 +191,11 @@ impl core::fmt::Display for TableError {
                 write!(formatter, "{table} line {line}: non-finite coefficient")
             }
             Self::FusionAxiom { detail } => write!(formatter, "fusion axiom violated: {detail}"),
+            Self::UnknownCategory => {
+                formatter.write_str("no such category in the pinned AnyonWiki database")
+            }
+            Self::Unsupported { reason } => write!(formatter, "unsupported category: {reason}"),
+            Self::NoBraiding => formatter.write_str("the category has no braiding"),
             Self::UnknownObject { object } => write!(formatter, "{object} is not in the category"),
             Self::NotAdmissible {
                 left,
@@ -171,7 +216,7 @@ impl std::error::Error for TableError {}
 /// Storage is dense over `rank^6` `F` entries. That is O(rank^6) in the number
 /// of *distinct symbol arguments*, i.e. exactly the size of the object the
 /// consumer queries, and for the rank ≤ 6 categories this crate targets it is at
-/// most 46656 complex numbers. Why not a sparse map: every lookup would pay a
+/// most 46656 complex numbers (4096, 64 KiB, at the shipped rank ≤ 4). Why not a sparse map: every lookup would pay a
 /// hash for a table that fits in L2 anyway, and consumers call
 /// `f_symbol` on the recoupling path.
 #[derive(Clone, Debug)]
