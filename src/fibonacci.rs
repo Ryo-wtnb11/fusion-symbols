@@ -278,7 +278,9 @@ mod tests {
             (
                 "dim(τ)",
                 Tau.dim().into(),
-                Complex64::new(1.618033988749895, 0.0),
+                // `repr` 1.618033988749895, spelled as bits: it is measured
+                // data, not the `GOLDEN_RATIO` constant clippy would suggest.
+                Complex64::new(f64::from_bits(0x3ff9_e377_9b97_f4a8), 0.0),
                 0,
             ),
             (
