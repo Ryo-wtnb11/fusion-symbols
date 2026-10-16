@@ -19,8 +19,8 @@
 //! closed-form matrix elements. See [`docs/theory.pdf`] §8 for the rationale and
 //! [`docs/references.md`] for the port provenance.
 //!
-//! [`docs/theory.pdf`]: https://github.com/Ryo-wtnb11/racah/blob/main/docs/theory.pdf
-//! [`docs/references.md`]: https://github.com/Ryo-wtnb11/racah/blob/main/docs/references.md
+//! [`docs/theory.pdf`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/theory.pdf
+//! [`docs/references.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/references.md
 //!
 //! # Conventions
 //!
@@ -63,7 +63,7 @@
 //! move is the `1×1×1×1` identity (value 1):
 //!
 //! ```
-//! use racah::sun::{f_symbol, Irrep};
+//! use fusion_symbols::sun::{f_symbol, Irrep};
 //!
 //! let triv = Irrep::trivial(3).unwrap(); // SU(3) singlet
 //! let three = Irrep::from_dynkin(&[1, 0]).unwrap(); // fundamental
@@ -287,7 +287,7 @@ impl std::error::Error for SunError {}
 /// (not `N-1`).
 ///
 /// ```
-/// use racah::sun::Irrep;
+/// use fusion_symbols::sun::Irrep;
 ///
 /// let three = Irrep::from_dynkin(&[1, 0]).unwrap(); // SU(3) fundamental
 /// assert_eq!(three.rank(), 3);
@@ -458,8 +458,8 @@ impl Irrep {
     /// `GroupId::su(dynkin.len() + 1)`.
     ///
     /// ```
-    /// use racah::sun::Irrep;
-    /// use racah::group::GroupId;
+    /// use fusion_symbols::sun::Irrep;
+    /// use fusion_symbols::group::GroupId;
     ///
     /// let psu3 = GroupId::psu(3).unwrap();
     /// // The adjoint (8) has zero 3-ality and is a genuine PSU(3) rep.
@@ -889,7 +889,7 @@ fn subrow_rec(j: usize, m: usize, toprow: &[i64], cur: &mut Vec<i64>, out: &mut 
 /// repeatedly and want the cached, cheaply cloneable form.
 ///
 /// ```
-/// use racah::sun::{directproduct, Irrep};
+/// use fusion_symbols::sun::{directproduct, Irrep};
 ///
 /// let three = Irrep::from_dynkin(&[1, 0]).unwrap();
 /// let eight = Irrep::from_dynkin(&[1, 1]).unwrap();

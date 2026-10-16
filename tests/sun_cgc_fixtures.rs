@@ -20,7 +20,7 @@
 
 use std::collections::HashMap;
 
-use racah::sun::{cgc, Irrep};
+use fusion_symbols::sun::{cgc, Irrep};
 
 const TOL: f64 = 1e-8;
 

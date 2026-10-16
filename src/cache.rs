@@ -1,7 +1,7 @@
 //! Bounded, thread-safe coefficient caches, and the process-local policy that
 //! bounds them.
 //!
-//! Coefficient generation is the expensive step, so `racah` caches: the base
+//! Coefficient generation is the expensive step, so `fusion-symbols` caches: the base
 //! SU(2) tiers (3j, 6j, derived-F) keyed by canonical Regge classes, and — with
 //! `cgc-gen` — five generated tiers (SU(N) product / CGC / F, B/C/D CGC / F).
 //! Every tier is process-global, FIFO, and independently bounded.
@@ -20,16 +20,16 @@
 //!   them** — exactly one component in a process owns that policy.
 //!
 //! ```
-//! use racah::cache::{base_cache_stats, BASE_CACHE_MAX_BYTES};
+//! use fusion_symbols::cache::{base_cache_stats, BASE_CACHE_MAX_BYTES};
 //!
-//! let _ = racah::wigner_6j(2, 2, 2, 2, 2, 2);
+//! let _ = fusion_symbols::wigner_6j(2, 2, 2, 2, 2, 2);
 //! let stats = base_cache_stats();
 //! assert!(stats.total().bytes <= BASE_CACHE_MAX_BYTES);
 //! ```
 //!
 //! The task-oriented version is in the [User Guide].
 //!
-//! [User Guide]: https://github.com/Ryo-wtnb11/racah/blob/main/docs/user-guide/resources.md
+//! [User Guide]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/user-guide/resources.md
 //!
 //! # Why a cache at all
 //!
@@ -353,7 +353,7 @@ fn effective_budgets_in(cell: &OnceLock<CoefficientCacheBudgets>) -> &Coefficien
 ///   within `usize`.
 ///
 /// ```
-/// use racah::cache::{
+/// use fusion_symbols::cache::{
 ///     cache_budgets, configure_cache_budgets, CoefficientCacheBudgets,
 ///     CoefficientCacheTier,
 /// };

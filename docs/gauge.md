@@ -3,7 +3,7 @@
 > **AI-generated, for agentic coding.** This document was written by an AI agent
 > as reference material for AI agents (and humans) working on this repository,
 > and its prose may contain errors. Its **gauge values are not commentary**:
-> they are the frozen normative specification of racah's conventions, verified
+> they are the frozen normative specification of fusion-symbols' conventions, verified
 > by the golden tests. Code follows this document — where the two disagree, the
 > code is the bug.
 
@@ -12,7 +12,7 @@
 it is written to be checked against, not read through. If you are learning the
 library, start with the [User Guide](user-guide/README.md); if you want the
 mathematics, see [`theory.pdf`](theory.pdf); for per-item API semantics see
-[docs.rs](https://docs.rs/racah). Come here when you are comparing racah's
+[docs.rs](https://docs.rs/fusion-symbols). Come here when you are comparing fusion-symbols'
 values against another implementation, auditing a sign or an index order, or
 changing code that touches a coefficient value. Documentation map:
 [`docs/README.md`](README.md).
@@ -97,7 +97,7 @@ so two independent generations of the same coupling can differ by a few ULPs
 (within a single process the cache serializes all readers to one winner value).
 
 **§1–§11 specify the SU(N) family** — the coefficients produced by
-`racah::sun::cgc` and the F/R symbols contracted from them. The construction is
+`fusion_symbols::sun::cgc` and the F/R symbols contracted from them. The construction is
 a port of **SUNRepresentations.jl v0.4.0** (`src/`). Every choice below cites the
 reference `file:symbol` and its implementing function in this crate. A reader
 with this document and the reference source can re-derive the gauge without

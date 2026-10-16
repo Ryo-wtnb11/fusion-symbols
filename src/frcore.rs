@@ -138,7 +138,7 @@ pub(crate) trait Family {
 ///
 /// ```
 /// # #[cfg(feature = "cgc-gen")] {
-/// use racah::sun::{f_symbol, Irrep};
+/// use fusion_symbols::sun::{f_symbol, Irrep};
 ///
 /// let three = Irrep::from_dynkin(&[1, 0]).unwrap();
 /// let eight = Irrep::from_dynkin(&[1, 1]).unwrap();

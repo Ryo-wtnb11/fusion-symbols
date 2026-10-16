@@ -7,12 +7,24 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Changed
+
+- **Renamed `racah` → `fusion-symbols`** (lib `fusion_symbols`), and the
+  repository `Ryo-wtnb11/racah` → `Ryo-wtnb11/fusion-symbols` (GitHub
+  redirects the old URL). The modules, API and every coefficient value are
+  unchanged: replace `racah::` with `fusion_symbols::`. The published
+  `racah` 0.2.4 stays on crates.io; `fusion-symbols` is its successor and is
+  not published yet. The authority fingerprint bytes keep their `racah:`
+  prefix, because a fingerprint changes only with a specification
+  correction, never with a rename. The Python bindings keep the import name
+  `racah` for now.
+
 ## [0.2.4] - 2026-10-05
 
 ### Added
 
 - **Twists for every family
-  ([#118](https://github.com/Ryo-wtnb11/racah/issues/118)):**
+  ([#118](https://github.com/Ryo-wtnb11/fusion-symbols/issues/118)):**
   `su2_twist(dj)`, `sun::Irrep::twist()` and `bcd::Irrep::twist()`, each
   exactly `1.0`. This is TensorKitSectors' generic
   `twist_from_Rsymbol`, θ_a = Σ_c (d_c/d_a) tr R^{aa}_c, for the `Bosonic`
@@ -21,7 +33,7 @@ value/gauge rule noted below.
   over SU(2) up to j = 5, SU(3)/SU(4) irreps and Spin(5)/Sp(4)/Spin(6)
   irreps, spinors included. Downstream code no longer needs to hard-code it.
 - **SU(N) Frobenius–Schur data
-  ([#118](https://github.com/Ryo-wtnb11/racah/issues/118)):**
+  ([#118](https://github.com/Ryo-wtnb11/fusion-symbols/issues/118)):**
   `sun::Irrep::frobenius_schur_phase()` (`±1.0` for every irrep;
   TensorKitSectors `frobenius_schur_phase` = sign F[a,ā,a,a,1,1]) and
   `sun::Irrep::frobenius_schur()` (`1`/`0`/`-1`, as
@@ -35,7 +47,7 @@ value/gauge rule noted below.
 ### Changed
 
 - **Warm F/CGC cache hits no longer copy coefficients
-  ([#118](https://github.com/Ryo-wtnb11/racah/issues/118)):** `FBlock` and
+  ([#118](https://github.com/Ryo-wtnb11/fusion-symbols/issues/118)):** `FBlock` and
   `sun::Cgc` now share their buffers behind an `Arc`, so cloning one (and
   every hit of `sun::f_symbol`, `bcd::f_symbol`, `sun::cgc`) is a
   reference-count bump. `sun::f_symbol` and `bcd::f_symbol` also run their
@@ -51,7 +63,7 @@ value/gauge rule noted below.
 ### Fixed
 
 - **SU(N) F/R contractions from cached CGC now use a stable summation order
-  ([#114](https://github.com/Ryo-wtnb11/racah/issues/114)).** Recomputing R or
+  ([#114](https://github.com/Ryo-wtnb11/fusion-symbols/issues/114)).** Recomputing R or
   an uncached F block in one process could previously change its last bits as
   randomly seeded hash maps were traversed. The CGC descent also now accumulates
   its right-hand side in sorted weight order, and the CGC orthogonality gate
@@ -106,7 +118,7 @@ value/gauge rule noted below.
 ### Added
 
 - **`racah-py` 0.1.2 — the exact SU(2) surface is bound
-  ([#107](https://github.com/Ryo-wtnb11/racah/issues/107)).** Python could reach SU(2)
+  ([#107](https://github.com/Ryo-wtnb11/fusion-symbols/issues/107)).** Python could reach SU(2)
   only through the generated SU(N) pipeline at rank 1, paying a Gelfand–Tsetlin CGC
   construction, an SVD nullspace, a least-squares descent and a QR gauge fix for values
   the crate already has in closed form. Now bound: `wigner_3j`, `wigner_6j`,
@@ -158,14 +170,14 @@ value/gauge rule noted below.
 ## [0.2.0] - 2026-08-18
 
 **Value/gauge status of this release:** the one value-affecting change is the
-[#90](https://github.com/Ryo-wtnb11/racah/issues/90) base-case frame
+[#90](https://github.com/Ryo-wtnb11/fusion-symbols/issues/90) base-case frame
 correction below — `SO(2r+1)`/`SO(2r)`/`Spin(N)` coefficient values move and
 `bcd_authority_fingerprint()` is now `epoch=2`; persisted B/D coefficients
 generated under `epoch=1` must be regenerated. `Sp(2r)` values are
 byte-identical, and the SU(2) and SU(N) fingerprints do not move. No
 coefficient, gauge, normalization or fingerprint change has landed since that
 `epoch=2` correction; everything else in this release is API surface
-(`racah::group`, `Spin(N)`, `from_dynkin_in`, the `BcdError` rename), docs,
+(`fusion_symbols::group`, `Spin(N)`, `from_dynkin_in`, the `BcdError` rename), docs,
 tests and CI.
 
 ### Added
@@ -187,7 +199,7 @@ tests and CI.
 
 - **`sun::Irrep::from_dynkin_in(&GroupId, &[i64])`** — the `A`-series
   form-aware constructor, matching `bcd::Irrep::from_dynkin_in`
-  ([#87](https://github.com/Ryo-wtnb11/racah/issues/87)). `SU(N)/Z_k` (`k | N`)
+  ([#87](https://github.com/Ryo-wtnb11/fusion-symbols/issues/87)). `SU(N)/Z_k` (`k | N`)
   and `PSU(N)` now restrict the admissible highest weights by `N`-ality; the
   rule itself stays in `GroupId::admits` and `sun` does not restate it.
   `from_dynkin` is unchanged and remains the simply connected `SU(N)`. **No
@@ -196,8 +208,8 @@ tests and CI.
   admissible weight goes through the one Gelfand–Tsetlin engine and the same
   (form-free) cache entry.
 - **`Spin(N)` — the spinor irreps of the `B`/`D` covers**
-  ([#54](https://github.com/Ryo-wtnb11/racah/issues/54), stage (b) of
-  [#87](https://github.com/Ryo-wtnb11/racah/issues/87)). `Irrep::from_dynkin_in`
+  ([#54](https://github.com/Ryo-wtnb11/fusion-symbols/issues/54), stage (b) of
+  [#87](https://github.com/Ryo-wtnb11/fusion-symbols/issues/87)). `Irrep::from_dynkin_in`
   takes a `GroupId`, so `GroupId::spin(N)` admits the spinor labels that
   `SO(N)` rejects; their dimensions, duals, Frobenius–Schur indicators, fusion,
   CGC and F/R are produced by the same bootstrap. Three parts:
@@ -223,8 +235,8 @@ tests and CI.
   duals, every ordered product, Frobenius–Schur), and `Spin(3) ≅ SU(2)` is the
   form-aware low-rank redirect.
 
-- **`racah::group` — root datum plus global form** (stage (a) of
-  [#87](https://github.com/Ryo-wtnb11/racah/issues/87)). `RootSystem`,
+- **`fusion_symbols::group` — root datum plus global form** (stage (a) of
+  [#87](https://github.com/Ryo-wtnb11/fusion-symbols/issues/87)). `RootSystem`,
   `GlobalForm`, `CenterSubgroup`, `GroupId` with fallible named constructors
   (`GroupId::su/su_quotient/psu/sp/psp/spin/so/pso/half_spin_plus/
   half_spin_minus`), and `GroupId::admits(&[i64])` — the central-character
@@ -247,7 +259,7 @@ tests and CI.
   specification correction (spec edit + `epoch` bump + CHANGELOG breaking-change
   entry + regenerated goldens, in one PR), never because a refactor moved a
   value. A refactor that moves a value is now a bug by definition.
-  ([#84](https://github.com/Ryo-wtnb11/racah/issues/84))
+  ([#84](https://github.com/Ryo-wtnb11/fusion-symbols/issues/84))
 - **`tests/gauge_golden.rs`**: the in-repo gauge tripwire — a small committed
   table of SU(3) CGC (including the OM = 2 adjoint vertex), SU(3) F, and signed
   SO(5)/Sp(4) CGC and F values, asserted at `1e-12` in the default `cgc-gen` test
@@ -260,15 +272,15 @@ tests and CI.
   distribution `racah-py`; abi3-py312 wheels are built by the `wheels`
   workflow. See [`racah-py/README.md`](racah-py/README.md).
 - **Coverage badges** — self-hosted llvm-cov badge branch plus Codecov
-  integration ([#93](https://github.com/Ryo-wtnb11/racah/pull/93)).
+  integration ([#93](https://github.com/Ryo-wtnb11/fusion-symbols/pull/93)).
 - **`CITATION.cff`**, README badges and a Citation section
-  ([#92](https://github.com/Ryo-wtnb11/racah/pull/92)).
+  ([#92](https://github.com/Ryo-wtnb11/fusion-symbols/pull/92)).
 
 ### Changed
 
 - **BREAKING (error variant renamed): `BcdError::SpinorLabel` is now
   `BcdError::NotAdmissible { group: GroupId, dynkin: Vec<i64> }`**
-  ([#87](https://github.com/Ryo-wtnb11/racah/issues/87)). The old name was
+  ([#87](https://github.com/Ryo-wtnb11/fusion-symbols/issues/87)). The old name was
   mathematically misleading: the variant is returned whenever
   `group.admits(dynkin)` is false, and `PSp(2r)`, `PSO(2r)` and the two
   half-spin forms all reject *non-spinor* weights through it — `C_r` has no
@@ -284,7 +296,7 @@ tests and CI.
 - **BREAKING (gauge specification correction, B/D coefficient values move):
   the B/D defining-rep base case is re-framed into the sweep's descending-weight
   order; `bcd_authority_fingerprint()` moves to `epoch=2`**
-  ([#90](https://github.com/Ryo-wtnb11/racah/issues/90)). The QSpace-ported
+  ([#90](https://github.com/Ryo-wtnb11/fusion-symbols/issues/90)). The QSpace-ported
   defining seed was stored in QSpace's `Setup_*` state order while every
   rediscovery of the same irrep inside a product was produced in the sweep's
   descending-weight order, and `assemble_cgc` exempted base cases from both the
@@ -316,7 +328,7 @@ tests and CI.
   bounds that report a typed overflow, and corrected "selectable dense
   backend" to the single Tenferro seam with no public backend-selection API.
 - **`wheels` workflow: full abi3 wheel matrix + PyPI trusted publishing for
-  `racah-py`** ([#103](https://github.com/Ryo-wtnb11/racah/pull/103)): linux
+  `racah-py`** ([#103](https://github.com/Ryo-wtnb11/fusion-symbols/pull/103)): linux
   x86_64/aarch64, macOS arm64/x86_64, windows x86_64, plus an sdist. Publishing
   is gated on `py-v*` tags/releases, so the crate's own `v*` releases never
   touch PyPI. `racah-py` itself is unversioned by this release (stays 0.1.0,
@@ -333,7 +345,7 @@ published Tenferro 0.3.0 registry line.
 - Document crates.io installation and the published feature configuration.
 
 Generated-provider (`cgc-gen`) observability and convention-identity surface
-(issue [#47](https://github.com/Ryo-wtnb11/racah/issues/47)). This whole surface
+(issue [#47](https://github.com/Ryo-wtnb11/fusion-symbols/issues/47)). This whole surface
 is **unstable: shape may change while the generated-provider contract is
 negotiated** — Cargo features cannot express instability tiers, so the rustdoc
 labels plus issue #47 are the ledger.
@@ -432,11 +444,11 @@ SU(2) provider this rule is mechanized by `su2_authority_fingerprint()`: its
 epoch is bumped only on such a value-affecting release, so a fingerprint change
 and a breaking release are one reviewable event.
 
-[Unreleased]: https://github.com/Ryo-wtnb11/racah/compare/v0.2.4...HEAD
-[0.2.4]: https://github.com/Ryo-wtnb11/racah/compare/v0.2.3...v0.2.4
-[0.2.3]: https://github.com/Ryo-wtnb11/racah/compare/v0.2.2...v0.2.3
-[0.2.2]: https://github.com/Ryo-wtnb11/racah/compare/v0.2.1...v0.2.2
-[0.2.1]: https://github.com/Ryo-wtnb11/racah/compare/v0.2.0...v0.2.1
-[0.2.0]: https://github.com/Ryo-wtnb11/racah/compare/v0.1.1...v0.2.0
-[0.1.1]: https://github.com/Ryo-wtnb11/racah/releases/tag/v0.1.1
-[0.1.0]: https://github.com/Ryo-wtnb11/racah/releases/tag/v0.1.0
+[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.2.3...v0.2.4
+[0.2.3]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.2.2...v0.2.3
+[0.2.2]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.2.1...v0.2.2
+[0.2.1]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.1.1...v0.2.0
+[0.1.1]: https://github.com/Ryo-wtnb11/fusion-symbols/releases/tag/v0.1.1
+[0.1.0]: https://github.com/Ryo-wtnb11/fusion-symbols/releases/tag/v0.1.0

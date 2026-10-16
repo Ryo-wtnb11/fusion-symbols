@@ -6,10 +6,10 @@
 > trusting it blindly.
 
 **Not user-facing.** Everything under `docs/developer/` is evidence and
-internals for people changing `racah` itself: measurement runs, raw traces, and
+internals for people changing `fusion-symbols` itself: measurement runs, raw traces, and
 the reasoning behind resource defaults. Users who only need to *bound* cache
 memory want [User Guide: numerical behaviour and resources](../user-guide/resources.md);
-users who need the exact meaning of a public item want [docs.rs](https://docs.rs/racah).
+users who need the exact meaning of a public item want [docs.rs](https://docs.rs/fusion-symbols).
 
 ## Contents
 
@@ -44,7 +44,7 @@ The collectors that produce these are `src/cache_audit.rs`,
 **Kernel routing.** All dense numerical work behind `cgc-gen` — the
 nullspace/QR/least-squares factorizations and the CGC contractions producing
 F/R — routes through the Tenferro traced surface at a single seam
-(`src/sun/linalg.rs`, `src/bcd/linalg.rs`). `racah` contains no hand-rolled
+(`src/sun/linalg.rs`, `src/bcd/linalg.rs`). `fusion-symbols` contains no hand-rolled
 numeric kernels. That seam is currently executed on the CPU faer backend,
 constructed internally; selecting a backend is **not yet public API**. An
 extended-precision tier (the QSpace model: compute in ~128-bit precision,
@@ -69,7 +69,7 @@ after gauge alignment.
 
 **Guard discipline.** Every port PR carries a guard inventory — see
 [`../../AGENTS.md`](../../AGENTS.md) and issue
-[#15](https://github.com/Ryo-wtnb11/racah/issues/15).
+[#15](https://github.com/Ryo-wtnb11/fusion-symbols/issues/15).
 
 ## Local checks
 

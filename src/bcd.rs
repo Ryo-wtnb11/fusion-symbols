@@ -19,8 +19,8 @@
 //! production-viable closed forms either). See [`docs/theory.pdf`] §8 for the
 //! rationale and [`docs/references.md`] for the port provenance.
 //!
-//! [`docs/theory.pdf`]: https://github.com/Ryo-wtnb11/racah/blob/main/docs/theory.pdf
-//! [`docs/references.md`]: https://github.com/Ryo-wtnb11/racah/blob/main/docs/references.md
+//! [`docs/theory.pdf`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/theory.pdf
+//! [`docs/references.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/references.md
 //!
 //! # Published object and global form (issue #18 Ruling 3; issues #87, #54)
 //!
@@ -91,8 +91,8 @@
 //! versions, and the `file:symbol`-level provenance are in [`docs/references.md`];
 //! the gauge is specified in [`docs/gauge_soN.md`].
 //!
-//! [`docs/references.md`]: https://github.com/Ryo-wtnb11/racah/blob/main/docs/references.md
-//! [`docs/gauge_soN.md`]: https://github.com/Ryo-wtnb11/racah/blob/main/docs/gauge_soN.md
+//! [`docs/references.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/references.md
+//! [`docs/gauge_soN.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/gauge_soN.md
 //!
 //! # Example
 //!
@@ -102,7 +102,7 @@
 //! with `a` trivial it is the `1×1×1×1` identity (value 1):
 //!
 //! ```
-//! use racah::bcd::{f_symbol, CanonicalCatalog, Irrep, Series};
+//! use fusion_symbols::bcd::{f_symbol, CanonicalCatalog, Irrep, Series};
 //!
 //! let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap(); // Sp(4)
 //! let triv = Irrep::trivial(Series::C, 2).unwrap();
@@ -372,7 +372,7 @@ impl std::error::Error for BcdError {}
 ///
 /// ```
 /// # #[cfg(feature = "cgc-gen")] {
-/// use racah::bcd::{Irrep, Series};
+/// use fusion_symbols::bcd::{Irrep, Series};
 ///
 /// // SO(5) = B_2: the 5-dimensional vector representation.
 /// let v = Irrep::from_dynkin(Series::B, &[1, 0]).unwrap();
@@ -440,8 +440,8 @@ impl Irrep {
     /// doubled ([`Irrep::two_partition`](crate::bcd::Irrep::two_partition)).
     ///
     /// ```
-    /// use racah::bcd::Irrep;
-    /// use racah::group::GroupId;
+    /// use fusion_symbols::bcd::Irrep;
+    /// use fusion_symbols::group::GroupId;
     ///
     /// let spin7 = GroupId::spin(7).unwrap(); // B_3 + SimplyConnected
     /// let s = Irrep::from_dynkin_in(&spin7, &[0, 0, 1]).unwrap();
@@ -1144,7 +1144,7 @@ fn permute_rec(v: &[i64], idx: &mut Vec<usize>, k: usize, set: &mut HashSet<Vec<
 ///
 /// ```
 /// # #[cfg(feature = "cgc-gen")] {
-/// use racah::bcd::{directproduct, Irrep, Series};
+/// use fusion_symbols::bcd::{directproduct, Irrep, Series};
 ///
 /// // SO(5) = B_2: 5 (x) 5 = 1 (+) 10 (+) 14, each once.
 /// let v = Irrep::from_dynkin(Series::B, &[1, 0]).unwrap();

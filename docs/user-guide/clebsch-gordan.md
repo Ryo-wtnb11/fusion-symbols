@@ -34,7 +34,7 @@ Exact, closed-form, no feature flag. Both irrep and projection labels are
 doubled (`dj = 2j`, `dm = 2m`).
 
 ```rust
-use racah::su2::clebsch_gordan;
+use fusion_symbols::su2::clebsch_gordan;
 
 // ⟨½ +½, ½ −½ | 0 0⟩ = 1/√2, in doubled labels.
 let cg = clebsch_gordan(1, 1, 1, -1, 0, 0);
@@ -56,7 +56,7 @@ Related exact objects on the same surface: `wigner_3j` (the 3j symbol,
 copies together, since they share one nullspace.
 
 ```rust
-use racah::sun::{cgc, Irrep};
+use fusion_symbols::sun::{cgc, Irrep};
 
 let three = Irrep::from_dynkin(&[1, 0]).unwrap();
 let anti = three.dual();
@@ -85,7 +85,7 @@ assert!(c.entries().iter().all(|e| e.value != 0.0));
 ### Multiplicity greater than one
 
 ```rust
-use racah::sun::{cgc, Irrep};
+use fusion_symbols::sun::{cgc, Irrep};
 
 let eight = Irrep::from_dynkin(&[1, 1]).unwrap();
 let c = cgc(&eight, &eight, &eight).unwrap();
@@ -106,7 +106,7 @@ retains. That retained state is a [`CanonicalCatalog`], one per `(series,
 rank)`, and you own it.
 
 ```rust
-use racah::bcd::{CanonicalCatalog, Irrep, Series};
+use fusion_symbols::bcd::{CanonicalCatalog, Irrep, Series};
 
 let mut cat = CanonicalCatalog::new(Series::B, 2).unwrap();   // SO(5) / Spin(5)
 let v = Irrep::from_dynkin(Series::B, &[1, 0]).unwrap();      // the 5
@@ -156,11 +156,11 @@ the value cache is keyed on the irrep labels, not on the catalog instance.
 - [`sun::cgc`], [`sun::Cgc`], [`sun::CgcEntry`]
 - [`bcd::CanonicalCatalog::cgc`], [`CatalogCgc`]
 
-[`SignedSqrtRational`]: https://docs.rs/racah/latest/racah/struct.SignedSqrtRational.html
-[`su2::clebsch_gordan`]: https://docs.rs/racah/latest/racah/fn.clebsch_gordan.html
-[`sun::cgc`]: https://docs.rs/racah/latest/racah/sun/fn.cgc.html
-[`sun::Cgc`]: https://docs.rs/racah/latest/racah/sun/struct.Cgc.html
-[`sun::CgcEntry`]: https://docs.rs/racah/latest/racah/sun/struct.CgcEntry.html
-[`CanonicalCatalog`]: https://docs.rs/racah/latest/racah/bcd/struct.CanonicalCatalog.html
-[`bcd::CanonicalCatalog::cgc`]: https://docs.rs/racah/latest/racah/bcd/struct.CanonicalCatalog.html#method.cgc
-[`CatalogCgc`]: https://docs.rs/racah/latest/racah/bcd/struct.CatalogCgc.html
+[`SignedSqrtRational`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/struct.SignedSqrtRational.html
+[`su2::clebsch_gordan`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/fn.clebsch_gordan.html
+[`sun::cgc`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/fn.cgc.html
+[`sun::Cgc`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/struct.Cgc.html
+[`sun::CgcEntry`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/struct.CgcEntry.html
+[`CanonicalCatalog`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/struct.CanonicalCatalog.html
+[`bcd::CanonicalCatalog::cgc`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/struct.CanonicalCatalog.html#method.cgc
+[`CatalogCgc`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/struct.CatalogCgc.html

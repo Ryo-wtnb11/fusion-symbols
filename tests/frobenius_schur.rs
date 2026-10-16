@@ -6,7 +6,7 @@
 
 #![cfg(feature = "cgc-gen")]
 
-use racah::sun::{f_symbol, Irrep};
+use fusion_symbols::sun::{f_symbol, Irrep};
 
 fn irr(d: &[i64]) -> Irrep {
     Irrep::from_dynkin(d).unwrap()
@@ -76,7 +76,10 @@ fn indicator_is_phase_on_self_dual_irreps_and_zero_otherwise() {
     // SU(2) through the SU(N) path agrees with the SU(2) family.
     for dj in 0..12u32 {
         let a = irr(&[i64::from(dj)]);
-        assert_eq!(a.frobenius_schur_phase(), racah::su2_frobenius_schur(dj));
+        assert_eq!(
+            a.frobenius_schur_phase(),
+            fusion_symbols::su2_frobenius_schur(dj)
+        );
     }
     // Representation-theoretic anchors: SU(4) 6 = SO(6) vector is real, the
     // SU(6) 20 = Λ³C⁶ is quaternionic, the adjoint is always real.

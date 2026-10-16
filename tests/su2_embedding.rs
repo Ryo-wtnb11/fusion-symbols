@@ -2,7 +2,7 @@
 //! must reproduce the crate's *exact* closed-form SU(2) Clebsch-Gordan
 //! coefficients.
 //!
-//! The exact core ([`racah::clebsch_gordan`], big-rational Racah sums rounded
+//! The exact core ([`fusion_symbols::clebsch_gordan`], big-rational Racah sums rounded
 //! once) is an independent value source, so this is a signed, exact check of
 //! the numerical pipeline -- not a self-consistency identity.
 //!
@@ -15,8 +15,8 @@
 
 #![cfg(feature = "cgc-gen")]
 
-use racah::clebsch_gordan;
-use racah::sun::{cgc, Irrep};
+use fusion_symbols::clebsch_gordan;
+use fusion_symbols::sun::{cgc, Irrep};
 use rand::{Rng, SeedableRng};
 
 /// GT basis index `x` (0..=dj) of an SU(2) irrep maps to the doubled magnetic

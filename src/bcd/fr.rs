@@ -237,7 +237,7 @@ fn require_catalog_family(cat: &CanonicalCatalog, labels: &[&Irrep]) -> Result<(
 /// to the SU(N) surface, [`crate::sun::f_symbol`].
 ///
 /// ```
-/// use racah::bcd::{f_symbol, CanonicalCatalog, Irrep, Series};
+/// use fusion_symbols::bcd::{f_symbol, CanonicalCatalog, Irrep, Series};
 ///
 /// let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap(); // Sp(4) = C_2
 /// let triv = Irrep::trivial(Series::C, 2).unwrap();

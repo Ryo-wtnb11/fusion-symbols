@@ -7,7 +7,7 @@
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-use racah::{wigner_3j, wigner_6j};
+use fusion_symbols::{wigner_3j, wigner_6j};
 use wigner_symbols::{Wigner3jm, Wigner6j};
 
 /// Admissible 6j label sets (doubled spins, all <= 254): equal-spin sextuples
@@ -141,14 +141,14 @@ fn bench_repeated_labels(c: &mut Criterion) {
     };
 
     // Warm: prime the cache once, then every measured iteration is a hit.
-    racah::cache::reset();
+    fusion_symbols::cache::reset();
     run_racah();
     g.bench_function("racah_warm", |b| b.iter(run_racah));
 
     // Cold: clear before each batch so every call misses and recomputes.
     g.bench_function("racah_cold", |b| {
         b.iter(|| {
-            racah::cache::reset();
+            fusion_symbols::cache::reset();
             run_racah();
         })
     });

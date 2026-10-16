@@ -36,15 +36,15 @@
 //! So the F/R **blocks are sign-difference-invariant** (the per-vertex
 //! coboundary cancels) even though 56 of 140 individual SU(2) channels
 //! (`dj ≤ 6`) have `ε = -1`. The comparison reconciles via the exact `ε` rule —
-//! each `ε` computed independently from `racah::clebsch_gordan`, and asserted
+//! each `ε` computed independently from `fusion_symbols::clebsch_gordan`, and asserted
 //! equal to `(-1)^(j1+j2−j3)` per channel (strictly stronger than the product
 //! pin) — so a future gauge change that broke either the per-channel law or the
 //! cancellation would surface here.
 
 #![cfg(feature = "cgc-gen")]
 
-use racah::sun::{cgc, f_symbol, r_symbol, Irrep};
-use racah::{clebsch_gordan, su2_f_symbol, su2_r_symbol};
+use fusion_symbols::sun::{cgc, f_symbol, r_symbol, Irrep};
+use fusion_symbols::{clebsch_gordan, su2_f_symbol, su2_r_symbol};
 
 fn su2(dj: u32) -> Irrep {
     Irrep::from_dynkin(&[dj as i64]).unwrap()

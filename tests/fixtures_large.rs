@@ -11,7 +11,7 @@ use num_bigint::BigInt;
 use num_rational::Ratio;
 use num_traits::Zero;
 
-use racah::wigner_6j;
+use fusion_symbols::wigner_6j;
 
 const FIXTURES: &str = include_str!("fixtures/su2_6j_large.txt");
 

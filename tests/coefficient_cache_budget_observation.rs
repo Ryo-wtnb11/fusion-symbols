@@ -1,6 +1,6 @@
 //! Cache policy observation freezes the compiled default in a fresh process.
 
-use racah::cache::{
+use fusion_symbols::cache::{
     base_cache_stats, cache_budgets, configure_cache_budgets, CacheBudgetError,
     CoefficientCacheBudgets,
 };

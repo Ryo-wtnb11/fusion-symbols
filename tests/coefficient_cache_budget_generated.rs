@@ -2,11 +2,11 @@
 
 #![cfg(feature = "cgc-gen")]
 
-use racah::cache::{
+use fusion_symbols::cache::{
     cache_budgets, configure_cache_budgets, generated_cache_stats, CoefficientCacheBudgets,
     CoefficientCacheTier,
 };
-use racah::sun::{directproduct, Irrep};
+use fusion_symbols::sun::{directproduct, Irrep};
 
 #[test]
 fn disabled_policy_preserves_sun_product_value_without_retention() {

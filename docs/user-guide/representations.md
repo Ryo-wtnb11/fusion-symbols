@@ -7,7 +7,7 @@
 
 ## What is an irrep here?
 
-An **irrep** (irreducible representation) is, in `racah`, just a *label*: a
+An **irrep** (irreducible representation) is, in `fusion-symbols`, just a *label*: a
 dominant integral highest weight. Nothing about the representation is stored —
 no matrices, no basis — only the weight that identifies it. Everything else
 (dimension, dual, basis size, coefficients) is computed from that label on
@@ -31,7 +31,7 @@ is worth reading once before anything else.
 ## SU(2): doubled spins
 
 ```rust
-use racah::su2::{su2_frobenius_schur, Su2Irrep};
+use fusion_symbols::su2::{su2_frobenius_schur, Su2Irrep};
 
 let s = Su2Irrep::new(3);        // dj = 3, i.e. spin 3/2
 assert_eq!(s.dj(), 3);
@@ -55,7 +55,7 @@ non-negative integers, in Bourbaki numbering (`a₁` is attached to the first no
 of the `A_{N-1}` chain).
 
 ```rust
-use racah::sun::Irrep;
+use fusion_symbols::sun::Irrep;
 
 let three = Irrep::from_dynkin(&[1, 0]).unwrap();   // SU(3) fundamental
 let eight = Irrep::from_dynkin(&[1, 1]).unwrap();   // SU(3) adjoint
@@ -83,7 +83,7 @@ rest of the documentation quotes.
 
 ## SO(N), Sp(2N): Dynkin labels and doubled weights
 
-`racah::bcd` covers the three orthogonal/symplectic Cartan series in one module,
+`fusion_symbols::bcd` covers the three orthogonal/symplectic Cartan series in one module,
 selected by [`bcd::Series`]:
 
 | Series | Group (simply connected form) | Historically published form |
@@ -96,7 +96,7 @@ The module is called `bcd` rather than `son` because `C = Sp` is not an
 orthogonal series; only the Cartan letters name all three honestly.
 
 ```rust
-use racah::bcd::{Irrep, Series};
+use fusion_symbols::bcd::{Irrep, Series};
 
 // SO(5) = B_2. Dynkin [1, 0] is the 5-dimensional vector representation.
 let v = Irrep::from_dynkin(Series::B, &[1, 0]).unwrap();
@@ -130,7 +130,7 @@ self-dual:
 | `0` | not self-dual (complex) |
 
 ```rust
-use racah::bcd::{Irrep, Series};
+use fusion_symbols::bcd::{Irrep, Series};
 
 // Sp(4) = C_2. Its defining 4 is pseudo-real; the 5 is real.
 let four = Irrep::from_dynkin(Series::C, &[1, 0]).unwrap();
@@ -160,15 +160,15 @@ returns it directly.
 
 ## Related API
 
-- [`su2::Su2Irrep`], [`racah::su2_frobenius_schur`]
+- [`su2::Su2Irrep`], [`fusion_symbols::su2_frobenius_schur`]
 - [`sun::Irrep`]: `from_dynkin`, `from_dynkin_in`, `from_weight`, `trivial`,
   `dim`, `dual`, `dynkin`, `weight`, `rank`, `patterns`
 - [`bcd::Irrep`]: `from_dynkin`, `from_dynkin_in`, `trivial`, `dim`, `dual`,
   `dynkin`, `partition`, `two_partition`, `is_spinor`, `frobenius_schur`,
   `weight_multiplicities`
 
-[`su2::Su2Irrep`]: https://docs.rs/racah/latest/racah/su2/struct.Su2Irrep.html
-[`racah::su2_frobenius_schur`]: https://docs.rs/racah/latest/racah/fn.su2_frobenius_schur.html
-[`sun::Irrep`]: https://docs.rs/racah/latest/racah/sun/struct.Irrep.html
-[`bcd::Irrep`]: https://docs.rs/racah/latest/racah/bcd/struct.Irrep.html
-[`bcd::Series`]: https://docs.rs/racah/latest/racah/bcd/enum.Series.html
+[`su2::Su2Irrep`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/su2/struct.Su2Irrep.html
+[`fusion_symbols::su2_frobenius_schur`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/fn.su2_frobenius_schur.html
+[`sun::Irrep`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/struct.Irrep.html
+[`bcd::Irrep`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/struct.Irrep.html
+[`bcd::Series`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/enum.Series.html

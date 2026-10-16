@@ -7,7 +7,7 @@
 
 ## Exact vs generated values
 
-`racah` computes two different kinds of quantity, and it is worth knowing which
+`fusion-symbols` computes two different kinds of quantity, and it is worth knowing which
 one you are holding.
 
 | Quantity | Exactness |
@@ -33,7 +33,7 @@ tolerance event.
 
 ## Bounding cache memory
 
-Coefficient generation is expensive, so `racah` caches. The caches are
+Coefficient generation is expensive, so `fusion-symbols` caches. The caches are
 process-global, bounded, and FIFO.
 
 - **Base tiers** (SU(2): 3j, 6j, derived-F) are bounded by
@@ -49,7 +49,7 @@ If several hundred MiB is too much, set a smaller policy **once, before the
 first coefficient call**:
 
 ```rust
-use racah::cache::{configure_cache_budgets, CoefficientCacheBudgets, CoefficientCacheTier};
+use fusion_symbols::cache::{configure_cache_budgets, CoefficientCacheBudgets, CoefficientCacheTier};
 
 let budgets = CoefficientCacheBudgets::default()
     .with_limit(CoefficientCacheTier::SixJ, 1 << 20);   // 1 MiB of 6j
@@ -66,7 +66,7 @@ effective policy.
 ## Observing and releasing
 
 ```rust
-use racah::cache::{base_cache_stats, reset, trim_to, CoefficientCacheTier};
+use fusion_symbols::cache::{base_cache_stats, reset, trim_to, CoefficientCacheTier};
 
 let stats = base_cache_stats();
 let _ = stats.six_j.entries;          // per-tier entries / bytes / hits / misses / evictions
@@ -103,7 +103,7 @@ no matter which catalog instance produced them.
 ## Gauge and reproducibility
 
 A coefficient has no meaning without the convention that fixes its basis, sign,
-and ordering. `racah` publishes every coefficient in one **fixed canonical
+and ordering. `fusion-symbols` publishes every coefficient in one **fixed canonical
 gauge**, written down as a frozen normative specification. Most users never need
 the details; what you do need is:
 
@@ -118,7 +118,7 @@ the details; what you do need is:
   the derived data on mismatch. Compare only — never parse them.
 
 ```rust
-let fingerprint = racah::su2_authority_fingerprint();
+let fingerprint = fusion_symbols::su2_authority_fingerprint();
 assert!(!fingerprint.is_empty());
 // Persist `fingerprint` alongside any table you derive from racah's SU(2) values.
 ```
@@ -147,12 +147,12 @@ against another implementation or auditing a value, not to learn the API.
 
 ## Related API
 
-- [`racah::cache`]: `configure_cache_budgets`, `cache_budgets`,
+- [`fusion_symbols::cache`]: `configure_cache_budgets`, `cache_budgets`,
   `base_cache_stats`, `generated_cache_stats`, `trim_to`, `reset`,
   `BASE_CACHE_MAX_BYTES`, `GENERATED_CACHE_MAX_BYTES`
-- [`racah::su2_authority_fingerprint`], `sun::sun_authority_fingerprint`,
+- [`fusion_symbols::su2_authority_fingerprint`], `sun::sun_authority_fingerprint`,
   `bcd::bcd_authority_fingerprint`
 - Measurement evidence behind the defaults: [`../developer/`](../developer/README.md)
 
-[`racah::cache`]: https://docs.rs/racah/latest/racah/cache/index.html
-[`racah::su2_authority_fingerprint`]: https://docs.rs/racah/latest/racah/fn.su2_authority_fingerprint.html
+[`fusion_symbols::cache`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/cache/index.html
+[`fusion_symbols::su2_authority_fingerprint`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/fn.su2_authority_fingerprint.html

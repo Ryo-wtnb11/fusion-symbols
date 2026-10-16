@@ -7,10 +7,10 @@
 
 Task-oriented documentation: organized by *what you want to compute*, not by
 module. It assumes basic representation theory (you know what an irreducible
-representation and a tensor product are) and nothing about `racah` internals.
+representation and a tensor product are) and nothing about `fusion-symbols` internals.
 
 For the exact semantics of one function or type, use the API reference on
-[docs.rs/racah](https://docs.rs/racah). For the mathematics, see
+[docs.rs/fusion-symbols](https://docs.rs/fusion-symbols). For the mathematics, see
 [`../theory.pdf`](../theory.pdf). For the normative basis/sign/ordering
 conventions of returned values, see [`../gauge.md`](../gauge.md) and
 [`../gauge_soN.md`](../gauge_soN.md).

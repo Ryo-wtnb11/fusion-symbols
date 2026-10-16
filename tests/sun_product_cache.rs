@@ -6,9 +6,9 @@
 
 use std::sync::{Arc, Barrier};
 
-use racah::cache::{self, TierStats};
-use racah::sun::{directproduct, shared_directproduct, Irrep, SunError};
-use racah::Su2Irrep;
+use fusion_symbols::cache::{self, TierStats};
+use fusion_symbols::sun::{directproduct, shared_directproduct, Irrep, SunError};
+use fusion_symbols::Su2Irrep;
 
 fn irr(dynkin: &[i64]) -> Irrep {
     Irrep::from_dynkin(dynkin).unwrap()

@@ -7,7 +7,7 @@
 
 ## What is this?
 
-Three different things get called "the group", and `racah` keeps them apart:
+Three different things get called "the group", and `fusion-symbols` keeps them apart:
 
 - the **Lie algebra / root system** (`A_{N-1}`, `B_r`, `C_r`, `D_r`) — fixes the
   weight lattice and all the combinatorics;
@@ -29,29 +29,29 @@ that your physical system does not carry. Basics do not require it.
 
 ## SU(2)
 
-Use `racah::su2` when your symmetry is spin. Labels are doubled spins, values
+Use `fusion_symbols::su2` when your symmetry is spin. Labels are doubled spins, values
 are exact closed forms, and no feature flag is needed.
 
 ```rust
-use racah::su2::Su2Irrep;
+use fusion_symbols::su2::Su2Irrep;
 
 let one = Su2Irrep::new(2);   // spin 1
 let channels: Vec<u32> = one.fusion(one).unwrap().map(|s| s.dj()).collect();
 assert_eq!(channels, vec![0, 2, 4]); // 1 ⊗ 1 = 0 ⊕ 1 ⊕ 2
 ```
 
-SU(2) is also reachable as SU(N) with `N = 2` (`racah::sun`, `cgc-gen`), and the
+SU(2) is also reachable as SU(N) with `N = 2` (`fusion_symbols::sun`, `cgc-gen`), and the
 two agree. Prefer `su2`: it is exact, dependency-light, and much faster.
 
 ## SU(N), N ≥ 3
 
-Use `racah::sun` (`cgc-gen`). Coefficients are built by the Gelfand–Tsetlin
+Use `fusion_symbols::sun` (`cgc-gen`). Coefficients are built by the Gelfand–Tsetlin
 construction: GT patterns label the basis of an irrep uniquely, so ladder
 operators have exact closed-form matrix elements and the CGC follow from a
 highest-weight nullspace solve.
 
 ```rust
-use racah::sun::{directproduct, Irrep};
+use fusion_symbols::sun::{directproduct, Irrep};
 
 let eight = Irrep::from_dynkin(&[1, 1]).unwrap();          // SU(3) adjoint
 let decomposition = directproduct(&eight, &eight).unwrap();
@@ -61,13 +61,13 @@ assert_eq!(decomposition[&eight], 2);
 
 ## SO(N) and Sp(2N): the B/C/D series
 
-Use `racah::bcd` (`cgc-gen`). These families have no practical GT-type basis, so
-`racah` builds them by a **generator bootstrap**: seed the defining
+Use `fusion_symbols::bcd` (`cgc-gen`). These families have no practical GT-type basis, so
+`fusion-symbols` builds them by a **generator bootstrap**: seed the defining
 representation's generators explicitly, take tensor products, decompose them
 numerically, harvest the new generator sets, recurse.
 
 ```rust
-use racah::bcd::{directproduct, Irrep, Series};
+use fusion_symbols::bcd::{directproduct, Irrep, Series};
 
 // SO(5) = B_2: 5 ⊗ 5 = 1 ⊕ 10 ⊕ 14.
 let v = Irrep::from_dynkin(Series::B, &[1, 0]).unwrap();
@@ -91,8 +91,8 @@ the cover, not of `SO(N)` itself, which is why asking for a spinor label as an
 `SO(N)` irrep is an error rather than a rounding.
 
 ```rust
-use racah::bcd::Irrep;
-use racah::group::GroupId;
+use fusion_symbols::bcd::Irrep;
+use fusion_symbols::group::GroupId;
 
 let spin5 = GroupId::spin(5).unwrap();
 let s = Irrep::from_dynkin_in(&spin5, &[0, 1]).unwrap();
@@ -123,7 +123,7 @@ This is the easiest place to be off by a factor of two, so it is spelled out.
 - So `Sp(4)` is `Series::C` with `r = 2`, and its defining rep is the **4**.
 
 ```rust
-use racah::bcd::{directproduct, Irrep, Series};
+use fusion_symbols::bcd::{directproduct, Irrep, Series};
 
 // Sp(4) = C_2. The defining 4, and 4 ⊗ 4 = 1 ⊕ 5 ⊕ 10.
 let four = Irrep::from_dynkin(Series::C, &[1, 0]).unwrap();
@@ -147,8 +147,8 @@ predicate is [`GroupId::admits`], and it is the *whole* content of a global
 form here.
 
 ```rust
-use racah::group::GroupId;
-use racah::sun::Irrep;
+use fusion_symbols::group::GroupId;
+use fusion_symbols::sun::Irrep;
 
 let psu3 = GroupId::psu(3).unwrap();       // SU(3)/Z₃
 
@@ -181,7 +181,7 @@ basis, gauge, and cached values.
 
 ## Caveats
 
-- `racah` covers **connected compact** groups only. `O(N)` and `Pin(N)` are not
+- `fusion-symbols` covers **connected compact** groups only. `O(N)` and `Pin(N)` are not
   central quotients of a simply connected group and are out of scope.
 - Choosing a global form never changes a number. If you were hoping `SO(N)`
   coefficients would differ from `Spin(N)` ones on shared irreps: they do not,
@@ -191,17 +191,17 @@ basis, gauge, and cached values.
 
 ## Related API
 
-- [`racah::group`]: `GroupId`, `RootSystem`, `GlobalForm`, `CenterSubgroup`,
+- [`fusion_symbols::group`]: `GroupId`, `RootSystem`, `GlobalForm`, `CenterSubgroup`,
   `GroupId::admits`
 - [`sun::Irrep::from_dynkin_in`], [`bcd::Irrep::from_dynkin_in`]
 - Deeper background: [`../theory.pdf`](../theory.pdf) §3 (the Killing–Cartan
   classification and the Dynkin diagrams), §4 (each family's compact group,
   its centre, and the global forms as centre quotients), §5 (the
   classification-to-code correspondence table), §8 (why each family gets its
-  algorithm), and the `racah::group` module docs for the lattice arithmetic.
+  algorithm), and the `fusion_symbols::group` module docs for the lattice arithmetic.
 
-[`GroupId::admits`]: https://docs.rs/racah/latest/racah/group/struct.GroupId.html#method.admits
-[`RootSystem`]: https://docs.rs/racah/latest/racah/group/enum.RootSystem.html
-[`racah::group`]: https://docs.rs/racah/latest/racah/group/index.html
-[`sun::Irrep::from_dynkin_in`]: https://docs.rs/racah/latest/racah/sun/struct.Irrep.html#method.from_dynkin_in
-[`bcd::Irrep::from_dynkin_in`]: https://docs.rs/racah/latest/racah/bcd/struct.Irrep.html#method.from_dynkin_in
+[`GroupId::admits`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/group/struct.GroupId.html#method.admits
+[`RootSystem`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/group/enum.RootSystem.html
+[`fusion_symbols::group`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/group/index.html
+[`sun::Irrep::from_dynkin_in`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/struct.Irrep.html#method.from_dynkin_in
+[`bcd::Irrep::from_dynkin_in`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/struct.Irrep.html#method.from_dynkin_in

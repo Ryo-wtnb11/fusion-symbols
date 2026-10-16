@@ -6,7 +6,7 @@
 //! an exact integer and every admissibility rule is integer arithmetic.
 //!
 //! ```
-//! use racah::su2::{clebsch_gordan, wigner_6j, Su2Irrep};
+//! use fusion_symbols::su2::{clebsch_gordan, wigner_6j, Su2Irrep};
 //!
 //! // <1/2 +1/2, 1/2 -1/2 | 0 0> = 1/sqrt(2), in doubled labels.
 //! let cg = clebsch_gordan(1, 1, 1, -1, 0, 0);
@@ -38,7 +38,7 @@
 //!
 //! See the [User Guide] for the task-oriented version of all of this.
 //!
-//! [User Guide]: https://github.com/Ryo-wtnb11/racah/blob/main/docs/user-guide/README.md
+//! [User Guide]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/user-guide/README.md
 
 use num_rational::Ratio;
 
@@ -119,7 +119,7 @@ fn check_6j_admissible(
 /// the single source of truth for the value.
 ///
 /// ```
-/// use racah::wigner_6j;
+/// use fusion_symbols::wigner_6j;
 ///
 /// // All spins 1 (dj = 2): {1 1 1; 1 1 1} = 1/6.
 /// assert!((wigner_6j(2, 2, 2, 2, 2, 2).to_f64() - 1.0 / 6.0).abs() < 1e-14);
@@ -334,7 +334,7 @@ fn wigner_3j_uncached(
 /// from an accidental zero.
 ///
 /// ```
-/// use racah::clebsch_gordan;
+/// use fusion_symbols::clebsch_gordan;
 ///
 /// // <1/2 +1/2, 1/2 -1/2 | 0 0> = 1/sqrt(2).
 /// let cg = clebsch_gordan(1, 1, 1, -1, 0, 0);
@@ -373,7 +373,7 @@ pub fn clebsch_gordan(
 /// return 0; iseven(sa.j+sb.j-sc.j) ? 1 : -1`.)
 ///
 /// ```
-/// use racah::su2_r_symbol;
+/// use fusion_symbols::su2_r_symbol;
 ///
 /// assert_eq!(su2_r_symbol(1, 1, 0), -1.0); // 1/2 (x) 1/2 -> 0
 /// assert_eq!(su2_r_symbol(1, 1, 2), 1.0);  // 1/2 (x) 1/2 -> 1
@@ -399,7 +399,7 @@ pub fn su2_r_symbol(dj1: u32, dj2: u32, dj3: u32) -> f64 {
 /// see the generic `frobeniusschur` and `SU2Irrep` `dual(s) = s`.)
 ///
 /// ```
-/// use racah::su2_frobenius_schur;
+/// use fusion_symbols::su2_frobenius_schur;
 ///
 /// assert_eq!(su2_frobenius_schur(2), 1.0);  // spin 1: real/orthogonal
 /// assert_eq!(su2_frobenius_schur(1), -1.0); // spin 1/2: pseudo-real/symplectic
@@ -426,7 +426,7 @@ pub fn su2_frobenius_schur(dj: u32) -> f64 {
 /// With [`su2_r_symbol`] it reads $\sum_c (-1)^{2j-c}(2c+1) = 2j+1$.
 ///
 /// ```
-/// use racah::su2_twist;
+/// use fusion_symbols::su2_twist;
 ///
 /// assert_eq!(su2_twist(1), 1.0); // spin 1/2
 /// ```
@@ -494,7 +494,7 @@ fn f_symbol_exact(
 /// labels give exact `0.0`; see [`su2_f_symbol_checked`].
 ///
 /// ```
-/// use racah::su2_f_symbol;
+/// use fusion_symbols::su2_f_symbol;
 ///
 /// // F^{1/2 1/2 1/2}_{1/2}[0, 0] — all labels doubled.
 /// let f = su2_f_symbol(1, 1, 1, 1, 0, 0);
@@ -946,7 +946,7 @@ impl Su2Irrep {
     /// [`ExactSizeIterator`]/[`DoubleEndedIterator`].
     ///
     /// ```
-    /// use racah::su2::Su2Irrep;
+    /// use fusion_symbols::su2::Su2Irrep;
     ///
     /// let half = Su2Irrep::new(1); // spin-1/2
     /// let channels: Vec<u32> = half.fusion(half).unwrap().map(|s| s.dj()).collect();
@@ -1120,7 +1120,7 @@ impl std::error::Error for Su2Error {}
 /// be an accidental zero), else [`Su2Error::NotAdmissible`].
 ///
 /// ```
-/// use racah::su2::{wigner_6j_checked, Su2Error};
+/// use fusion_symbols::su2::{wigner_6j_checked, Su2Error};
 ///
 /// assert!(wigner_6j_checked(2, 2, 2, 2, 2, 2).is_ok());
 /// assert!(matches!(

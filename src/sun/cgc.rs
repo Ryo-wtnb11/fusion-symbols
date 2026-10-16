@@ -207,7 +207,7 @@ fn is_trivial(s: &Irrep) -> bool {
 ///
 /// ```
 /// # #[cfg(feature = "cgc-gen")] {
-/// use racah::sun::{cgc, Irrep};
+/// use fusion_symbols::sun::{cgc, Irrep};
 /// // SU(2) 1/2 ⊗ 1/2 → 0 (the singlet), Dynkin (1) ⊗ (1) → (0).
 /// let half = Irrep::from_dynkin(&[1]).unwrap();
 /// let singlet = Irrep::from_dynkin(&[0]).unwrap();

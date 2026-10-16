@@ -28,7 +28,7 @@
      every group used here (SU(N) matches by construction; and for B/C/D,
      DimR[SO5,{1,0}]=5 vector / {0,1}=4 spinor, DimR[Sp4,{1,0}]=4 / {0,1}=5,
      DimR[SO6,{1,0,0}]=6 vector, DimR[SO7,{1,0,0}]=7 vector -- all matching
-     racah::bcd node 0 = vector). So multiplicities compare with NO relabeling.
+     fusion_symbols::bcd node 0 = vector). So multiplicities compare with NO relabeling.
      This data is gauge-free (integers), so it is exact and license-independent.
 
   2. Invariants[group, {r1, r2, ...}, TensorForm->True]  ->  the CGC entry point.
@@ -63,7 +63,7 @@ Block[{Print = (Null &)}, Quiet[Get["GroupMath`"]]];
 (* Curated battery (no RNG): the channels named in issue #32 -- SO5/Sp4 vector
    products, SO6 adjoint^2 (incl. the 84 and the OM=2 adjoint channel) -- plus
    SU(N) samples that independently audit the SUNRepresentations lineage. Only
-   tensor (non-spinor) B/C/D labels appear, since racah::bcd rejects spinors. *)
+   tensor (non-spinor) B/C/D labels appear, since fusion_symbols::bcd rejects spinors. *)
 cases = {
   (* SU(N): fundamental x antifundamental, adjoint^2, and a mixed product. *)
   {"SU2", SU2, {2}, {2}},

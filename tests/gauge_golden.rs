@@ -62,9 +62,9 @@
 // point is to have none.
 #![allow(clippy::approx_constant)]
 
-use racah::bcd::{f_symbol as bcd_f_symbol, CanonicalCatalog, Irrep as Bcd, Series};
-use racah::group::GroupId;
-use racah::sun::{cgc, f_symbol, Irrep as Sun};
+use fusion_symbols::bcd::{f_symbol as bcd_f_symbol, CanonicalCatalog, Irrep as Bcd, Series};
+use fusion_symbols::group::GroupId;
+use fusion_symbols::sun::{cgc, f_symbol, Irrep as Sun};
 
 /// Discrete-event tolerance; see the module docs.
 const TOL: f64 = 1e-12;
@@ -120,7 +120,7 @@ const SU3_FUNDAMENTAL_ADJOINT: &[SunRow] = &[
     (1, 1, 4, 0, 0.707_106_781_186_547_4),
 ];
 
-fn sun_value(c: &racah::sun::Cgc, m1: u32, m2: u32, m3: u32, mu: u32) -> f64 {
+fn sun_value(c: &fusion_symbols::sun::Cgc, m1: u32, m2: u32, m3: u32, mu: u32) -> f64 {
     c.entries()
         .iter()
         .find(|e| e.m1 == m1 && e.m2 == m2 && e.m3 == m3 && e.mu == mu)
@@ -200,7 +200,7 @@ const SP4_V_V_ADJ: &[BcdRow] = &[
     (0, 2, 3, 0.707_106_781_186_547_6),
 ];
 
-fn bcd_value(c: &racah::bcd::CatalogCgc, mu: usize, row: usize, col: usize) -> f64 {
+fn bcd_value(c: &fusion_symbols::bcd::CatalogCgc, mu: usize, row: usize, col: usize) -> f64 {
     let (rows, _) = c.copy_shape();
     c.copy(mu)[col * rows + row]
 }
@@ -402,7 +402,7 @@ fn spinor_f_symbol_matches_the_frozen_gauge() {
 /// re-framed factor basis permutes the product rows (issue #90 moved the SO(5)
 /// rows off their old coordinates entirely) — so the regeneration path dumps the
 /// whole block and the pins are re-picked from it.
-fn print_nonzeros(c: &racah::bcd::CatalogCgc) {
+fn print_nonzeros(c: &fusion_symbols::bcd::CatalogCgc) {
     let (rows, cols) = c.copy_shape();
     for mu in 0..c.multiplicity() {
         for col in 0..cols {

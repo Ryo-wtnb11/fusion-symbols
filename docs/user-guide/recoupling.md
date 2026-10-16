@@ -36,7 +36,7 @@ If you need explicit product-basis vectors instead, you want
 ## SU(2): exact scalars
 
 ```rust
-use racah::{su2_f_symbol, su2_r_symbol, wigner_6j};
+use fusion_symbols::{su2_f_symbol, su2_r_symbol, wigner_6j};
 
 // {1 1 1; 1 1 1} = 1/6 in doubled labels (all dj = 2, i.e. spin 1).
 assert!((wigner_6j(2, 2, 2, 2, 2, 2).to_f64() - 1.0 / 6.0).abs() < 1e-14);
@@ -57,7 +57,7 @@ twins return `Err(Su2Error::NotAdmissible)` instead.
 ## SU(N): blocks over multiplicity indices
 
 ```rust
-use racah::sun::{f_symbol, r_symbol, Irrep};
+use fusion_symbols::sun::{f_symbol, r_symbol, Irrep};
 
 let three = Irrep::from_dynkin(&[1, 0]).unwrap();
 let anti = three.dual();
@@ -83,7 +83,7 @@ Identical, with a [`CanonicalCatalog`](clebsch-gordan.md#son-sp2n-you-need-a-cat
 threaded through as the first argument:
 
 ```rust
-use racah::bcd::{f_symbol, CanonicalCatalog, Irrep, Series};
+use fusion_symbols::bcd::{f_symbol, CanonicalCatalog, Irrep, Series};
 
 let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap();   // Sp(4) = C_2
 let triv = Irrep::trivial(Series::C, 2).unwrap();
@@ -139,7 +139,7 @@ trailing axis — `μ` on `a ⊗ b → e`, `ν` on `e ⊗ c → d`, `κ` on `b �
 `λ` on `a ⊗ f → d` — exactly as in the table.
 
 ```rust
-use racah::sun::{cgc, directproduct, f_symbol, Irrep};
+use fusion_symbols::sun::{cgc, directproduct, f_symbol, Irrep};
 
 let eight = Irrep::from_dynkin(&[1, 1]).unwrap();
 let dim = 8usize;
@@ -228,7 +228,7 @@ The identities that gate generation are also public API, per family, so you can
 use them as oracles on your own labels:
 
 ```rust
-use racah::sun::{check_f_unitarity, check_hexagon, check_pentagon, Irrep};
+use fusion_symbols::sun::{check_f_unitarity, check_hexagon, check_pentagon, Irrep};
 
 let three = Irrep::from_dynkin(&[1, 0]).unwrap();
 let anti = three.dual();
@@ -237,7 +237,7 @@ check_pentagon(&three, &anti, &three, &anti).unwrap();
 check_hexagon(&three, &anti, &three).unwrap();
 ```
 
-`racah::bcd` has the same three (taking `&mut CanonicalCatalog` first) plus
+`fusion_symbols::bcd` has the same three (taking `&mut CanonicalCatalog` first) plus
 `check_commutators` for the seed algebra. CGC orthonormality and R-orthogonality
 run as generation gates only — they are not callable, and a violation surfaces
 as a typed error.
@@ -253,25 +253,25 @@ as a typed error.
 - **The multiplicity axes are not interchangeable.** `μ` and `ν` belong to the
   left tree, `κ` and `λ` to the right one. Transposing them silently produces a
   different (wrong) recoupling.
-- **Gauge.** F and R values depend on the CGC gauge. `racah` publishes them in
+- **Gauge.** F and R values depend on the CGC gauge. `fusion-symbols` publishes them in
   one frozen canonical gauge; see [Resources § gauge](resources.md#gauge-and-reproducibility).
 
 ## Related API
 
-- [`racah::su2_f_symbol`], [`racah::su2_r_symbol`], [`racah::wigner_6j`],
+- [`fusion_symbols::su2_f_symbol`], [`fusion_symbols::su2_r_symbol`], [`fusion_symbols::wigner_6j`],
   and their `*_checked` twins
 - [`sun::f_symbol`], [`sun::r_symbol`], [`sun::check_f_unitarity`],
   `check_pentagon`, `check_hexagon`
 - [`bcd::f_symbol`], [`bcd::r_symbol`], and the same three checks
 - [`FBlock`], [`RBlock`]
 
-[`racah::su2_f_symbol`]: https://docs.rs/racah/latest/racah/fn.su2_f_symbol.html
-[`racah::su2_r_symbol`]: https://docs.rs/racah/latest/racah/fn.su2_r_symbol.html
-[`racah::wigner_6j`]: https://docs.rs/racah/latest/racah/fn.wigner_6j.html
-[`sun::f_symbol`]: https://docs.rs/racah/latest/racah/sun/fn.f_symbol.html
-[`sun::r_symbol`]: https://docs.rs/racah/latest/racah/sun/fn.r_symbol.html
-[`sun::check_f_unitarity`]: https://docs.rs/racah/latest/racah/sun/fn.check_f_unitarity.html
-[`bcd::f_symbol`]: https://docs.rs/racah/latest/racah/bcd/fn.f_symbol.html
-[`bcd::r_symbol`]: https://docs.rs/racah/latest/racah/bcd/fn.r_symbol.html
-[`FBlock`]: https://docs.rs/racah/latest/racah/sun/struct.FBlock.html
-[`RBlock`]: https://docs.rs/racah/latest/racah/sun/struct.RBlock.html
+[`fusion_symbols::su2_f_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/fn.su2_f_symbol.html
+[`fusion_symbols::su2_r_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/fn.su2_r_symbol.html
+[`fusion_symbols::wigner_6j`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/fn.wigner_6j.html
+[`sun::f_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/fn.f_symbol.html
+[`sun::r_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/fn.r_symbol.html
+[`sun::check_f_unitarity`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/fn.check_f_unitarity.html
+[`bcd::f_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/fn.f_symbol.html
+[`bcd::r_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/fn.r_symbol.html
+[`FBlock`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/struct.FBlock.html
+[`RBlock`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/struct.RBlock.html

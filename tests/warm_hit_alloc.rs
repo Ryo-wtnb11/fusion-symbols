@@ -9,8 +9,8 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use racah::bcd::{self, CanonicalCatalog, Series};
-use racah::sun;
+use fusion_symbols::bcd::{self, CanonicalCatalog, Series};
+use fusion_symbols::sun;
 
 static CALLS: AtomicUsize = AtomicUsize::new(0);
 static BYTES: AtomicUsize = AtomicUsize::new(0);

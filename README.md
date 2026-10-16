@@ -1,16 +1,29 @@
-# racah
+# fusion-symbols
 
-[![CI](https://github.com/Ryo-wtnb11/racah/actions/workflows/ci.yml/badge.svg)](https://github.com/Ryo-wtnb11/racah/actions/workflows/ci.yml)
-[![wheels](https://github.com/Ryo-wtnb11/racah/actions/workflows/wheels.yml/badge.svg)](https://github.com/Ryo-wtnb11/racah/actions/workflows/wheels.yml)
-[![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Ryo-wtnb11/racah/badges/badge.json)](https://github.com/Ryo-wtnb11/racah/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/Ryo-wtnb11/racah/graph/badge.svg)](https://codecov.io/gh/Ryo-wtnb11/racah)
-[![crates.io](https://img.shields.io/crates/v/racah.svg)](https://crates.io/crates/racah)
-[![docs.rs](https://img.shields.io/docsrs/racah)](https://docs.rs/racah)
+[![CI](https://github.com/Ryo-wtnb11/fusion-symbols/actions/workflows/ci.yml/badge.svg)](https://github.com/Ryo-wtnb11/fusion-symbols/actions/workflows/ci.yml)
+[![wheels](https://github.com/Ryo-wtnb11/fusion-symbols/actions/workflows/wheels.yml/badge.svg)](https://github.com/Ryo-wtnb11/fusion-symbols/actions/workflows/wheels.yml)
+[![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Ryo-wtnb11/fusion-symbols/badges/badge.json)](https://github.com/Ryo-wtnb11/fusion-symbols/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/Ryo-wtnb11/fusion-symbols/graph/badge.svg)](https://codecov.io/gh/Ryo-wtnb11/fusion-symbols)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-Racah–Wigner calculus for compact Lie groups, in Rust: irreducible
-representations, Clebsch–Gordan coefficients, and recoupling coefficients
-(3j / 6j / F / R) for SU(2), SU(N), SO(N), and Sp(2N).
+Symbol providers for symmetric-tensor libraries, in Rust: for each supported
+symmetry, which sectors exist, how they fuse, and their recoupling data
+(fusion multiplicities, dimensions, duals, Frobenius–Schur data, F- and
+R-symbols, twists), in TensorKitSectors.jl conventions and with no dependency
+on any tensor-network engine.
+
+This crate succeeds the [`racah`](https://crates.io/crates/racah) crate on
+crates.io (0.2.4), with the same modules and API under `fusion_symbols::`.
+
+`fusion-symbols` itself is not published yet. The Python bindings in
+[`racah-py/`](racah-py/README.md) keep the import name `racah` for now and
+cover the Lie-group families.
+
+The first families are the compact Lie groups — Racah–Wigner calculus:
+irreducible representations, Clebsch–Gordan coefficients, and recoupling
+coefficients (3j / 6j / F / R) for SU(2), SU(N), SO(N), and Sp(2N). Non-Lie
+fusion categories (Fibonacci, pinned CategoryData.jl tables, then abelian
+groups and Deligne products) are added as further top-level modules.
 
 Coefficients for any admissible labels are computed on demand — exactly for
 SU(2), and through a deterministically gauged, verification-gated numerical
@@ -23,12 +36,12 @@ answer.
 
 | Family | Module | Feature | Labels |
 |---|---|---|---|
-| SU(2) | `racah::su2` | *(default)* | doubled spin `dj = 2j` |
-| SU(N), SU(N)/Z_k, PSU(N) | `racah::sun` | `cgc-gen` | `N-1` Dynkin labels |
-| SO(N), Spin(N) | `racah::bcd` (series `B`, `D`) | `cgc-gen` | `r` Dynkin labels |
-| Sp(2r) | `racah::bcd` (series `C`) | `cgc-gen` | `r` Dynkin labels |
+| SU(2) | `fusion_symbols::su2` | *(default)* | doubled spin `dj = 2j` |
+| SU(N), SU(N)/Z_k, PSU(N) | `fusion_symbols::sun` | `cgc-gen` | `N-1` Dynkin labels |
+| SO(N), Spin(N) | `fusion_symbols::bcd` (series `B`, `D`) | `cgc-gen` | `r` Dynkin labels |
+| Sp(2r) | `fusion_symbols::bcd` (series `C`) | `cgc-gen` | `r` Dynkin labels |
 
-## What racah computes
+## What fusion-symbols computes
 
 For any admissible irreps of a supported group:
 
@@ -48,9 +61,12 @@ For any admissible irreps of a supported group:
 
 ```toml
 [dependencies]
-racah = "0.2.4"
+# until fusion-symbols is published:
+fusion-symbols = { git = "https://github.com/Ryo-wtnb11/fusion-symbols" }
 # generated SU(N)/SO(N)/Sp(2N) families:
-# racah = { version = "0.2.4", features = ["cgc-gen"] }
+# fusion-symbols = { git = "https://github.com/Ryo-wtnb11/fusion-symbols", features = ["cgc-gen"] }
+# the same API, released under the old name:
+# racah = "0.2.4"
 ```
 
 | Feature | Adds | Pulls in |
@@ -60,11 +76,11 @@ racah = "0.2.4"
 
 The feature boundary is mathematical, not organizational: SU(2) has closed forms
 and needs no matrix computation, so consumers who need only SU(2) never pull a
-linear-algebra stack. No fixed MSRV — `racah` builds and is tested on current
+linear-algebra stack. No fixed MSRV — `fusion-symbols` builds and is tested on current
 stable Rust.
 
 With `cgc-gen` enabled the coefficient caches may retain several hundred MiB by
-default; call `racah::cache::configure_cache_budgets` once before first use to
+default; call `fusion_symbols::cache::configure_cache_budgets` once before first use to
 lower that bound
 ([User Guide: resources](docs/user-guide/resources.md#bounding-cache-memory)).
 
@@ -77,7 +93,7 @@ Exact SU(2) 6j (base, no features). Spins are doubled (`dj = 2j`), so `2` means
 spin 1; `{1 1 1; 1 1 1} = 1/6`:
 
 ```rust
-use racah::wigner_6j;
+use fusion_symbols::wigner_6j;
 
 let sixj = wigner_6j(2, 2, 2, 2, 2, 2);
 assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
@@ -87,7 +103,7 @@ SU(N) (`cgc-gen`). Irreps are built from Dynkin labels (length `N-1`); this
 decomposes the SU(3) product `8 ⊗ 8`, where the adjoint appears twice:
 
 ```rust
-use racah::sun::{directproduct, Irrep};
+use fusion_symbols::sun::{directproduct, Irrep};
 
 let eight = Irrep::from_dynkin(&[1, 1]).unwrap(); // SU(3) adjoint
 assert_eq!(eight.dim(), 8u32.into());
@@ -99,7 +115,7 @@ SO(N)/Sp(2N) (`cgc-gen`). Generation runs through a per-(series, rank)
 F-symbol block:
 
 ```rust
-use racah::bcd::{f_symbol, CanonicalCatalog, Irrep, Series};
+use fusion_symbols::bcd::{f_symbol, CanonicalCatalog, Irrep, Series};
 
 let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap(); // Sp(4)
 let triv = Irrep::trivial(Series::C, 2).unwrap();
@@ -114,8 +130,8 @@ assert!((block.at(0, 0, 0, 0) - 1.0).abs() < 1e-9);
 Spinor irreps need the simply connected cover, named explicitly:
 
 ```rust
-use racah::bcd::Irrep;
-use racah::group::GroupId;
+use fusion_symbols::bcd::Irrep;
+use fusion_symbols::group::GroupId;
 
 let spin7 = GroupId::spin(7).unwrap();
 let s = Irrep::from_dynkin_in(&spin7, &[0, 0, 1]).unwrap();
@@ -130,10 +146,10 @@ assert!(Irrep::from_dynkin_in(&GroupId::so(7).unwrap(), &[0, 0, 1]).is_err());
 | Layer | For | Where |
 |---|---|---|
 | **User Guide** | Learning the library, task by task | [`docs/user-guide/`](docs/user-guide/README.md) |
-| **API Reference** | Exact per-item semantics, shapes, errors | [docs.rs/racah](https://docs.rs/racah) |
+| **API Reference** | Exact per-item semantics, shapes, errors | `cargo doc --open` (docs.rs once published; [racah 0.2.4 on docs.rs](https://docs.rs/racah)) |
 | **Theory** | The mathematics behind the objects | [`docs/theory.pdf`](docs/theory.pdf) ([source](docs/theory.tex)) |
 | **Gauge specification** | The normative basis/sign/ordering conventions (frozen) | [`docs/gauge.md`](docs/gauge.md), [`docs/gauge_soN.md`](docs/gauge_soN.md) |
-| **Developer docs** | Changing racah itself | [`docs/developer/`](docs/developer/README.md), [`AGENTS.md`](AGENTS.md), [`tools/README.md`](tools/README.md) |
+| **Developer docs** | Changing fusion-symbols itself | [`docs/developer/`](docs/developer/README.md), [`AGENTS.md`](AGENTS.md), [`tools/README.md`](tools/README.md) |
 | **Provenance** | What was ported from where, symbol by symbol | [`docs/references.md`](docs/references.md) |
 
 Documentation index: [`docs/README.md`](docs/README.md). Python bindings (PyO3 +
@@ -153,7 +169,7 @@ calculation will exceed. **Single-group packages** solve one group at a fixed
 scope and do not extend to SU(N≥3), SO(N), or Sp(2N), where no closed forms
 exist and the coefficients must be *constructed*.
 
-`racah` removes both limits: coefficients are computed on demand, inside the
+`fusion-symbols` removes both limits: coefficients are computed on demand, inside the
 process, in pure Rust. It is pure representation mathematics — no
 fusion-category trait vocabulary, no sector-identity types, no tensor-network
 concepts, no dependency on any tensor engine — so consumers translate its
@@ -169,12 +185,14 @@ algorithms of three production references, one per family (full provenance in
 
 ### Out of scope, deliberately
 
-- **Fusion-category trait vocabulary.** `racah` answers "what are the correct
+- **Fusion-category trait vocabulary.** `fusion-symbols` answers "what are the correct
   numbers"; a consumer's engine should not be able to tell whether an F-block
   came from this crate, a closed form, or a checked-in table.
 - **Pentagon solving for finite fusion categories.** Anyon models (Fibonacci,
   Ising, …) have complete exact F/R data published; converting it is a
-  consumer's data problem, not a computation problem for this crate.
+  consumer's data problem, not a computation problem for this crate. Those
+  categories are provided natively as their own modules of this crate, from
+  published data and closed forms.
 - **Symbolic algebraic-number coefficients.** See
   [Exactness and gauge](#exactness-and-gauge).
 - **Non-connected and non-compact groups.** `O(N)` and `Pin(N)` are not central
@@ -230,19 +248,19 @@ gauge drift with no reference toolchain in the loop.
 
 ## Citation
 
-racah is inspired by [TensorKitSectors.jl](https://github.com/QuantumKitHub/TensorKitSectors.jl).
+fusion-symbols is inspired by [TensorKitSectors.jl](https://github.com/QuantumKitHub/TensorKitSectors.jl).
 
-**If you use racah in research, please cite [TensorKit](https://github.com/QuantumKitHub/TensorKit.jl) and [TensorKitSectors.jl](https://github.com/QuantumKitHub/TensorKitSectors.jl).**
+**If you use fusion-symbols in research, please cite [TensorKit](https://github.com/QuantumKitHub/TensorKit.jl) and [TensorKitSectors.jl](https://github.com/QuantumKitHub/TensorKitSectors.jl).**
 
-If you use racah in academic work, please cite it
+If you use fusion-symbols in academic work, please cite it
 (machine-readable metadata in [`CITATION.cff`](CITATION.cff)):
 
 ```bibtex
-@software{watanabe_racah_2026,
+@software{watanabe_fusion_symbols_2026,
   author  = {Watanabe, Ryo},
-  title   = {{racah}: Racah--Wigner calculus for compact Lie groups},
+  title   = {{fusion-symbols}: fusion and recoupling symbols for symmetric tensors},
   year    = {2026},
-  url     = {https://github.com/Ryo-wtnb11/racah},
+  url     = {https://github.com/Ryo-wtnb11/fusion-symbols},
   license = {MIT OR Apache-2.0}
 }
 ```

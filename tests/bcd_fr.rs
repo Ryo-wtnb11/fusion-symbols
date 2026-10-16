@@ -15,7 +15,7 @@
 
 #![cfg(feature = "cgc-gen")]
 
-use racah::bcd::{
+use fusion_symbols::bcd::{
     check_f_unitarity, check_hexagon, check_pentagon, directproduct, f_symbol, CanonicalCatalog,
     CatalogError, FrError, Irrep, Series,
 };

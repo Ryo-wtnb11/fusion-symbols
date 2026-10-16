@@ -29,11 +29,11 @@
 
 #![cfg(feature = "cgc-gen")]
 
-use racah::bcd::{
+use fusion_symbols::bcd::{
     check_commutators, check_f_unitarity, check_hexagon, check_pentagon, defining_seed,
     directproduct, spinor_seeds, BcdError, CanonicalCatalog, CatalogCgc, Irrep, Series,
 };
-use racah::group::GroupId;
+use fusion_symbols::group::GroupId;
 
 /// The `B`/`D` families in scope, as `(series, rank, N)` with `N` the matrix
 /// dimension of `Spin(N)`.

@@ -9,7 +9,7 @@
 
 #![cfg(feature = "cgc-gen")]
 
-use racah::sun::{check_f_unitarity, check_hexagon, check_pentagon, Irrep};
+use fusion_symbols::sun::{check_f_unitarity, check_hexagon, check_pentagon, Irrep};
 
 fn irr(d: &[i64]) -> Irrep {
     Irrep::from_dynkin(d).unwrap()

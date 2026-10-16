@@ -4,7 +4,7 @@
 //!
 //! Nothing here computes a coefficient; stage (a) changes no value.
 
-use racah::group::{
+use fusion_symbols::group::{
     d_odd_central_class, CenterSubgroup, GlobalForm, GroupError, GroupId, RootSystem,
 };
 
@@ -273,7 +273,7 @@ fn admits_rejects_wrong_length_and_negative_labels() {
 #[cfg(feature = "cgc-gen")]
 mod against_bcd {
     use super::*;
-    use racah::bcd::{directproduct, BcdError, Irrep, Series};
+    use fusion_symbols::bcd::{directproduct, BcdError, Irrep, Series};
 
     /// The group `bcd` publishes for `series` at rank `r` (issue #18 Ruling 3).
     fn published(series: Series, r: usize) -> GroupId {
@@ -383,7 +383,7 @@ mod against_bcd {
             let su = GroupId::su(n).unwrap();
             for label in sweep(n - 1, 3) {
                 assert!(su.admits(&label));
-                assert!(racah::sun::Irrep::from_dynkin(&label).is_ok());
+                assert!(fusion_symbols::sun::Irrep::from_dynkin(&label).is_ok());
             }
         }
     }
@@ -466,7 +466,7 @@ fn sweep(r: usize, cap: i64) -> Vec<Vec<i64>> {
 #[cfg(feature = "cgc-gen")]
 mod sun_forms {
     use super::*;
-    use racah::sun::{Irrep, SunError};
+    use fusion_symbols::sun::{Irrep, SunError};
 
     /// `N`-ality `Σ i·aᵢ`, computed here independently of the library so the
     /// tests are not checking `group::admits` against itself.
@@ -639,7 +639,7 @@ mod sun_forms {
 #[cfg(feature = "cgc-gen")]
 #[test]
 fn psp_rejection_uses_the_generic_not_admissible_error() {
-    use racah::bcd::{BcdError, Irrep};
+    use fusion_symbols::bcd::{BcdError, Irrep};
     let psp6 = GroupId::psp(6).unwrap();
     match Irrep::from_dynkin_in(&psp6, &[1, 0, 0]) {
         Err(BcdError::NotAdmissible { group, dynkin }) => {
@@ -706,8 +706,8 @@ fn nonsensical_root_datum_admits_nothing() {
         #[cfg(feature = "cgc-gen")]
         {
             let zero = vec![0i64; root_system.rank()];
-            assert!(racah::sun::Irrep::from_dynkin_in(&g, &zero).is_err());
-            assert!(racah::bcd::Irrep::from_dynkin_in(&g, &zero).is_err());
+            assert!(fusion_symbols::sun::Irrep::from_dynkin_in(&g, &zero).is_err());
+            assert!(fusion_symbols::bcd::Irrep::from_dynkin_in(&g, &zero).is_err());
         }
     }
 }
@@ -739,7 +739,7 @@ mod cross_form_coefficients {
     /// (11) `Spin(N)` and `SO(N)` on their common tensor representations.
     #[test]
     fn spin_and_so_share_tensor_coefficient_data() {
-        use racah::bcd::{CanonicalCatalog, Irrep, Series};
+        use fusion_symbols::bcd::{CanonicalCatalog, Irrep, Series};
 
         // (matrix dim, series, rank, vector label, a label in vector ⊗ vector)
         let cases = [
@@ -781,13 +781,14 @@ mod cross_form_coefficients {
 
             // The F-symbol built on top of them agrees bit for bit too.
             let triv = Irrep::trivial(series, r).unwrap();
-            let f_cover = racah::bcd::f_symbol(
+            let f_cover = fusion_symbols::bcd::f_symbol(
                 &mut cat, &triv, &cover_v, &cover_v, &cover_c, &cover_v, &cover_c,
             )
             .unwrap();
-            let f_quot =
-                racah::bcd::f_symbol(&mut cat, &triv, &quot_v, &quot_v, &quot_c, &quot_v, &quot_c)
-                    .unwrap();
+            let f_quot = fusion_symbols::bcd::f_symbol(
+                &mut cat, &triv, &quot_v, &quot_v, &quot_c, &quot_v, &quot_c,
+            )
+            .unwrap();
             assert_eq!(f_cover.dims(), f_quot.dims());
             let [d0, d1, d2, d3] = f_cover.dims();
             for i in 0..d0 {
@@ -807,7 +808,7 @@ mod cross_form_coefficients {
     /// and a second nontrivial one, the decuplet.
     #[test]
     fn su_and_psu_share_coefficient_data() {
-        use racah::sun::{cgc, f_symbol, Irrep};
+        use fusion_symbols::sun::{cgc, f_symbol, Irrep};
 
         let su3 = GroupId::su(3).unwrap();
         let psu3 = GroupId::psu(3).unwrap();
@@ -885,7 +886,7 @@ mod cross_form_coefficients {
     /// construction, strictly before any cache is touched.
     #[test]
     fn an_inadmissible_rep_cannot_reach_the_cache_through_the_quotient_api() {
-        use racah::sun::{cgc, Irrep, SunError};
+        use fusion_symbols::sun::{cgc, Irrep, SunError};
 
         let su3 = GroupId::su(3).unwrap();
         let psu3 = GroupId::psu(3).unwrap();
@@ -920,7 +921,7 @@ mod cross_form_coefficients {
     /// entry warmed by `Spin(N)`.
     #[test]
     fn so_cannot_reach_a_spin_only_entry() {
-        use racah::bcd::{BcdError, CanonicalCatalog, Irrep, Series};
+        use fusion_symbols::bcd::{BcdError, CanonicalCatalog, Irrep, Series};
 
         let spin5 = GroupId::spin(5).unwrap();
         let so5 = GroupId::so(5).unwrap();

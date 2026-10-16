@@ -8,7 +8,9 @@ use num_traits::{One, Zero};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
-use racah::{canonical_regge_6j, clebsch_gordan, wigner_3j, wigner_6j, SignedSqrtRational};
+use fusion_symbols::{
+    canonical_regge_6j, clebsch_gordan, wigner_3j, wigner_6j, SignedSqrtRational,
+};
 
 fn tri(a: u32, b: u32, c: u32) -> bool {
     let (a, b, c) = (a as i64, b as i64, c as i64);

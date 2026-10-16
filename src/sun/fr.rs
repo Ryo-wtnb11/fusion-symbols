@@ -128,7 +128,7 @@ fn require_same_rank(labels: &[&Irrep]) -> Result<(), SunError> {
 /// block from those cached CGC uses a stable summation order within the process.
 ///
 /// ```
-/// use racah::sun::{f_symbol, Irrep};
+/// use fusion_symbols::sun::{f_symbol, Irrep};
 ///
 /// let three = Irrep::from_dynkin(&[1, 0]).unwrap();
 /// let anti = three.dual();
@@ -221,7 +221,7 @@ pub fn f_symbol(
 /// CGC sum in a stable order and return bit-identical blocks within the process.
 ///
 /// ```
-/// use racah::sun::{r_symbol, Irrep};
+/// use fusion_symbols::sun::{r_symbol, Irrep};
 ///
 /// let three = Irrep::from_dynkin(&[1, 0]).unwrap();
 /// let eight = Irrep::from_dynkin(&[1, 1]).unwrap();

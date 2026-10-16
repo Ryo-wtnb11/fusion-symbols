@@ -9,7 +9,7 @@
 //! own last-ulp rounding, not any racah error. R is an exact +-1/0 and must
 //! match to the bit.
 
-use racah::{su2_f_symbol, su2_r_symbol};
+use fusion_symbols::{su2_f_symbol, su2_r_symbol};
 
 const F_FIXTURES: &str = include_str!("fixtures/su2_f.txt");
 const R_FIXTURES: &str = include_str!("fixtures/su2_r.txt");

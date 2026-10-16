@@ -5,7 +5,7 @@
 #
 # Uses Oscar's Lie-theory layer: a simple Lie algebra of the requested Cartan
 # type, highest-weight modules addressed by integer Dynkin labels (the same
-# convention as racah::bcd), exact dimensions, and the tensor-product
+# convention as fusion_symbols::bcd), exact dimensions, and the tensor-product
 # multiplicities. Output format matches the Sage script exactly:
 #
 #   SERIES RANK | dynkin_a | dynkin_b | dim_a dim_b | c1:n1 c2:n2 ...

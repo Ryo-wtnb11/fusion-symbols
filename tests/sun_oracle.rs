@@ -14,7 +14,7 @@ use std::str::FromStr;
 use num_bigint::BigInt;
 use num_rational::Ratio;
 
-use racah::sun::{directproduct, Irrep};
+use fusion_symbols::sun::{directproduct, Irrep};
 
 const FIXTURES: &str = include_str!("fixtures/sun/sun_fixtures.txt");
 

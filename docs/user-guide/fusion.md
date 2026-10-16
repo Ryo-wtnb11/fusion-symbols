@@ -14,7 +14,7 @@ a ⊗ b  ≅  ⨁_c  N^c_ab · c
 ```
 
 The non-negative integer `N^c_ab` is the **fusion multiplicity** (also: outer
-multiplicity): how many independent copies of `c` sit inside `a ⊗ b`. `racah`
+multiplicity): how many independent copies of `c` sit inside `a ⊗ b`. `fusion-symbols`
 computes it exactly, in integer arithmetic, for every family.
 
 ## When do I need it?
@@ -31,7 +31,7 @@ iterator over the coupled doubled spins `|dj1 − dj2| ..= dj1 + dj2` in steps o
 2, each with multiplicity 1 (SU(2) is multiplicity-free).
 
 ```rust
-use racah::su2::Su2Irrep;
+use fusion_symbols::su2::Su2Irrep;
 
 let half = Su2Irrep::new(1);
 let channels: Vec<u32> = half.fusion(half).unwrap().map(|s| s.dj()).collect();
@@ -47,7 +47,7 @@ The only failure is `Su2Error::LabelOverflow`, when `dj1 + dj2` exceeds `u32`.
 Littlewood–Richardson, exact.
 
 ```rust
-use racah::sun::{directproduct, Irrep};
+use fusion_symbols::sun::{directproduct, Irrep};
 
 let three = Irrep::from_dynkin(&[1, 0]).unwrap();
 let anti = three.dual();
@@ -65,7 +65,7 @@ assert_eq!(out[&Irrep::from_dynkin(&[1, 1]).unwrap()], 1);
 coefficient blocks arrays instead of scalars.
 
 ```rust
-use racah::sun::{directproduct, Irrep};
+use fusion_symbols::sun::{directproduct, Irrep};
 
 let eight = Irrep::from_dynkin(&[1, 1]).unwrap();       // SU(3) adjoint
 let out = directproduct(&eight, &eight).unwrap();
@@ -85,7 +85,7 @@ Brauer–Klimyk / Racah–Speiser character rule and needs no
 decompose products without ever generating a coefficient.
 
 ```rust
-use racah::bcd::{directproduct, Irrep, Series};
+use fusion_symbols::bcd::{directproduct, Irrep, Series};
 
 // SO(5) = B_2: 5 ⊗ 5 = 1 ⊕ 10 ⊕ 14.
 let v = Irrep::from_dynkin(Series::B, &[1, 0]).unwrap();
@@ -122,9 +122,9 @@ for (irrep, mult) in &out {
 - [`sun::directproduct`], [`sun::shared_directproduct`], [`SunProduct`]
 - [`bcd::directproduct`]
 
-[`su2::Su2Irrep::fusion`]: https://docs.rs/racah/latest/racah/su2/struct.Su2Irrep.html#method.fusion
-[`su2::Su2Fusion`]: https://docs.rs/racah/latest/racah/su2/struct.Su2Fusion.html
-[`sun::directproduct`]: https://docs.rs/racah/latest/racah/sun/fn.directproduct.html
-[`sun::shared_directproduct`]: https://docs.rs/racah/latest/racah/sun/fn.shared_directproduct.html
-[`SunProduct`]: https://docs.rs/racah/latest/racah/sun/struct.SunProduct.html
-[`bcd::directproduct`]: https://docs.rs/racah/latest/racah/bcd/fn.directproduct.html
+[`su2::Su2Irrep::fusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/su2/struct.Su2Irrep.html#method.fusion
+[`su2::Su2Fusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/su2/struct.Su2Fusion.html
+[`sun::directproduct`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/fn.directproduct.html
+[`sun::shared_directproduct`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/fn.shared_directproduct.html
+[`SunProduct`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/struct.SunProduct.html
+[`bcd::directproduct`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/fn.directproduct.html

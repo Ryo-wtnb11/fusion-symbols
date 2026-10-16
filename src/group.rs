@@ -53,8 +53,8 @@
 //!    automorphism `x ↦ −x` for `r ≡ 3 (mod 4)`. That is a generator choice,
 //!    not a discrepancy. See [`CenterSubgroup::Z4`](crate::group::CenterSubgroup::Z4).
 //!
-//! [`docs/gauge_soN.md`]: https://github.com/Ryo-wtnb11/racah/blob/main/docs/gauge_soN.md
-//! [`docs/references.md`]: https://github.com/Ryo-wtnb11/racah/blob/main/docs/references.md
+//! [`docs/gauge_soN.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/gauge_soN.md
+//! [`docs/references.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/references.md
 //!
 //! # Scope
 //!
@@ -409,7 +409,7 @@ impl GroupId {
     /// calling at construction.
     ///
     /// ```
-    /// use racah::group::GroupId;
+    /// use fusion_symbols::group::GroupId;
     ///
     /// let psu3 = GroupId::psu(3).unwrap();     // SU(3)/Z_3
     /// assert!(psu3.admits(&[1, 1]));           // the adjoint 8: triality 0

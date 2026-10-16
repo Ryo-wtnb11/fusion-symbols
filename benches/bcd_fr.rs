@@ -6,8 +6,8 @@
 //! of magnitude cheaper than a four-CGC F contraction, and needs no cache.
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use racah::bcd::{f_symbol, CanonicalCatalog, Irrep, Series};
-use racah::cache;
+use fusion_symbols::bcd::{f_symbol, CanonicalCatalog, Irrep, Series};
+use fusion_symbols::cache;
 use std::hint::black_box;
 
 fn irr(s: Series, d: &[i64]) -> Irrep {

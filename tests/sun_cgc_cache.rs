@@ -8,8 +8,8 @@
 
 use std::sync::Arc;
 
-use racah::cache;
-use racah::sun::{cgc, Cgc, Irrep};
+use fusion_symbols::cache;
+use fusion_symbols::sun::{cgc, Cgc, Irrep};
 
 fn irr(d: &[i64]) -> Irrep {
     Irrep::from_dynkin(d).unwrap()

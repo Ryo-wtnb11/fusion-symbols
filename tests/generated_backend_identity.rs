@@ -35,11 +35,11 @@
 //! `N = 2`) and D3 `(0,1,1) ⊗ (0,1,1)` (`docs/gauge_soN.md` §13, `N = 2`).
 #![cfg(feature = "cgc-gen")]
 
-use racah::bcd::{
+use fusion_symbols::bcd::{
     directproduct as bcd_directproduct, CanonicalCatalog, CatalogCgc, Irrep as BcdIrrep, Series,
 };
-use racah::cache;
-use racah::sun::{cgc, directproduct as sun_directproduct, Cgc, Irrep as SunIrrep};
+use fusion_symbols::cache;
+use fusion_symbols::sun::{cgc, directproduct as sun_directproduct, Cgc, Irrep as SunIrrep};
 
 /// The sign of the first significant element, or 0 if the column is all-zero.
 fn sign_of(v: f64) -> i8 {

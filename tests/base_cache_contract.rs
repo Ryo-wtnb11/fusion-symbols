@@ -13,8 +13,8 @@
 //! local caches in `src/cache.rs`; here we prove the aggregate retained-charge cap, the
 //! per-tier/total statistic coherence, hit/miss accounting, and reset zeroing.
 
-use racah::cache::{self, BASE_CACHE_MAX_BYTES};
-use racah::{su2_f_symbol, wigner_3j, wigner_6j};
+use fusion_symbols::cache::{self, BASE_CACHE_MAX_BYTES};
+use fusion_symbols::{su2_f_symbol, wigner_3j, wigner_6j};
 
 #[test]
 fn base_cache_resource_contract() {
@@ -124,7 +124,7 @@ fn base_cache_resource_contract() {
     // ---- reset zeroing: every field of every tier and of total() ----
     cache::reset();
     let s = cache::base_cache_stats();
-    let zero = racah::cache::TierStats::default();
+    let zero = fusion_symbols::cache::TierStats::default();
     assert_eq!(s.three_j, zero, "3j not cleared");
     assert_eq!(s.six_j, zero, "6j not cleared");
     assert_eq!(s.derived_f, zero, "F not cleared");
