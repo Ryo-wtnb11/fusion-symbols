@@ -3,8 +3,8 @@
 //! cgc-gen`.
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use racah::cache;
-use racah::sun::{cgc, Irrep};
+use fusion_symbols::cache;
+use fusion_symbols::sun::{cgc, Irrep};
 use std::hint::black_box;
 
 fn irr(d: &[i64]) -> Irrep {

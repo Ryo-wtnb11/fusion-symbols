@@ -257,4 +257,4 @@ The type stubs [`racah-py/racah.pyi`](../../racah-py/racah.pyi) are the Python
 API reference: every function and method with its precise types, array shapes,
 axis semantics and raised exceptions. The same information is in each object's
 `__doc__` (`help(racah.clebsch_gordan)`). For the underlying per-item
-semantics, [docs.rs/racah](https://docs.rs/racah).
+semantics, [docs.rs/fusion-symbols](https://docs.rs/fusion-symbols).

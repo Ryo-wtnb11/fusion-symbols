@@ -6,7 +6,7 @@
 //! sum is independent of the `twist()` implementations, which return a
 //! constant without generating any R-symbol.
 
-use racah::{su2_r_symbol, su2_twist, Su2Irrep};
+use fusion_symbols::{su2_r_symbol, su2_twist, Su2Irrep};
 
 #[cfg(feature = "cgc-gen")]
 const TOL: f64 = 1e-10;
@@ -36,7 +36,7 @@ fn to_f64(d: num_bigint::BigInt) -> f64 {
 #[cfg(feature = "cgc-gen")]
 #[test]
 fn sun_twist_matches_r_symbol_formula() {
-    use racah::sun::{directproduct, r_symbol, Irrep};
+    use fusion_symbols::sun::{directproduct, r_symbol, Irrep};
 
     // 3, 3̄, 6, 8 (outer multiplicity 2 in 8⊗8→8), 15 = (2,1); SU(4) 4 and 6.
     for d in [
@@ -65,8 +65,8 @@ fn sun_twist_matches_r_symbol_formula() {
 #[cfg(feature = "cgc-gen")]
 #[test]
 fn bcd_twist_matches_r_symbol_formula() {
-    use racah::bcd::{directproduct, r_symbol, CanonicalCatalog, Irrep, Series};
-    use racah::group::GroupId;
+    use fusion_symbols::bcd::{directproduct, r_symbol, CanonicalCatalog, Irrep, Series};
+    use fusion_symbols::group::GroupId;
 
     // Spin(5): vector 5 and spinor 4 (quaternionic); Sp(4): defining 4
     // (quaternionic) and 5; Spin(6): vector 6 and the non-self-dual spinor 4.

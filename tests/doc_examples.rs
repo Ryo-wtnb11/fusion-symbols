@@ -12,7 +12,7 @@
 /// `README.md`, code block 1.
 #[test]
 fn readme_1() {
-    use racah::wigner_6j;
+    use fusion_symbols::wigner_6j;
 
     let sixj = wigner_6j(2, 2, 2, 2, 2, 2);
     assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
@@ -21,7 +21,7 @@ fn readme_1() {
 /// `README.md`, code block 2.
 #[test]
 fn readme_2() {
-    use racah::sun::{directproduct, Irrep};
+    use fusion_symbols::sun::{directproduct, Irrep};
 
     let eight = Irrep::from_dynkin(&[1, 1]).unwrap(); // SU(3) adjoint
     assert_eq!(eight.dim(), 8u32.into());
@@ -31,7 +31,7 @@ fn readme_2() {
 /// `README.md`, code block 3.
 #[test]
 fn readme_3() {
-    use racah::bcd::{f_symbol, CanonicalCatalog, Irrep, Series};
+    use fusion_symbols::bcd::{f_symbol, CanonicalCatalog, Irrep, Series};
 
     let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap(); // Sp(4)
     let triv = Irrep::trivial(Series::C, 2).unwrap();
@@ -46,8 +46,8 @@ fn readme_3() {
 /// `README.md`, code block 4.
 #[test]
 fn readme_4() {
-    use racah::bcd::Irrep;
-    use racah::group::GroupId;
+    use fusion_symbols::bcd::Irrep;
+    use fusion_symbols::group::GroupId;
 
     let spin7 = GroupId::spin(7).unwrap();
     let s = Irrep::from_dynkin_in(&spin7, &[0, 0, 1]).unwrap();
@@ -60,7 +60,7 @@ fn readme_4() {
 /// `docs/user-guide/clebsch-gordan.md`, code block 1.
 #[test]
 fn clebsch_gordan_1() {
-    use racah::su2::clebsch_gordan;
+    use fusion_symbols::su2::clebsch_gordan;
 
     // ⟨½ +½, ½ −½ | 0 0⟩ = 1/√2, in doubled labels.
     let cg = clebsch_gordan(1, 1, 1, -1, 0, 0);
@@ -70,7 +70,7 @@ fn clebsch_gordan_1() {
 /// `docs/user-guide/clebsch-gordan.md`, code block 2.
 #[test]
 fn clebsch_gordan_2() {
-    use racah::sun::{cgc, Irrep};
+    use fusion_symbols::sun::{cgc, Irrep};
 
     let three = Irrep::from_dynkin(&[1, 0]).unwrap();
     let anti = three.dual();
@@ -86,7 +86,7 @@ fn clebsch_gordan_2() {
 /// `docs/user-guide/clebsch-gordan.md`, code block 3.
 #[test]
 fn clebsch_gordan_3() {
-    use racah::sun::{cgc, Irrep};
+    use fusion_symbols::sun::{cgc, Irrep};
 
     let eight = Irrep::from_dynkin(&[1, 1]).unwrap();
     let c = cgc(&eight, &eight, &eight).unwrap();
@@ -98,7 +98,7 @@ fn clebsch_gordan_3() {
 /// `docs/user-guide/clebsch-gordan.md`, code block 4.
 #[test]
 fn clebsch_gordan_4() {
-    use racah::bcd::{CanonicalCatalog, Irrep, Series};
+    use fusion_symbols::bcd::{CanonicalCatalog, Irrep, Series};
 
     let mut cat = CanonicalCatalog::new(Series::B, 2).unwrap(); // SO(5) / Spin(5)
     let v = Irrep::from_dynkin(Series::B, &[1, 0]).unwrap(); // the 5
@@ -112,7 +112,7 @@ fn clebsch_gordan_4() {
 /// `docs/user-guide/fusion.md`, code block 1.
 #[test]
 fn fusion_1() {
-    use racah::su2::Su2Irrep;
+    use fusion_symbols::su2::Su2Irrep;
 
     let half = Su2Irrep::new(1);
     let channels: Vec<u32> = half.fusion(half).unwrap().map(|s| s.dj()).collect();
@@ -122,7 +122,7 @@ fn fusion_1() {
 /// `docs/user-guide/fusion.md`, code block 2.
 #[test]
 fn fusion_2() {
-    use racah::sun::{directproduct, Irrep};
+    use fusion_symbols::sun::{directproduct, Irrep};
 
     let three = Irrep::from_dynkin(&[1, 0]).unwrap();
     let anti = three.dual();
@@ -137,7 +137,7 @@ fn fusion_2() {
 /// `docs/user-guide/fusion.md`, code block 3.
 #[test]
 fn fusion_3() {
-    use racah::sun::{directproduct, Irrep};
+    use fusion_symbols::sun::{directproduct, Irrep};
 
     let eight = Irrep::from_dynkin(&[1, 1]).unwrap(); // SU(3) adjoint
     let out = directproduct(&eight, &eight).unwrap();
@@ -147,7 +147,7 @@ fn fusion_3() {
 /// `docs/user-guide/fusion.md`, code block 4.
 #[test]
 fn fusion_4() {
-    use racah::bcd::{directproduct, Irrep, Series};
+    use fusion_symbols::bcd::{directproduct, Irrep, Series};
 
     // SO(5) = B_2: 5 ⊗ 5 = 1 ⊕ 10 ⊕ 14.
     let v = Irrep::from_dynkin(Series::B, &[1, 0]).unwrap();
@@ -162,7 +162,7 @@ fn fusion_4() {
 /// `docs/user-guide/getting-started.md`, code block 1.
 #[test]
 fn getting_started_1() {
-    use racah::wigner_6j;
+    use fusion_symbols::wigner_6j;
 
     let sixj = wigner_6j(2, 2, 2, 2, 2, 2);
     assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
@@ -171,7 +171,7 @@ fn getting_started_1() {
 /// `docs/user-guide/getting-started.md`, code block 2.
 #[test]
 fn getting_started_2() {
-    use racah::sun::Irrep;
+    use fusion_symbols::sun::Irrep;
 
     let fund = Irrep::from_dynkin(&[1, 0]).unwrap(); // the 3 of SU(3)
     assert_eq!(fund.dim(), 3u32.into());
@@ -181,7 +181,7 @@ fn getting_started_2() {
 /// `docs/user-guide/getting-started.md`, code block 3.
 #[test]
 fn getting_started_3() {
-    use racah::su2::{wigner_6j_checked, Su2Error};
+    use fusion_symbols::su2::{wigner_6j_checked, Su2Error};
 
     // Admissible, and genuinely nonzero.
     assert!(wigner_6j_checked(2, 2, 2, 2, 2, 2).is_ok());
@@ -196,7 +196,7 @@ fn getting_started_3() {
 /// `docs/user-guide/groups.md`, code block 1.
 #[test]
 fn groups_1() {
-    use racah::su2::Su2Irrep;
+    use fusion_symbols::su2::Su2Irrep;
 
     let one = Su2Irrep::new(2); // spin 1
     let channels: Vec<u32> = one.fusion(one).unwrap().map(|s| s.dj()).collect();
@@ -206,7 +206,7 @@ fn groups_1() {
 /// `docs/user-guide/groups.md`, code block 2.
 #[test]
 fn groups_2() {
-    use racah::sun::{directproduct, Irrep};
+    use fusion_symbols::sun::{directproduct, Irrep};
 
     let eight = Irrep::from_dynkin(&[1, 1]).unwrap(); // SU(3) adjoint
     let decomposition = directproduct(&eight, &eight).unwrap();
@@ -217,7 +217,7 @@ fn groups_2() {
 /// `docs/user-guide/groups.md`, code block 3.
 #[test]
 fn groups_3() {
-    use racah::bcd::{directproduct, Irrep, Series};
+    use fusion_symbols::bcd::{directproduct, Irrep, Series};
 
     // SO(5) = B_2: 5 ⊗ 5 = 1 ⊕ 10 ⊕ 14.
     let v = Irrep::from_dynkin(Series::B, &[1, 0]).unwrap();
@@ -230,8 +230,8 @@ fn groups_3() {
 /// `docs/user-guide/groups.md`, code block 4.
 #[test]
 fn groups_4() {
-    use racah::bcd::Irrep;
-    use racah::group::GroupId;
+    use fusion_symbols::bcd::Irrep;
+    use fusion_symbols::group::GroupId;
 
     let spin5 = GroupId::spin(5).unwrap();
     let s = Irrep::from_dynkin_in(&spin5, &[0, 1]).unwrap();
@@ -247,7 +247,7 @@ fn groups_4() {
 /// `docs/user-guide/groups.md`, code block 5.
 #[test]
 fn groups_5() {
-    use racah::bcd::{directproduct, Irrep, Series};
+    use fusion_symbols::bcd::{directproduct, Irrep, Series};
 
     // Sp(4) = C_2. The defining 4, and 4 ⊗ 4 = 1 ⊕ 5 ⊕ 10.
     let four = Irrep::from_dynkin(Series::C, &[1, 0]).unwrap();
@@ -261,8 +261,8 @@ fn groups_5() {
 /// `docs/user-guide/groups.md`, code block 6.
 #[test]
 fn groups_6() {
-    use racah::group::GroupId;
-    use racah::sun::Irrep;
+    use fusion_symbols::group::GroupId;
+    use fusion_symbols::sun::Irrep;
 
     let psu3 = GroupId::psu(3).unwrap(); // SU(3)/Z₃
 
@@ -276,7 +276,7 @@ fn groups_6() {
 /// `docs/user-guide/recoupling.md`, code block 1.
 #[test]
 fn recoupling_1() {
-    use racah::{su2_f_symbol, su2_r_symbol, wigner_6j};
+    use fusion_symbols::{su2_f_symbol, su2_r_symbol, wigner_6j};
 
     // {1 1 1; 1 1 1} = 1/6 in doubled labels (all dj = 2, i.e. spin 1).
     assert!((wigner_6j(2, 2, 2, 2, 2, 2).to_f64() - 1.0 / 6.0).abs() < 1e-14);
@@ -292,7 +292,7 @@ fn recoupling_1() {
 /// `docs/user-guide/recoupling.md`, code block 2.
 #[test]
 fn recoupling_2() {
-    use racah::sun::{f_symbol, r_symbol, Irrep};
+    use fusion_symbols::sun::{f_symbol, r_symbol, Irrep};
 
     let three = Irrep::from_dynkin(&[1, 0]).unwrap();
     let anti = three.dual();
@@ -312,7 +312,7 @@ fn recoupling_2() {
 /// `docs/user-guide/recoupling.md`, code block 3.
 #[test]
 fn recoupling_3() {
-    use racah::bcd::{f_symbol, CanonicalCatalog, Irrep, Series};
+    use fusion_symbols::bcd::{f_symbol, CanonicalCatalog, Irrep, Series};
 
     let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap(); // Sp(4) = C_2
     let triv = Irrep::trivial(Series::C, 2).unwrap();
@@ -327,7 +327,7 @@ fn recoupling_3() {
 /// `docs/user-guide/recoupling.md`, code block 4.
 #[test]
 fn recoupling_4() {
-    use racah::sun::{cgc, directproduct, f_symbol, Irrep};
+    use fusion_symbols::sun::{cgc, directproduct, f_symbol, Irrep};
 
     let eight = Irrep::from_dynkin(&[1, 1]).unwrap();
     let dim = 8usize;
@@ -409,7 +409,7 @@ fn recoupling_4() {
 /// `docs/user-guide/recoupling.md`, code block 5.
 #[test]
 fn recoupling_5() {
-    use racah::sun::{check_f_unitarity, check_hexagon, check_pentagon, Irrep};
+    use fusion_symbols::sun::{check_f_unitarity, check_hexagon, check_pentagon, Irrep};
 
     let three = Irrep::from_dynkin(&[1, 0]).unwrap();
     let anti = three.dual();
@@ -421,7 +421,7 @@ fn recoupling_5() {
 /// `docs/user-guide/representations.md`, code block 1.
 #[test]
 fn representations_1() {
-    use racah::su2::{su2_frobenius_schur, Su2Irrep};
+    use fusion_symbols::su2::{su2_frobenius_schur, Su2Irrep};
 
     let s = Su2Irrep::new(3); // dj = 3, i.e. spin 3/2
     assert_eq!(s.dj(), 3);
@@ -433,7 +433,7 @@ fn representations_1() {
 /// `docs/user-guide/representations.md`, code block 2.
 #[test]
 fn representations_2() {
-    use racah::sun::Irrep;
+    use fusion_symbols::sun::Irrep;
 
     let three = Irrep::from_dynkin(&[1, 0]).unwrap(); // SU(3) fundamental
     let eight = Irrep::from_dynkin(&[1, 1]).unwrap(); // SU(3) adjoint
@@ -448,7 +448,7 @@ fn representations_2() {
 /// `docs/user-guide/representations.md`, code block 3.
 #[test]
 fn representations_3() {
-    use racah::bcd::{Irrep, Series};
+    use fusion_symbols::bcd::{Irrep, Series};
 
     // SO(5) = B_2. Dynkin [1, 0] is the 5-dimensional vector representation.
     let v = Irrep::from_dynkin(Series::B, &[1, 0]).unwrap();
@@ -461,7 +461,7 @@ fn representations_3() {
 /// `docs/user-guide/representations.md`, code block 4.
 #[test]
 fn representations_4() {
-    use racah::bcd::{Irrep, Series};
+    use fusion_symbols::bcd::{Irrep, Series};
 
     // Sp(4) = C_2. Its defining 4 is pseudo-real; the 5 is real.
     let four = Irrep::from_dynkin(Series::C, &[1, 0]).unwrap();
@@ -475,7 +475,9 @@ fn representations_4() {
 /// `docs/user-guide/resources.md`, code block 1.
 #[test]
 fn resources_1() {
-    use racah::cache::{configure_cache_budgets, CoefficientCacheBudgets, CoefficientCacheTier};
+    use fusion_symbols::cache::{
+        configure_cache_budgets, CoefficientCacheBudgets, CoefficientCacheTier,
+    };
 
     let budgets =
         CoefficientCacheBudgets::default().with_limit(CoefficientCacheTier::SixJ, 1 << 20); // 1 MiB of 6j
@@ -485,7 +487,7 @@ fn resources_1() {
 /// `docs/user-guide/resources.md`, code block 2.
 #[test]
 fn resources_2() {
-    use racah::cache::{base_cache_stats, reset, trim_to, CoefficientCacheTier};
+    use fusion_symbols::cache::{base_cache_stats, reset, trim_to, CoefficientCacheTier};
 
     let stats = base_cache_stats();
     let _ = stats.six_j.entries; // per-tier entries / bytes / hits / misses / evictions
@@ -501,7 +503,7 @@ fn resources_2() {
 /// `docs/user-guide/resources.md`, code block 3.
 #[test]
 fn resources_3() {
-    let fingerprint = racah::su2_authority_fingerprint();
+    let fingerprint = fusion_symbols::su2_authority_fingerprint();
     assert!(!fingerprint.is_empty());
     // Persist `fingerprint` alongside any table you derive from racah's SU(2) values.
 }

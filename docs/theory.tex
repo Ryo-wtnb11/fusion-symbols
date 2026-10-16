@@ -68,15 +68,15 @@
 \newcommand{\RR}{\mathbb{R}}
 \newcommand{\dual}[1]{\bar{#1}}
 \newcommand{\code}[1]{\texttt{#1}}
-\newcommand{\gaugemd}{\href{https://github.com/Ryo-wtnb11/racah/blob/main/docs/gauge.md}{\code{docs/gauge.md}}}
-\newcommand{\gaugeson}{\href{https://github.com/Ryo-wtnb11/racah/blob/main/docs/gauge_soN.md}{\code{docs/gauge\_soN.md}}}
-\newcommand{\refsmd}{\href{https://github.com/Ryo-wtnb11/racah/blob/main/docs/references.md}{\code{docs/references.md}}}
+\newcommand{\gaugemd}{\href{https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/gauge.md}{\code{docs/gauge.md}}}
+\newcommand{\gaugeson}{\href{https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/gauge_soN.md}{\code{docs/gauge\_soN.md}}}
+\newcommand{\refsmd}{\href{https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/references.md}{\code{docs/references.md}}}
 
 \title{\textbf{The representation theory \code{racah} computes}\\[0.3em]
 \large A self-contained note built on the Killing--Cartan classification:\\
 groups and global forms, irreps, Clebsch--Gordan coefficients,\\
 recoupling, and gauge}
-\author{The \code{racah} project \\ \small\url{https://github.com/Ryo-wtnb11/racah}}
+\author{The \code{racah} project \\ \small\url{https://github.com/Ryo-wtnb11/fusion-symbols}}
 \date{}
 
 \begin{document}
@@ -224,7 +224,7 @@ Overlines denote complex conjugation, daggers Hermitian adjoints.
 
 Every group \code{racah} computes for is a compact form of one entry in a
 finite classification, and the crate's type system is a transcription of that
-classification: \code{racah::group::RootSystem} has exactly nine variants,
+classification: \code{fusion_symbols::group::RootSystem} has exactly nine variants,
 one per family. This section states the classification, draws its diagrams in
 the numbering the API uses, and records the rank conventions that make the
 list irredundant. It is the backbone the rest of the note hangs off.
@@ -601,7 +601,7 @@ must share the cache entry.
 \end{proposition}
 
 \begin{sloppypar}
-API: \code{racah::group} --- \code{RootSystem}, \code{GlobalForm},
+API: \code{fusion_symbols::group} --- \code{RootSystem}, \code{GlobalForm},
 \code{CenterSubgroup}, \code{GroupId}, and the predicate
 \code{GroupId::admits}; the form-aware constructors
 \code{sun::Irrep::from\_dynkin\_in} and \code{bcd::Irrep::from\_dynkin\_in}

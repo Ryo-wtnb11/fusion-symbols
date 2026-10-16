@@ -11,8 +11,8 @@
 use std::sync::Arc;
 use std::thread;
 
-use racah::cache;
-use racah::sun::{f_symbol, Irrep};
+use fusion_symbols::cache;
+use fusion_symbols::sun::{f_symbol, Irrep};
 
 fn irr(d: &[i64]) -> Irrep {
     Irrep::from_dynkin(d).unwrap()

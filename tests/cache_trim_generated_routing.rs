@@ -1,9 +1,9 @@
 //! Isolated process-global generated-tier trim routing contract.
 #![cfg(feature = "cgc-gen")]
 
-use racah::bcd::{self, CanonicalCatalog, Series};
-use racah::cache::{self, CoefficientCacheTier};
-use racah::sun;
+use fusion_symbols::bcd::{self, CanonicalCatalog, Series};
+use fusion_symbols::cache::{self, CoefficientCacheTier};
+use fusion_symbols::sun;
 
 fn irrep(d: &[i64]) -> sun::Irrep {
     sun::Irrep::from_dynkin(d).unwrap()

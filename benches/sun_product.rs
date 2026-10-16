@@ -4,8 +4,8 @@
 //! `cargo bench --bench sun_product --features cgc-gen`.
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use racah::cache;
-use racah::sun::{cgc, directproduct, f_symbol, Irrep};
+use fusion_symbols::cache;
+use fusion_symbols::sun::{cgc, directproduct, f_symbol, Irrep};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::hint::black_box;
 use std::sync::atomic::{AtomicU64, Ordering};

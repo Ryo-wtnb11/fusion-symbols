@@ -6,8 +6,8 @@
 //! and uncached R contraction from CGC generation.
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use racah::cache::{self, CoefficientCacheTier};
-use racah::sun::{f_symbol, r_symbol, Irrep};
+use fusion_symbols::cache::{self, CoefficientCacheTier};
+use fusion_symbols::sun::{f_symbol, r_symbol, Irrep};
 use std::hint::black_box;
 
 fn irr(d: &[i64]) -> Irrep {

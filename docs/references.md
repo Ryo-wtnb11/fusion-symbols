@@ -6,17 +6,17 @@
 > trusting it blindly.
 
 **Role in the documentation set.** Provenance, not usage: the map from a
-`racah` symbol to the reference implementation it was ported from, plus the
+`fusion-symbols` symbol to the reference implementation it was ported from, plus the
 bibliography. For learning the library see the
 [User Guide](user-guide/README.md); documentation map:
 [`docs/README.md`](README.md).
 
-`racah` is a faithful port: nearly every coefficient it computes traces to a
+`fusion-symbols` is a faithful port: nearly every coefficient it computes traces to a
 named production implementation or a standard result. This page collects that
 provenance in one place — what was taken, from which reference at which version,
 *why that machinery is the right (or only) one for the family*, and where
-`racah` deviates. The module and item rustdoc keep the load-bearing contracts
-next to the code; this page is the map from `racah` symbol to source.
+`fusion-symbols` deviates. The module and item rustdoc keep the load-bearing contracts
+next to the code; this page is the map from `fusion-symbols` symbol to source.
 
 Citations of the form `file:symbol` name a symbol in the cited project's source
 tree (path relative to that project's root), not a local checkout path. Numbered
@@ -25,7 +25,7 @@ citations `[n]` refer to the [bibliography](#bibliography) at the end.
 ## SU(2) — base, exact closed form
 
 **Why this construction.** For $SU(2)$ the 3j/6j/CGC/F/R all have closed-form
-expressions (Racah single sums, $[5]$), so nothing is generated: `racah`
+expressions (Racah single sums, $[5]$), so nothing is generated: `fusion-symbols`
 evaluates the closed forms in exact big-rational arithmetic and rounds once. The
 factorial-heavy sums are carried in prime-factorized form to avoid big-integer
 blow-up.
@@ -34,7 +34,7 @@ blow-up.
 |---|---|---|---|---|
 | `su2.rs::wigner_6j`, `racah_6j` engine | WignerSymbols.jl v2.0.0, `src/WignerSymbols.jl:_wigner6j`, `compute6jseries` $[10]$ | Racah single-sum 6j evaluation | Closed-form 6j exists for SU(2); exact rational sum, single final rounding | Keyed by canonical Regge class with a bounded FIFO publication cache |
 | `su2.rs::wigner_3j` | WignerSymbols.jl v2.0.0, `src/WignerSymbols.jl:_wigner3j` $[10]$ | Racah 3j sum | Same closed-form rationale | Keys on the canonical Regge labels directly, not the `(β,α)` reparametrization the reference uses (`su2.rs`, `canonical_regge_3j` doc) |
-| `su2.rs::canonical_regge_3j`, `ReggePhase` | WignerSymbols.jl v2.0.0, `reorder3j` $[10]$ | Regge canonicalization + net compensation phase | Regge symmetry collapses the 3j orbit to one representative | `racah` completes the canonicalization, breaking every tie deterministically |
+| `su2.rs::canonical_regge_3j`, `ReggePhase` | WignerSymbols.jl v2.0.0, `reorder3j` $[10]$ | Regge canonicalization + net compensation phase | Regge symmetry collapses the 3j orbit to one representative | `fusion-symbols` completes the canonicalization, breaking every tie deterministically |
 | `su2.rs::su2_f_symbol`, `su2_r_symbol` | TensorKitSectors `src/irreps/su2irrep.jl:Fsymbol`/`Rsymbol`; WignerSymbols.jl v2.0.0 `racahW` $[10]$ | F from `sqrtdim·racahW`; R sign rule | SU(2) F/R reduce to the closed-form 6j | — |
 | `exact.rs::SignedSqrtRational` | WignerSymbols.jl (signed-√-rational form of the Racah expressions) $[10]$ | Exact value carried as signed square-rooted rational | Keeps triangle/dimension products exact under the radical until the final `f64` | — |
 | `primefactor.rs` (whole module) | WignerSymbols.jl v2.0.0, `src/primefactorization.jl` $[10]$ | Prime-factorized factorial arithmetic (`mul!`, `divexact!`, `splitsquare`, `primefactorial`, `commondenominator!`, `sumlist!`) | Factorial-heavy Racah sums blow up as big integers; prime factorization keeps them small — a measured-need upgrade | Same growing-global-table design |
@@ -79,7 +79,7 @@ pinned by [`docs/gauge_soN.md`](gauge_soN.md). See [`docs/theory.tex`](theory.te
 | `bcd/linalg.rs` | QSpace v4 (rev `dd2cc7e`), `OrthoNormalizeColsQR`, `Wb::MatProd` $[3]$ | Positive-diagonal QR, matmul | The two dense primitives the sweep needs | `QrGauge::PositiveDiagonal` tightens QSpace's unspecified QR sign (documented in [`docs/gauge_soN.md`](gauge_soN.md)); via the Tenferro backend seam |
 | `bcd/catalog.rs::CanonicalCatalog` | QSpace v4 (rev `dd2cc7e`), `Source/clebsch.cc` cross-copy `normDiff` check (`:6710-6718`) $[3]$ | Per-(series, rank) catalog caching the aligned CGC; cross-copy coherence check | Aligns and reuses the generator/CGC data across couplings | QSpace's fixed-pass `dmax` enumeration is **not** ported (`catalog.rs` module doc); coherence is a loud debug assert, deviation-by-design from `normDiff` replacement |
 | `bcd/fr.rs` | QSpace v4 (rev `dd2cc7e`), `wbsparray::setRec_kron` (product packing) $[3]$; shared `frcore` | Kronecker product index packing; F/R contraction | Consistent product-basis packing between generation and contraction | — |
-| `bcd/qspace_oracle_tests.rs` (oracle, not production) | QSpace v4 (rev `dd2cc7e`), `getCG` and generator fixtures ($Sp_k$, $Sz_k$) $[3]$ | Projector battery via verified factor-basis dictionaries | Independent external oracle: `racah`'s aligned CGC vs QSpace to round-off | Compares gauge-invariant projectors through solved intertwiner dictionaries |
+| `bcd/qspace_oracle_tests.rs` (oracle, not production) | QSpace v4 (rev `dd2cc7e`), `getCG` and generator fixtures ($Sp_k$, $Sz_k$) $[3]$ | Projector battery via verified factor-basis dictionaries | Independent external oracle: `fusion-symbols`'s aligned CGC vs QSpace to round-off | Compares gauge-invariant projectors through solved intertwiner dictionaries |
 
 ## Family-generic F/R core and gates
 
@@ -133,7 +133,7 @@ Every identifier below was verified against the publisher/preprint record.
 3. A. Weichselbaum, "QSpace — An open-source tensor library for Abelian and
    non-Abelian symmetries," *SciPost Phys. Codebases* **40** (2024).
    DOI: [10.21468/SciPostPhysCodeb.40](https://doi.org/10.21468/SciPostPhysCodeb.40);
-   arXiv: [2405.06632](https://arxiv.org/abs/2405.06632). `racah` cites QSpace
+   arXiv: [2405.06632](https://arxiv.org/abs/2405.06632). `fusion-symbols` cites QSpace
    v4 source at revision `dd2cc7e`.
 4. I. M. Gelfand, M. L. Tsetlin, "Finite-dimensional representations of the
    group of unimodular matrices," *Dokl. Akad. Nauk SSSR* **71**, 825–828
@@ -143,7 +143,7 @@ Every identifier below was verified against the publisher/preprint record.
 6. R. M. Fonseca, "GroupMath: A Mathematica package for group theory
    calculations," *Comput. Phys. Commun.* **267**, 108085 (2021).
    DOI: [10.1016/j.cpc.2021.108085](https://doi.org/10.1016/j.cpc.2021.108085);
-   arXiv: [2011.01764](https://arxiv.org/abs/2011.01764). `racah` fixtures use
+   arXiv: [2011.01764](https://arxiv.org/abs/2011.01764). `fusion-symbols` fixtures use
    GroupMath v1.1.3.
 7. W. Fulton, J. Harris, *Representation Theory: A First Course*, Graduate Texts
    in Mathematics **129**, Springer (1991). ISBN 0-387-97495-4.
@@ -219,7 +219,7 @@ Every identifier below was verified against the publisher/preprint record.
     Existence of a compact real form of a complex semisimple Lie algebra
     (Theorem 6.11) and its uniqueness up to conjugacy (Corollary 6.20) — the
     step from the Killing–Cartan classification of algebras to the compact
-    groups `racah` computes for.
+    groups `fusion-symbols` computes for.
 
 Entries 14–21 are cited by the theory note ([`docs/theory.tex`](theory.tex)),
 whose bibliography uses this numbering; entries 1–13 are cited by both. The

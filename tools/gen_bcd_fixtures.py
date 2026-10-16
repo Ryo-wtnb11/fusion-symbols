@@ -4,7 +4,7 @@
 
 Runs under SageMath (`sage tools/gen_bcd_fixtures.py`). It uses
 `WeylCharacterRing` in the "coroots" style, so irreps are addressed by their
-integer Dynkin (coroot) labels — the same convention as `racah::bcd`. For
+integer Dynkin (coroot) labels — the same convention as `fusion_symbols::bcd`. For
 seeded-random tensor irrep pairs across B/C/D ranks {2,3,4} it emits the exact
 dimension and full tensor-product decomposition.
 

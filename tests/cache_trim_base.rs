@@ -1,7 +1,9 @@
 //! Public base-tier cache trim contract.
 
-use racah::cache::{base_cache_stats, cache_budgets, reset, trim_to, CoefficientCacheTier};
-use racah::{su2_f_symbol, wigner_3j, wigner_6j};
+use fusion_symbols::cache::{
+    base_cache_stats, cache_budgets, reset, trim_to, CoefficientCacheTier,
+};
+use fusion_symbols::{su2_f_symbol, wigner_3j, wigner_6j};
 
 #[test]
 fn trim_is_tier_local_preserves_budget_and_allows_refill() {

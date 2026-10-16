@@ -1,7 +1,7 @@
 //! Tests for the exact B/C/D combinatorics. All anchors are independent of the
 //! code under test: dimension/product values are hand-verified against the
 //! representation theory of the classical groups (Fulton–Harris tables), never
-//! read back from `racah`'s own output.
+//! read back from `fusion-symbols`'s own output.
 
 use super::*;
 

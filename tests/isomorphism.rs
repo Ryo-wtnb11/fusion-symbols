@@ -6,13 +6,13 @@
 //! isomorphism must produce the **same** integer data (dimensions, product
 //! decompositions, and the fusion multiplicities `N^c_{ab}` — the "N-symbols")
 //! exactly. No external tool is involved: the oracle is racah's own SU(N)
-//! pipeline ([`racah::sun`]) checking racah's B/C/D pipeline ([`racah::bcd`]),
+//! pipeline ([`fusion_symbols::sun`]) checking racah's B/C/D pipeline ([`fusion_symbols::bcd`]),
 //! and racah's two independent SU(2) implementations checking each other.
 //!
 //! This strand verifies only the *tensor* (linear, non-spinor) image of each
-//! isomorphism: [`racah::bcd`] represents tensor irreps of `SO(N)`/`Sp(2N)`
+//! isomorphism: [`fusion_symbols::bcd`] represents tensor irreps of `SO(N)`/`Sp(2N)`
 //! only (spinors belong to the covering group and are rejected with
-//! [`racah::bcd::BcdError::NotAdmissible`]). Labels outside the isomorphic
+//! [`fusion_symbols::bcd::BcdError::NotAdmissible`]). Labels outside the isomorphic
 //! tensor image are out of scope here (role matrix).
 //!
 //! # Dynkin label maps
@@ -21,8 +21,8 @@
 //! per isomorphism in the sections below (the node identification from the folded
 //! / relabelled Dynkin diagram) and then cross-checked against matching dimensions
 //! and product channels through both sides, never merely assumed from a numerical
-//! coincidence. `A_{n}` uses [`racah::sun`]
-//! Dynkin labels `(a_1,…,a_n)`; `B_r`/`C_r`/`D_r` use [`racah::bcd`] Dynkin
+//! coincidence. `A_{n}` uses [`fusion_symbols::sun`]
+//! Dynkin labels `(a_1,…,a_n)`; `B_r`/`C_r`/`D_r` use [`fusion_symbols::bcd`] Dynkin
 //! labels `(b_0,…,b_{r-1})` in the module's node order (node 0 = vector for
 //! `B`/`D`, per `docs/gauge_soN.md`).
 //!
@@ -67,13 +67,13 @@
 //!
 //! ## `SO(4) ≅ SU(2) × SU(2)` (`D_2 ≅ A_1 × A_1`)
 //!
-//! `SO(4)` is the excluded rank `D_2` in [`racah::bcd`] (redirected to the
+//! `SO(4)` is the excluded rank `D_2` in [`fusion_symbols::bcd`] (redirected to the
 //! SU(2) machinery). The isomorphism content — an `SO(4)` tensor irrep is a
 //! pair of `SU(2)` irreps with `SO(4)` products factoring as independent
 //! `SU(2)` products — is checked here between racah's **two independent
-//! `SU(2)` code paths**: the general Gelfand–Tsetlin engine ([`racah::sun`]
-//! at `N = 2`) and the exact closed-form base module ([`racah::su2`],
-//! reached through [`racah::clebsch_gordan`]). An `SO(4)` label `(p, q)`
+//! `SU(2)` code paths**: the general Gelfand–Tsetlin engine ([`fusion_symbols::sun`]
+//! at `N = 2`) and the exact closed-form base module ([`fusion_symbols::su2`],
+//! reached through [`fusion_symbols::clebsch_gordan`]). An `SO(4)` label `(p, q)`
 //! carries `SU(2)` spins `(p/2, q/2)` (doubled spins `dj = p, q`), dimension
 //! `(p+1)(q+1)`, and is a tensor irrep iff `p + q` is even.
 
@@ -81,9 +81,9 @@
 
 use std::collections::BTreeMap;
 
-use racah::bcd::{directproduct as bdp, Irrep as Bcd, Series};
-use racah::clebsch_gordan;
-use racah::sun::{directproduct as sdp, Irrep as Sun};
+use fusion_symbols::bcd::{directproduct as bdp, Irrep as Bcd, Series};
+use fusion_symbols::clebsch_gordan;
+use fusion_symbols::sun::{directproduct as sdp, Irrep as Sun};
 
 /// `SU(4)` Dynkin `(a_1,a_2,a_3)` → `SO(6)=D_3` Dynkin `(a_2,a_1,a_3)`.
 /// Panics if the image is a spinor (`a_1 + a_3` odd) — callers stay in the
@@ -202,7 +202,7 @@ fn sp4_so5_products_agree() {
 }
 
 /// SU(2) fusion multiplicity of doubled-spin `dj3` in `dj1 ⊗ dj2`, via racah's
-/// exact closed-form base module ([`racah::su2`]): the highest-weight Clebsch–
+/// exact closed-form base module ([`fusion_symbols::su2`]): the highest-weight Clebsch–
 /// Gordan coefficient is nonzero iff the coupling is allowed, and SU(2)
 /// multiplicities are 0/1. This is an independent code path from the GT engine.
 fn su2_mult_base(dj1: i32, dj2: i32, dj3: i32) -> u32 {
@@ -272,13 +272,13 @@ fn wrong_so6_map_is_detected() {
 // The spinor image of the low-rank isomorphisms (issue #54, stage (b) of #87).
 //
 // The three label maps above were restricted to the tensor sublattice only
-// because `racah::bcd` rejected the spinor labels. With `Spin(N)` shipped the
+// because `fusion_symbols::bcd` rejected the spinor labels. With `Spin(N)` shipped the
 // same maps are defined on the **whole** weight lattice, and the isomorphism
 // oracles extend to it: these are the checks #54 names, now runnable.
 // ---------------------------------------------------------------------------
 
-use racah::bcd::BcdError;
-use racah::group::GroupId;
+use fusion_symbols::bcd::BcdError;
+use fusion_symbols::group::GroupId;
 
 /// `SU(4)` Dynkin `(a_1,a_2,a_3)` → `Spin(6)` Dynkin `(a_2,a_1,a_3)`, defined
 /// on the whole lattice: `a_1 + a_3` odd is the `D_3` spinor class, which is
@@ -420,7 +420,7 @@ fn spin5_sp4_frobenius_schur_agrees_including_spinors() {
     assert_eq!(sp4_to_spin5(&[1, 0]).frobenius_schur(), -1);
 }
 
-/// `Spin(3) ≅ SU(2)`: `B_1` is an excluded rank in [`racah::bcd`], so the
+/// `Spin(3) ≅ SU(2)`: `B_1` is an excluded rank in [`fusion_symbols::bcd`], so the
 /// isomorphism is delivered as a **form-aware redirect** rather than as a
 /// second code path — and the redirect now distinguishes the cover from the
 /// quotient, which is the whole point of the isomorphism (`Spin(3) = SU(2)`

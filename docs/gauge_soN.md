@@ -3,7 +3,7 @@
 > **AI-generated, for agentic coding.** This document was written by an AI agent
 > as reference material for AI agents (and humans) working on this repository,
 > and its prose may contain errors. Its **gauge values are not commentary**:
-> they are the frozen normative specification of racah's conventions, verified
+> they are the frozen normative specification of fusion-symbols' conventions, verified
 > by the golden tests. Code follows this document — where the two disagree, the
 > code is the bug.
 
@@ -12,13 +12,13 @@
 it is written to be checked against, not read through. If you are learning the
 library, start with the [User Guide](user-guide/README.md); if you want the
 mathematics, see [`theory.pdf`](theory.pdf); for per-item API semantics see
-[docs.rs](https://docs.rs/racah). Come here when you are comparing racah's
+[docs.rs](https://docs.rs/fusion-symbols). Come here when you are comparing fusion-symbols'
 values against another implementation, auditing a sign or an index order, or
 changing code that touches a coefficient value. Documentation map:
 [`docs/README.md`](README.md).
 
 This document specifies the **gauge** of the SO(N)/Sp(2N) Clebsch–Gordan
-isometries and projected generators produced by `racah::bcd`'s decomposition
+isometries and projected generators produced by `fusion_symbols::bcd`'s decomposition
 sweep (`src/bcd/sweep.rs`, Layer S3.2) — the deterministic rules that fix the
 otherwise-free basis of each coupled multiplet.
 
@@ -381,7 +381,7 @@ a spurious one (`found > 0 = N`). Any mismatch is
 exact decomposition `expected` and enforces it; `decompose_defining_product`
 computes `expected` from the defining label via `directproduct`.
 
-This is racah's addition over QSpace, which has no exact Layer-1 gate (it only
+This is fusion-symbols' addition over QSpace, which has no exact Layer-1 gate (it only
 warns on discovered outer multiplicity, `:341`).
 
 ---
@@ -431,7 +431,7 @@ multiplicity, but each is recorded for the S3.5 fixture harness:
    denominator `≤ 1024`, tol `~1e-12`; `clebsch_aux.cc:410-425`), applied to the
    CGC entries too. racah snaps **integers only** (§6), leaving irrational CGC
    entries untouched. Consequence: an exact half-integer (or other small-rational)
-   CGC entry that QSpace would snap may differ from racah's value by `≤ 1e-12` —
+   CGC entry that QSpace would snap may differ from fusion-symbols' value by `≤ 1e-12` —
    below every gate tolerance, absorbed by the S3.5 element-wise comparison.
 
 ---
@@ -731,7 +731,7 @@ reaches the same coupled irrep `J` from multiple products and reconciles the
 copies at runtime: it compares the freshly projected generators `G` against the
 stored `G0` with `normDiff(G,G0,1e-10)` and aborts on disagreement, and it may
 **replace** the stored copy when the new one has a smaller commutator error
-(`e2 ≤ 0.5·e0 ⇒ saveR=2`, the "replacing RStore" branch). racah's canonical-parent
+(`e2 ≤ 0.5·e0 ⇒ saveR=2`, the "replacing RStore" branch). fusion-symbols' canonical-parent
 rule makes a second *written* copy **structurally impossible**, so there is
 nothing to reconcile and nothing to replace — the replacement branch has no
 analogue. Where a non-canonical product *rediscovers* an already-stored `c'`, racah

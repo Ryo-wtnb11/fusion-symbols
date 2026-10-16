@@ -2,6 +2,10 @@
 //! Clebsch–Gordan coefficients, and recoupling coefficients (3j / 6j / F / R)
 //! for SU(2), SU(N), SO(N), Spin(N) and Sp(2N).
 //!
+//! `fusion-symbols` is the successor of the `racah` crate (published up to
+//! 0.2.4): the same modules and API, with `racah::` paths now
+//! `fusion_symbols::`.
+//!
 //! Coefficients for any admissible labels are computed on demand — there is no
 //! precomputed table and no generation-time label cut. Pure representation
 //! mathematics: no fusion-category trait vocabulary, no sector identity types,
@@ -15,7 +19,7 @@
 //! error. Here `{1 1 1; 1 1 1} = 1/6`:
 //!
 //! ```
-//! use racah::wigner_6j;
+//! use fusion_symbols::wigner_6j;
 //!
 //! let sixj = wigner_6j(2, 2, 2, 2, 2, 2);
 //! assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
@@ -81,12 +85,12 @@
 //! - [`docs/references.md`] — porting provenance (`file:symbol`-level) and the
 //!   verified bibliography.
 //!
-//! [User Guide]: https://github.com/Ryo-wtnb11/racah/blob/main/docs/user-guide/README.md
-//! [guide-resources]: https://github.com/Ryo-wtnb11/racah/blob/main/docs/user-guide/resources.md
-//! [`docs/theory.pdf`]: https://github.com/Ryo-wtnb11/racah/blob/main/docs/theory.pdf
-//! [`docs/references.md`]: https://github.com/Ryo-wtnb11/racah/blob/main/docs/references.md
-//! [`docs/gauge.md`]: https://github.com/Ryo-wtnb11/racah/blob/main/docs/gauge.md
-//! [`docs/gauge_soN.md`]: https://github.com/Ryo-wtnb11/racah/blob/main/docs/gauge_soN.md
+//! [User Guide]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/user-guide/README.md
+//! [guide-resources]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/user-guide/resources.md
+//! [`docs/theory.pdf`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/theory.pdf
+//! [`docs/references.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/references.md
+//! [`docs/gauge.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/gauge.md
+//! [`docs/gauge_soN.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/gauge_soN.md
 #![warn(missing_docs)]
 
 // The audit harness measures only allocations routed through Rust's System

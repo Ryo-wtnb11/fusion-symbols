@@ -9,7 +9,7 @@ use num_rational::Ratio;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
-use racah::{clebsch_gordan, wigner_3j, wigner_6j, SignedSqrtRational};
+use fusion_symbols::{clebsch_gordan, wigner_3j, wigner_6j, SignedSqrtRational};
 
 use wigner_symbols::{ClebschGordan, Wigner3jm, Wigner6j};
 

@@ -3,13 +3,16 @@
 [workspace]
 members = ["racah-py"]
 
+# `fusion-symbols` is the successor of the `racah` crate (published up to
+# racah 0.2.4, which stays on crates.io): same modules and API under a name that
+# covers every symmetry family this crate provides.
 [package]
-name = "racah"
+name = "fusion-symbols"
 version = "0.2.4"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "Racah-Wigner calculus for compact Lie groups: exact SU(2) recoupling, and runtime Clebsch-Gordan / F- / R-coefficient generation for SU(N), SO(N), and Sp(2N)"
-repository = "https://github.com/Ryo-wtnb11/racah"
+description = "Fusion and recoupling symbols for symmetric tensors: exact SU(2) recoupling, and runtime Clebsch-Gordan / F- / R-coefficient generation for SU(N), SO(N), and Sp(2N) (successor of the racah crate)"
+repository = "https://github.com/Ryo-wtnb11/fusion-symbols"
 keywords = ["recoupling", "clebsch-gordan", "wigner", "lie-group", "6j"]
 categories = ["mathematics", "science"]
 

@@ -16,9 +16,9 @@
 
 #![cfg(feature = "cgc-gen")]
 
-use racah::bcd::{self, CanonicalCatalog, Series};
-use racah::cache::{self, GeneratedCacheStats, GENERATED_CACHE_MAX_BYTES};
-use racah::sun;
+use fusion_symbols::bcd::{self, CanonicalCatalog, Series};
+use fusion_symbols::cache::{self, GeneratedCacheStats, GENERATED_CACHE_MAX_BYTES};
+use fusion_symbols::sun;
 
 fn sun_irr(d: &[i64]) -> sun::Irrep {
     sun::Irrep::from_dynkin(d).unwrap()
@@ -135,7 +135,7 @@ fn generated_cache_resource_contract() {
     // ---- reset zeroing: every field of every generated tier and of total() ----
     cache::reset();
     let g = cache::generated_cache_stats();
-    let zero = racah::cache::TierStats::default();
+    let zero = fusion_symbols::cache::TierStats::default();
     assert_eq!(g.sun_product, zero, "sun_product not cleared");
     assert_eq!(g.sun_cgc, zero, "sun_cgc not cleared");
     assert_eq!(g.sun_f, zero, "sun_f not cleared");

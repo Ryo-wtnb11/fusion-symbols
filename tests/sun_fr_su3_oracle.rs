@@ -22,7 +22,7 @@
 
 #![cfg(feature = "cgc-gen")]
 
-use racah::sun::{f_symbol, r_symbol, Irrep};
+use fusion_symbols::sun::{f_symbol, r_symbol, Irrep};
 
 /// Signed element-wise tolerance. Same algorithm and gauge on both sides, so a
 /// faithful port agrees to the CGC pipeline's SVD/QR/descent round-off floor,
