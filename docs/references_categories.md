@@ -1,4 +1,17 @@
-# Provenance: non-Lie categories (`fibonacci`, `tables`)
+# Provenance: non-Lie categories (`abelian`, `fibonacci`, `tables`)
+
+## Abelian groups (`abelian` module)
+
+| Field | Value |
+| --- | --- |
+| Reference | TensorKitSectors.jl `0.3.9`, git `67d342a130bd9e31caf3eccbf9ca46ec8b088556` (registry git-tree-sha1 `9f536263310aae90df175337d586a1655104aae3`; `src/` identical to `~/.julia/packages/TensorKitSectors/VuA9Z`) |
+| Z2, Z_N, U(1): `Nsymbol`, `Fsymbol`, `Rsymbol`, FS phase | `src/irreps/irreps.jl`: `Nsymbol` (l. 57), `Fsymbol` (l. 58), `frobenius_schur_phase(::AbelianIrrep)` (l. 62), `Rsymbol` (l. 65); `BraidingStyle(::AbstractIrrep) = Bosonic()` (l. 17) |
+| Z_N labels, dual, fusion | `src/irreps/znirrep.jl`: `ZNIrrep{N}(n) = mod(n, N)` (l. 24), `dual` (l. 82), `⊗` (l. 83). The modulus is a runtime `u32` carried by the label (as in symtn), not a type parameter |
+| U(1) labels, dual, fusion | `src/irreps/u1irrep.jl`: `dual` (l. 30), `⊗` (l. 31). TKS stores a `HalfInt`; here integer `i32` charges without `i32::MIN` (as in symtn); half-integer charges are not representable |
+| Fermion parity | `src/fermions.jl`: `dual` (l. 34), `dim` (l. 35), `BraidingStyle = Fermionic()` (l. 39), `⊗` (l. 43), `Nsymbol` (l. 45), `Fsymbol` (l. 48), `Rsymbol` (l. 51), `twist` (l. 54); FS phase from the generic `src/sectors.jl:frobenius_schur_phase_from_Fsymbol` (l. 461) |
+| `dim`, bosonic twist | generic `src/sectors.jl:dim_from_Fsymbol` (UniqueFusion → 1, l. 429) and `twist_from_Rsymbol` (l. 646) |
+| Scalars | `f64` (exact ±1, 0); TKS declares `Int`. Measured TKS values: `tests/fixtures/tks_abelian_oracle.jl`, hand-recorded in `src/abelian.rs::tests::matches_measured_tensorkitsectors_values` |
+| Ported implementation | [symtn](https://github.com/Ryo-wtnb11/symtn-rs) `symtn-sectors/src/abelian.rs` at `49d09dc4fc0825b29d547e63a70014221c0c5406`; every value bit-identical on admissible tuples (`tests/symtn_abelian_values.rs`). Two deliberate differences: an inadmissible F or R is `0.0` here (symtn returns `±1.0` unchecked), and U(1) `N` is the exact `0` where `a + b` leaves `i32` (symtn's checked N fails) |
 
 ## Closed-form Fibonacci (`fibonacci` module)
 

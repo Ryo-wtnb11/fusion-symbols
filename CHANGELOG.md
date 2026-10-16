@@ -7,6 +7,18 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Added
+
+- **`abelian` (symtn #2016, fusion-symbols #127):** Z2, Z_N (runtime
+  modulus carried by the label), U(1) (`i32` integer charges) and fermion
+  parity, in closed form following TensorKitSectors 0.3.9 (`ZNIrrep`,
+  `U1Irrep`, `FermionParity`), with the per-family convention (label
+  methods, `nsymbol` / `f_symbol` / `r_symbol` plus `_checked` variants
+  returning `AbelianError`, an authority fingerprint per family). Values are
+  bit-identical to symtn `49d09dc4` on every admissible tuple; unlike symtn,
+  an inadmissible F or R is `0.0`, and U(1) `N` is exact (`0`) where the
+  charge sum leaves `i32`.
+
 ## [0.3.0] - 2026-10-16
 
 ### Added
