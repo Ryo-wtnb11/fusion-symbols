@@ -18,9 +18,7 @@
 
 use std::collections::HashMap;
 
-use fusion_symbols::cu1::{
-    cu1_f_symbol, cu1_nsymbol, cu1_r_symbol, CU1Irrep, CU1_MAX_TWICE_CHARGE,
-};
+use fusion_symbols::cu1::{cu1_f_symbol, cu1_nsymbol, cu1_r_symbol, CU1Irrep};
 
 const SYMTN: &str = include_str!("fixtures/symtn-2a6c1523-cu1-values.txt");
 const TKS: &str = include_str!("fixtures/tks-0.3.9-cu1-values.txt");
@@ -42,7 +40,7 @@ fn bits(s: &str) -> u64 {
 fn small() -> Vec<CU1Irrep> {
     [CU1Irrep::VACUUM, CU1Irrep::PSEUDOSCALAR]
         .into_iter()
-        .chain((1..=5).map(|q| CU1Irrep::from_twice_charge(q).unwrap()))
+        .chain((1..=5).map(CU1Irrep::from_twice_charge))
         .collect()
 }
 
@@ -55,6 +53,9 @@ struct Tally {
     overflow_n: usize,
     /// Of those, how many are `N = 1` (the `0±` or difference channel).
     overflow_n_one: usize,
+    /// Fusions that fail in the source only because of its narrower
+    /// twice-charge bound (symtn: `u32::MAX - 1`); here the channels exist.
+    fusion_beyond_source_bound: usize,
 }
 
 /// Checks every recorded line; R/F lines go to `symbols` for the
@@ -67,7 +68,9 @@ fn check(source: &str, symbols: &mut HashMap<String, u64>) -> Tally {
         let a = || label(w[1]);
         let same = |got: f64, want: &str| assert_eq!(got.to_bits(), bits(want), "{line}");
         match w[0] {
-            "max_twice_charge" => assert_eq!(last.parse::<u32>().unwrap(), CU1_MAX_TWICE_CHARGE),
+            // symtn's codec bound: the consumer's own validation, not a limit
+            // of this crate.
+            "max_twice_charge" => assert_eq!(last.parse::<u32>().unwrap(), u32::MAX - 1),
             "vacuum" => assert_eq!(label(w[1]), CU1Irrep::VACUUM, "{line}"),
             "dual" => assert_eq!(a().dual(), label(w[2]), "{line}"),
             "dim" => same(a().dim(), last),
@@ -86,10 +89,17 @@ fn check(source: &str, symbols: &mut HashMap<String, u64>) -> Tally {
                 }
             }
             "fusion" => {
+                let b = label(w[2]);
                 let got = a()
-                    .fusion(label(w[2]))
+                    .fusion(b)
                     .ok()
                     .map(|ch| ch.map(name).collect::<Vec<_>>().join(","));
+                let sum = u64::from(a().twice_charge()) + u64::from(b.twice_charge());
+                if last == "err" && sum == u64::from(u32::MAX) {
+                    assert!(got.is_some(), "{line}");
+                    t.fusion_beyond_source_bound += 1;
+                    continue;
+                }
                 assert_eq!(got.as_deref(), (last != "err").then_some(last), "{line}");
             }
             "N" => {
@@ -148,9 +158,12 @@ fn sweep_symbols(symbols: &HashMap<String, u64>) -> usize {
 fn every_value_matches_symtn_2a6c1523() {
     let mut symbols = HashMap::new();
     let t = check(SYMTN, &mut symbols);
-    // 11 window labels: 1 bound + 1 vacuum + 7·11 unary + 11² fusion lines
-    // (33 of them `err` in both: `2(j + k)` above the bound), and 11³ = 1331
-    // N, of which symtn's checked N fails on the 33 · 11 with such a pair.
+    // 11 window labels: 1 bound + 1 vacuum + 7·11 unary + 11² fusion lines.
+    // 33 fusions are `err` in symtn (`2(j + k)` above its `u32::MAX - 1`);
+    // 6 of them, (1, max), (2, max - 1), (2147483647, 2147483648) and
+    // mirrors (max = u32::MAX - 1), sum to exactly `u32::MAX` and are labels
+    // here; the other 27 are `err` in both. Of 11³ = 1331 N, symtn's checked N fails on the 33 · 11 with
+    // such a pair.
     // Exactly, 14 of those are N = 1: `0+` and `0-` for the 3 equal pairs,
     // and the difference channel `|j - k| = 1/2` or `2147483647/2` for the
     // ordered pairs (1, max), (2147483647, 2147483648), (2147483647, max),
@@ -159,9 +172,10 @@ fn every_value_matches_symtn_2a6c1523() {
     assert_eq!(
         t,
         Tally {
-            identical: 1 + 1 + 77 + 121 + (1331 - 363),
+            identical: 1 + 1 + 77 + (121 - 6) + (1331 - 363),
             overflow_n: 363,
             overflow_n_one: 14,
+            fusion_beyond_source_bound: 6,
         }
     );
     assert_eq!(sweep_symbols(&symbols), 64 + 628);

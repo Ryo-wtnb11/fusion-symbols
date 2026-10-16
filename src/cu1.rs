@@ -19,18 +19,9 @@
 //! the provider this was ported from, symtn `symtn-sectors/src/cu1.rs`, and
 //! those measured from TensorKitSectors (`tests/cu1_values.rs`).
 //!
-//! Label domain: `twice_charge = 2j` in `0 ..= CU1_MAX_TWICE_CHARGE`
-//! (`u32::MAX - 1`), symtn's bound (see [`CU1_MAX_TWICE_CHARGE`]).
-
-/// Largest `twice_charge` of a [`CU1Irrep`].
-///
-/// Why `u32::MAX - 1`, not `u32::MAX`: it is the bound of symtn's CU(1)
-/// sector codec, the consumer this module replaces (symtn #2016), which
-/// encodes `j > 0` as sector id `2j + 1` and keeps that id within 32 bits.
-/// Using the same bound makes the label sets of the two crates identical, so
-/// every label here is representable there and no fusion result exists on
-/// only one side.
-pub const CU1_MAX_TWICE_CHARGE: u32 = u32::MAX - 1;
+//! Label domain: `twice_charge = 2j` is any `u32`. A consumer whose own
+//! encoding is narrower (symtn's sector codec stops at `u32::MAX - 1`)
+//! validates that bound itself.
 
 /// An irrep of `CU(1)`, TensorKitSectors' `CU1Irrep(j, s)`, stored as
 /// `twice_charge = 2j` and `s`.
@@ -67,8 +58,7 @@ pub enum CU1Error {
         /// The requested `s`.
         s: u8,
     },
-    /// A twice charge above [`CU1_MAX_TWICE_CHARGE`], either requested
-    /// directly or produced by [`CU1Irrep::fusion`].
+    /// A fusion channel `2(j + k)` of [`CU1Irrep::fusion`] above `u32::MAX`.
     TwiceChargeOutOfRange {
         /// The exact twice charge.
         twice_charge: u64,
@@ -92,7 +82,7 @@ impl std::fmt::Display for CU1Error {
             ),
             CU1Error::TwiceChargeOutOfRange { twice_charge } => write!(
                 f,
-                "CU(1) twice charge {twice_charge} exceeds {CU1_MAX_TWICE_CHARGE}"
+                "CU(1) twice charge {twice_charge} exceeds u32::MAX"
             ),
         }
     }
@@ -116,14 +106,8 @@ impl CU1Irrep {
     ///
     /// # Errors
     ///
-    /// [`CU1Error::InvalidLabel`] for an `s` the charge does not admit,
-    /// [`CU1Error::TwiceChargeOutOfRange`] above [`CU1_MAX_TWICE_CHARGE`].
+    /// [`CU1Error::InvalidLabel`] for an `s` the charge does not admit.
     pub fn new(twice_charge: u32, s: u8) -> Result<Self, CU1Error> {
-        if twice_charge > CU1_MAX_TWICE_CHARGE {
-            return Err(CU1Error::TwiceChargeOutOfRange {
-                twice_charge: u64::from(twice_charge),
-            });
-        }
         let valid = if twice_charge == 0 { s <= 1 } else { s == 2 };
         if valid {
             Ok(Self { twice_charge, s })
@@ -133,19 +117,19 @@ impl CU1Irrep {
     }
 
     /// TensorKitSectors `CU1Irrep(j)` with its default `s`: `0+` for
-    /// `twice_charge == 0`, the two-dimensional irrep otherwise.
-    ///
-    /// # Errors
-    ///
-    /// [`CU1Error::TwiceChargeOutOfRange`] above [`CU1_MAX_TWICE_CHARGE`].
-    pub fn from_twice_charge(twice_charge: u32) -> Result<Self, CU1Error> {
-        Self::new(twice_charge, if twice_charge == 0 { 0 } else { 2 })
+    /// `twice_charge == 0`, the two-dimensional irrep otherwise. Infallible:
+    /// every `u32` is a label with that `s`.
+    pub const fn from_twice_charge(twice_charge: u32) -> Self {
+        Self {
+            twice_charge,
+            s: if twice_charge == 0 { 0 } else { 2 },
+        }
     }
 
     fn from_exact(twice_charge: u64) -> Result<Self, CU1Error> {
         match u32::try_from(twice_charge) {
-            Ok(q) if q <= CU1_MAX_TWICE_CHARGE => Self::from_twice_charge(q),
-            _ => Err(CU1Error::TwiceChargeOutOfRange { twice_charge }),
+            Ok(q) => Ok(Self::from_twice_charge(q)),
+            Err(_) => Err(CU1Error::TwiceChargeOutOfRange { twice_charge }),
         }
     }
 
@@ -195,7 +179,7 @@ impl CU1Irrep {
     /// # Errors
     ///
     /// [`CU1Error::TwiceChargeOutOfRange`] when `2(j + k)` exceeds
-    /// [`CU1_MAX_TWICE_CHARGE`].
+    /// `u32::MAX`.
     pub fn fusion(self, other: Self) -> Result<CU1Fusion, CU1Error> {
         let (a, b) = (self, other);
         let mut channels = [Self::VACUUM; 3];
@@ -414,7 +398,7 @@ pub fn cu1_r_symbol_checked(a: CU1Irrep, b: CU1Irrep, c: CU1Irrep) -> Result<f64
 /// [`crate::su2_authority_fingerprint`]: compare by equality only; the epoch
 /// is bumped exactly when a returned value or convention changes.
 pub fn cu1_authority_fingerprint() -> &'static [u8] {
-    b"fusion-symbols:cu1:labels=u32-twice-charge-max-u32-minus-1:n=tks-cu1irrep-exact:f=tks-cu1irrep:r=tks-cu1irrep:dim=tks-cu1irrep:fs=tks-cu1irrep-one:twist=tks-rsymbol-sum-one:scalar=f64:epoch=1"
+    b"fusion-symbols:cu1:labels=u32-twice-charge-full:n=tks-cu1irrep-exact:f=tks-cu1irrep:r=tks-cu1irrep:dim=tks-cu1irrep:fs=tks-cu1irrep-one:twist=tks-rsymbol-sum-one:scalar=f64:epoch=1"
 }
 
 #[cfg(test)]
@@ -422,7 +406,7 @@ mod tests {
     use super::*;
 
     fn j(twice_charge: u32) -> CU1Irrep {
-        CU1Irrep::from_twice_charge(twice_charge).expect("label")
+        CU1Irrep::from_twice_charge(twice_charge)
     }
 
     const OP: CU1Irrep = CU1Irrep::VACUUM;
@@ -446,16 +430,19 @@ mod tests {
                 Err(CU1Error::InvalidLabel { twice_charge: 3, s })
             );
         }
-        let out = Err(CU1Error::TwiceChargeOutOfRange {
-            twice_charge: u64::from(u32::MAX),
-        });
-        assert_eq!(CU1Irrep::new(u32::MAX, 2), out);
-        assert_eq!(CU1Irrep::from_twice_charge(u32::MAX), out);
+        assert_eq!(
+            CU1Irrep::new(u32::MAX, 0),
+            Err(CU1Error::InvalidLabel {
+                twice_charge: u32::MAX,
+                s: 0
+            })
+        );
         assert_eq!(CU1Irrep::new(0, 0), Ok(OP));
         assert_eq!(CU1Irrep::new(0, 1), Ok(OM));
-        assert_eq!(CU1Irrep::from_twice_charge(0), Ok(OP));
-        let max = j(CU1_MAX_TWICE_CHARGE);
-        assert_eq!((max.twice_charge(), max.s()), (CU1_MAX_TWICE_CHARGE, 2));
+        assert_eq!(CU1Irrep::from_twice_charge(0), OP);
+        // The whole u32 range is labels.
+        assert_eq!(CU1Irrep::new(u32::MAX, 2), Ok(j(u32::MAX)));
+        assert_eq!((j(u32::MAX).twice_charge(), j(u32::MAX).s()), (u32::MAX, 2));
     }
 
     #[test]
@@ -467,28 +454,30 @@ mod tests {
 
     #[test]
     fn fusion_overflow_is_a_typed_error_and_nsymbol_stays_exact() {
-        let half = j(CU1_MAX_TWICE_CHARGE / 2);
-        let over = j(CU1_MAX_TWICE_CHARGE / 2 + 1);
-        let channels: Vec<_> = half.fusion(half).unwrap().collect();
-        assert_eq!(channels, vec![OP, OM, j(CU1_MAX_TWICE_CHARGE)]);
-        assert_eq!(
-            half.fusion(over).map(|_| ()),
-            Err(CU1Error::TwiceChargeOutOfRange {
-                twice_charge: u64::from(CU1_MAX_TWICE_CHARGE) + 1
-            })
-        );
-        let max = j(CU1_MAX_TWICE_CHARGE);
-        assert_eq!(
-            max.fusion(max).map(|_| ()),
-            Err(CU1Error::TwiceChargeOutOfRange {
-                twice_charge: 2 * u64::from(CU1_MAX_TWICE_CHARGE)
-            })
-        );
-        // The difference channel exists although the sum does not.
-        assert_eq!(cu1_nsymbol(max, j(1), j(CU1_MAX_TWICE_CHARGE - 1)), 1);
+        let max = j(u32::MAX);
+        let half = j(u32::MAX / 2);
+        let over = j(u32::MAX / 2 + 1);
+        // The largest representable channels are labels.
+        let channels: Vec<_> = half.fusion(over).unwrap().collect();
+        assert_eq!(channels, vec![j(1), max]);
+        let channels: Vec<_> = j(1).fusion(j(u32::MAX - 1)).unwrap().collect();
+        assert_eq!(channels, vec![j(u32::MAX - 2), max]);
+        // One past u32::MAX is the typed error.
+        for (a, b, sum) in [
+            (j(1), max, u64::from(u32::MAX) + 1),
+            (over, over, u64::from(u32::MAX) + 1),
+            (max, max, 2 * u64::from(u32::MAX)),
+        ] {
+            assert_eq!(
+                a.fusion(b).map(|_| ()),
+                Err(CU1Error::TwiceChargeOutOfRange { twice_charge: sum })
+            );
+        }
+        // The difference channels exist although the sum does not.
+        assert_eq!(cu1_nsymbol(max, j(1), j(u32::MAX - 1)), 1);
         assert_eq!(cu1_nsymbol(max, max, OP), 1);
         assert_eq!(cu1_nsymbol(max, max, OM), 1);
-        assert_eq!(cu1_nsymbol(max, max, j(CU1_MAX_TWICE_CHARGE)), 0);
+        assert_eq!(cu1_nsymbol(max, max, max), 0);
         assert_eq!(cu1_r_symbol(max, max, OM), -1.0);
     }
 
@@ -595,7 +584,7 @@ mod tests {
     fn fingerprint_is_pinned_and_distinct() {
         assert_eq!(
             cu1_authority_fingerprint(),
-            &b"fusion-symbols:cu1:labels=u32-twice-charge-max-u32-minus-1:n=tks-cu1irrep-exact:f=tks-cu1irrep:r=tks-cu1irrep:dim=tks-cu1irrep:fs=tks-cu1irrep-one:twist=tks-rsymbol-sum-one:scalar=f64:epoch=1"[..]
+            &b"fusion-symbols:cu1:labels=u32-twice-charge-full:n=tks-cu1irrep-exact:f=tks-cu1irrep:r=tks-cu1irrep:dim=tks-cu1irrep:fs=tks-cu1irrep-one:twist=tks-rsymbol-sum-one:scalar=f64:epoch=1"[..]
         );
         for other in [
             crate::abelian::u1_authority_fingerprint(),
