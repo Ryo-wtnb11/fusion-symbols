@@ -11,7 +11,11 @@
 //!   TensorKitSectors 0.3.9 (git `67d342a1`, tree `9f536263`) `CU1Irrep`
 //!   measured with Julia 1.11.6 by `fixtures/tks_cu1_oracle.jl`, on `0+`,
 //!   `0-`, `2j = 1..=5`: dual, dim, FS phase and indicator, twist, fusion
-//!   order, and every nonzero N, R and F.
+//!   order, every nonzero N, and every R and F whose bits are not `+0.0`.
+//!   TensorKitSectors' `Rsymbol` returns `-0.0` on the inadmissible tuples
+//!   of its `c.s == 1 && a.j > 0` branch (`-convert(Float64, N)` with
+//!   `N = 0`); this crate returns `+0.0` there, as symtn and every other
+//!   inadmissible symbol here. Those tuples are counted as a known deviation.
 //!
 //! Labels are `twice_charge:s`; values are IEEE-754 bit patterns. Nothing
 //! here runs symtn or Julia.
@@ -123,13 +127,20 @@ fn check(source: &str, symbols: &mut HashMap<String, u64>) -> Tally {
 }
 
 /// Every R and F tuple over [`small`]: the recorded bits, or `+0.0` when
-/// the tuple is not recorded. Returns the number of recorded tuples.
-fn sweep_symbols(symbols: &HashMap<String, u64>) -> usize {
+/// the tuple is not recorded. A recorded `-0.0` where this crate returns
+/// `+0.0` is the known signed-zero deviation, counted apart. Returns
+/// `(recorded tuples, signed-zero R tuples)`.
+fn sweep_symbols(symbols: &HashMap<String, u64>) -> (usize, usize) {
     let all = small();
-    let mut seen = 0;
+    let (mut seen, mut signed_zero) = (0, 0);
     let mut cmp = |key: String, got: f64| {
         let want = symbols.get(&key).copied().unwrap_or(0);
         seen += usize::from(symbols.contains_key(&key));
+        if want == (-0.0f64).to_bits() && got.to_bits() == 0 {
+            assert!(key.starts_with("R "), "{key}");
+            signed_zero += 1;
+            return;
+        }
         assert_eq!(got.to_bits(), want, "{key}");
     };
     for &a in &all {
@@ -151,7 +162,7 @@ fn sweep_symbols(symbols: &HashMap<String, u64>) -> usize {
         }
     }
     assert_eq!(seen, symbols.len(), "every recorded tuple is in the sweep");
-    seen
+    (seen, signed_zero)
 }
 
 #[test]
@@ -178,7 +189,7 @@ fn every_value_matches_symtn_2a6c1523() {
             fusion_beyond_source_bound: 6,
         }
     );
-    assert_eq!(sweep_symbols(&symbols), 64 + 628);
+    assert_eq!(sweep_symbols(&symbols), (64 + 628, 0));
 }
 
 #[test]
@@ -193,7 +204,8 @@ fn every_value_matches_tensorkitsectors_0_3_9() {
             ..Tally::default()
         }
     );
-    assert_eq!(sweep_symbols(&symbols), 64 + 628);
+    // 30 inadmissible R with c = 0- and charged a, -0.0 in TensorKitSectors.
+    assert_eq!(sweep_symbols(&symbols), (64 + 628 + 30, 30));
     // Every admissible N not recorded would be a missing channel: the sweep
     // of N over the same labels has exactly the 64 recorded triples.
     let all = small();

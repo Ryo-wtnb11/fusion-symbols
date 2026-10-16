@@ -23,7 +23,7 @@
 | `dim`, scalars | `dim` (l. 107); `fusionscalartype` / `braidingscalartype` `Float64` (l. 110-111) |
 | `Nsymbol`, `Fsymbol`, `Rsymbol`, FS phase | `Nsymbol` (l. 115), `Fsymbol` (l. 125), `Rsymbol` (l. 215), `frobenius_schur_phase` (l. 254); `BraidingStyle(::AbstractIrrep) = Bosonic()` (`irreps.jl` l. 17) |
 | Twist | no override; generic `src/sectors.jl:twist_from_Rsymbol` (l. 647), which is `1` for every label |
-| Measured TKS values | `tests/fixtures/tks_cu1_oracle.jl` → `tests/fixtures/tks-0.3.9-cu1-values.txt` (Julia 1.11.6), compared bit for bit in `tests/cu1_values.rs` |
+| Measured TKS values | `tests/fixtures/tks_cu1_oracle.jl` → `tests/fixtures/tks-0.3.9-cu1-values.txt` (Julia 1.11.6, signed zeros recorded), compared bit for bit in `tests/cu1_values.rs`; every nonzero value is identical. Deliberate deviation: TKS `Rsymbol` gives `-0.0` on inadmissible `R^{ab}_{0-}` with charged `a` (`-convert(Float64, N)`, `N = 0`; 30 tuples over the fixture labels), this crate `+0.0` (the crate-wide exact-zero contract, as symtn) |
 | Ported implementation | [symtn](https://github.com/Ryo-wtnb11/symtn-rs) `symtn-sectors/src/cu1.rs` at `2a6c152315bb271dc5e56b5f1f034ca818ef999d`; every value bit-identical (`tests/cu1_values.rs`). Deliberate differences: labels span the full `u32` (symtn's codec stops at `u32::MAX - 1`, which symtn validates itself), so the 6 recorded fusions summing to exactly `u32::MAX` succeed here; and `N` is exact everywhere (symtn's checked N fails above its bound). Only `CU1Irrep::fusion`, which must produce the labels, reports an overflow, above `u32::MAX` |
 
 ## Closed-form Fibonacci (`fibonacci` module)

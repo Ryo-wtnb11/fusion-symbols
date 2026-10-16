@@ -17,7 +17,11 @@
 //! Scalars are `f64`, as TensorKitSectors' `fusionscalartype` and
 //! `braidingscalartype` (`Float64`). The values reproduce bit for bit those of
 //! the provider this was ported from, symtn `symtn-sectors/src/cu1.rs`, and
-//! those measured from TensorKitSectors (`tests/cu1_values.rs`).
+//! every nonzero value measured from TensorKitSectors (`tests/cu1_values.rs`).
+//! One deliberate signed-zero difference: TensorKitSectors' `Rsymbol` returns
+//! `-0.0` for an inadmissible `R^{ab}_{0-}` with charged `a` (it negates the
+//! zero `N`); here every inadmissible symbol is `+0.0`, as in symtn and the
+//! other families of this crate.
 //!
 //! Label domain: `twice_charge = 2j` is any `u32`. A consumer whose own
 //! encoding is narrower (symtn's sector codec stops at `u32::MAX - 1`)

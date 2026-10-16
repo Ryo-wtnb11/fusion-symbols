@@ -1,7 +1,7 @@
 # Prints TensorKitSectors' CU1Irrep data on the labels 0+, 0-, j = 1/2..5/2,
 # keyed `twice(j):s`: dual, dim, FS phase/indicator, twist per label; fusion
-# channels and every nonzero Nsymbol / Rsymbol / Fsymbol over all tuples, as
-# IEEE-754 bits. Run with TensorKitSectors 0.3.9 in the active
+# channels and every nonzero Nsymbol, and every Rsymbol / Fsymbol whose bits
+# are not +0.0 (so signed zeros are recorded), over all tuples, as IEEE-754 bits. Run with TensorKitSectors 0.3.9 in the active
 # project: `julia tks_cu1_oracle.jl > tks-0.3.9-cu1-values.txt`.
 using TensorKitSectors; const T = TensorKitSectors
 using TensorKitSectors: CU1Irrep, HalfInt, twice
@@ -23,9 +23,9 @@ for a in vs, b in vs, c in vs
     n = Nsymbol(a, b, c)
     n != 0 && println("N ", lab(a), " ", lab(b), " ", lab(c), " ", Int(n))
     r = Rsymbol(a, b, c)
-    r != 0 && println("R ", lab(a), " ", lab(b), " ", lab(c), " ", bits(r))
+    (!iszero(r) || signbit(r)) && println("R ", lab(a), " ", lab(b), " ", lab(c), " ", bits(r))
 end
 for a in vs, b in vs, c in vs, d in vs, e in vs, f in vs
     x = Fsymbol(a, b, c, d, e, f)
-    x != 0 && println("F ", join(map(lab, (a, b, c, d, e, f)), " "), " ", bits(x))
+    (!iszero(x) || signbit(x)) && println("F ", join(map(lab, (a, b, c, d, e, f)), " "), " ", bits(x))
 end
