@@ -1,0 +1,14 @@
+[package]
+name = "extract-symtn-abelian"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "extract-symtn-abelian"
+path = "extract_symtn_abelian.rs"
+
+[dependencies]
+symtn-sectors = { path = "../symtn/symtn-sectors" }
