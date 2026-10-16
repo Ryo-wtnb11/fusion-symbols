@@ -7,6 +7,18 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Added
+
+- **Non-Lie fusion categories, first slice (symtn #2016):**
+  `fibonacci` (closed form, TensorKitSectors `FibonacciAnyon`) and
+  `category_data` (`CategoryDataFibonacci`, tables generated offline from the
+  exact symbols of the AnyonWiki database at `badbfe2`, correctly rounded to
+  binary64, with provenance and a byte-bound fingerprint; cross-checked
+  against smallRankUnitaryFusionData and CategoryData.jl). Both follow the `su2` per-family convention and
+  TensorKitSectors index order and gauge; values are bit-identical to the
+  implementations ported from symtn at `957ccc05`. New
+  dependency: `num-complex` 0.4.
+
 ### Changed
 
 - **Renamed `racah` → `fusion-symbols`** (lib `fusion_symbols`), and the

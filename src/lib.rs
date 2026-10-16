@@ -34,6 +34,23 @@
 //! | SO(N), Spin(N), Sp(2r) — generator bootstrap, B/C/D series | [`bcd`] (`cgc-gen`) |
 //! | Which highest weights a global form admits | [`group`] |
 //! | Cache ceilings, budgets, statistics | [`cache`] |
+//! | Fibonacci anyons in closed form (TensorKitSectors `FibonacciAnyon`) | [`fibonacci`] |
+//! | Fibonacci from pinned AnyonWiki tables (exact symbols, correctly rounded) | [`category_data`] |
+//!
+//! # Non-Lie families
+//!
+//! Finite fusion categories have finite data, so their modules are closed
+//! forms or pinned, provenance-tracked tables, never a runtime construction,
+//! and need no feature flag. They follow the same per-family convention as
+//! [`su2`]: a label type with `dim` / `dual` / `frobenius_schur` / `twist` /
+//! `fusion`; `nsymbol` / `f_symbol` / `r_symbol` returning exact zero for an
+//! inadmissible request, plus `_checked` variants with a typed
+//! `NotAdmissible` error; and an opaque authority fingerprint. Index order,
+//! gauge and scalar types follow TensorKitSectors.jl (`F^{abc}_d[e, f]` with
+//! `e ∈ a ⊗ b`, `f ∈ b ⊗ c`; `R^{ab}_c`); braided values are
+//! [`num_complex::Complex64`]. The closed-form and table Fibonacci providers
+//! agree to a few ULP, not bitwise, and carry different fingerprints.
+//! Provenance: [`docs/references_categories.md`].
 //!
 //! # Layers
 //!
@@ -89,6 +106,7 @@
 //! [guide-resources]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/user-guide/resources.md
 //! [`docs/theory.pdf`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/theory.pdf
 //! [`docs/references.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/references.md
+//! [`docs/references_categories.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/references_categories.md
 //! [`docs/gauge.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/gauge.md
 //! [`docs/gauge_soN.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/gauge_soN.md
 #![warn(missing_docs)]
@@ -228,6 +246,16 @@ pub mod bcd;
 // per-family; only the block types (`FBlock`/`RBlock`) are re-exported.
 #[cfg(feature = "cgc-gen")]
 mod frcore;
+
+// ponytail: no provider trait across families. Each family is a module with
+// the same function names (as su2/sun/bcd already are); a trait is introduced
+// when the Deligne-product slice needs to be generic over its factor
+// categories.
+
+// Module docs are the files' inner `//!` docs: an outer `///` here would make
+// rustdoc resolve their intra-doc links in the crate-root scope.
+pub mod category_data;
+pub mod fibonacci;
 
 pub use exact::SignedSqrtRational;
 pub use su2::{
