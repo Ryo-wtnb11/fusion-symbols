@@ -22,8 +22,10 @@ cover the Lie-group families.
 The first families are the compact Lie groups — Racah–Wigner calculus:
 irreducible representations, Clebsch–Gordan coefficients, and recoupling
 coefficients (3j / 6j / F / R) for SU(2), SU(N), SO(N), and Sp(2N). Non-Lie
-fusion categories (Fibonacci, pinned CategoryData.jl tables, then abelian
-groups and Deligne products) are added as further top-level modules.
+fusion categories sit beside them as their own top-level modules: Fibonacci in
+closed form and from pinned AnyonWiki tables now, abelian groups
+(with fermion parity) and Deligne products next. The first consumer is
+[symtn](https://github.com/Ryo-wtnb11/symtn-rs).
 
 Coefficients for any admissible labels are computed on demand — exactly for
 SU(2), and through a deterministically gauged, verification-gated numerical
@@ -40,6 +42,25 @@ answer.
 | SU(N), SU(N)/Z_k, PSU(N) | `fusion_symbols::sun` | `cgc-gen` | `N-1` Dynkin labels |
 | SO(N), Spin(N) | `fusion_symbols::bcd` (series `B`, `D`) | `cgc-gen` | `r` Dynkin labels |
 | Sp(2r) | `fusion_symbols::bcd` (series `C`) | `cgc-gen` | `r` Dynkin labels |
+| Fibonacci (closed form) | `fusion_symbols::fibonacci` | *(default)* | `FibonacciObject::{Vacuum, Tau}` |
+| Fibonacci (AnyonWiki table) | `fusion_symbols::tables` | *(default)* | one-based `TableObject(1..=2)` |
+
+The non-Lie modules follow the `su2` conventions (label methods `dim` / `dual`
+/ `frobenius_schur` / `twist` / `fusion`; `nsymbol` / `f_symbol` /
+`r_symbol` with `_checked` variants; an authority fingerprint) and
+TensorKitSectors index order, gauge and scalar types; R-symbols and twists are
+`num_complex::Complex64`. Their provenance is in
+[`docs/references_categories.md`](docs/references_categories.md).
+
+The `tables` tables come from the
+[AnyonWiki](https://anyonwiki.org/) database
+([`anyonwiki/AnyonWikiDatabase`](https://github.com/anyonwiki/AnyonWikiDatabase),
+MIT, commit `badbfe2`), which stores every symbol exactly as an algebraic
+number. An offline generator (`tools/anyonwiki/gen_category_tables.py`) rounds
+each one correctly to binary64; the crate ships that output and parses it, with
+no runtime dependency. The shipped Fibonacci entry has TensorKit's gauge and
+braiding (`R^{ττ}_𝟙 = e^{+4πi/5}`), and it is cross-checked bit for bit
+against `JCBridgeman/smallRankUnitaryFusionData` and CategoryData.jl.
 
 ## What fusion-symbols computes
 
@@ -264,6 +285,15 @@ If you use fusion-symbols in academic work, please cite it
   license = {MIT OR Apache-2.0}
 }
 ```
+
+If you use the `tables` tables, please also cite the sources the
+AnyonWiki database asks for: G. Vercleyen, *On Low-Rank Multiplicity-Free
+Fusion Categories*, [arXiv:2405.20075](https://arxiv.org/abs/2405.20075)
+(published as [doi:10.1007/s00220-026-05705-2](https://doi.org/10.1007/s00220-026-05705-2)),
+for fusion-category data, and G. Vercleyen and J. K. Slingerland, *On low rank
+fusion rings*, J. Math. Phys. 64, 091703 (2023),
+[doi:10.1063/5.0148848](https://doi.org/10.1063/5.0148848), for fusion-ring
+data.
 
 A DOI will be added once a release is archived on Zenodo.
 

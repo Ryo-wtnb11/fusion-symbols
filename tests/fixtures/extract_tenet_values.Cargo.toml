@@ -1,0 +1,12 @@
+[package]
+name = "extract-tenet-fibonacci"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+num-complex = "0.4"
+tenet-sectors = { path = "../tenet/tenet-sectors" }
+tenet-category-data = { path = "../tenet/tenet-category-data" }
