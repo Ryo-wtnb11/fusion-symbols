@@ -38,7 +38,8 @@ non-trivial change.
    them. A change that moves a coefficient value is a bug unless it ships as a
    specification correction — spec edit, fingerprint `epoch` bump, CHANGELOG
    breaking-change entry, regenerated `tests/gauge_golden.rs` values, one PR
-   (`docs/gauge.md`, "Status").
+   (`docs/gauge.md`, "Status"). Fingerprint strings keep their `racah:` prefix
+   permanently (identifiers); never rename it.
 5. Floating-point stages verification-gated: orthogonality, unitarity,
    pentagon/hexagon checks run at generation time; violations are typed
    errors, never silently degraded coefficients.

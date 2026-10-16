@@ -14,7 +14,7 @@
 //! evaluation that produces the [`crate::tables`] data
 //! (`tools/anyonwiki/gen_category_tables.py`, `tests/fixtures/anyonwiki-fibonacci-check.txt`).
 //! Why not `cispi`/`from_polar`: their bits depend on the platform's libm, and
-//! TensorKitSectors' own `cispi` is itself up to 3 ulp from the exact value.
+//! TensorKitSectors' own `cispi` is itself up to 2 ulp from the exact value.
 //! Correctly rounded literals make the result platform-independent and equal
 //! to the table provider's R bit for bit.
 //!
