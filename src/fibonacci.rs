@@ -1,20 +1,36 @@
 //! The Fibonacci category in closed form: objects `𝟙` and `τ` with
 //! `τ ⊗ τ = 𝟙 ⊕ τ`.
 //!
-//! Every value is a verbatim port of TensorKitSectors.jl 0.3.9
+//! Every value follows the formulas of TensorKitSectors.jl 0.3.9
 //! `src/anyons.jl` (`FibonacciAnyon`: `dim`, `Nsymbol`, `Fsymbol`, `Rsymbol`)
 //! and of its generic `src/sectors.jl` derivations for the quantities
-//! `FibonacciAnyon` does not override (`frobenius_schur_phase`, `twist`). The
-//! expressions are also exactly those of symtn's
-//! `tenet-sectors/src/fibonacci.rs`, so the two agree bit for bit
-//! (`tests/tenet_values.rs`). Never "simplify" a sign or phase here without
-//! rereading those sources.
+//! `FibonacciAnyon` does not override (`frobenius_schur_phase`, `twist`).
+//! Never "simplify" a sign or phase here without rereading those sources.
+//!
+//! Same formulas, not always the same bits. `dim` and F use TensorKitSectors'
+//! own expressions (`(1+√5)/2`, `1/φ`, `1/√φ`) and match its values bit for bit.
+//! The complex phases R and twist are the correctly rounded binary64 values
+//! of `e^{4πi/5}`, `e^{-3πi/5}`, `e^{-4πi/5}`, from the same offline mpmath
+//! evaluation that produces the [`crate::tables`] data
+//! (`tools/anyonwiki/gen_category_tables.py`, `tests/fixtures/anyonwiki-fibonacci-check.txt`).
+//! Why not `cispi`/`from_polar`: their bits depend on the platform's libm, and
+//! TensorKitSectors' own `cispi` is itself up to 3 ulp from the exact value.
+//! Correctly rounded literals make the result platform-independent and equal
+//! to the table provider's R bit for bit.
 //!
 //! Scalar types follow TensorKitSectors: `fusionscalartype = Float64` (so F,
 //! dimensions and the Frobenius–Schur phase are `f64`) and
 //! `braidingscalartype = ComplexF64` (R and twist are [`Complex64`]).
 
 use num_complex::Complex64;
+
+// Correctly rounded binary64 constants (mpmath, 80 digits confirmed at 160;
+// `tests/fixtures/anyonwiki-fibonacci-check.txt` rows `R 2 2 1`, `R 2 2 2`,
+// `T 2`). `e^{-4πi/5}` is the conjugate of `e^{4πi/5}`, so its correct
+// rounding is the conjugate of that one.
+const R_TAU_TAU_UNIT: Complex64 = Complex64::new(-0.8090169943749475, 0.5877852522924731);
+const R_TAU_TAU_TAU: Complex64 = Complex64::new(-0.30901699437494745, -0.9510565162951535);
+const THETA_TAU: Complex64 = Complex64::new(-0.8090169943749475, -0.5877852522924731);
 
 /// A simple object of the Fibonacci category.
 ///
@@ -65,11 +81,12 @@ impl FibonacciObject {
     /// TensorKitSectors has no `FibonacciAnyon` override, so it evaluates the
     /// generic `sectors.jl:twist_from_Rsymbol`,
     /// `θ_a = Σ_{b ∈ a⊗a} d_b/d_a · R^{aa}_b`. For `τ` that is
-    /// `(1/φ)·e^{4πi/5} + e^{-3πi/5} = e^{-4πi/5}`.
+    /// `(1/φ)·e^{4πi/5} + e^{-3πi/5} = e^{-4πi/5}`, returned correctly
+    /// rounded (it is AnyonWiki's twist `θ = -2/5`, `e^{2πiθ}`).
     pub fn twist(self) -> Complex64 {
         match self {
             Vacuum => Complex64::new(1.0, 0.0),
-            Tau => Complex64::from_polar(1.0, std::f64::consts::PI * -4.0 / 5.0),
+            Tau => THETA_TAU,
         }
     }
 
@@ -144,7 +161,7 @@ fn check_vertex(
 
 /// F-symbol `F^{abc}_d[e, f]`; exact `0.0` when a vertex is inadmissible.
 ///
-/// Verbatim `anyons.jl:Fsymbol`: four `Nsymbol` gates, then the one
+/// `anyons.jl:Fsymbol`: four `Nsymbol` gates, then the one
 /// nontrivial block `F^{τττ}_τ = [1/φ, 1/√φ; 1/√φ, -1/φ]` (rows `e`, columns
 /// `f`, `𝟙` before `τ`); every other admissible entry is `1`.
 pub fn fibonacci_f_symbol(
@@ -186,8 +203,9 @@ pub fn fibonacci_f_symbol_checked(
 
 /// R-symbol `R^{ab}_c`; exact zero when `N^{ab}_c = 0`.
 ///
-/// Verbatim `anyons.jl:Rsymbol`: `1` when either input is `𝟙`,
-/// `R^{ττ}_𝟙 = e^{4πi/5}`, `R^{ττ}_τ = e^{-3πi/5}`.
+/// `anyons.jl:Rsymbol`: `1` when either input is `𝟙`,
+/// `R^{ττ}_𝟙 = e^{4πi/5}`, `R^{ττ}_τ = e^{-3πi/5}`, correctly rounded (see
+/// the module docs).
 pub fn fibonacci_r_symbol(a: FibonacciObject, b: FibonacciObject, c: FibonacciObject) -> Complex64 {
     fibonacci_r_symbol_checked(a, b, c).unwrap_or(Complex64::new(0.0, 0.0))
 }
@@ -201,8 +219,8 @@ pub fn fibonacci_r_symbol_checked(
 ) -> Result<Complex64, FibonacciError> {
     check_vertex(a, b, c)?;
     Ok(match (a, b, c) {
-        (Tau, Tau, Vacuum) => Complex64::from_polar(1.0, std::f64::consts::PI * 4.0 / 5.0),
-        (Tau, Tau, Tau) => Complex64::from_polar(1.0, std::f64::consts::PI * -3.0 / 5.0),
+        (Tau, Tau, Vacuum) => R_TAU_TAU_UNIT,
+        (Tau, Tau, Tau) => R_TAU_TAU_TAU,
         _ => Complex64::new(1.0, 0.0),
     })
 }
@@ -213,10 +231,11 @@ pub fn fibonacci_r_symbol_checked(
 /// Same contract as [`crate::su2_authority_fingerprint`]: compare by equality
 /// only, never parse; the trailing epoch is bumped by hand exactly when a
 /// returned value, normalization or convention changes. It deliberately
-/// differs from [`crate::category_data::CategoryDataFibonacci::authority_fingerprint`]:
-/// the two providers return different floating-point numbers.
+/// differs from [`crate::tables::FibonacciTable::authority_fingerprint`]:
+/// the two providers share their R bits but not their F, dimension and
+/// twist bits.
 pub fn fibonacci_authority_fingerprint() -> &'static [u8] {
-    b"fusion-symbols:fibonacci-closed-form:n=tks-anyons:f=tks-anyons:r=tks-anyons:dim=tks-golden:fs=tks-fsymbol-sign:twist=tks-rsymbol-sum:epoch=1"
+    b"fusion-symbols:fibonacci-closed-form:n=tks-anyons:f=tks-anyons:r=tks-anyons-correctly-rounded:dim=tks-golden:fs=tks-fsymbol-sign:twist=tks-rsymbol-sum-correctly-rounded:epoch=1"
 }
 
 #[cfg(test)]
@@ -225,14 +244,21 @@ mod tests {
 
     const OBJECTS: [FibonacciObject; 2] = [Vacuum, Tau];
 
-    fn cispi(x: f64) -> Complex64 {
-        Complex64::from_polar(1.0, std::f64::consts::PI * x)
+    /// Signed distance in representable `f64`s.
+    fn ulps(a: f64, b: f64) -> u64 {
+        let key = |x: f64| {
+            let bits = x.to_bits() as i64;
+            if bits < 0 {
+                i64::MIN - bits
+            } else {
+                bits
+            }
+        };
+        key(a).abs_diff(key(b))
     }
 
-    /// The closed-form irrationals admit more than one evaluation order, so
-    /// they meet the TensorKitSectors closed forms within a few ulp, not bit
-    /// for bit. Bit identity with the ported implementation is
-    /// `tests/tenet_values.rs`.
+    /// Derived values combine several roundings, so they meet the provider's
+    /// own closed forms within a few ulp, not bit for bit.
     fn assert_close(what: &str, actual: Complex64, expected: Complex64) {
         let error = (actual - expected).norm();
         assert!(
@@ -241,35 +267,77 @@ mod tests {
         );
     }
 
+    /// TensorKitSectors 0.3.9 (`~/.julia/packages/TensorKitSectors/VuA9Z`,
+    /// Julia 1.11.6), measured: `repr` of `dim`, `Fsymbol`, `Rsymbol` and
+    /// `twist` for `FibonacciAnyon`. F and dim are TensorKitSectors' exact
+    /// bits; its `cispi` phases are within 4 ulp of the correctly rounded
+    /// values returned here.
     #[test]
-    fn matches_tensorkitsectors_closed_forms() {
-        let phi = (1.0 + 5.0_f64.sqrt()) / 2.0;
+    fn matches_measured_tensorkitsectors_values() {
+        let tks: [(&str, Complex64, Complex64, u64); 7] = [
+            (
+                "dim(τ)",
+                Tau.dim().into(),
+                Complex64::new(1.618033988749895, 0.0),
+                0,
+            ),
+            (
+                "F(τττ;τ)[1,1]",
+                fibonacci_f_symbol(Tau, Tau, Tau, Tau, Vacuum, Vacuum).into(),
+                Complex64::new(0.6180339887498948, 0.0),
+                0,
+            ),
+            (
+                "F(τττ;τ)[1,τ]",
+                fibonacci_f_symbol(Tau, Tau, Tau, Tau, Vacuum, Tau).into(),
+                Complex64::new(0.7861513777574233, 0.0),
+                0,
+            ),
+            (
+                "F(τττ;τ)[τ,τ]",
+                fibonacci_f_symbol(Tau, Tau, Tau, Tau, Tau, Tau).into(),
+                Complex64::new(-0.6180339887498948, 0.0),
+                0,
+            ),
+            (
+                "R(τ,τ,1)",
+                fibonacci_r_symbol(Tau, Tau, Vacuum),
+                Complex64::new(-0.8090169943749476, 0.587785252292473),
+                4,
+            ),
+            (
+                "R(τ,τ,τ)",
+                fibonacci_r_symbol(Tau, Tau, Tau),
+                Complex64::new(-0.30901699437494734, -0.9510565162951536),
+                4,
+            ),
+            (
+                "twist(τ)",
+                Tau.twist(),
+                Complex64::new(-0.8090169943749473, -0.5877852522924734),
+                4,
+            ),
+        ];
+        for (what, got, want, bound) in tks {
+            assert!(
+                ulps(got.re, want.re) <= bound && ulps(got.im, want.im) <= bound,
+                "{what}: {got} vs TensorKitSectors {want}"
+            );
+        }
         assert_eq!(Vacuum.fusion(Tau), &[Tau]);
         assert_eq!(Tau.fusion(Vacuum), &[Tau]);
         assert_eq!(Tau.fusion(Tau), &[Vacuum, Tau]);
         assert_eq!(fibonacci_nsymbol(Vacuum, Vacuum, Tau), 0);
-        for (e, f, expected) in [
-            (Vacuum, Vacuum, 1.0 / phi),
-            (Vacuum, Tau, 1.0 / phi.sqrt()),
-            (Tau, Vacuum, 1.0 / phi.sqrt()),
-            (Tau, Tau, -1.0 / phi),
-        ] {
-            assert_close(
-                "F(τ,τ,τ,τ)",
-                fibonacci_f_symbol(Tau, Tau, Tau, Tau, e, f).into(),
-                expected.into(),
-            );
-        }
+        assert_eq!(
+            fibonacci_f_symbol(Tau, Tau, Tau, Tau, Tau, Vacuum),
+            fibonacci_f_symbol(Tau, Tau, Tau, Tau, Vacuum, Tau)
+        );
         assert_eq!(fibonacci_f_symbol(Vacuum, Tau, Tau, Tau, Tau, Tau), 1.0);
         assert_eq!(fibonacci_f_symbol(Tau, Vacuum, Tau, Tau, Tau, Tau), 1.0);
         assert_eq!(
             fibonacci_f_symbol(Vacuum, Vacuum, Vacuum, Tau, Vacuum, Vacuum),
             0.0
         );
-        assert_close("R(τ,τ,1)", fibonacci_r_symbol(Tau, Tau, Vacuum), cispi(0.8));
-        assert_close("R(τ,τ,τ)", fibonacci_r_symbol(Tau, Tau, Tau), cispi(-0.6));
-        assert_close("dim(τ)", Tau.dim().into(), phi.into());
-        assert_close("twist(τ)", Tau.twist(), cispi(-0.8));
         assert_eq!(Vacuum.frobenius_schur(), 1.0);
         assert_eq!(Tau.frobenius_schur(), 1.0);
     }

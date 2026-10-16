@@ -23,7 +23,7 @@
 //!
 //! Every upstream pin, hash, gauge statement and the source-to-`Complex64`
 //! conversion epoch is tabulated in the crate's `docs/references_categories.md`; the
-//! machine-readable form is [`CategoryProvenance`].
+//! machine-readable form is [`TableProvenance`].
 //!
 //! # Relationship to the closed-form Fibonacci
 //!
@@ -37,8 +37,8 @@ use num_complex::Complex64;
 mod provenance;
 mod table;
 
-pub use provenance::{CategoryProvenance, PROJECTION_EPOCH};
-pub use table::{CategoryDataError, CategoryObject};
+pub use provenance::{TableProvenance, PROJECTION_EPOCH};
+pub use table::{TableError, TableObject};
 
 use table::MultiplicityFreeTable;
 
@@ -56,28 +56,28 @@ const R_TEXT: &str = include_str!("../data/anyonwiki-badbfe2/fibonacci/R.txt");
 /// ring `2_1_0_2`, associator 1, braiding 2, pivotal 1), in the source gauge.
 /// Its braiding is TensorKit's: `R^{ττ}_𝟙 = e^{+4πi/5}`.
 ///
-/// Objects are the one-based [`CategoryObject`] labels of the source files:
-/// `CategoryObject(1)` is the unit `𝟙`, `CategoryObject(2)` is `τ`. Index
+/// Objects are the one-based [`TableObject`] labels of the source files:
+/// `TableObject(1)` is the unit `𝟙`, `TableObject(2)` is `τ`. Index
 /// order follows TensorKitSectors: `F^{abc}_d[e, f]`, `R^{ab}_c`.
 ///
 /// The infallible queries take labels by precondition and panic on a label
 /// outside `1..=rank` (a flat table cannot tell an out-of-range label from
 /// another entry); an in-range inadmissible symbol is exact zero. The
-/// `_checked` variants return [`CategoryDataError`] instead.
+/// `_checked` variants return [`TableError`] instead.
 ///
 /// # Examples
 ///
 /// ```
-/// use fusion_symbols::category_data::{CategoryDataFibonacci, CategoryObject};
+/// use fusion_symbols::tables::{FibonacciTable, TableObject};
 ///
-/// let fib = CategoryDataFibonacci::try_new()?;
-/// let tau = CategoryObject(2);
+/// let fib = FibonacciTable::try_new()?;
+/// let tau = TableObject(2);
 /// assert_eq!(fib.fusion(tau, tau).count(), 2);
 /// assert!((fib.dim(tau) - (1.0 + 5f64.sqrt()) / 2.0).abs() < 1e-15);
-/// # Ok::<(), fusion_symbols::category_data::CategoryDataError>(())
+/// # Ok::<(), fusion_symbols::tables::TableError>(())
 /// ```
 #[derive(Debug)]
-pub struct CategoryDataFibonacci {
+pub struct FibonacciTable {
     table: MultiplicityFreeTable,
     // Derived once at construction from F and R only, exactly as
     // TensorKitSectors 0.3.9 derives them (docs/references_categories.md, "Derived
@@ -88,9 +88,9 @@ pub struct CategoryDataFibonacci {
     fingerprint: Vec<u8>,
 }
 
-impl CategoryDataFibonacci {
+impl FibonacciTable {
     /// The frozen lineage of this provider's tables.
-    pub const PROVENANCE: CategoryProvenance = CategoryProvenance {
+    pub const PROVENANCE: TableProvenance = TableProvenance {
         source_repository: "https://github.com/anyonwiki/AnyonWikiDatabase",
         source_commit: "badbfe299dd533c12a84e817f5890059705e0a3c",
         source_license: "MIT, Copyright (c) 2026 AnyonWiki",
@@ -111,11 +111,11 @@ impl CategoryDataFibonacci {
     ///
     /// # Errors
     ///
-    /// Returns an import [`CategoryDataError`] if the embedded tables do not
+    /// Returns an import [`TableError`] if the embedded tables do not
     /// parse or violate an exact `N` axiom. For the shipped data this cannot
     /// happen; the constructor is fallible because it is the import boundary,
     /// and the crate's tests are what hold that invariant.
-    pub fn try_new() -> Result<Self, CategoryDataError> {
+    pub fn try_new() -> Result<Self, TableError> {
         let table = MultiplicityFreeTable::parse(RANK, N_TEXT, F_TEXT, R_TEXT)?;
 
         let unit_f = |a: usize| table.fsymbol(a, table.dual(a), a, a, 0, 0);
@@ -150,13 +150,13 @@ impl CategoryDataFibonacci {
     }
 
     /// The category's objects in the frozen source order.
-    pub fn objects(&self) -> impl Iterator<Item = CategoryObject> {
-        (1..=self.table.rank() as u16).map(CategoryObject)
+    pub fn objects(&self) -> impl Iterator<Item = TableObject> {
+        (1..=self.table.rank() as u16).map(TableObject)
     }
 
-    /// The tensor unit, `CategoryObject(1)`.
-    pub fn unit(&self) -> CategoryObject {
-        CategoryObject(1)
+    /// The tensor unit, `TableObject(1)`.
+    pub fn unit(&self) -> TableObject {
+        TableObject(1)
     }
 
     /// Opaque authority fingerprint: the provenance record plus the three
@@ -174,7 +174,7 @@ impl CategoryDataFibonacci {
     /// # Panics
     ///
     /// If `a` is not an object of the category.
-    pub fn dim(&self, a: CategoryObject) -> f64 {
+    pub fn dim(&self, a: TableObject) -> f64 {
         self.dims[index_or_panic("dim", a)]
     }
 
@@ -183,7 +183,7 @@ impl CategoryDataFibonacci {
     /// # Panics
     ///
     /// If `a` is not an object of the category.
-    pub fn dual(&self, a: CategoryObject) -> CategoryObject {
+    pub fn dual(&self, a: TableObject) -> TableObject {
         object(self.table.dual(index_or_panic("dual", a)))
     }
 
@@ -192,7 +192,7 @@ impl CategoryDataFibonacci {
     /// # Panics
     ///
     /// If `a` is not an object of the category.
-    pub fn frobenius_schur(&self, a: CategoryObject) -> Complex64 {
+    pub fn frobenius_schur(&self, a: TableObject) -> Complex64 {
         self.frobenius_schur[index_or_panic("frobenius_schur", a)]
     }
 
@@ -201,7 +201,7 @@ impl CategoryDataFibonacci {
     /// # Panics
     ///
     /// If `a` is not an object of the category.
-    pub fn twist(&self, a: CategoryObject) -> Complex64 {
+    pub fn twist(&self, a: TableObject) -> Complex64 {
         self.twists[index_or_panic("twist", a)]
     }
 
@@ -211,11 +211,7 @@ impl CategoryDataFibonacci {
     /// # Panics
     ///
     /// If `a` or `b` is not an object of the category.
-    pub fn fusion(
-        &self,
-        a: CategoryObject,
-        b: CategoryObject,
-    ) -> impl Iterator<Item = CategoryObject> + '_ {
+    pub fn fusion(&self, a: TableObject, b: TableObject) -> impl Iterator<Item = TableObject> + '_ {
         self.table
             .channels(index_or_panic("fusion", a), index_or_panic("fusion", b))
             .map(object)
@@ -226,7 +222,7 @@ impl CategoryDataFibonacci {
     /// # Panics
     ///
     /// If a label is not an object of the category.
-    pub fn nsymbol(&self, a: CategoryObject, b: CategoryObject, c: CategoryObject) -> u32 {
+    pub fn nsymbol(&self, a: TableObject, b: TableObject, c: TableObject) -> u32 {
         let i = |x| index_or_panic("nsymbol", x);
         self.table.nsymbol(i(a), i(b), i(c))
     }
@@ -239,12 +235,12 @@ impl CategoryDataFibonacci {
     #[allow(clippy::too_many_arguments)]
     pub fn f_symbol(
         &self,
-        a: CategoryObject,
-        b: CategoryObject,
-        c: CategoryObject,
-        d: CategoryObject,
-        e: CategoryObject,
-        f: CategoryObject,
+        a: TableObject,
+        b: TableObject,
+        c: TableObject,
+        d: TableObject,
+        e: TableObject,
+        f: TableObject,
     ) -> Complex64 {
         let i = |x| index_or_panic("f_symbol", x);
         self.table.fsymbol(i(a), i(b), i(c), i(d), i(e), i(f))
@@ -255,13 +251,13 @@ impl CategoryDataFibonacci {
     #[allow(clippy::too_many_arguments)]
     pub fn f_symbol_checked(
         &self,
-        a: CategoryObject,
-        b: CategoryObject,
-        c: CategoryObject,
-        d: CategoryObject,
-        e: CategoryObject,
-        f: CategoryObject,
-    ) -> Result<Complex64, CategoryDataError> {
+        a: TableObject,
+        b: TableObject,
+        c: TableObject,
+        d: TableObject,
+        e: TableObject,
+        f: TableObject,
+    ) -> Result<Complex64, TableError> {
         for x in [a, b, c, d, e, f] {
             index(x)?;
         }
@@ -276,7 +272,7 @@ impl CategoryDataFibonacci {
     /// # Panics
     ///
     /// If a label is not an object of the category.
-    pub fn r_symbol(&self, a: CategoryObject, b: CategoryObject, c: CategoryObject) -> Complex64 {
+    pub fn r_symbol(&self, a: TableObject, b: TableObject, c: TableObject) -> Complex64 {
         let i = |x| index_or_panic("r_symbol", x);
         self.table.rsymbol(i(a), i(b), i(c))
     }
@@ -285,10 +281,10 @@ impl CategoryDataFibonacci {
     /// an inadmissible vertex instead of a panic or a zero.
     pub fn r_symbol_checked(
         &self,
-        a: CategoryObject,
-        b: CategoryObject,
-        c: CategoryObject,
-    ) -> Result<Complex64, CategoryDataError> {
+        a: TableObject,
+        b: TableObject,
+        c: TableObject,
+    ) -> Result<Complex64, TableError> {
         for x in [a, b, c] {
             index(x)?;
         }
@@ -298,12 +294,12 @@ impl CategoryDataFibonacci {
 
     fn check_vertex(
         &self,
-        left: CategoryObject,
-        right: CategoryObject,
-        coupled: CategoryObject,
-    ) -> Result<(), CategoryDataError> {
+        left: TableObject,
+        right: TableObject,
+        coupled: TableObject,
+    ) -> Result<(), TableError> {
         if self.nsymbol(left, right, coupled) == 0 {
-            Err(CategoryDataError::NotAdmissible {
+            Err(TableError::NotAdmissible {
                 left,
                 right,
                 coupled,
@@ -317,7 +313,7 @@ impl CategoryDataFibonacci {
 /// The exact byte composition of the authority fingerprint.
 fn fingerprint_bytes(n_text: &str, f_text: &str, r_text: &str) -> Vec<u8> {
     let mut bytes = Vec::new();
-    CategoryDataFibonacci::PROVENANCE.write_canonical_bytes(&mut bytes);
+    FibonacciTable::PROVENANCE.write_canonical_bytes(&mut bytes);
     // The source text, not a re-serialisation of the parsed f64s, which would
     // hide a parser change behind identical output.
     for (tag, text) in [
@@ -333,20 +329,20 @@ fn fingerprint_bytes(n_text: &str, f_text: &str, r_text: &str) -> Vec<u8> {
     bytes
 }
 
-fn object(index: usize) -> CategoryObject {
-    CategoryObject(index as u16 + 1)
+fn object(index: usize) -> TableObject {
+    TableObject(index as u16 + 1)
 }
 
-fn index(a: CategoryObject) -> Result<usize, CategoryDataError> {
+fn index(a: TableObject) -> Result<usize, TableError> {
     let label = usize::from(a.label());
     if (1..=RANK).contains(&label) {
         Ok(label - 1)
     } else {
-        Err(CategoryDataError::UnknownObject { object: a })
+        Err(TableError::UnknownObject { object: a })
     }
 }
 
-fn index_or_panic(method: &str, a: CategoryObject) -> usize {
+fn index_or_panic(method: &str, a: TableObject) -> usize {
     index(a).unwrap_or_else(|error| panic!("{method} precondition violated: {error}"))
 }
 
@@ -357,29 +353,29 @@ mod tests {
 
     #[test]
     fn embedded_tables_load_and_expose_the_frozen_ordering() {
-        let fib = CategoryDataFibonacci::try_new().expect("embedded tables are valid");
+        let fib = FibonacciTable::try_new().expect("embedded tables are valid");
         assert_eq!(
             fib.objects().collect::<Vec<_>>(),
-            vec![CategoryObject(1), CategoryObject(2)]
+            vec![TableObject(1), TableObject(2)]
         );
-        assert_eq!(fib.unit(), CategoryObject(1));
+        assert_eq!(fib.unit(), TableObject(1));
     }
 
     #[test]
     fn fingerprint_is_reproducible_and_epoch_bound() {
-        let first = CategoryDataFibonacci::try_new().expect("valid");
-        let second = CategoryDataFibonacci::try_new().expect("valid");
+        let first = FibonacciTable::try_new().expect("valid");
+        let second = FibonacciTable::try_new().expect("valid");
         assert_eq!(
             first.authority_fingerprint(),
             second.authority_fingerprint()
         );
 
         let mut baseline = Vec::new();
-        CategoryDataFibonacci::PROVENANCE.write_canonical_bytes(&mut baseline);
+        FibonacciTable::PROVENANCE.write_canonical_bytes(&mut baseline);
         let mut bumped = Vec::new();
-        CategoryProvenance {
+        TableProvenance {
             projection_epoch: "other",
-            ..CategoryDataFibonacci::PROVENANCE
+            ..FibonacciTable::PROVENANCE
         }
         .write_canonical_bytes(&mut bumped);
         assert_ne!(baseline, bumped);
@@ -401,14 +397,14 @@ mod tests {
     const N_TEXT_FNV: u64 = 0xaba7_7aa3_3176_9df0;
     const F_TEXT_FNV: u64 = 0x9ade_e873_8a99_da25;
     const R_TEXT_FNV: u64 = 0x75d1_cc53_3d67_65a1;
-    const FINGERPRINT_PREHASH: u64 = 0x3824_c2d7_9405_303b;
+    const FINGERPRINT_PREHASH: u64 = 0x52e5_b6dc_1a15_96c5;
 
     #[test]
     fn shipped_table_bytes_are_pinned() {
         assert_eq!(fnv1a64(N_TEXT.as_bytes()), N_TEXT_FNV, "Nsymbols changed");
         assert_eq!(fnv1a64(F_TEXT.as_bytes()), F_TEXT_FNV, "Fsymbols changed");
         assert_eq!(fnv1a64(R_TEXT.as_bytes()), R_TEXT_FNV, "Rsymbols changed");
-        let provider = CategoryDataFibonacci::try_new().expect("valid");
+        let provider = FibonacciTable::try_new().expect("valid");
         assert_eq!(
             fnv1a64(provider.authority_fingerprint()),
             FINGERPRINT_PREHASH
@@ -420,8 +416,8 @@ mod tests {
         // The other braiding of the same fusion category (AnyonWiki b = 1)
         // has the conjugate R-symbols; TensorKitSectors' `FibonacciAnyon`
         // has R^{ττ}_𝟙 = e^{+4πi/5}.
-        let fib = CategoryDataFibonacci::try_new().expect("valid");
-        let tau = CategoryObject(2);
+        let fib = FibonacciTable::try_new().expect("valid");
+        let tau = TableObject(2);
         let r = fib.r_symbol(tau, tau, fib.unit());
         assert!((r.arg() - 0.8 * std::f64::consts::PI).abs() < 1e-15, "{r}");
     }
@@ -458,7 +454,7 @@ mod tests {
             "the edit moved a coefficient"
         );
 
-        let provider = CategoryDataFibonacci::try_new().expect("valid");
+        let provider = FibonacciTable::try_new().expect("valid");
         assert_eq!(
             fingerprint_bytes(N_TEXT, F_TEXT, R_TEXT),
             provider.authority_fingerprint()

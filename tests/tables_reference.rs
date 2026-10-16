@@ -9,7 +9,7 @@
 //!    CategoryData v0.3.6 / TensorKitSectors v0.3.9
 //!    (`fixtures/generate_fixture.jl`). CategoryData.jl repackages the same
 //!    category (`smallRankUnitaryFusionData`), so this is an independent
-//!    cross-check of the AnyonWiki-sourced tables (`tests/category_anyonwiki.rs`
+//!    cross-check of the AnyonWiki-sourced tables (`tests/tables_anyonwiki.rs`
 //!    checks them against the authority).
 //! 2. **Oracle comparison between the two providers.** The closed form and the
 //!    table are independent implementations of one category and must agree to
@@ -23,16 +23,16 @@
 
 use std::collections::HashMap;
 
-use fusion_symbols::category_data::{CategoryDataError, CategoryDataFibonacci, CategoryObject};
 use fusion_symbols::fibonacci::{
     fibonacci_authority_fingerprint, fibonacci_f_symbol, fibonacci_nsymbol, fibonacci_r_symbol,
     FibonacciObject,
 };
+use fusion_symbols::tables::{FibonacciTable, TableError, TableObject};
 use num_complex::Complex64;
 
 const FIXTURE: &str = include_str!("fixtures/fib-categorydata-v0.1.3.txt");
 
-const OBJECTS: [CategoryObject; 2] = [CategoryObject(1), CategoryObject(2)];
+const OBJECTS: [TableObject; 2] = [TableObject(1), TableObject(2)];
 
 /// Documented absolute bound for every approximate comparison: a fixed
 /// multiple of the unit round-off covering the at most rank-2 sums of triple
@@ -51,11 +51,11 @@ fn assert_close(what: &str, got: Complex64, want: Complex64, terms: usize) {
     );
 }
 
-fn table() -> CategoryDataFibonacci {
-    CategoryDataFibonacci::try_new().expect("the shipped tables load")
+fn table() -> FibonacciTable {
+    FibonacciTable::try_new().expect("the shipped tables load")
 }
 
-fn closed(a: CategoryObject) -> FibonacciObject {
+fn closed(a: TableObject) -> FibonacciObject {
     match a.label() {
         1 => FibonacciObject::Vacuum,
         2 => FibonacciObject::Tau,
@@ -104,7 +104,7 @@ fn fixture() -> HashMap<(String, Vec<u16>), Complex64> {
 fn fixture_value(
     entries: &HashMap<(String, Vec<u16>), Complex64>,
     tag: &str,
-    labels: &[CategoryObject],
+    labels: &[TableObject],
 ) -> Complex64 {
     let key = (tag.to_owned(), labels.iter().map(|a| a.label()).collect());
     *entries
@@ -240,6 +240,29 @@ fn table_and_closed_form_agree_within_the_documented_bound() {
 }
 
 #[test]
+fn table_and_closed_form_r_symbols_are_bit_identical() {
+    // Both are the correctly rounded binary64 values of the same exact
+    // phases (closed form: literals; table: the AnyonWiki projection).
+    let fib = table();
+    for a in OBJECTS {
+        for b in OBJECTS {
+            for c in OBJECTS {
+                let (t, k) = (
+                    fib.r_symbol(a, b, c),
+                    fibonacci_r_symbol(closed(a), closed(b), closed(c)),
+                );
+                assert_eq!(
+                    (t.re.to_bits(), t.im.to_bits()),
+                    (k.re.to_bits(), k.im.to_bits()),
+                    "R{:?}",
+                    (a, b, c)
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn table_and_closed_form_have_different_fingerprints() {
     assert_ne!(
         table().authority_fingerprint(),
@@ -257,12 +280,12 @@ fn table_and_closed_form_have_different_fingerprints() {
 
 /// The provider surface the coherence checks read, over one-based labels.
 trait Symbols {
-    fn n(&self, a: CategoryObject, b: CategoryObject, c: CategoryObject) -> u32;
-    fn f(&self, labels: [CategoryObject; 6]) -> Complex64;
-    fn r(&self, a: CategoryObject, b: CategoryObject, c: CategoryObject) -> Complex64;
-    fn twist(&self, a: CategoryObject) -> Complex64;
+    fn n(&self, a: TableObject, b: TableObject, c: TableObject) -> u32;
+    fn f(&self, labels: [TableObject; 6]) -> Complex64;
+    fn r(&self, a: TableObject, b: TableObject, c: TableObject) -> Complex64;
+    fn twist(&self, a: TableObject) -> Complex64;
 
-    fn channels(&self, a: CategoryObject, b: CategoryObject) -> Vec<CategoryObject> {
+    fn channels(&self, a: TableObject, b: TableObject) -> Vec<TableObject> {
         OBJECTS
             .into_iter()
             .filter(|&c| self.n(a, b, c) > 0)
@@ -270,35 +293,35 @@ trait Symbols {
     }
 }
 
-impl Symbols for CategoryDataFibonacci {
-    fn n(&self, a: CategoryObject, b: CategoryObject, c: CategoryObject) -> u32 {
+impl Symbols for FibonacciTable {
+    fn n(&self, a: TableObject, b: TableObject, c: TableObject) -> u32 {
         self.nsymbol(a, b, c)
     }
-    fn f(&self, [a, b, c, d, e, f]: [CategoryObject; 6]) -> Complex64 {
+    fn f(&self, [a, b, c, d, e, f]: [TableObject; 6]) -> Complex64 {
         self.f_symbol(a, b, c, d, e, f)
     }
-    fn r(&self, a: CategoryObject, b: CategoryObject, c: CategoryObject) -> Complex64 {
+    fn r(&self, a: TableObject, b: TableObject, c: TableObject) -> Complex64 {
         self.r_symbol(a, b, c)
     }
-    fn twist(&self, a: CategoryObject) -> Complex64 {
-        CategoryDataFibonacci::twist(self, a)
+    fn twist(&self, a: TableObject) -> Complex64 {
+        FibonacciTable::twist(self, a)
     }
 }
 
 struct Closed;
 
 impl Symbols for Closed {
-    fn n(&self, a: CategoryObject, b: CategoryObject, c: CategoryObject) -> u32 {
+    fn n(&self, a: TableObject, b: TableObject, c: TableObject) -> u32 {
         fibonacci_nsymbol(closed(a), closed(b), closed(c))
     }
-    fn f(&self, labels: [CategoryObject; 6]) -> Complex64 {
+    fn f(&self, labels: [TableObject; 6]) -> Complex64 {
         let [a, b, c, d, e, f] = labels.map(closed);
         fibonacci_f_symbol(a, b, c, d, e, f).into()
     }
-    fn r(&self, a: CategoryObject, b: CategoryObject, c: CategoryObject) -> Complex64 {
+    fn r(&self, a: TableObject, b: TableObject, c: TableObject) -> Complex64 {
         fibonacci_r_symbol(closed(a), closed(b), closed(c))
     }
-    fn twist(&self, a: CategoryObject) -> Complex64 {
+    fn twist(&self, a: TableObject) -> Complex64 {
         closed(a).twist()
     }
 }
@@ -370,7 +393,7 @@ fn r_symbols_are_unit_modulus_on_admissible_channels() {
 fn unit_associators_are_bitwise_one() {
     // The unitor associators of TensorKitSectors' `triangle_equation`,
     // asserted bitwise: consumers drop these factors as exact identities.
-    let unit = CategoryObject(1);
+    let unit = TableObject(1);
     let one = Complex64::new(1.0, 0.0);
     for (name, p) in providers() {
         for a in OBJECTS {
@@ -526,7 +549,7 @@ fn checked_and_infallible_queries_agree() {
                                 Ok(value) => {
                                     assert_bits(value, fib.f_symbol(a, b, c, d, e, f), "checked F")
                                 }
-                                Err(CategoryDataError::NotAdmissible { .. }) => assert_eq!(
+                                Err(TableError::NotAdmissible { .. }) => assert_eq!(
                                     fib.f_symbol(a, b, c, d, e, f),
                                     Complex64::new(0.0, 0.0)
                                 ),
@@ -539,24 +562,24 @@ fn checked_and_infallible_queries_agree() {
         }
     }
     let unit = fib.unit();
-    let tau = CategoryObject(2);
+    let tau = TableObject(2);
     assert_eq!(
         fib.f_symbol_checked(tau, tau, unit, unit, tau, tau),
-        Err(CategoryDataError::NotAdmissible {
+        Err(TableError::NotAdmissible {
             left: tau,
             right: unit,
             coupled: unit
         })
     );
     for label in [0u16, 3, u16::MAX] {
-        let bad = CategoryObject(label);
+        let bad = TableObject(label);
         assert_eq!(
             fib.r_symbol_checked(unit, unit, bad),
-            Err(CategoryDataError::UnknownObject { object: bad })
+            Err(TableError::UnknownObject { object: bad })
         );
         assert_eq!(
             fib.f_symbol_checked(bad, unit, unit, unit, unit, unit),
-            Err(CategoryDataError::UnknownObject { object: bad })
+            Err(TableError::UnknownObject { object: bad })
         );
     }
 }
@@ -568,7 +591,7 @@ fn checked_and_infallible_queries_agree() {
 fn infallible_queries_panic_with_the_domain_error_on_unknown_labels() {
     use std::panic::{self, AssertUnwindSafe};
 
-    fn assert_domain_panic<T>(what: &str, bad: CategoryObject, call: impl FnOnce() -> T) {
+    fn assert_domain_panic<T>(what: &str, bad: TableObject, call: impl FnOnce() -> T) {
         let payload = panic::catch_unwind(AssertUnwindSafe(call))
             .err()
             .unwrap_or_else(|| panic!("{what} returned a value for {bad:?}"));
@@ -576,7 +599,7 @@ fn infallible_queries_panic_with_the_domain_error_on_unknown_labels() {
             .downcast_ref::<String>()
             .map(String::as_str)
             .unwrap_or_default();
-        let expected = CategoryDataError::UnknownObject { object: bad }.to_string();
+        let expected = TableError::UnknownObject { object: bad }.to_string();
         assert!(
             message.contains(what) && message.contains(&expected),
             "{what} on {bad:?} panicked with {message:?}"
@@ -584,8 +607,8 @@ fn infallible_queries_panic_with_the_domain_error_on_unknown_labels() {
     }
 
     let fib = table();
-    let ok = CategoryObject(2);
-    for bad in [0u16, 3, 5, u16::MAX].map(CategoryObject) {
+    let ok = TableObject(2);
+    for bad in [0u16, 3, 5, u16::MAX].map(TableObject) {
         for slot in 0..6 {
             let mut ids = [ok; 6];
             ids[slot] = bad;

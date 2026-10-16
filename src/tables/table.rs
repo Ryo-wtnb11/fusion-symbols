@@ -11,13 +11,13 @@ use num_complex::Complex64;
 
 /// A category object, in the one-based labelling the upstream files use.
 ///
-/// This is the crate's public sector label: `CategoryObject(1)` is the unit,
+/// This is the crate's public sector label: `TableObject(1)` is the unit,
 /// and the numbering is exactly the numbering in the pinned text files, so a
 /// label can be checked against upstream by eye.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct CategoryObject(pub u16);
+pub struct TableObject(pub u16);
 
-impl CategoryObject {
+impl TableObject {
     /// The one-based label as written in the source files.
     #[inline]
     pub const fn label(self) -> u16 {
@@ -25,7 +25,7 @@ impl CategoryObject {
     }
 }
 
-impl core::fmt::Display for CategoryObject {
+impl core::fmt::Display for TableObject {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(formatter, "object {}", self.0)
     }
@@ -39,11 +39,11 @@ impl core::fmt::Display for CategoryObject {
 /// in a released build they are unreachable and the tests are what keep them
 /// so. The two query variants are the checked surface's answers to a caller.
 ///
-/// [`UnknownObject`]: CategoryDataError::UnknownObject
-/// [`NotAdmissible`]: CategoryDataError::NotAdmissible
+/// [`UnknownObject`]: TableError::UnknownObject
+/// [`NotAdmissible`]: TableError::NotAdmissible
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
-pub enum CategoryDataError {
+pub enum TableError {
     /// A record did not have the field count its layout requires.
     FieldCount {
         /// Which table the record came from.
@@ -102,22 +102,22 @@ pub enum CategoryDataError {
     /// A query named a label outside `1..=rank`.
     UnknownObject {
         /// The offending label.
-        object: CategoryObject,
+        object: TableObject,
     },
     /// A checked query named a vertex `left ⊗ right → coupled` with `N = 0`.
     /// For an F-symbol this is the first failing vertex in the order
     /// `(a, b, e)`, `(e, c, d)`, `(b, c, f)`, `(a, f, d)`.
     NotAdmissible {
         /// First object of the vertex.
-        left: CategoryObject,
+        left: TableObject,
         /// Second object of the vertex.
-        right: CategoryObject,
+        right: TableObject,
         /// Coupled object of the vertex.
-        coupled: CategoryObject,
+        coupled: TableObject,
     },
 }
 
-impl core::fmt::Display for CategoryDataError {
+impl core::fmt::Display for TableError {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::FieldCount {
@@ -164,7 +164,7 @@ impl core::fmt::Display for CategoryDataError {
     }
 }
 
-impl std::error::Error for CategoryDataError {}
+impl std::error::Error for TableError {}
 
 /// Dense `N`/`F`/`R` tables for one multiplicity-free category, zero-based.
 ///
@@ -193,15 +193,15 @@ struct Record<'a> {
 
 impl Record<'_> {
     /// One-based source label -> zero-based index, range-checked.
-    fn object(&self, position: usize) -> Result<usize, CategoryDataError> {
+    fn object(&self, position: usize) -> Result<usize, TableError> {
         let text = self.fields[position];
-        let label: i64 = text.parse().map_err(|_| CategoryDataError::Field {
+        let label: i64 = text.parse().map_err(|_| TableError::Field {
             table: self.table,
             line: self.line,
             field: text.to_owned(),
         })?;
         if label < 1 || label > self.rank as i64 {
-            return Err(CategoryDataError::ObjectRange {
+            return Err(TableError::ObjectRange {
                 table: self.table,
                 line: self.line,
                 label,
@@ -211,20 +211,20 @@ impl Record<'_> {
     }
 
     /// A multiplicity index, which must be exactly `1` in this crate's tier.
-    fn unit_multiplicity(&self, position: usize) -> Result<(), CategoryDataError> {
+    fn unit_multiplicity(&self, position: usize) -> Result<(), TableError> {
         if self.fields[position] == "1" {
             Ok(())
         } else {
-            Err(CategoryDataError::NotMultiplicityFree {
+            Err(TableError::NotMultiplicityFree {
                 table: self.table,
                 line: self.line,
             })
         }
     }
 
-    fn nonnegative(&self, position: usize) -> Result<u32, CategoryDataError> {
+    fn nonnegative(&self, position: usize) -> Result<u32, TableError> {
         let text = self.fields[position];
-        text.parse().map_err(|_| CategoryDataError::Field {
+        text.parse().map_err(|_| TableError::Field {
             table: self.table,
             line: self.line,
             field: text.to_owned(),
@@ -233,17 +233,17 @@ impl Record<'_> {
 
     /// The projection epoch's step 2 and 3: two correctly-rounded `f64`
     /// conversions paired into a `Complex64`.
-    fn coefficient(&self, position: usize) -> Result<Complex64, CategoryDataError> {
+    fn coefficient(&self, position: usize) -> Result<Complex64, TableError> {
         let mut parts = [0.0f64; 2];
         for (slot, text) in parts.iter_mut().zip(&self.fields[position..position + 2]) {
-            *slot = text.parse().map_err(|_| CategoryDataError::Field {
+            *slot = text.parse().map_err(|_| TableError::Field {
                 table: self.table,
                 line: self.line,
                 field: (*text).to_owned(),
             })?;
         }
         if !parts.iter().all(|value| value.is_finite()) {
-            return Err(CategoryDataError::NonFinite {
+            return Err(TableError::NonFinite {
                 table: self.table,
                 line: self.line,
             });
@@ -258,14 +258,14 @@ fn records<'a>(
     text: &'a str,
     rank: usize,
     arity: usize,
-) -> impl Iterator<Item = Result<Record<'a>, CategoryDataError>> {
+) -> impl Iterator<Item = Result<Record<'a>, TableError>> {
     text.lines()
         .enumerate()
         .filter(|(_, line)| !line.trim().is_empty())
         .map(move |(index, line)| {
             let fields: Vec<&str> = line.split_whitespace().collect();
             if fields.len() != arity {
-                return Err(CategoryDataError::FieldCount {
+                return Err(TableError::FieldCount {
                     table,
                     line: index + 1,
                     expected: arity,
@@ -292,7 +292,7 @@ impl MultiplicityFreeTable {
         n_text: &str,
         f_text: &str,
         r_text: &str,
-    ) -> Result<Self, CategoryDataError> {
+    ) -> Result<Self, TableError> {
         let mut nsym = vec![0u32; rank.pow(3)];
         let mut seen = vec![false; rank.pow(3)];
         for record in records("Nsymbols", n_text, rank, 4) {
@@ -300,7 +300,7 @@ impl MultiplicityFreeTable {
             let (a, b, c) = (record.object(0)?, record.object(1)?, record.object(2)?);
             let index = (a * rank + b) * rank + c;
             if core::mem::replace(&mut seen[index], true) {
-                return Err(CategoryDataError::DuplicateEntry {
+                return Err(TableError::DuplicateEntry {
                     table: "Nsymbols",
                     line: record.line,
                 });
@@ -323,7 +323,7 @@ impl MultiplicityFreeTable {
                 index = index * rank + label?;
             }
             if core::mem::replace(&mut seen[index], true) {
-                return Err(CategoryDataError::DuplicateEntry {
+                return Err(TableError::DuplicateEntry {
                     table: "Fsymbols",
                     line: record.line,
                 });
@@ -342,7 +342,7 @@ impl MultiplicityFreeTable {
             let (a, b, c) = (record.object(0)?, record.object(1)?, record.object(2)?);
             let index = (a * rank + b) * rank + c;
             if core::mem::replace(&mut seen[index], true) {
-                return Err(CategoryDataError::DuplicateEntry {
+                return Err(TableError::DuplicateEntry {
                     table: "Rsymbols",
                     line: record.line,
                 });
@@ -418,16 +418,16 @@ impl MultiplicityFreeTable {
 /// Why derive rather than read the `selfduality` type parameter: the parameter
 /// encodes how many objects are *non*-self-dual, so trusting it would make the
 /// dual depend on a file name rather than on the shipped fusion data.
-fn derive_duals(rank: usize, nsym: &[u32]) -> Result<Vec<usize>, CategoryDataError> {
+fn derive_duals(rank: usize, nsym: &[u32]) -> Result<Vec<usize>, TableError> {
     let nsymbol = |a: usize, b: usize, c: usize| nsym[(a * rank + b) * rank + c];
     let mut duals = Vec::with_capacity(rank);
     for a in 0..rank {
         let mut found = (0..rank).filter(|&b| nsymbol(a, b, 0) == 1);
-        let dual = found.next().ok_or_else(|| CategoryDataError::FusionAxiom {
+        let dual = found.next().ok_or_else(|| TableError::FusionAxiom {
             detail: format!("object {} has no dual", a + 1),
         })?;
         if found.next().is_some() {
-            return Err(CategoryDataError::FusionAxiom {
+            return Err(TableError::FusionAxiom {
                 detail: format!("object {} has more than one dual", a + 1),
             });
         }
@@ -435,7 +435,7 @@ fn derive_duals(rank: usize, nsym: &[u32]) -> Result<Vec<usize>, CategoryDataErr
     }
     for a in 0..rank {
         if duals[duals[a]] != a {
-            return Err(CategoryDataError::FusionAxiom {
+            return Err(TableError::FusionAxiom {
                 detail: format!("dual is not involutive at object {}", a + 1),
             });
         }
@@ -447,9 +447,9 @@ impl MultiplicityFreeTable {
     /// Object 1 is the unit and acts as one on both sides.
     ///
     /// These are exact integer facts, so they are checked here rather than in
-    /// tests: they are what makes `CategoryObject(1)` the unit of *this*
+    /// tests: they are what makes `TableObject(1)` the unit of *this*
     /// table, which consumers rely on exactly.
-    fn check_unit_laws(&self) -> Result<(), CategoryDataError> {
+    fn check_unit_laws(&self) -> Result<(), TableError> {
         for a in 0..self.rank {
             for b in 0..self.rank {
                 let expected = u32::from(a == b);
@@ -458,7 +458,7 @@ impl MultiplicityFreeTable {
                     ("right", self.nsymbol(a, 0, b)),
                 ] {
                     if actual != expected {
-                        return Err(CategoryDataError::FusionAxiom {
+                        return Err(TableError::FusionAxiom {
                             detail: format!(
                                 "{side} unit law: N({}, {}) -> {} is {actual}, expected {expected}",
                                 a + 1,
@@ -471,7 +471,7 @@ impl MultiplicityFreeTable {
             }
         }
         if self.duals[0] != 0 {
-            return Err(CategoryDataError::FusionAxiom {
+            return Err(TableError::FusionAxiom {
                 detail: "unit object is not self-dual".to_owned(),
             });
         }
@@ -489,11 +489,7 @@ mod tests {
     const TRIVIAL_F: &str = "1 1 1 1 1 1 1 1 1 1 1.0 0\n";
     const TRIVIAL_R: &str = "1 1 1 1 1 1.0 0\n";
 
-    fn parse_trivial(
-        n: &str,
-        f: &str,
-        r: &str,
-    ) -> Result<MultiplicityFreeTable, CategoryDataError> {
+    fn parse_trivial(n: &str, f: &str, r: &str) -> Result<MultiplicityFreeTable, TableError> {
         MultiplicityFreeTable::parse(1, n, f, r)
     }
 
@@ -512,7 +508,7 @@ mod tests {
     fn rejects_wrong_field_counts() {
         assert!(matches!(
             parse_trivial("1 1 1\n", TRIVIAL_F, TRIVIAL_R),
-            Err(CategoryDataError::FieldCount {
+            Err(TableError::FieldCount {
                 table: "Nsymbols",
                 line: 1,
                 expected: 4,
@@ -525,11 +521,11 @@ mod tests {
     fn rejects_out_of_range_objects() {
         assert!(matches!(
             parse_trivial("1 1 2 1\n", TRIVIAL_F, TRIVIAL_R),
-            Err(CategoryDataError::ObjectRange { label: 2, .. })
+            Err(TableError::ObjectRange { label: 2, .. })
         ));
         assert!(matches!(
             parse_trivial("1 1 0 1\n", TRIVIAL_F, TRIVIAL_R),
-            Err(CategoryDataError::ObjectRange { label: 0, .. })
+            Err(TableError::ObjectRange { label: 0, .. })
         ));
     }
 
@@ -537,7 +533,7 @@ mod tests {
     fn rejects_duplicate_entries() {
         assert!(matches!(
             parse_trivial("1 1 1 1\n1 1 1 1\n", TRIVIAL_F, TRIVIAL_R),
-            Err(CategoryDataError::DuplicateEntry {
+            Err(TableError::DuplicateEntry {
                 table: "Nsymbols",
                 line: 2
             })
@@ -548,14 +544,14 @@ mod tests {
     fn rejects_outer_multiplicity() {
         assert!(matches!(
             parse_trivial(TRIVIAL_N, "1 1 1 1 1 1 1 2 1 1 1.0 0\n", TRIVIAL_R),
-            Err(CategoryDataError::NotMultiplicityFree {
+            Err(TableError::NotMultiplicityFree {
                 table: "Fsymbols",
                 ..
             })
         ));
         assert!(matches!(
             parse_trivial(TRIVIAL_N, TRIVIAL_F, "1 1 1 1 2 1.0 0\n"),
-            Err(CategoryDataError::NotMultiplicityFree {
+            Err(TableError::NotMultiplicityFree {
                 table: "Rsymbols",
                 ..
             })
@@ -569,14 +565,14 @@ mod tests {
         // error the moment the parse order changed.
         assert!(matches!(
             parse_trivial(TRIVIAL_N, "1 1 1 1 1 1 1 1 1 1 inf 0\n", TRIVIAL_R),
-            Err(CategoryDataError::NonFinite {
+            Err(TableError::NonFinite {
                 table: "Fsymbols",
                 ..
             })
         ));
         assert!(matches!(
             parse_trivial(TRIVIAL_N, "1 1 1 1 1 1 1 1 1 1 zzz 0\n", TRIVIAL_R),
-            Err(CategoryDataError::Field {
+            Err(TableError::Field {
                 table: "Fsymbols",
                 ..
             })
@@ -587,13 +583,13 @@ mod tests {
     fn rejects_missing_and_ambiguous_duals() {
         // Rank 2 with no object fusing to the unit at all.
         let broken = MultiplicityFreeTable::parse(2, "1 1 1 1\n1 2 2 1\n2 1 2 1\n", "", "");
-        assert!(matches!(broken, Err(CategoryDataError::FusionAxiom { .. })));
+        assert!(matches!(broken, Err(TableError::FusionAxiom { .. })));
     }
 
     #[test]
     fn rejects_a_broken_unit_law() {
         // Rank 2 where the unit does not act as one on object 2.
         let broken = MultiplicityFreeTable::parse(2, "1 1 1 1\n2 2 1 1\n", "", "");
-        assert!(matches!(broken, Err(CategoryDataError::FusionAxiom { .. })));
+        assert!(matches!(broken, Err(TableError::FusionAxiom { .. })));
     }
 }

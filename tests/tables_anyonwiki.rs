@@ -1,4 +1,4 @@
-//! The shipped `category_data` tables against their AnyonWiki authority and
+//! The shipped `tables` tables against their AnyonWiki authority and
 //! the independent smallRankUnitaryFusionData cross-check.
 //!
 //! `fixtures/anyonwiki-fibonacci-check.txt` is written by
@@ -14,7 +14,8 @@
 //! - (c) the minimal polynomial nearly vanishes at it, relative to the
 //!   rounding scale of a Horner evaluation.
 
-use fusion_symbols::category_data::{CategoryDataFibonacci, CategoryObject};
+use fusion_symbols::fibonacci::FibonacciObject;
+use fusion_symbols::tables::{FibonacciTable, TableObject};
 use num_complex::Complex64;
 
 const CHECK: &str = include_str!("fixtures/anyonwiki-fibonacci-check.txt");
@@ -31,10 +32,10 @@ fn ulps(a: f64, b: f64) -> u64 {
     key(a).abs_diff(key(b))
 }
 
-fn objects(fields: &[&str]) -> Vec<CategoryObject> {
+fn objects(fields: &[&str]) -> Vec<TableObject> {
     fields
         .iter()
-        .map(|s| CategoryObject(s.parse().unwrap()))
+        .map(|s| TableObject(s.parse().unwrap()))
         .collect()
 }
 
@@ -62,10 +63,13 @@ fn residual(qqb: &str, z: Complex64) -> (f64, f64) {
 
 #[test]
 fn shipped_values_match_the_exact_anyonwiki_symbols() {
-    let fib = CategoryDataFibonacci::try_new().expect("tables load");
+    let fib = FibonacciTable::try_new().expect("tables load");
     let (mut f_rows, mut r_rows) = (0, 0);
     for line in CHECK.lines().filter(|l| !l.starts_with('#')) {
         let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields[0] == "T" {
+            continue; // twists: `twist_rows_fix_the_closed_form_and_bound_the_table`
+        }
         // Labels are the shipped record layout: F `a b c d α e β μ f ν`,
         // R `a b c α μ`; multiplicity slots are always 1.
         let (got, rest) = match fields[0] {
@@ -151,4 +155,33 @@ fn shipped_tables_equal_the_small_rank_unitary_fusion_data_cross_check() {
         };
         assert_eq!(records(reference), records(shipped), "{DIR}");
     }
+}
+
+/// `T` rows: the correctly rounded `e^{2πiθ}` of AnyonWiki's exact twist
+/// fraction `θ`. The closed-form provider returns exactly these bits; the
+/// table provider derives its twist from F and R by the TensorKitSectors sum,
+/// so it meets them within the documented 32ε bound.
+#[test]
+fn twist_rows_fix_the_closed_form_and_bound_the_table() {
+    let fib = FibonacciTable::try_new().expect("tables load");
+    let mut rows = 0;
+    for line in CHECK.lines().filter(|l| l.starts_with("T ")) {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        let label: u16 = f[1].parse().unwrap();
+        let want = Complex64::new(f[3].parse().unwrap(), f[4].parse().unwrap());
+        let closed =
+            [FibonacciObject::Vacuum, FibonacciObject::Tau][usize::from(label) - 1].twist();
+        assert_eq!(
+            (closed.re.to_bits(), closed.im.to_bits()),
+            (want.re.to_bits(), want.im.to_bits()),
+            "closed twist {line}"
+        );
+        let derived = fib.twist(TableObject(label));
+        assert!(
+            (derived - want).norm() <= 32.0 * f64::EPSILON,
+            "table twist {line}: {derived}"
+        );
+        rows += 1;
+    }
+    assert_eq!(rows, 2);
 }

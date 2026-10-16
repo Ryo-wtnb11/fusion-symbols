@@ -1,4 +1,4 @@
-# Provenance: non-Lie categories (`fibonacci`, `category_data`)
+# Provenance: non-Lie categories (`fibonacci`, `tables`)
 
 ## Closed-form Fibonacci (`fibonacci` module)
 
@@ -8,12 +8,13 @@
 | `dim`, `Nsymbol`, `Fsymbol`, `Rsymbol`, fusion order | `src/anyons.jl`: `dim(a::FibonacciAnyon)` (l. 83), `FibonacciAnyonProdIterator` iteration (l. 96), `Nsymbol` (l. 111), `Fsymbol` (l. 115), `Rsymbol` (l. 139) |
 | Frobenius–Schur phase | no override; generic `src/sectors.jl:frobenius_schur_phase_from_Fsymbol` (l. 463) |
 | Twist | no override; generic `src/sectors.jl:twist_from_Rsymbol` (l. 647) |
-| Ported implementation | [symtn](https://github.com/Ryo-wtnb11/symtn-rs) `tenet-sectors/src/fibonacci.rs` at `957ccc05737f0841b6a98047880aba201bee63a1`; values bit-identical (`tests/tenet_values.rs`) |
+| R and twist values | correctly rounded binary64 of `e^{4πi/5}`, `e^{-3πi/5}`, `e^{-4πi/5}` from the table generator (`tools/anyonwiki/gen_category_tables.py`; check rows `R 2 2 1`, `R 2 2 2`, `T 2`), not libm `cispi`/`from_polar`. TKS 0.3.9's measured `cispi` values are ≤ 3 ulp away; F and `dim` equal TKS bit for bit (`src/fibonacci.rs::tests::matches_measured_tensorkitsectors_values`) |
+| Ported implementation | [symtn](https://github.com/Ryo-wtnb11/symtn-rs) `tenet-sectors/src/fibonacci.rs` at `957ccc05737f0841b6a98047880aba201bee63a1`; values bit-identical except the three phases above, which differ by the pinned (1,1), (2,1), (1,1) ulp (`tests/tenet_values.rs`) |
 
 The Fibonacci bodies of `anyons.jl` are textually identical in
 TensorKitSectors 0.3.6 and 0.3.9.
 
-## Pinned Fibonacci table (`category_data` module)
+## Pinned Fibonacci table (`tables` module)
 
 Every number the table provider ships is traceable to the rows below. The crate
 performs no derivation of the *source* data: it parses the committed tables and
@@ -56,7 +57,7 @@ rounding is unchanged at 160 digits. It writes
 - `tests/fixtures/anyonwiki-fibonacci-check.txt`, one row per symbol with its
   qqb_id, the generated value and AnyonWiki's `numeric_*` value.
 
-`tests/category_anyonwiki.rs` checks every shipped value: (a) bit-equal to the
+`tests/tables_anyonwiki.rs` checks every shipped value: (a) bit-equal to the
 generator output, (b) within 4 ulp of AnyonWiki's `numeric_*` (which are not
 correctly rounded: `R^{ττ}_𝟙` differs by 2 ulp in the real part, 1 in the
 imaginary), (c) its minimal polynomial vanishes to rounding at it.
@@ -64,7 +65,7 @@ imaginary), (c) its minimal polynomial vanishes to rounding at it.
 ### The `Complex64` projection epoch
 
 Epoch identifier:
-**`fusion-symbols/category_data/anyonwiki-badbfe2/projection/2026-10-16`**.
+**`fusion-symbols/tables/anyonwiki-badbfe2/projection/2026-10-16`**.
 
 1. Each exact symbol is rounded correctly to binary64 offline (above).
 2. At load, split each record on ASCII whitespace; the trailing two fields
@@ -76,7 +77,7 @@ Epoch identifier:
 Changing any step is a new epoch identifier, and therefore a new authority
 fingerprint. symtn's earlier epoch `tenet-category-data/projection/2026-07-27`
 (step 1 replaced by "parse CategoryData.jl's 20-decimal export") maps to this
-one: every F, R and N value is bit-identical (`tests/tenet_values.rs`), only the
+one: every table F, R and N value is bit-identical (`tests/tenet_values.rs`), only the
 source, the decimal spelling of F and R, and the fingerprint are new.
 
 ### Category identity, ordering, and gauge
@@ -84,15 +85,15 @@ source, the decimal spelling of F and R, and the fingerprint are new.
 | Field | Value |
 | --- | --- |
 | Object ordering | Fusion-ring element order, one-based: `1 = 𝟙`, `2 = τ`. Frozen; not re-sorted |
-| Braiding | AnyonWiki `b = 2`: `R^{ττ}_𝟙 = e^{+4πi/5}`, `R^{ττ}_τ = e^{-3πi/5}`, as TensorKitSectors `FibonacciAnyon` (`anyons.jl:Rsymbol`). The other braiding (`b = 1`) is the conjugate and is not shipped; `category_data::tests::shipped_braiding_is_tensorkits_not_its_mirror` pins the choice |
+| Braiding | AnyonWiki `b = 2`: `R^{ττ}_𝟙 = e^{+4πi/5}`, `R^{ττ}_τ = e^{-3πi/5}`, as TensorKitSectors `FibonacciAnyon` (`anyons.jl:Rsymbol`). The other braiding (`b = 1`) is the conjugate and is not shipped; `tables::tests::shipped_braiding_is_tensorkits_not_its_mirror` pins the choice |
 | Gauge | Source gauge, loaded verbatim (unitary). Identical to the TensorKitSectors closed-form F block `[1/φ, 1/√φ; 1/√φ, −1/φ]` |
 
 ### Cross-checks (not authorities)
 
 | Source | Pin | Check |
 | --- | --- | --- |
-| `JCBridgeman/smallRankUnitaryFusionData` | `a6ba1c308ddcecbb03b9651a25fa0d1afcfb7546`, `uFC/FR_2_0_2/{Nabc.txt, 0/F.txt, 0/0/R.txt}` (SHA-256 `a7a6d179…`, `00cbae54…`, `24a653d1…`; MIT, Copyright (c) 2023 Jacob C Bridgeman), copied with its license to `tests/fixtures/smallRankUnitaryFusionData-a6ba1c3/` | every record bit-equal after parsing (`tests/category_anyonwiki.rs`) |
-| CategoryData.jl `0.3.6` (`e793a08a093f6ba890a32c7e57d8e8b347441058`), artifact `data-v0.1.3` (git-tree-sha1 `90a414867a392b7b811ba6c8092e5e1a848dc4c4`, tarball SHA-256 `586f4841…5c045cf6`) | redistributes the smallRankUnitaryFusionData files byte for byte as `Nsymbols/FR_2_1_0_2.txt`, `Fsymbols/FR_2_1_0_2_0.txt`, `Rsymbols/FR_2_1_0_2_0_0.txt` (name mapping `FR_2_0_2` ↔ `FR_2_1_0_2`, braid `0/0` ↔ `_0_0`); alias `Fib = PMFC{2,1,0,2,0,0}` | its parser and TKS-derived values (`tests/fixtures/fib-categorydata-v0.1.3.txt`) via `tests/category_reference.rs` |
+| `JCBridgeman/smallRankUnitaryFusionData` | `a6ba1c308ddcecbb03b9651a25fa0d1afcfb7546`, `uFC/FR_2_0_2/{Nabc.txt, 0/F.txt, 0/0/R.txt}` (SHA-256 `a7a6d179…`, `00cbae54…`, `24a653d1…`; MIT, Copyright (c) 2023 Jacob C Bridgeman), copied with its license to `tests/fixtures/smallRankUnitaryFusionData-a6ba1c3/` | every record bit-equal after parsing (`tests/tables_anyonwiki.rs`) |
+| CategoryData.jl `0.3.6` (`e793a08a093f6ba890a32c7e57d8e8b347441058`), artifact `data-v0.1.3` (git-tree-sha1 `90a414867a392b7b811ba6c8092e5e1a848dc4c4`, tarball SHA-256 `586f4841…5c045cf6`) | redistributes the smallRankUnitaryFusionData files byte for byte as `Nsymbols/FR_2_1_0_2.txt`, `Fsymbols/FR_2_1_0_2_0.txt`, `Rsymbols/FR_2_1_0_2_0_0.txt` (name mapping `FR_2_0_2` ↔ `FR_2_1_0_2`, braid `0/0` ↔ `_0_0`); alias `Fib = PMFC{2,1,0,2,0,0}` | its parser and TKS-derived values (`tests/fixtures/fib-categorydata-v0.1.3.txt`) via `tests/tables_reference.rs` |
 
 ### Citation
 

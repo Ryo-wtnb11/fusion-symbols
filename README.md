@@ -43,7 +43,7 @@ answer.
 | SO(N), Spin(N) | `fusion_symbols::bcd` (series `B`, `D`) | `cgc-gen` | `r` Dynkin labels |
 | Sp(2r) | `fusion_symbols::bcd` (series `C`) | `cgc-gen` | `r` Dynkin labels |
 | Fibonacci (closed form) | `fusion_symbols::fibonacci` | *(default)* | `FibonacciObject::{Vacuum, Tau}` |
-| Fibonacci (AnyonWiki table) | `fusion_symbols::category_data` | *(default)* | one-based `CategoryObject(1..=2)` |
+| Fibonacci (AnyonWiki table) | `fusion_symbols::tables` | *(default)* | one-based `TableObject(1..=2)` |
 
 The non-Lie modules follow the `su2` conventions (label methods `dim` / `dual`
 / `frobenius_schur` / `twist` / `fusion`; `nsymbol` / `f_symbol` /
@@ -52,7 +52,7 @@ TensorKitSectors index order, gauge and scalar types; R-symbols and twists are
 `num_complex::Complex64`. Their provenance is in
 [`docs/references_categories.md`](docs/references_categories.md).
 
-The `category_data` tables come from the
+The `tables` tables come from the
 [AnyonWiki](https://anyonwiki.org/) database
 ([`anyonwiki/AnyonWikiDatabase`](https://github.com/anyonwiki/AnyonWikiDatabase),
 MIT, commit `badbfe2`), which stores every symbol exactly as an algebraic
@@ -286,7 +286,7 @@ If you use fusion-symbols in academic work, please cite it
 }
 ```
 
-If you use the `category_data` tables, please also cite the sources the
+If you use the `tables` tables, please also cite the sources the
 AnyonWiki database asks for: G. Vercleyen, *On Low-Rank Multiplicity-Free
 Fusion Categories*, [arXiv:2405.20075](https://arxiv.org/abs/2405.20075)
 (published as [doi:10.1007/s00220-026-05705-2](https://doi.org/10.1007/s00220-026-05705-2)),

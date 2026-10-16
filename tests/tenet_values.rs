@@ -20,17 +20,19 @@
 //! | `inv_sqrt_dim_scalar` | `1.0 / dim.sqrt()` |
 //! | closed-form `f_symbol_scalar`, FS phase | real `f64`, imaginary part `+0.0` |
 //!
-//! Every entry must match bit for bit, with one portability exception: the
-//! three closed-form values computed through `cos`/`sin` (`R^{ττ}_𝟙`,
-//! `R^{ττ}_τ`, `θ_τ`) depend on the platform libm. For those the test
-//! asserts bit identity with symtn's exact expression
-//! `Complex64::from_polar(1.0, PI * k / 5.0)` evaluated on the running
-//! platform, and at most one ulp from the recorded macOS bits.
+//! Every entry must match bit for bit except three, by design. symtn computes
+//! the closed-form phases `R^{ττ}_𝟙`, `R^{ττ}_τ` and `θ_τ` with
+//! `Complex64::from_polar(1.0, PI * k / 5.0)`, whose bits depend on the
+//! platform libm; this crate returns the correctly rounded values instead
+//! (`src/fibonacci.rs` module docs). The recorded macOS libm results are 1–2
+//! ulp from correct rounding, and the test pins exactly those distances, so
+//! any other change to these three values still fails. The table provider's
+//! values all stay bit-identical.
 
-use fusion_symbols::category_data::{CategoryDataFibonacci, CategoryObject};
 use fusion_symbols::fibonacci::{
     fibonacci_f_symbol, fibonacci_nsymbol, fibonacci_r_symbol, FibonacciObject,
 };
+use fusion_symbols::tables::{FibonacciTable, TableObject};
 use num_complex::Complex64;
 
 const VALUES: &str = include_str!("fixtures/tenet-957ccc05-values.txt");
@@ -88,29 +90,29 @@ impl Provider for Closed {
     }
 }
 
-fn obj(id: usize) -> CategoryObject {
-    CategoryObject(id as u16 + 1)
+fn obj(id: usize) -> TableObject {
+    TableObject(id as u16 + 1)
 }
 
-fn obj_id(a: CategoryObject) -> usize {
+fn obj_id(a: TableObject) -> usize {
     usize::from(a.label()) - 1
 }
 
-impl Provider for CategoryDataFibonacci {
+impl Provider for FibonacciTable {
     fn dual(&self, a: usize) -> usize {
-        obj_id(CategoryDataFibonacci::dual(self, obj(a)))
+        obj_id(FibonacciTable::dual(self, obj(a)))
     }
     fn dim(&self, a: usize) -> f64 {
-        CategoryDataFibonacci::dim(self, obj(a))
+        FibonacciTable::dim(self, obj(a))
     }
     fn fs(&self, a: usize) -> Complex64 {
         self.frobenius_schur(obj(a))
     }
     fn twist(&self, a: usize) -> Complex64 {
-        CategoryDataFibonacci::twist(self, obj(a))
+        FibonacciTable::twist(self, obj(a))
     }
     fn fusion(&self, a: usize, b: usize) -> Vec<usize> {
-        CategoryDataFibonacci::fusion(self, obj(a), obj(b))
+        FibonacciTable::fusion(self, obj(a), obj(b))
             .map(obj_id)
             .collect()
     }
@@ -143,37 +145,29 @@ fn ulps(a: f64, b: f64) -> u64 {
     key(a).abs_diff(key(b))
 }
 
-/// symtn's expression for a libm-dependent closed-form value, if `what` is one.
-fn libm_expression(provider: &str, what: &str, labels: &[usize]) -> Option<Complex64> {
-    let polar = |k: f64| Complex64::from_polar(1.0, std::f64::consts::PI * k / 5.0);
+/// Exact `(re, im)` ulp distance from symtn's recorded value, for the three
+/// closed-form phases that are now correctly rounded instead of
+/// libm-evaluated. Every other value has distance `(0, 0)`.
+fn known_distance(provider: &str, what: &str, labels: &[usize]) -> (u64, u64) {
     match (provider, what, labels) {
-        ("closed", "R", [1, 1, 0]) => Some(polar(4.0)),
-        ("closed", "R", [1, 1, 1]) => Some(polar(-3.0)),
-        ("closed", "twist", [1]) => Some(polar(-4.0)),
-        _ => None,
+        ("closed", "R", [1, 1, 0]) => (1, 1),
+        ("closed", "R", [1, 1, 1]) => (2, 1),
+        ("closed", "twist", [1]) => (1, 1),
+        _ => (0, 0),
     }
 }
 
 fn assert_value(provider: &str, what: &str, labels: &[usize], got: Complex64, want: Complex64) {
-    let bits = |z: Complex64| (z.re.to_bits(), z.im.to_bits());
-    if let Some(expression) = libm_expression(provider, what, labels) {
-        assert_eq!(bits(got), bits(expression), "{provider} {what}{labels:?}");
-        assert!(
-            ulps(got.re, want.re) <= 1 && ulps(got.im, want.im) <= 1,
-            "{provider} {what}{labels:?}: {got} vs recorded {want}"
-        );
-    } else {
-        assert_eq!(
-            bits(got),
-            bits(want),
-            "{provider} {what}{labels:?}: {got} vs {want}"
-        );
-    }
+    assert_eq!(
+        (ulps(got.re, want.re), ulps(got.im, want.im)),
+        known_distance(provider, what, labels),
+        "{provider} {what}{labels:?}: {got} vs recorded {want}"
+    );
 }
 
 #[test]
-fn every_value_is_bit_identical_to_tenet_957ccc05() {
-    let table = CategoryDataFibonacci::try_new().expect("tables load");
+fn every_value_matches_tenet_957ccc05() {
+    let table = FibonacciTable::try_new().expect("tables load");
     let mut checked = 0usize;
     for line in VALUES.lines().filter(|l| !l.starts_with('#')) {
         let fields: Vec<&str> = line.split_whitespace().collect();

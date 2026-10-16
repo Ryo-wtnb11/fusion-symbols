@@ -20,15 +20,14 @@
 /// `tenet-category-data/projection/2026-07-27` (CategoryData.jl decimals,
 /// parsed) maps to it with every value bit-identical; only the source and the
 /// identity are new.
-pub const PROJECTION_EPOCH: &str =
-    "fusion-symbols/category_data/anyonwiki-badbfe2/projection/2026-10-16";
+pub const PROJECTION_EPOCH: &str = "fusion-symbols/tables/anyonwiki-badbfe2/projection/2026-10-16";
 
 /// Immutable lineage of one shipped category table.
 ///
 /// Every field is part of the category's identity. The struct is deliberately
 /// a flat record of `&'static str`: the values are frozen at authoring time,
 /// there is nothing to configure, and the canonical serialisation
-/// ([`CategoryProvenance::write_canonical_bytes`]) must stay trivially
+/// ([`TableProvenance::write_canonical_bytes`]) must stay trivially
 /// auditable because it feeds `RuleIdentity`.
 ///
 /// Why not a builder, a `Default`, or public construction: a provenance record
@@ -36,7 +35,7 @@ pub const PROJECTION_EPOCH: &str =
 /// authored next to the data they describe and nowhere else.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 #[non_exhaustive]
-pub struct CategoryProvenance {
+pub struct TableProvenance {
     /// Repository the exact symbols are taken from (the authority).
     pub source_repository: &'static str,
     /// Commit pinned in that repository.
@@ -59,7 +58,7 @@ pub struct CategoryProvenance {
     pub projection_epoch: &'static str,
 }
 
-impl CategoryProvenance {
+impl TableProvenance {
     /// Appends the canonical, order-fixed byte serialisation of this record.
     ///
     /// The format is one `key=value` line per field in declaration order. It
@@ -129,7 +128,7 @@ pub(crate) fn fnv1a64(bytes: &[u8]) -> u64 {
 mod tests {
     use super::*;
 
-    const SAMPLE: CategoryProvenance = CategoryProvenance {
+    const SAMPLE: TableProvenance = TableProvenance {
         source_repository: "source_repository",
         source_commit: "source_commit",
         source_license: "source_license",
@@ -179,43 +178,43 @@ mod tests {
         // Mutation check: flipping each field in turn must move the bytes, so
         // no field is decorative.
         let mutants = [
-            CategoryProvenance {
+            TableProvenance {
                 source_repository: "x",
                 ..SAMPLE
             },
-            CategoryProvenance {
+            TableProvenance {
                 source_commit: "x",
                 ..SAMPLE
             },
-            CategoryProvenance {
+            TableProvenance {
                 source_license: "x",
                 ..SAMPLE
             },
-            CategoryProvenance {
+            TableProvenance {
                 source_files: "x",
                 ..SAMPLE
             },
-            CategoryProvenance {
+            TableProvenance {
                 source_entry: "x",
                 ..SAMPLE
             },
-            CategoryProvenance {
+            TableProvenance {
                 projection: "x",
                 ..SAMPLE
             },
-            CategoryProvenance {
+            TableProvenance {
                 category_key: "x",
                 ..SAMPLE
             },
-            CategoryProvenance {
+            TableProvenance {
                 object_order: "x",
                 ..SAMPLE
             },
-            CategoryProvenance {
+            TableProvenance {
                 gauge: "x",
                 ..SAMPLE
             },
-            CategoryProvenance {
+            TableProvenance {
                 projection_epoch: "x",
                 ..SAMPLE
             },

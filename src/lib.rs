@@ -35,7 +35,7 @@
 //! | Which highest weights a global form admits | [`group`] |
 //! | Cache ceilings, budgets, statistics | [`cache`] |
 //! | Fibonacci anyons in closed form (TensorKitSectors `FibonacciAnyon`) | [`fibonacci`] |
-//! | Fibonacci from pinned AnyonWiki tables (exact symbols, correctly rounded) | [`category_data`] |
+//! | Fibonacci from pinned AnyonWiki tables (exact symbols, correctly rounded) | [`tables`] |
 //!
 //! # Non-Lie families
 //!
@@ -254,8 +254,8 @@ mod frcore;
 
 // Module docs are the files' inner `//!` docs: an outer `///` here would make
 // rustdoc resolve their intra-doc links in the crate-root scope.
-pub mod category_data;
 pub mod fibonacci;
+pub mod tables;
 
 pub use exact::SignedSqrtRational;
 pub use su2::{
