@@ -17,7 +17,7 @@ provenance in one place — what was taken, from which reference at which versio
 *why that machinery is the right (or only) one for the family*, and where
 `fusion-symbols` deviates. The module and item rustdoc keep the load-bearing contracts
 next to the code; this page is the map from `fusion-symbols` symbol to source.
-The non-Lie modules (`abelian`, `fibonacci`, `tables`) have their own provenance
+The non-Lie modules (`abelian`, `cu1`, `fibonacci`, `tables`) have their own provenance
 page, [`references_categories.md`](references_categories.md).
 
 Citations of the form `file:symbol` name a symbol in the cited project's source

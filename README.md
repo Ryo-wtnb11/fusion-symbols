@@ -22,8 +22,8 @@ The first families are the compact Lie groups — Racah–Wigner calculus:
 irreducible representations, Clebsch–Gordan coefficients, and recoupling
 coefficients (3j / 6j / F / R) for SU(2), SU(N), SO(N), and Sp(2N). Non-Lie
 fusion categories sit beside them as their own top-level modules: Fibonacci in
-closed form and from pinned AnyonWiki tables, and the abelian groups Z2,
-Z_N, U(1) with fermion parity, now; Deligne products next. The first consumer is
+closed form and from pinned AnyonWiki tables, the abelian groups Z2,
+Z_N, U(1) with fermion parity, and CU(1) = U(1) ⋊ C, now; Deligne products next. The first consumer is
 [symtn](https://github.com/Ryo-wtnb11/symtn-rs).
 
 Coefficients for any admissible labels are computed on demand — exactly for
@@ -42,6 +42,7 @@ answer.
 | SO(N), Spin(N) | `fusion_symbols::bcd` (series `B`, `D`) | `cgc-gen` | `r` Dynkin labels |
 | Sp(2r) | `fusion_symbols::bcd` (series `C`) | `cgc-gen` | `r` Dynkin labels |
 | Z2, Z_N, U(1), fermion parity | `fusion_symbols::abelian` | *(default)* | `Z2Irrep`, `ZNIrrep` (charge, runtime `N`), `U1Irrep` (`i32`), `FermionParity` |
+| CU(1) = U(1) ⋊ C (`O(2)`) | `fusion_symbols::cu1` | *(default)* | `CU1Irrep` (twice charge `u32`, TensorKitSectors `s`) |
 | Fibonacci (closed form) | `fusion_symbols::fibonacci` | *(default)* | `FibonacciObject::{Vacuum, Tau}` |
 | Fibonacci (AnyonWiki table) | `fusion_symbols::tables` | *(default)* | one-based `TableObject(1..=2)` |
 
@@ -49,7 +50,7 @@ The non-Lie modules follow the `su2` conventions (label methods `dim` / `dual`
 / `frobenius_schur` / `twist` / `fusion`; `nsymbol` / `f_symbol` /
 `r_symbol` with `_checked` variants; an authority fingerprint) and
 TensorKitSectors index order and gauge; R-symbols and twists are
-`num_complex::Complex64` (`f64` for the real abelian braidings). Their provenance is in
+`num_complex::Complex64` (`f64` for the real abelian and CU(1) braidings). Their provenance is in
 [`docs/references_categories.md`](docs/references_categories.md).
 
 The `tables` tables come from the

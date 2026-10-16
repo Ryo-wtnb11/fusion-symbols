@@ -3,6 +3,18 @@
 //! patterns, for the abelian value-identity fixture. Symbols are recorded on
 //! every label tuple, admissible or not, exactly as symtn returns them; a
 //! checked fusion that fails is recorded as `err`.
+//!
+//! Directory layout the manifest `extract_symtn_abelian.Cargo.toml` expects (its dependency
+//! is the relative path `../symtn/symtn-sectors`):
+//!
+//! ```text
+//! <dir>/symtn/                    git archive 49d09dc4fc0825b29d547e63a70014221c0c5406 of symtn-rs
+//! <dir>/extract/Cargo.toml        copy of extract_symtn_abelian.Cargo.toml
+//! <dir>/extract/extract_symtn_abelian.rs
+//! <dir>/extract/Cargo.lock        copy of <dir>/symtn/Cargo.lock
+//! ```
+//!
+//! Then, in `<dir>/extract`: `cargo run --release > symtn-49d09dc4-abelian-values.txt`.
 use symtn_sectors::{
     CheckedFusionAlgebra, FermionParityFusionRule, MultiplicityFreeFusionSymbols,
     MultiplicityFreeRigidSymbols, SectorCodec, SectorId, U1FusionRule, U1Irrep, Z2FusionRule, ZNFusionRule,
