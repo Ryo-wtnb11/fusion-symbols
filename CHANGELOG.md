@@ -9,6 +9,14 @@ value/gauge rule noted below.
 
 ### Added
 
+- **`cu1` (symtn #2016, fusion-symbols #128):** CU(1) = U(1) ⋊ C in
+  closed form following TensorKitSectors 0.3.9 `CU1Irrep` (labels as
+  twice charge and `s`, its F gauge and R signs), with the per-family
+  convention (`cu1_nsymbol` / `cu1_f_symbol` / `cu1_r_symbol` plus
+  `_checked` variants returning `CU1Error`, `cu1_authority_fingerprint`).
+  Values are bit-identical to symtn `2a6c1523` and to measured
+  TensorKitSectors values. Twice charges span the full `u32`; `N` is
+  exact everywhere, and only `fusion` reports a channel above `u32::MAX`.
 - **`abelian` (symtn #2016, fusion-symbols #127):** Z2, Z_N (runtime
   modulus carried by the label), U(1) (`i32` integer charges) and fermion
   parity, in closed form following TensorKitSectors 0.3.9 (`ZNIrrep`,

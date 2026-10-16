@@ -18,10 +18,10 @@ non-trivial change.
   fusion-category trait vocabulary, no tensor-network concepts, and no
   dependency on any tensor-network engine crate. Label types are limited to
   the plain object labels a module's symbols are indexed by (for example
-  `FibonacciObject`, the `abelian` irreps); sector behaviour beyond those
+  `FibonacciObject`, the `abelian` and `cu1` irreps); sector behaviour beyond those
   symbols belongs to the consumer.
 - Base crate: exact SU(2), closed-form and tabulated categories
-  (`fibonacci`, `tables`, `abelian`); dependencies stay minimal (big-integer
+  (`fibonacci`, `tables`, `abelian`, `cu1`); dependencies stay minimal (big-integer
   arithmetic and `num-complex`).
 - `cgc-gen` feature: all runtime generation (SU(N)/SO(N)/Sp(2N)) and every
   dense-kernel dependency live behind this feature. Factorizations

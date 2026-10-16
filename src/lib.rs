@@ -35,6 +35,7 @@
 //! | Which highest weights a global form admits | [`group`] |
 //! | Cache ceilings, budgets, statistics | [`cache`] |
 //! | Z2, Z_N, U(1), fermion parity in closed form (TensorKitSectors `ZNIrrep`, `U1Irrep`, `FermionParity`) | [`abelian`] |
+//! | CU(1) = U(1) ⋊ C (`O(2)`) in closed form (TensorKitSectors `CU1Irrep`) | [`cu1`] |
 //! | Fibonacci anyons in closed form (TensorKitSectors `FibonacciAnyon`) | [`fibonacci`] |
 //! | Fibonacci from pinned AnyonWiki tables (exact symbols, correctly rounded) | [`tables`] |
 //!
@@ -49,8 +50,8 @@
 //! `NotAdmissible` error; and an opaque authority fingerprint. Index order,
 //! gauge and scalar types follow TensorKitSectors.jl (`F^{abc}_d[e, f]` with
 //! `e ∈ a ⊗ b`, `f ∈ b ⊗ c`; `R^{ab}_c`); braided values are
-//! [`num_complex::Complex64`], except in [`abelian`], whose braiding is real
-//! and whose symbols are `f64`. The closed-form and table Fibonacci providers
+//! [`num_complex::Complex64`], except in [`abelian`] and [`cu1`], whose
+//! braiding is real and whose symbols are `f64`. The closed-form and table Fibonacci providers
 //! agree to a few ULP, not bitwise, and carry different fingerprints.
 //! Provenance: [`docs/references_categories.md`].
 //!
@@ -257,6 +258,7 @@ mod frcore;
 // Module docs are the files' inner `//!` docs: an outer `///` here would make
 // rustdoc resolve their intra-doc links in the crate-root scope.
 pub mod abelian;
+pub mod cu1;
 pub mod fibonacci;
 pub mod tables;
 
