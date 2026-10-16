@@ -12,12 +12,12 @@ symmetry, which sectors exist, how they fuse, and their recoupling data
 R-symbols, twists), in TensorKitSectors.jl conventions and with no dependency
 on any tensor-network engine.
 
-> **Successor of `racah`.** This crate was published as
-> [`racah`](https://crates.io/crates/racah) up to 0.2.4, which stays on
-> crates.io. `fusion-symbols` has the same modules and API; replace
-> `racah::` with `fusion_symbols::`. `fusion-symbols` itself is not published
-> yet. The Python bindings in [`racah-py/`](racah-py/README.md) keep the
-> import name `racah` for now and cover the Lie-group families.
+This crate succeeds the [`racah`](https://crates.io/crates/racah) crate on
+crates.io (0.2.4), with the same modules and API under `fusion_symbols::`.
+
+`fusion-symbols` itself is not published yet. The Python bindings in
+[`racah-py/`](racah-py/README.md) keep the import name `racah` for now and
+cover the Lie-group families.
 
 The first families are the compact Lie groups — Racah–Wigner calculus:
 irreducible representations, Clebsch–Gordan coefficients, and recoupling
@@ -252,13 +252,13 @@ fusion-symbols is inspired by [TensorKitSectors.jl](https://github.com/QuantumKi
 
 **If you use fusion-symbols in research, please cite [TensorKit](https://github.com/QuantumKitHub/TensorKit.jl) and [TensorKitSectors.jl](https://github.com/QuantumKitHub/TensorKitSectors.jl).**
 
-If you use fusion-symbols (formerly racah) in academic work, please cite it
+If you use fusion-symbols in academic work, please cite it
 (machine-readable metadata in [`CITATION.cff`](CITATION.cff)):
 
 ```bibtex
 @software{watanabe_fusion_symbols_2026,
   author  = {Watanabe, Ryo},
-  title   = {{fusion-symbols} (formerly racah): fusion and recoupling symbols for symmetric tensors},
+  title   = {{fusion-symbols}: fusion and recoupling symbols for symmetric tensors},
   year    = {2026},
   url     = {https://github.com/Ryo-wtnb11/fusion-symbols},
   license = {MIT OR Apache-2.0}
