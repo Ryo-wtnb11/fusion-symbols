@@ -1,5 +1,10 @@
 # racah
 
+> **This crate has been renamed to [`fusion-symbols`](https://crates.io/crates/fusion-symbols).**
+> `racah` 0.2.5 is the final release and receives no further updates. The same
+> modules and API are available under `fusion_symbols::` (`fusion-symbols = "0.3"`),
+> together with new category modules. Repository: <https://github.com/Ryo-wtnb11/fusion-symbols>.
+
 [![CI](https://github.com/Ryo-wtnb11/racah/actions/workflows/ci.yml/badge.svg)](https://github.com/Ryo-wtnb11/racah/actions/workflows/ci.yml)
 [![wheels](https://github.com/Ryo-wtnb11/racah/actions/workflows/wheels.yml/badge.svg)](https://github.com/Ryo-wtnb11/racah/actions/workflows/wheels.yml)
 [![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Ryo-wtnb11/racah/badges/badge.json)](https://github.com/Ryo-wtnb11/racah/actions/workflows/ci.yml)

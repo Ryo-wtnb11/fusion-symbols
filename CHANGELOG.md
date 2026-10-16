@@ -7,6 +7,11 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-10-16
+
+### Changed
+- Final release: the crate is renamed to `fusion-symbols` (0.3.0). README, crate docs and metadata point to it. No code changes.
+
 ## [0.2.4] - 2026-10-05
 
 ### Added

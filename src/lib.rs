@@ -1,3 +1,6 @@
+//! **Renamed:** this crate continues as [`fusion-symbols`](https://crates.io/crates/fusion-symbols)
+//! (`fusion_symbols::`, same modules and API). `racah` 0.2.5 is the final release.
+//!
 //! Racah–Wigner calculus for compact Lie groups: irreducible representations,
 //! Clebsch–Gordan coefficients, and recoupling coefficients (3j / 6j / F / R)
 //! for SU(2), SU(N), SO(N), Spin(N) and Sp(2N).
