@@ -8,10 +8,10 @@ mpmath 1.3.0) and a checkout of the database at the pinned commit (only the
 two files below are read; both are verified by SHA-256).
 
     python3 tools/anyonwiki/gen_category_tables.py \\
-        --database <AnyonWikiDatabase checkout> --max-rank 4
+        --database <AnyonWikiDatabase checkout>
 
-It classifies all 989 entries, and for every supported entry of rank at most
-`--max-rank` evaluates each exact symbol (qqb_id: minimal polynomial + root
+It classifies all 989 entries, and for every supported entry evaluates each
+exact symbol (qqb_id: minimal polynomial + root
 index) at 80 digits, rounds the real and imaginary parts correctly to
 binary64 (confirmed unchanged at 160 digits), and writes, relative to the
 crate root:
@@ -21,6 +21,15 @@ crate root:
   data/anyonwiki-badbfe2/R/<code>.txt         a b c α μ Re Im   (braided only)
   src/tables/catalog.rs                       shipped entries + status index
   tests/fixtures/anyonwiki-badbfe2-check.txt  every exact symbol per entry
+                                              of rank <= DEFAULT_MAX_RANK
+  tests/fixtures/anyonwiki-badbfe2-unitary-check.txt
+      above that rank: exact dimensions and twists per entry, and every
+      distinct exact F/R symbol once with its rounded value
+
+Entries above DEFAULT_MAX_RANK are compiled only with the crate feature
+`anyonwiki-unitary`: their catalog entries carry that `cfg`, and their status
+row reads `GATED` (`NotShipped` without the feature), so the default build
+compiles the rank <= DEFAULT_MAX_RANK data only.
 
 N and F files are shared by content: an F file is named after the lowest code
 that uses it. AnyonWiki keys map onto the layouts as F "a_b_c_d_e_α_β_f_γ_δ"
@@ -31,9 +40,7 @@ Python's shortest round-trip repr, which Rust's correctly rounded
 Supported = `is_unitary` and every signed quantum dimension equals
 |1 / F^{a ā a}_a[1, 1]|: exactly the entries whose dimension, Frobenius-Schur
 phase and twist the TensorKitSectors derivations (which the crate uses)
-reproduce. That is checked at 80 digits for every entry that could ship, and
-in binary64 (`numeric_*`, tolerance 1e-9) for the rest, which only selects the
-reported reason.
+reproduce. That is checked at 80 digits for every unitary entry.
 """
 
 import argparse
@@ -53,6 +60,11 @@ SHA256 = {
 DATA = "data/anyonwiki-badbfe2"
 CATALOG = "src/tables/catalog.rs"
 CHECK = "tests/fixtures/anyonwiki-badbfe2-check.txt"
+UNITARY_CHECK = "tests/fixtures/anyonwiki-badbfe2-unitary-check.txt"
+# Rank cut of the default build; every supported entry above it is compiled
+# only with FEATURE.
+DEFAULT_MAX_RANK = 4
+FEATURE = "anyonwiki-unitary"
 # Working precision (decimal digits) and the higher precision used to confirm
 # that the rounding to binary64 is stable.
 DPS, CONFIRM_DPS = 80, 160
@@ -174,16 +186,8 @@ def dims_match_exact(entry, mult):
     return True
 
 
-def dims_match_numeric(entry, mult):
-    for key, qd in zip(unit_f_keys(entry, mult), entry["numeric_quantum_dimensions"]):
-        f = complex(*entry["numeric_f_symbols"][key])
-        if abs(complex(*qd) - 1 / abs(f)) > 1e-9:
-            return False
-    return True
-
-
-def classify(entry, mult, max_rank):
-    """None for a shipped entry, otherwise the Rust `UnsupportedReason`."""
+def classify(entry, mult):
+    """None for a supported entry, otherwise the Rust `UnsupportedReason`."""
     code = entry["anyonwiki_code"]
     if entry["base_field"] != "QQBar":
         sys.exit(f"{code}: only qqb_id (QQBar) entries are supported")
@@ -193,12 +197,11 @@ def classify(entry, mult, max_rank):
         return "NonUnitary"
     if not entry["in_unitary_gauge"]:
         sys.exit(f"{code}: unitary but not stored in a unitary gauge")
-    small = code[0] <= max_rank
-    if not (dims_match_exact(entry, mult) if small else dims_match_numeric(entry, mult)):
+    if not dims_match_exact(entry, mult):
         if code[:5] != KNOWN_PIVOTAL_ANOMALY:
             sys.exit(f"{code}: unitary, but its dimensions are not |1/F|")
         return "PivotalNotUnitary"
-    return None if small else "NotShipped"
+    return None
 
 
 def records(entry, mult):
@@ -208,7 +211,7 @@ def records(entry, mult):
         for a in range(rank) for b in range(rank) for c in range(rank)
         if mult[a][b][c] != 0
     ]
-    f_lines, r_lines, check = [], [], []
+    f_lines, r_lines, check, values = [], [], [], {}
     for tag, symbols, numeric, lines in (
         ("F", entry["f_symbols"], entry["numeric_f_symbols"], f_lines),
         ("R", entry["r_symbols"], entry["numeric_r_symbols"], r_lines),
@@ -226,6 +229,7 @@ def records(entry, mult):
             if ulps(re, nre) > 4 or ulps(im, nim) > 4:
                 sys.exit(f"{entry['uuid']} {tag} {key}: {re!r},{im!r} is >4 ulp from numeric {nre!r},{nim!r}")
             lines.append(f"{labels} {re!r} {im!r}")
+            values[qqb] = (re, im)
             check.append(f"{tag} {labels} {qqb} {re!r} {im!r} {nre!r} {nim!r}")
     for a, qqb in enumerate(entry["quantum_dimensions"], start=1):
         re, _ = to_f64(qqb)
@@ -234,7 +238,7 @@ def records(entry, mult):
         re, im = twist_f64(qqb)
         check.append(f"T {a} {qqb} {re!r} {im!r}")
     text = lambda lines: "\n".join(lines) + "\n" if lines else ""
-    return text(n_lines), text(f_lines), text(r_lines), check
+    return text(n_lines), text(f_lines), text(r_lines), check, values
 
 
 def code_name(code):
@@ -248,7 +252,6 @@ def rust_str(s):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--database", required=True)
-    parser.add_argument("--max-rank", type=int, default=4)
     parser.add_argument("--crate", default=str(pathlib.Path(__file__).resolve().parents[2]))
     args = parser.parse_args()
 
@@ -264,7 +267,7 @@ def main():
     index, shipped = [], []
     for entry in entries:
         mult = rings[entry["fusion_ring"]]["mult_tab"]
-        reason = classify(entry, mult, args.max_rank)
+        reason = classify(entry, mult)
         index.append((entry, reason))
         if reason is None:
             shipped.append(entry)
@@ -275,10 +278,12 @@ def main():
         for old in (data / sub).glob("*.txt"):
             old.unlink()
     f_files, n_files, rows, catalog = {}, {}, [], []
+    gated_rows, gated_values = [], {}
     for entry in shipped:
         code = entry["anyonwiki_code"]
         ring = rings[entry["fusion_ring"]]
-        n_text, f_text, r_text, check = records(entry, ring["mult_tab"])
+        n_text, f_text, r_text, check, values = records(entry, ring["mult_tab"])
+        gated = code[0] > DEFAULT_MAX_RANK
         n_name = n_files.setdefault(n_text, f"N/{code_name(ring['anyonwiki_code'])}.txt")
         f_name = f_files.setdefault(f_text, f"F/{code_name(code)}.txt")
         r_name = f"R/{code_name(code)}.txt" if r_text else None
@@ -288,8 +293,12 @@ def main():
         braided = bool(r_text)
         if braided != bool(entry["is_braided"]):
             sys.exit(f"{code}: is_braided disagrees with r_symbols")
-        rows.append(f"C {entry['uuid']} {','.join(map(str, code))}")
-        rows.extend(check)
+        block = [f"C {entry['uuid']} {','.join(map(str, code))}"]
+        if gated:
+            gated_rows.extend(block + [r for r in check if r[0] in "DT"])
+            gated_values.update(values)
+        else:
+            rows.extend(block + check)
         symbols = "f_symbols, r_symbols" if braided else "f_symbols"
         provenance = dict(PROVENANCE)
         provenance["source_entry"] = (
@@ -298,7 +307,8 @@ def main():
         provenance["category_key"] = f"anyonwiki_code [{','.join(map(str, code))}]"
         r_field = f'Some(include_str!("../../{DATA}/{r_name}"))' if r_name else "None"
         catalog.append(
-            "    CategoryEntry {\n"
+            (f'    #[cfg(feature = "{FEATURE}")]\n' if gated else "")
+            + "    CategoryEntry {\n"
             f"        uuid: {rust_str(entry['uuid'])},\n"
             f"        code: {code},\n"
             f'        n: include_str!("../../{DATA}/{n_name}"),\n'
@@ -320,8 +330,11 @@ def main():
 
     import mpmath
 
-    tool = f"tools/anyonwiki/gen_category_tables.py (Python {sys.version.split()[0]}, mpmath {mpmath.__version__}, {DPS}/{CONFIRM_DPS} digits, --max-rank {args.max_rank})"
-    counts = collections.Counter(reason or "Shipped" for _, reason in index)
+    tool = f"tools/anyonwiki/gen_category_tables.py (Python {sys.version.split()[0]}, mpmath {mpmath.__version__}, {DPS}/{CONFIRM_DPS} digits, default rank cut {DEFAULT_MAX_RANK})"
+    counts = collections.Counter(
+        reason or ("Gated" if e["anyonwiki_code"][0] > DEFAULT_MAX_RANK else "Shipped")
+        for e, reason in index
+    )
     out = [
         f"// @generated by {tool}.",
         f"// AnyonWikiDatabase {COMMIT}. Do not edit: rerun the generator.",
@@ -330,17 +343,27 @@ def main():
         "use super::provenance::{TableProvenance, PROJECTION_EPOCH};",
         "use super::{CategoryEntry, UnsupportedReason};",
         "",
-        "/// Every supported entry of rank at most the generator's `--max-rank`.",
+        f"/// Every supported entry; those above rank {DEFAULT_MAX_RANK} only with the",
+        f"/// `{FEATURE}` feature.",
         "pub(super) static SHIPPED: &[CategoryEntry] = &[",
         *catalog,
         "];",
+        "",
+        f"/// Supported entries above rank {DEFAULT_MAX_RANK}: shipped only with the",
+        f"/// `{FEATURE}` feature.",
+        "const GATED: Option<UnsupportedReason> = if cfg!(feature = \"" + FEATURE + "\") {",
+        "    None",
+        "} else {",
+        "    Some(UnsupportedReason::NotShipped)",
+        "};",
         "",
         "/// Every entry of the pinned database: uuid, code, and `None` when",
         "/// shipped, otherwise why not.",
         "pub(super) static INDEX: &[(&str, [u8; 7], Option<UnsupportedReason>)] = &[",
         *(
             f"    ({rust_str(e['uuid'])}, {e['anyonwiki_code']}, "
-            + (f"Some(UnsupportedReason::{r})" if r else "None")
+            + (f"Some(UnsupportedReason::{r})" if r
+               else "GATED" if e["anyonwiki_code"][0] > DEFAULT_MAX_RANK else "None")
             + "),"
             for e, r in index
         ),
@@ -356,6 +379,16 @@ def main():
         "# T object qqb_id(theta) re im     -- correctly rounded exp(2 pi i theta)",
     ]
     (crate / CHECK).write_text("\n".join(header + rows) + "\n")
+    unitary_header = [
+        f"# AnyonWikiDatabase {COMMIT}; generated by {tool}",
+        f"# Entries above rank {DEFAULT_MAX_RANK} (feature `{FEATURE}`).",
+        "# V qqb_id re im                   -- every distinct exact F/R symbol, correctly rounded",
+        "# C uuid code                       -- one block per entry",
+        "# D object qqb_id(dim) re          -- correctly rounded quantum dimension",
+        "# T object qqb_id(theta) re im     -- correctly rounded exp(2 pi i theta)",
+    ]
+    v_rows = [f"V {q} {re!r} {im!r}" for q, (re, im) in sorted(gated_values.items())]
+    (crate / UNITARY_CHECK).write_text("\n".join(unitary_header + v_rows + gated_rows) + "\n")
     print(f"{dict(sorted(counts.items()))}; {len(n_files)} N, {len(f_files)} F, "
           f"{sum(1 for e in shipped if e['r_symbols'])} R files")
 

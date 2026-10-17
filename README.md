@@ -22,8 +22,8 @@ The first families are the compact Lie groups — Racah–Wigner calculus:
 irreducible representations, Clebsch–Gordan coefficients, and recoupling
 coefficients (3j / 6j / F / R) for SU(2), SU(N), SO(N), and Sp(2N). Non-Lie
 fusion categories sit beside them as their own top-level modules: the
-multiplicity-free unitary categories of rank ≤ 4 (Fibonacci, Ising, …) from
-pinned AnyonWiki tables, the abelian groups Z2,
+multiplicity-free unitary categories of rank ≤ 4 (Fibonacci, Ising, …; up to
+rank 7 with the `anyonwiki-unitary` feature) from pinned AnyonWiki tables, the abelian groups Z2,
 Z_N, U(1) with fermion parity, and CU(1) = U(1) ⋊ C, now; Deligne products next. The first consumer is
 [symtn](https://github.com/Ryo-wtnb11/symtn-rs).
 
@@ -45,6 +45,7 @@ answer.
 | Z2, Z_N, U(1), fermion parity | `fusion_symbols::abelian` | *(default)* | `Z2Irrep`, `ZNIrrep` (charge, runtime `N`), `U1Irrep` (`i32`), `FermionParity` |
 | CU(1) = U(1) ⋊ C (`O(2)`) | `fusion_symbols::cu1` | *(default)* | `CU1Irrep` (twice charge `u32`, TensorKitSectors `s`) |
 | Unitary multiplicity-free categories, rank ≤ 4 (AnyonWiki tables: 74 entries incl. Fibonacci, Ising) | `fusion_symbols::tables` | *(default)* | `TableCategory` (`by_uuid`, `by_code`, `fibonacci()`, `ising()`); one-based `TableObject(1..=rank)` |
+| … rank 5–7 (303 further AnyonWiki entries, about 4.2 MB of embedded tables) | `fusion_symbols::tables` | `anyonwiki-unitary` | as above |
 
 The non-Lie modules follow the `su2` conventions (label methods `dim` / `dual`
 / `frobenius_schur` / `twist` / `fusion`; `nsymbol` / `f_symbol` /
@@ -63,8 +64,9 @@ no runtime dependency. Every entry is in AnyonWiki's gauge. Fibonacci is
 TensorKit's `FibonacciAnyon` in TensorKit's own gauge and braiding
 (`R^{ττ}_𝟙 = e^{+4πi/5}`); Ising has `IsingAnyon`'s braiding and F in a
 gauge differing by the vertex gauge `u^{σσ}_ψ = −1`. Entries that are non-unitary (608), whose pivotal structure is not unitary (4),
-or above rank 4 (303 not shipped) are refused with a typed `Unsupported`
-error (`NonUnitary`, `PivotalNotUnitary`, `NotShipped`); a
+or above rank 4 without the `anyonwiki-unitary` feature (303 not shipped) are
+refused with a typed `Unsupported` error (`NonUnitary`, `PivotalNotUnitary`,
+`NotShipped`); a
 fusion-only category returns `NoBraiding` for R and twists.
 
 ## What fusion-symbols computes
@@ -96,6 +98,7 @@ fusion-symbols = "0.4"
 |---|---|---|
 | *(default)* | Exact SU(2): 3j / 6j / Clebsch–Gordan / F / R, closed-form big-rational | `num-bigint`, `num-rational`, `num-traits` only |
 | `cgc-gen` | Runtime CGC / F / R generation for SU(N) (Gelfand–Tsetlin) and SO(N)/Sp(2N) (generator bootstrap) | `tenferro-linalg` / `-cpu` / `-runtime` (the dense factorization + contraction backend) |
+| `anyonwiki-unitary` | The 303 supported AnyonWiki `tables` entries of rank 5–7 (377 in all); without it they are `NotShipped` | nothing (embedded data only, about 4.2 MB) |
 
 The feature boundary is mathematical, not organizational: SU(2) has closed forms
 and needs no matrix computation, so consumers who need only SU(2) never pull a

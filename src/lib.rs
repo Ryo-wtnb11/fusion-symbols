@@ -36,7 +36,7 @@
 //! | Cache ceilings, budgets, statistics | [`cache`] |
 //! | Z2, Z_N, U(1), fermion parity in closed form (TensorKitSectors `ZNIrrep`, `U1Irrep`, `FermionParity`) | [`abelian`] |
 //! | CU(1) = U(1) ⋊ C (`O(2)`) in closed form (TensorKitSectors `CU1Irrep`) | [`cu1`] |
-//! | Finite multiplicity-free unitary categories (Fibonacci, Ising, …, rank ≤ 4) from pinned AnyonWiki tables (exact symbols, correctly rounded) | [`tables`] |
+//! | Finite multiplicity-free unitary categories (Fibonacci, Ising, …, rank ≤ 4; rank ≤ 7 with `anyonwiki-unitary`) from pinned AnyonWiki tables (exact symbols, correctly rounded) | [`tables`] |
 //!
 //! # Non-Lie families
 //!

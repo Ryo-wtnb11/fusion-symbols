@@ -18,6 +18,13 @@
 //! and the rows are every nonzero symbol of the provider. `D` and `T` rows are
 //! AnyonWiki's exact quantum dimensions and twists: the provider derives both
 //! from F and R (the TensorKitSectors formulas) and must meet them.
+//!
+//! That fixture covers the 74 entries of rank <= 4. The 303 entries of rank
+//! 5-7 (feature `anyonwiki-unitary`) are checked against the compact
+//! `fixtures/anyonwiki-badbfe2-unitary-check.txt`: their `D`/`T` rows as
+//! above, and one `V qqb_id re im` row per distinct exact F/R symbol. A
+//! per-symbol fixture for them would be 14 MB; the per-label check (b) is a
+//! hard gate of the generator instead.
 
 use fusion_symbols::tables::{TableCategory, TableObject};
 use num_complex::Complex64;
@@ -89,7 +96,8 @@ fn blocks() -> Vec<(TableCategory, Vec<Vec<&'static str>>)> {
 #[test]
 fn shipped_values_match_the_exact_anyonwiki_symbols() {
     let blocks = blocks();
-    assert_eq!(blocks.len(), TableCategory::shipped_uuids().len());
+    // Every shipped entry of rank <= 4.
+    assert_eq!(blocks.len(), 74);
     let (mut f_total, mut r_total) = (0, 0);
     for (category, rows) in &blocks {
         let uuid = category.uuid();
@@ -248,4 +256,112 @@ fn shipped_tables_equal_the_small_rank_unitary_fusion_data_cross_check() {
         };
         assert_eq!(records(reference), records(shipped), "{DIR}");
     }
+}
+
+/// The rank 5-7 entries: every admissible F- and R-symbol of every entry is
+/// bit-equal to the correctly rounded value of an exact AnyonWiki symbol
+/// ((a) against the value dictionary), every dictionary value is a root of its
+/// minimal polynomial ((c)), and the derived dimensions and twists meet the
+/// exact AnyonWiki values.
+///
+/// Limit: value membership plus pentagon, hexagon, unitarity and dimensions
+/// cannot detect a relabeling of an entry by a fusion-ring automorphism
+/// (notably for fusion-only entries), because the dictionary carries no
+/// labels. The per-label guard is the generator's reproducible gate (each
+/// symbol within 4 ulp of AnyonWiki's `numeric_*` under its own key).
+#[cfg(feature = "anyonwiki-unitary")]
+#[test]
+fn rank_five_to_seven_entries_match_the_exact_anyonwiki_symbols() {
+    use std::collections::{HashMap, HashSet};
+
+    const UNITARY_CHECK: &str = include_str!("fixtures/anyonwiki-badbfe2-unitary-check.txt");
+    let bits = |z: Complex64| (z.re.to_bits(), z.im.to_bits());
+    let parse = |s: &str| s.parse::<f64>().unwrap();
+    let mut values: HashMap<(u64, u64), &str> = HashMap::new();
+    let mut blocks: Vec<(TableCategory, Vec<Vec<&str>>)> = Vec::new();
+    for line in UNITARY_CHECK.lines().filter(|l| !l.starts_with('#')) {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        match fields[0] {
+            "V" => {
+                let z = Complex64::new(parse(fields[2]), parse(fields[3]));
+                let (value, bound) = residual(fields[1], z);
+                assert!(value <= bound, "(c) {line}: |p| = {value:e} > {bound:e}");
+                values.insert(bits(z), fields[1]);
+            }
+            "C" => {
+                let category = TableCategory::by_uuid(fields[1]).expect("shipped");
+                let code: Vec<u8> = fields[2].split(',').map(|c| c.parse().unwrap()).collect();
+                assert_eq!(category.code().to_vec(), code);
+                assert!(category.rank() > 4, "{line}");
+                blocks.push((category, Vec::new()));
+            }
+            _ => blocks.last_mut().expect("a C row first").1.push(fields),
+        }
+    }
+    let shipped: HashSet<&str> = TableCategory::shipped_uuids().collect();
+    assert_eq!(blocks.len(), shipped.len() - 74);
+
+    let (mut f_total, mut r_total, mut dims, mut twists) = (0, 0, 0, 0);
+    let mut used = HashSet::new();
+    for (category, rows) in &blocks {
+        let uuid = category.uuid();
+        let objects: Vec<TableObject> = category.objects().collect();
+        let mut check = |what: &str, z: Complex64| {
+            assert!(
+                values.contains_key(&bits(z)),
+                "(a) {uuid} {what} {z} is no exact symbol"
+            );
+            used.insert(bits(z));
+        };
+        for &a in &objects {
+            for &b in &objects {
+                for &c in &objects {
+                    if let Ok(z) = category.r_symbol_checked(a, b, c) {
+                        check("R", z);
+                        r_total += 1;
+                    }
+                    for &d in &objects {
+                        for &e in &objects {
+                            for &f in &objects {
+                                if let Ok(z) = category.f_symbol_checked(a, b, c, d, e, f) {
+                                    check("F", z);
+                                    f_total += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for fields in rows {
+            let a = TableObject(fields[1].parse().unwrap());
+            let line = fields.join(" ");
+            if fields[0] == "D" {
+                let want = parse(fields[3]);
+                let got = category.dim(a);
+                assert!(
+                    (got - want).abs() <= FP_BOUND * want,
+                    "{uuid} {line}: {got}"
+                );
+                dims += 1;
+            } else {
+                let want = Complex64::new(parse(fields[3]), parse(fields[4]));
+                let got = category.twist(a);
+                assert!((got - want).norm() <= FP_BOUND, "{uuid} {line}: {got}");
+                twists += 1;
+            }
+        }
+        assert_eq!(
+            rows.iter().filter(|f| f[0] == "D").count(),
+            category.rank(),
+            "{uuid}: a D row per object"
+        );
+    }
+    assert_eq!(
+        used.len(),
+        values.len(),
+        "every dictionary value is a shipped symbol"
+    );
+    assert_eq!((f_total, r_total), (204_136, 10_996));
+    assert_eq!((dims, twists), (1853, 428));
 }
