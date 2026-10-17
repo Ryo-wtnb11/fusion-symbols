@@ -98,7 +98,7 @@ fusion-symbols = "0.4"
 |---|---|---|
 | *(default)* | Exact SU(2): 3j / 6j / Clebsch–Gordan / F / R, closed-form big-rational | `num-bigint`, `num-rational`, `num-traits` only |
 | `cgc-gen` | Runtime CGC / F / R generation for SU(N) (Gelfand–Tsetlin) and SO(N)/Sp(2N) (generator bootstrap) | `tenferro-linalg` / `-cpu` / `-runtime` (the dense factorization + contraction backend) |
-| `anyonwiki-unitary` | The 303 supported AnyonWiki `tables` entries of rank 5–7 (377 in all); without it they are `NotShipped` | nothing (embedded data only, about 4.2 MB) |
+| `anyonwiki-unitary` | The 303 supported AnyonWiki `tables` entries of rank 5–7 (377 in all); without it they are `NotShipped` (feature added in 0.4.1) | nothing (embedded data only, about 4.2 MB) |
 
 The feature boundary is mathematical, not organizational: SU(2) has closed forms
 and needs no matrix computation, so consumers who need only SU(2) never pull a
