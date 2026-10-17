@@ -7,6 +7,18 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Added
+
+- **`anyonwiki-unitary` feature (fusion-symbols #135):** ships the 303
+  supported AnyonWiki (`badbfe2`) entries of rank 5–7 in `tables` (same
+  selection rule as rank ≤ 4: unitary, unitary gauge, dimensions `|1/F|`),
+  377 entries in all (270 braided). Without the feature they stay
+  `Unsupported { reason: NotShipped }`. Default builds are unchanged: same
+  74 entries, table bytes and fingerprints, and none of the new data is
+  compiled. Data only, no new dependency; about 4.2 MB of embedded tables
+  with the feature, and every package download carries them (+428 KB
+  compressed).
+
 ## [0.4.0] - 2026-10-17
 
 ### Breaking

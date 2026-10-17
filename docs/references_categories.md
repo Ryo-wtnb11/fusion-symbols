@@ -59,7 +59,7 @@ All 989 entries are listed in the generated status index
 | Status | Rule | Count |
 | --- | --- | --- |
 | shipped | `is_unitary`, `in_unitary_gauge`, and every signed quantum dimension `d_a = \|1 / F^{a ā a}_a[1,1]\|` (checked at 80 digits), rank ≤ 4 | 74 (58 braided, 16 fusion-only) |
-| `NotShipped` | as shipped, rank 5–7 (dimension check on `numeric_*`, tolerance 1e-9) | 303 |
+| shipped with `anyonwiki-unitary`, otherwise `NotShipped` | as shipped, rank 5–7 (same exact check) | 303 (212 braided, 91 fusion-only) |
 | `NonUnitary` | `is_unitary` false | 608 |
 | `PivotalNotUnitary` | `is_unitary` true but dimensions ≠ `\|1/F\|`: the four `[7,1,2,11,2,b,1]` entries (negative dimensions; a suspected upstream defect). The generator aborts if any other entry fails | 4 |
 
@@ -78,30 +78,41 @@ so `μ ↔ γ`, `ν ↔ δ`); R `a_b_c_α_β` → `a b c α β`. All multiplicit
 ### Projection — correctly rounded binary64, offline
 
 `tools/anyonwiki/gen_category_tables.py` (recorded run: Python 3.14.6, mpmath
-1.3.0, 2.7 s) reads the database checkout (both SHA-256s verified),
-classifies every entry, evaluates each qqb_id of a shipped entry with
+1.3.0, 3 min 10 s) reads the database checkout (both SHA-256s verified),
+classifies every entry, evaluates each qqb_id of a supported entry with
 `mpmath.polyroots` at 80 significant digits, orders the roots by the database
 convention, checks the residual, rounds the real and imaginary parts to
 nearest binary64 (`float(mpf)`), confirms the rounding is unchanged at 160
 digits, and aborts if any value is more than 4 ulp from AnyonWiki's
 `numeric_*`. It writes
 
-- `data/anyonwiki-badbfe2/N/<ring code>.txt` (16), `F/<code>.txt` (35) and
-  `R/<code>.txt` (58, braided entries only), the shipped tables, as shortest
-  round-trip decimals in the layouts `a b c Nabc`, `a b c d α e β μ f ν Re Im`,
+- `data/anyonwiki-badbfe2/N/<ring code>.txt`, `F/<code>.txt` and
+  `R/<code>.txt` (braided entries only), the tables, as shortest round-trip
+  decimals in the layouts `a b c Nabc`, `a b c d α e β μ f ν Re Im`,
   `a b c α μ Re Im`. N and F files are shared by content; an F file is named
-  after the lowest code using it. 137,640 bytes in total;
-- `src/tables/catalog.rs`, the shipped entries (`include_str!` of their files
-  and their `TableProvenance`) and the status index;
-- `tests/fixtures/anyonwiki-badbfe2-check.txt`, one block per shipped entry:
+  after the lowest code using it. Rank ≤ 4: 16 N, 35 F, 58 R files, 137,640
+  bytes; with rank 5–7 (`anyonwiki-unitary`): 60 N, 179 F, 270 R files,
+  4,195,511 bytes (F de-duplication halves 210,736 records to 105,543; no two
+  R files are equal);
+- `src/tables/catalog.rs`, the supported entries (`include_str!` of their
+  files and their `TableProvenance`; rank 5–7 entries under
+  `#[cfg(feature = "anyonwiki-unitary")]`) and the status index (rank 5–7
+  rows `GATED`: shipped with the feature, `NotShipped` without);
+- `tests/fixtures/anyonwiki-badbfe2-check.txt`, one block per rank ≤ 4 entry:
   each symbol with its qqb_id, the generated value and AnyonWiki's `numeric_*`
-  value, and the exact quantum dimensions and twists.
+  value, and the exact quantum dimensions and twists;
+- `tests/fixtures/anyonwiki-badbfe2-unitary-check.txt` for rank 5–7: every
+  distinct exact F/R symbol once (`V qqb_id re im`, 2,675 rows), and per entry
+  the exact quantum dimensions and twists.
 
-`tests/tables_anyonwiki.rs` checks every shipped value of every entry: (a)
+`tests/tables_anyonwiki.rs` checks every value of every rank ≤ 4 entry: (a)
 bit-equal to the generator output, (b) within 4 ulp of AnyonWiki's `numeric_*`,
 (c) its minimal polynomial vanishes to rounding at it; that the rows are
 exactly the admissible symbols; and that the derived dimensions and twists
-meet AnyonWiki's within 32ε.
+meet AnyonWiki's within 32ε. For rank 5–7 (with the feature) every admissible
+symbol must be bit-equal to a `V` value, every `V` value passes (c), and the
+derived dimensions and twists meet AnyonWiki's within 32ε; (b) per label is
+the generator's hard gate there (a per-symbol fixture would be 14 MB).
 
 ### The `Complex64` projection epoch
 

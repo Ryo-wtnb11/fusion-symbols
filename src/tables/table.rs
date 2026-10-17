@@ -45,7 +45,8 @@ pub enum UnsupportedReason {
     /// pinned commit, a suspected upstream defect). Refused for the same
     /// reason as [`NonUnitary`](Self::NonUnitary).
     PivotalNotUnitary,
-    /// Supported, but above the rank this build ships.
+    /// Supported, but of rank 5–7, which only the `anyonwiki-unitary` feature
+    /// ships.
     NotShipped,
 }
 
@@ -56,7 +57,9 @@ impl core::fmt::Display for UnsupportedReason {
             Self::PivotalNotUnitary => {
                 "the stored pivotal structure is not the unitary one (dimensions differ from |1/F|)"
             }
-            Self::NotShipped => "the category is supported but not shipped in this build",
+            Self::NotShipped => {
+                "the category is supported but not shipped in this build (feature `anyonwiki-unitary`)"
+            }
         })
     }
 }
@@ -215,8 +218,8 @@ impl std::error::Error for TableError {}
 ///
 /// Storage is dense over `rank^6` `F` entries. That is O(rank^6) in the number
 /// of *distinct symbol arguments*, i.e. exactly the size of the object the
-/// consumer queries, and for the rank ≤ 6 categories this crate targets it is at
-/// most 46656 complex numbers (4096, 64 KiB, at the shipped rank ≤ 4). Why not a sparse map: every lookup would pay a
+/// consumer queries: 4096 complex numbers (64 KiB) at the default rank ≤ 4,
+/// 117649 (1.8 MiB) at rank 7 with `anyonwiki-unitary`. Why not a sparse map: every lookup would pay a
 /// hash for a table that fits in L2 anyway, and consumers call
 /// `f_symbol` on the recoupling path.
 #[derive(Clone, Debug)]

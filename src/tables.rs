@@ -25,8 +25,10 @@
 //! whose quantum dimensions are `|1 / F^{a ā a}_a[𝟙, 𝟙]|` — exactly the
 //! entries for which the TensorKitSectors derivations of dimension,
 //! Frobenius–Schur phase and twist used here are the database's own — up to
-//! rank 4: 74 categories, 58 of them braided. Every other entry of the
-//! database is known by uuid and code and refused with
+//! rank 4: 74 categories, 58 of them braided. The `anyonwiki-unitary` feature
+//! adds the 303 such entries of rank 5–7 (377 in all, 270 braided); without
+//! it they are refused as [`UnsupportedReason::NotShipped`]. Every other entry
+//! of the database is known by uuid and code and refused with
 //! [`TableError::Unsupported`] and its [`UnsupportedReason`].
 //!
 //! A category's identity is the pair (database commit, uuid). The

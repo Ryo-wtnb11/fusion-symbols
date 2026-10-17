@@ -26,6 +26,10 @@ rustdoc-args = ["--html-in-header", "doc/katex-header.html"]
 
 [features]
 default = []
+# Every supported (unitary, unitary-gauge, |1/F| dimensions) AnyonWiki entry of
+# rank 5-7 in `tables`: 303 entries beyond the 74 of rank <= 4 shipped by
+# default. Data only, no dependency; about 4.2 MB of embedded tables.
+anyonwiki-unitary = []
 # Runtime coefficient generation for SU(N)/SO(N)/Sp(2N).
 # Pulls dense factorization and contraction kernels (tenferro-linalg + the CPU
 # faer provider that implements full-matrices SVD and least-squares); the base
