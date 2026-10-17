@@ -16,8 +16,8 @@ value/gauge rule noted below.
   `Unsupported { reason: NotShipped }`. Default builds are unchanged: same
   74 entries, table bytes and fingerprints, and none of the new data is
   compiled. Data only, no new dependency; about 4.2 MB of embedded tables
-  with the feature, and every package download carries them (+428 KB
-  compressed).
+  with the feature, and every package download carries them (+450,822 B
+  compressed, about 451 KB: a 4,352,954 B `.crate`).
 
 ## [0.4.0] - 2026-10-17
 

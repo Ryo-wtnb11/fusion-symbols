@@ -263,6 +263,12 @@ fn shipped_tables_equal_the_small_rank_unitary_fusion_data_cross_check() {
 /// ((a) against the value dictionary), every dictionary value is a root of its
 /// minimal polynomial ((c)), and the derived dimensions and twists meet the
 /// exact AnyonWiki values.
+///
+/// Limit: value membership plus pentagon, hexagon, unitarity and dimensions
+/// cannot detect a relabeling of an entry by a fusion-ring automorphism
+/// (notably for fusion-only entries), because the dictionary carries no
+/// labels. The per-label guard is the generator's reproducible gate (each
+/// symbol within 4 ulp of AnyonWiki's `numeric_*` under its own key).
 #[cfg(feature = "anyonwiki-unitary")]
 #[test]
 fn rank_five_to_seven_entries_match_the_exact_anyonwiki_symbols() {
