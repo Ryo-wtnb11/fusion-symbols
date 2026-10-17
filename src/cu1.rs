@@ -590,10 +590,11 @@ mod tests {
             cu1_authority_fingerprint(),
             &b"fusion-symbols:cu1:labels=u32-twice-charge-full:n=tks-cu1irrep-exact:f=tks-cu1irrep:r=tks-cu1irrep:dim=tks-cu1irrep:fs=tks-cu1irrep-one:twist=tks-rsymbol-sum-one:scalar=f64:epoch=1"[..]
         );
+        let fibonacci = crate::tables::TableCategory::fibonacci();
         for other in [
             crate::abelian::u1_authority_fingerprint(),
             crate::abelian::z2_authority_fingerprint(),
-            crate::fibonacci::fibonacci_authority_fingerprint(),
+            fibonacci.authority_fingerprint(),
         ] {
             assert_ne!(cu1_authority_fingerprint(), other);
         }

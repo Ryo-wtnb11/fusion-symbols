@@ -36,8 +36,7 @@
 //! | Cache ceilings, budgets, statistics | [`cache`] |
 //! | Z2, Z_N, U(1), fermion parity in closed form (TensorKitSectors `ZNIrrep`, `U1Irrep`, `FermionParity`) | [`abelian`] |
 //! | CU(1) = U(1) ⋊ C (`O(2)`) in closed form (TensorKitSectors `CU1Irrep`) | [`cu1`] |
-//! | Fibonacci anyons in closed form (TensorKitSectors `FibonacciAnyon`) | [`fibonacci`] |
-//! | Fibonacci from pinned AnyonWiki tables (exact symbols, correctly rounded) | [`tables`] |
+//! | Finite multiplicity-free unitary categories (Fibonacci, Ising, …, rank ≤ 4) from pinned AnyonWiki tables (exact symbols, correctly rounded) | [`tables`] |
 //!
 //! # Non-Lie families
 //!
@@ -48,11 +47,12 @@
 //! `fusion`; `nsymbol` / `f_symbol` / `r_symbol` returning exact zero for an
 //! inadmissible request, plus `_checked` variants with a typed
 //! `NotAdmissible` error; and an opaque authority fingerprint. Index order,
-//! gauge and scalar types follow TensorKitSectors.jl (`F^{abc}_d[e, f]` with
+//! scalar types follow TensorKitSectors.jl (`F^{abc}_d[e, f]` with
 //! `e ∈ a ⊗ b`, `f ∈ b ⊗ c`; `R^{ab}_c`); braided values are
 //! [`num_complex::Complex64`], except in [`abelian`] and [`cu1`], whose
-//! braiding is real and whose symbols are `f64`. The closed-form and table Fibonacci providers
-//! agree to a few ULP, not bitwise, and carry different fingerprints.
+//! braiding is real and whose symbols are `f64`. The closed forms use
+//! TensorKitSectors' gauge; [`tables`] uses AnyonWiki's (gauge-equivalent, and
+//! for Fibonacci identical).
 //! Provenance: [`docs/references_categories.md`].
 //!
 //! # Layers
@@ -259,7 +259,6 @@ mod frcore;
 // rustdoc resolve their intra-doc links in the crate-root scope.
 pub mod abelian;
 pub mod cu1;
-pub mod fibonacci;
 pub mod tables;
 
 pub use exact::SignedSqrtRational;

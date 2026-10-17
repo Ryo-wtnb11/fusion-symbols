@@ -20,7 +20,7 @@
 //! (symtn `symtn-sectors/src/abelian.rs`), whose values they reproduce bit for
 //! bit on every admissible label tuple (`tests/symtn_abelian_values.rs`).
 //! Unlike that port, an inadmissible F or R is `0.0`, as in TensorKitSectors
-//! and [`crate::fibonacci`].
+//! and [`crate::tables`].
 //!
 //! Label domains: [`ZNIrrep`] carries its modulus `N ≥ 1` (`u32`) at runtime;
 //! [`U1Irrep`] holds integer charges in `i32` except `i32::MIN`, whose dual
@@ -914,7 +914,10 @@ mod tests {
             for b in &all[i + 1..] {
                 assert_ne!(a, b);
             }
-            assert_ne!(*a, crate::fibonacci::fibonacci_authority_fingerprint());
+            assert_ne!(
+                *a,
+                crate::tables::TableCategory::fibonacci().authority_fingerprint()
+            );
         }
     }
 }
