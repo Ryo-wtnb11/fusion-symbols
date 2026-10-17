@@ -7,6 +7,8 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-17
+
 ### Breaking
 
 - **`tables` generalised (fusion-symbols #134):** `tables::FibonacciTable`
@@ -507,7 +509,8 @@ SU(2) provider this rule is mechanized by `su2_authority_fingerprint()`: its
 epoch is bumped only on such a value-affecting release, so a fingerprint change
 and a breaking release are one reviewable event.
 
-[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.2.2...v0.2.3

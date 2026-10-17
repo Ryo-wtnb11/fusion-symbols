@@ -9,7 +9,7 @@
 
 ```toml
 [dependencies]
-fusion-symbols = "0.3"
+fusion-symbols = "0.4"
 ```
 
 That is the **base** build: exact SU(2) only, three small numeric dependencies,
@@ -18,7 +18,7 @@ the `cgc-gen` feature:
 
 ```toml
 [dependencies]
-fusion-symbols = { version = "0.3", features = ["cgc-gen"] }
+fusion-symbols = { version = "0.4", features = ["cgc-gen"] }
 ```
 
 There is no fixed MSRV; `fusion-symbols` builds and is tested on current stable Rust.
