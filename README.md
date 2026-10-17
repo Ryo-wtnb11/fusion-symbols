@@ -62,8 +62,9 @@ each one correctly to binary64; the crate ships that output and parses it, with
 no runtime dependency. Every entry is in AnyonWiki's gauge. Fibonacci is
 TensorKit's `FibonacciAnyon` in TensorKit's own gauge and braiding
 (`R^{ττ}_𝟙 = e^{+4πi/5}`); Ising has `IsingAnyon`'s braiding and F in a
-gauge differing by the vertex gauge `u^{σσ}_ψ = −1`. Non-unitary entries and
-entries above rank 4 are refused with a typed `Unsupported` error; a
+gauge differing by the vertex gauge `u^{σσ}_ψ = −1`. Entries that are non-unitary (608), whose pivotal structure is not unitary (4),
+or above rank 4 (303 not shipped) are refused with a typed `Unsupported`
+error (`NonUnitary`, `PivotalNotUnitary`, `NotShipped`); a
 fusion-only category returns `NoBraiding` for R and twists.
 
 ## What fusion-symbols computes
@@ -86,9 +87,9 @@ For any admissible irreps of a supported group:
 
 ```toml
 [dependencies]
-fusion-symbols = "0.3"
+fusion-symbols = "0.4"
 # generated SU(N)/SO(N)/Sp(2N) families:
-# fusion-symbols = { version = "0.3", features = ["cgc-gen"] }
+# fusion-symbols = { version = "0.4", features = ["cgc-gen"] }
 ```
 
 | Feature | Adds | Pulls in |
