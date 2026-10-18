@@ -171,7 +171,7 @@ fn discrete_layer_is_convention_only_across_independent_runs() {
     assert_eq!(
         sun_first, sun_second,
         "SU(N) discrete/structural outputs must be identical across independent \
-         generation runs (single-backend reduction of the D2 gate)"
+         generation runs"
     );
 
     // B/C/D: two independent runs, each from a fresh CanonicalCatalog, with a
@@ -182,6 +182,6 @@ fn discrete_layer_is_convention_only_across_independent_runs() {
     assert_eq!(
         bcd_first, bcd_second,
         "B/C/D discrete/structural outputs must be identical across independent \
-         generation runs (single-backend reduction of the D2 gate)"
+         generation runs"
     );
 }
