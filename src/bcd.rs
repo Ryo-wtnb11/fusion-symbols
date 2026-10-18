@@ -1251,7 +1251,7 @@ pub use fr::{
 /// refactor that moves a coefficient value is a deviation from the spec (a bug,
 /// and `tests/gauge_golden.rs` fails on it), not a new gauge deserving a new
 /// fingerprint. The value changes only on a specification correction, which
-/// requires — in the same release — the spec edit stating the defect it corrects, the
+/// requires — in the same change — the spec edit stating the defect it corrects, the
 /// `epoch` bump here and in `tests/bcd_fingerprint.rs`, a CHANGELOG
 /// breaking-change entry, and regenerated golden values (`docs/gauge.md`,
 /// "Status", which governs all three families). So: **same fingerprint, same

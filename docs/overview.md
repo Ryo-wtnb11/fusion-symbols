@@ -206,7 +206,7 @@ down as a **frozen normative specification** — [`docs/gauge.md`](gauge.md)
 (SO(N)/Sp(2N)). Frozen means the documents are the authority and the code
 implements them: a change that moves a returned value is a bug unless it ships
 as a specification correction with a fingerprint epoch bump, a CHANGELOG
-breaking-change entry, and regenerated golden values in the same release. The per-family
+breaking-change entry, and regenerated golden values in the same change. The per-family
 authority fingerprints are therefore *specification versions* — persist them
 next to anything you derive, and compare by equality
 ([User Guide: gauge and reproducibility](user-guide/resources.md#gauge-and-reproducibility)).
