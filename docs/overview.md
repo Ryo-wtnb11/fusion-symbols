@@ -77,6 +77,7 @@ For any admissible irreps of a supported group:
 
 ## Feature flags
 
+| Feature | Adds | Pulls in |
 |---|---|---|
 | *(default)* | Exact SU(2): 3j / 6j / Clebsch–Gordan / F / R, closed-form big-rational | `num-bigint`, `num-rational`, `num-traits` only |
 | `cgc-gen` | Runtime CGC / F / R generation for SU(N) (Gelfand–Tsetlin) and SO(N)/Sp(2N) (generator bootstrap) | `tenferro-linalg` / `-cpu` / `-runtime` (the dense factorization + contraction backend) |

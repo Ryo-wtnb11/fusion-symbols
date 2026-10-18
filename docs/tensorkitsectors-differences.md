@@ -29,9 +29,15 @@ known difference and the reason recorded for it. Per-symbol provenance is in
   tables have a label cut and single-group packages do not extend to
   SU(N ≥ 3), SO(N) or Sp(2N)
   ([overview: Why this crate exists](overview.md#why-this-crate-exists)).
-- **Frozen gauge specification and authority fingerprints.** Every family
-  has a written, normative gauge ([`gauge.md`](gauge.md),
-  [`gauge_soN.md`](gauge_soN.md)) and a fingerprint that changes only with a
+- **Frozen gauge specification and authority fingerprints.** The Lie-group
+  families have a written, normative gauge: [`gauge.md`](gauge.md) for SU(2)
+  and SU(N), [`gauge_soN.md`](gauge_soN.md) for SO(N), Spin(N) and Sp(2N).
+  The abelian and CU(1) families use TensorKitSectors' closed-form gauge and
+  `tables` uses AnyonWiki's source gauge; those conventions are recorded in
+  [`references_categories.md`](references_categories.md), not in a gauge
+  specification. Every family has an authority fingerprint (for example
+  `su2_authority_fingerprint`, `cu1_authority_fingerprint`,
+  `TableCategory::authority_fingerprint`) that changes only with a
   specification correction. Reason: generated coefficients must be
   deterministic across runs and backends, and consumers persist the
   fingerprint next to anything they derive
@@ -41,9 +47,18 @@ known difference and the reason recorded for it. Per-symbol provenance is in
   unitarity, pentagon and hexagon checks run at generation time and a
   violation is a typed error. Reason: a silently degraded coefficient is not
   acceptable ([`AGENTS.md`](../AGENTS.md) acceptance criterion 5).
-- **Checked and infallible entry points.** Each symbol has an infallible
-  form returning exact zero on an inadmissible tuple and a `_checked` form
-  returning a typed error; label overflow is a typed error. Reason: a
+- **Checked and infallible entry points.** `su2`, `abelian` and `cu1` give
+  each symbol an infallible form that returns exact zero on an inadmissible
+  tuple and a `_checked` form that returns a typed error (for example
+  `su2_f_symbol` / `su2_f_symbol_checked`, `cu1_r_symbol` /
+  `cu1_r_symbol_checked`). The generated families return `Result` only:
+  `sun::f_symbol`, `sun::r_symbol`, `bcd::f_symbol` and `bcd::r_symbol`
+  return `Result<_, SunError>` / `Result<_, FrError>` (`src/sun/fr.rs`,
+  `src/bcd/fr.rs`). In `tables`, the infallible `TableCategory` methods
+  return exact zero for an unlisted entry but panic on a label that is not
+  an object of the category, and `r_symbol` / `twist` also panic on a
+  fusion-only category; the `_checked` methods return `TableError` instead
+  (`src/tables.rs`, "# Panics" sections). Label overflow is a typed error. Reason: a
   forbidden coupling or out-of-range label must never produce a wrong answer
   ([overview: Families](overview.md#families);
   [User Guide: How errors work](user-guide/getting-started.md#how-errors-work)).

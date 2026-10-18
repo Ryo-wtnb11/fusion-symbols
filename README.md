@@ -33,8 +33,10 @@ Supported symmetries:
 - the unitary multiplicity-free AnyonWiki categories of rank ≤ 4, Fibonacci
   and Ising among them (default; rank 5–7 with `anyonwiki-unitary`).
 
-The base SU(2) surface is stable; the `cgc-gen` surface is marked unstable in
-its rustdoc. Deligne products are next.
+The base SU(2) surface is stable. In the `cgc-gen` surface,
+`sun_authority_fingerprint`, `bcd_authority_fingerprint`,
+`cache::GENERATED_CACHE_MAX_BYTES` and `cache::GeneratedCacheStats` are marked
+unstable in their rustdoc. Deligne products are next.
 
 This crate succeeds the [`racah`](https://crates.io/crates/racah) crate on
 crates.io (0.2.4), with the same modules and API under `fusion_symbols::`.
