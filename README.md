@@ -18,8 +18,7 @@ coefficients), in TensorKitSectors.jl conventions. Tensors and tensor
 operations are not part of fusion-symbols; symtn is the first consumer.
 
 Unlike TensorKitSectors, it is a standalone provider with no tensor engine
-behind it, and Lie-group coefficients are computed on demand rather than
-tabulated.
+behind it.
 Differences in detail are listed in docs/.
 
 ## Status
