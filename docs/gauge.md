@@ -137,9 +137,9 @@ the reference iteration order.
   admissible second rows `I[i+1]:I[i]` with the **last** sub-row entry varying
   fastest, recursing into `GTPatternIterator{N-1}` as the inner (faster) loop;
   pattern data is stored top row (`l = N`) first.
-- Port: `sun::Irrep::patterns` (`sun.rs`), pinned index-for-index by the GT-pattern
-  fixtures (`tests/sun_oracle.rs`) and re-verified here by the signed CGC oracle
-  (`tests/sun_cgc_fixtures.rs`, §11).
+- Port: `sun::Irrep::patterns` (`sun.rs`), pinned index-for-index against an
+  in-test enumeration of this rule and the SUNRepresentations SU(3) adjoint
+  basis (`tests/sun_oracle.rs`), and re-verified by the signed CGC values (§11).
 - *Implicit in the code, normative here*: nothing in `patterns` announces itself
   as a convention — the order is whatever the recursive enumeration emits. It
   nonetheless indexes every returned coefficient, so a rewritten enumeration that

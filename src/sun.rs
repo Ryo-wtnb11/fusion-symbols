@@ -641,7 +641,7 @@ impl Irrep {
     /// Ported from `gtpatterns.jl:GTPatternIterator` /
     /// `basis(s) = GTPatternIterator{N}(weight(s))`, reproduced index-for-index.
     /// The order is load-bearing — the CGC gauge is a deterministic function of
-    /// it — so it is pinned by checked-in fixtures. See the private
+    /// it — so it is pinned by `tests/sun_oracle.rs`. See the private
     /// `gt_enumerate` for the recursion.
     pub fn patterns(&self) -> Vec<GtPattern> {
         let n = self.rank();
