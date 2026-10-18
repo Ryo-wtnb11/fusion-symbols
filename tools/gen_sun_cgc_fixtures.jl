@@ -1,10 +1,10 @@
-# Emit SU(N) Clebsch-Gordan coefficient fixtures for the racah gauge-continuity
-# oracle (issue #12). Values come straight from SUNRepresentations.jl v0.4.0 --
+# Emit SU(N) Clebsch-Gordan coefficient fixtures for the gauge-continuity
+# oracle. Values come straight from SUNRepresentations.jl v0.4.0 --
 # never hand-authored -- so the Rust oracle checks a *signed, element-wise*
 # match, which is the gauge-continuity claim.
 #
-# Run against the session's local depot env:
-#   julia --project=<scratchpad>/sunenv tools/gen_sun_cgc_fixtures.jl > tests/fixtures/sun_cgc.txt
+# Run in an environment with SUNRepresentations v0.4.0 + RationalRoots:
+#   julia --project=<env> tools/gen_sun_cgc_fixtures.jl > tests/fixtures/sun_cgc.txt
 #
 # Line format (whitespace-separated), all indices 1-based as in Julia's
 # `basis(s)` = GTPatternIterator order (the Rust reader subtracts 1):

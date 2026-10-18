@@ -1,6 +1,7 @@
 #!/usr/bin/env julia
-# Generate exact SU(N) combinatorics fixtures for the racah crate's
-# cgc-gen Layer 1 oracle (issue #10), from SUNRepresentations.jl v0.4.0.
+# Generate exact SU(N) combinatorics fixtures (Weyl dimensions, duals,
+# Gelfand-Tsetlin pattern order, Littlewood-Richardson products, creation
+# ladders) from SUNRepresentations.jl v0.4.0.
 #
 # One tagged line per record (';'-separated fields):
 #   DIM;N;dynkin;dim;dualdynkin
@@ -100,7 +101,7 @@ end
 function main()
     script = @__FILE__
     hash = bytes2hex(sha256(read(script)))
-    println("# racah SU(N) combinatorics fixtures (cgc-gen Layer 1, issue #10)")
+    println("# racah SU(N) combinatorics fixtures")
     println("# generator: tools/gen_sun_fixtures.jl")
     println("# SUNRepresentations.jl version: ", pkgversion(SUNRepresentations))
     println("# RationalRoots.jl version: ", pkgversion(RationalRoots))
