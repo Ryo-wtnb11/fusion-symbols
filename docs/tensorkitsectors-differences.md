@@ -48,10 +48,12 @@ known difference and the reason recorded for it. Per-symbol provenance is in
   violation is a typed error. Reason: a silently degraded coefficient is not
   acceptable ([`AGENTS.md`](../AGENTS.md) acceptance criterion 5).
 - **Checked and infallible entry points.** `su2`, `abelian` and `cu1` give
-  each symbol an infallible form that returns exact zero on an inadmissible
-  tuple and a `_checked` form that returns a typed error (for example
-  `su2_f_symbol` / `su2_f_symbol_checked`, `cu1_r_symbol` /
-  `cu1_r_symbol_checked`). The generated families return `Result` only:
+  each F-symbol, R-symbol and (in `su2`) Wigner symbol an infallible form that
+  returns exact zero on an inadmissible tuple and a `_checked` form that
+  returns a typed error (for example `su2_f_symbol` / `su2_f_symbol_checked`,
+  `cu1_r_symbol` / `cu1_r_symbol_checked`). The `abelian` and `cu1`
+  `*_nsymbol` functions have no `_checked` form: they return the fusion
+  multiplicity, `0` when the labels cannot fuse, and that is not an error. The generated families return `Result` only:
   `sun::f_symbol`, `sun::r_symbol`, `bcd::f_symbol` and `bcd::r_symbol`
   return `Result<_, SunError>` / `Result<_, FrError>` (`src/sun/fr.rs`,
   `src/bcd/fr.rs`). In `tables`, the infallible `TableCategory` methods
