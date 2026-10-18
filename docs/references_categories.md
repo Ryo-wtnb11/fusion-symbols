@@ -97,21 +97,20 @@ digits, and aborts if any value is more than 4 ulp from AnyonWiki's
   files and their `TableProvenance`; rank 5–7 entries under
   `#[cfg(feature = "anyonwiki-unitary")]`) and the status index (rank 5–7
   rows `GATED`: shipped with the feature, `NotShipped` without);
-- `tests/fixtures/anyonwiki-badbfe2-check.txt`, one block per rank ≤ 4 entry:
-  each symbol with its qqb_id, the generated value and AnyonWiki's `numeric_*`
-  value, and the exact quantum dimensions and twists;
-- `tests/fixtures/anyonwiki-badbfe2-unitary-check.txt` for rank 5–7: every
-  distinct exact F/R symbol once (`V qqb_id re im`, 2,675 rows), and per entry
-  the exact quantum dimensions and twists.
+- `tests/fixtures/anyonwiki-badbfe2-check.txt` and
+  `tests/fixtures/anyonwiki-badbfe2-unitary-check.txt`, the generator's own
+  per-symbol audit output (qqb_id, generated value, AnyonWiki `numeric_*`).
+  They are not committed and no test reads them; the generator's gates (each
+  symbol within 4 ulp of `numeric_*` under its own key) run when it does.
 
-`tests/tables_anyonwiki.rs` checks every value of every rank ≤ 4 entry: (a)
-bit-equal to the generator output, (b) within 4 ulp of AnyonWiki's `numeric_*`,
-(c) its minimal polynomial vanishes to rounding at it; that the rows are
-exactly the admissible symbols; and that the derived dimensions and twists
-meet AnyonWiki's within 32ε. For rank 5–7 (with the feature) every admissible
-symbol must be bit-equal to a `V` value, every `V` value passes (c), and the
-derived dimensions and twists meet AnyonWiki's within 32ε; (b) per label is
-the generator's hard gate there (a per-symbol fixture would be 14 MB).
+`tests/tables_anyonwiki.rs` checks on every shipped entry that the derived
+dimensions are the fusion ring's Perron–Frobenius dimensions, and pins a few
+representative symbols (rank 3: irrational real F, complex R, an admissible
+exact zero; rank 5 with the feature: `1/√3`, purely imaginary F, eighth- and
+twenty-fourth-root R) bitwise to the correctly rounded AnyonWiki symbol, each
+written in the test with its minimal polynomial, plus their entries'
+dimensions and twists. Unitarity, pentagon, hexagon and ribbon run over every
+shipped entry in `tests/tables_reference.rs`.
 
 ### The `Complex64` projection epoch
 
@@ -130,7 +129,7 @@ fingerprint, not in the epoch.
 Changing any step is a new epoch identifier, and therefore a new authority
 fingerprint. symtn's earlier epoch `tenet-category-data/projection/2026-07-27`
 (step 1 replaced by "parse CategoryData.jl's 20-decimal export") maps to this
-one: every Fibonacci F, R and N value is bit-identical (`tests/tenet_values.rs`).
+one: every Fibonacci F, R and N value is bit-identical.
 
 ### Identity, ordering, gauge, fingerprint
 
@@ -144,24 +143,16 @@ one: every Fibonacci F, R and N value is bit-identical (`tests/tenet_values.rs`)
 
 ### Named constructors and TensorKitSectors 0.3.9
 
-`tests/fixtures/tks_anyons_oracle.jl` (Julia 1.11.6, TensorKitSectors 0.3.9)
-prints `FibonacciAnyon` and `IsingAnyon` as IEEE bits to
-`tests/fixtures/tks-0.3.9-anyons-values.txt`. `tests/tables_reference.rs`
-checks a stated object map and vertex gauge `u` (a witness, not a search):
+`tests/tables_reference.rs` writes out TensorKitSectors 0.3.9's
+`FibonacciAnyon` and `IsingAnyon` closed forms (`src/anyons.jl`) and checks a
+stated object map and vertex gauge `u` (a witness, not a search):
 `N` exact, `F_here = F_TKS · u^{ab}_e u^{ec}_d / (u^{bc}_f u^{af}_d)`,
 `R_here = R_TKS · u^{ab}_c / u^{ba}_c`, and dim, FS phase and twist, within 32ε.
 
 | Constructor | Code, uuid | Relation to TensorKitSectors |
 | --- | --- | --- |
-| `fibonacci()` | `[2,1,0,2,1,2,1]`, `37fa4e42-97c6-11f1-9d0f-9b7fe5c504f9` | `FibonacciAnyon`, identity map, `u ≡ 1` (same gauge, same braiding `R^{ττ}_𝟙 = e^{+4πi/5}`; `[2,1,0,2,1,1,1]` is the mirror and fails). Entrywise ulp distances to TKS's f64 pinned: `±F^{τττ}_τ[𝟙,𝟙]` (1, 0) (`1/φ` = `0.6180339887498948` there, correctly rounded `0.6180339887498949` here), `R^{ττ}_𝟙` (1, 1), `R^{ττ}_τ` (2, 1), `dim τ` (1, 0), `θ_τ` (2, 3); everything else bitwise |
+| `fibonacci()` | `[2,1,0,2,1,2,1]`, `37fa4e42-97c6-11f1-9d0f-9b7fe5c504f9` | `FibonacciAnyon`, identity map, `u ≡ 1` (same gauge, same braiding `R^{ττ}_𝟙 = e^{+4πi/5}`; `[2,1,0,2,1,1,1]` is the mirror and fails). The F and R entries are the correctly rounded exact values, pinned bitwise (`1/φ` = `0.6180339887498949` here; TKS's f64 `1/φ` is `0.6180339887498948`) |
 | `ising()` | `[3,1,0,1,1,1,1]`, `37fa4e56-97c6-11f1-907a-eb6ab8e8bc11` | `IsingAnyon` under TKS `(I, σ, ψ)` → `(1, 3, 2)` with `u^{σσ}_ψ = −1` (R identical; six F entries change sign). `u ≡ 1` and the mirror braiding `[3,1,0,1,1,4,1]` fail |
-
-### Fibonacci cross-checks (not authorities)
-
-| Source | Pin | Check |
-| --- | --- | --- |
-| `JCBridgeman/smallRankUnitaryFusionData` | `a6ba1c308ddcecbb03b9651a25fa0d1afcfb7546`, `uFC/FR_2_0_2/{Nabc.txt, 0/F.txt, 0/0/R.txt}` (SHA-256 `a7a6d179…`, `00cbae54…`, `24a653d1…`; MIT, Copyright (c) 2023 Jacob C Bridgeman), copied with its license to `tests/fixtures/smallRankUnitaryFusionData-a6ba1c3/` | every record bit-equal after parsing (`tests/tables_anyonwiki.rs`) |
-| CategoryData.jl `0.3.6` (`e793a08a093f6ba890a32c7e57d8e8b347441058`), artifact `data-v0.1.3` (git-tree-sha1 `90a414867a392b7b811ba6c8092e5e1a848dc4c4`, tarball SHA-256 `586f4841…5c045cf6`) | redistributes the smallRankUnitaryFusionData files byte for byte as `Nsymbols/FR_2_1_0_2.txt`, `Fsymbols/FR_2_1_0_2_0.txt`, `Rsymbols/FR_2_1_0_2_0_0.txt` (name mapping `FR_2_0_2` ↔ `FR_2_1_0_2`, braid `0/0` ↔ `_0_0`); alias `Fib = PMFC{2,1,0,2,0,0}` | its parser and TKS-derived values (`tests/fixtures/fib-categorydata-v0.1.3.txt`) via `tests/tables_reference.rs` |
 
 ### Citation
 
@@ -171,8 +162,7 @@ arXiv:2405.20075 (the entry's `references` field gives the published version,
 doi:10.1007/s00220-026-05705-2), and users of fusion-ring data to cite
 G. Vercleyen and J. K. Slingerland, *On low rank fusion rings*, J. Math. Phys.
 64, 091703 (2023), doi:10.1063/5.0148848. The entry's software field names
-Anyonica 0.9.11.5 (doi:10.5281/zenodo.10686860). The smallRankUnitaryFusionData
-README states no paper citation.
+Anyonica 0.9.11.5 (doi:10.5281/zenodo.10686860).
 
 ### Derived quantities
 
@@ -187,15 +177,3 @@ symbols are left to the consumer)
 | `κ(a)` | `sign(F(a, ā, a, a, 1, 1))` | `frobenius_schur_phase_from_Fsymbol`, `sectors.jl:463-469` |
 | `θ(a)` | `Σ_{b ∈ a⊗a} dim(b)/dim(a) · R(a, a, b)`, summed in ascending `b` | `twist_from_Rsymbol`, `sectors.jl:646-647` |
 
-### Reference fixture
-
-`tests/fixtures/fib-categorydata-v0.1.3.txt` was emitted by
-`tests/fixtures/generate_fixture.jl` run against a Julia 1.11.6 project holding
-`CategoryData v0.3.6` (pinned rev above) and `TensorKitSectors v0.3.9`. It is a
-genuine independent oracle: the values come out of CategoryData.jl's own
-parser, sparse-array indexing, and dual/dimension/twist derivation, not out of
-a re-print of the source files.
-
-Regenerating it requires Julia and network access and is therefore an offline,
-manual step. Nothing in the shipped crate invokes Julia, Mathematica, or the
-network.
