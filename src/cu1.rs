@@ -15,9 +15,9 @@
 //! `R^{ab}_{0-} = -1` for charged `a`, `b`; the Frobenius–Schur phase is `1`.
 //!
 //! Scalars are `f64`, as TensorKitSectors' `fusionscalartype` and
-//! `braidingscalartype` (`Float64`). The values reproduce bit for bit those of
-//! the provider this was ported from, symtn `symtn-sectors/src/cu1.rs`, and
-//! every nonzero value measured from TensorKitSectors (`tests/cu1_values.rs`).
+//! `braidingscalartype` (`Float64`). F and R are the recouplings of
+//! TensorKitSectors' `CU1Irrep` fusion tensors (`tests/cu1_values.rs`
+//! contracts them densely).
 //! One deliberate signed-zero difference: TensorKitSectors' `Rsymbol` returns
 //! `-0.0` for an inadmissible `R^{ab}_{0-}` with charged `a` (it negates the
 //! zero `N`); here every inadmissible symbol is `+0.0`, as in symtn and the

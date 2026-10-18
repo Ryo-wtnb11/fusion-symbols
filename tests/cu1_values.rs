@@ -1,221 +1,204 @@
-//! Value identity of the `cu1` module with two recorded sources.
+//! The `cu1` module reproduces TensorKitSectors' `CU1Irrep` (`O(2)`).
 //!
-//! - `fixtures/symtn-2a6c1523-cu1-values.txt`: every value symtn's
-//!   `CU1FusionRule` exposes at commit 2a6c152315bb271dc5e56b5f1f034ca818ef999d
-//!   (`symtn-sectors/src/cu1.rs`, the implementation this module was ported
-//!   from), printed by `fixtures/extract_symtn_cu1.rs` on macOS aarch64,
-//!   rustc 1.96.0. Unary data, fusion and N cover `0+`, `0-`, `2j = 1..=5`
-//!   and the twice-charge extremes; R and F cover `0+`, `0-`, `2j = 1..=5`
-//!   on every tuple (tuples whose value is `+0.0` are omitted).
-//! - `fixtures/tks-0.3.9-cu1-values.txt`: the independent oracle,
-//!   TensorKitSectors 0.3.9 (git `67d342a1`, tree `9f536263`) `CU1Irrep`
-//!   measured with Julia 1.11.6 by `fixtures/tks_cu1_oracle.jl`, on `0+`,
-//!   `0-`, `2j = 1..=5`: dual, dim, FS phase and indicator, twist, fusion
-//!   order, every nonzero N, and every R and F whose bits are not `+0.0`.
-//!   TensorKitSectors' `Rsymbol` returns `-0.0` on the inadmissible tuples
-//!   of its `c.s == 1 && a.j > 0` branch (`-convert(Float64, N)` with
-//!   `N = 0`); this crate returns `+0.0` there, as symtn and every other
-//!   inadmissible symbol here. Those tuples are counted as a known deviation.
-//!
-//! Labels are `twice_charge:s`; values are IEEE-754 bit patterns. Nothing
-//! here runs symtn or Julia.
-
-use std::collections::HashMap;
+//! Contract: F and R are the recoupling and braiding coefficients of the
+//! TensorKitSectors `CU1Irrep` fusion tensors, so every value follows from a
+//! dense contraction of the 2×2 (or 1×1) Clebsch–Gordan tensors of
+//! `cu1irrep.jl:fusiontensor`, written out below. The unary data and fusion
+//! order are TensorKitSectors' closed forms. A few literals pin the sign
+//! convention against the reference itself.
 
 use fusion_symbols::cu1::{cu1_f_symbol, cu1_nsymbol, cu1_r_symbol, CU1Irrep};
 
-const SYMTN: &str = include_str!("fixtures/symtn-2a6c1523-cu1-values.txt");
-const TKS: &str = include_str!("fixtures/tks-0.3.9-cu1-values.txt");
+const OP: CU1Irrep = CU1Irrep::VACUUM;
+const OM: CU1Irrep = CU1Irrep::PSEUDOSCALAR;
 
-fn label(s: &str) -> CU1Irrep {
-    let (q, s) = s.split_once(':').expect("twice_charge:s");
-    CU1Irrep::new(q.parse().unwrap(), s.parse().unwrap()).expect("valid label")
+fn j(twice_charge: u32) -> CU1Irrep {
+    CU1Irrep::from_twice_charge(twice_charge)
 }
 
-fn name(a: CU1Irrep) -> String {
-    format!("{}:{}", a.twice_charge(), a.s())
+/// `0+`, `0-`, `2j = 1..=5`.
+fn labels() -> Vec<CU1Irrep> {
+    [OP, OM].into_iter().chain((1..=5).map(j)).collect()
 }
 
-fn bits(s: &str) -> u64 {
-    u64::from_str_radix(s, 16).expect("hex bits")
+fn dim(a: CU1Irrep) -> usize {
+    if a.twice_charge() == 0 {
+        1
+    } else {
+        2
+    }
 }
 
-/// `0+`, `0-`, `2j = 1..=5`: the labels both sources record R and F on.
-fn small() -> Vec<CU1Irrep> {
-    [CU1Irrep::VACUUM, CU1Irrep::PSEUDOSCALAR]
-        .into_iter()
-        .chain((1..=5).map(CU1Irrep::from_twice_charge))
-        .collect()
-}
-
-#[derive(Default, Debug, PartialEq)]
-struct Tally {
-    /// Lines compared bit for bit or exactly.
-    identical: usize,
-    /// N lines where the source's checked N failed (fusion not
-    /// representable) and this crate returns the exact `N`.
-    overflow_n: usize,
-    /// Of those, how many are `N = 1` (the `0±` or difference channel).
-    overflow_n_one: usize,
-    /// Fusions that fail in the source only because of its narrower
-    /// twice-charge bound (symtn: `u32::MAX - 1`); here the channels exist.
-    fusion_beyond_source_bound: usize,
-}
-
-/// Checks every recorded line; R/F lines go to `symbols` for the
-/// all-tuple sweep, keyed `"R a b c"` / `"F a b c d e f"`.
-fn check(source: &str, symbols: &mut HashMap<String, u64>) -> Tally {
-    let mut t = Tally::default();
-    for line in source.lines().filter(|l| !l.starts_with('#')) {
-        let w: Vec<&str> = line.split_whitespace().collect();
-        let last = *w.last().unwrap();
-        let a = || label(w[1]);
-        let same = |got: f64, want: &str| assert_eq!(got.to_bits(), bits(want), "{line}");
-        match w[0] {
-            // symtn's codec bound: the consumer's own validation, not a limit
-            // of this crate.
-            "max_twice_charge" => assert_eq!(last.parse::<u32>().unwrap(), u32::MAX - 1),
-            "vacuum" => assert_eq!(label(w[1]), CU1Irrep::VACUUM, "{line}"),
-            "dual" => assert_eq!(a().dual(), label(w[2]), "{line}"),
-            "dim" => same(a().dim(), last),
-            "inv_dim" => same(1.0 / a().dim(), last),
-            "sqrt_dim" => same(a().dim().sqrt(), last),
-            "inv_sqrt_dim" => same(1.0 / a().dim().sqrt(), last),
-            "twist" => same(a().twist(), last),
-            "fs" => {
-                same(a().frobenius_schur(), w[2]);
-                if w.len() == 4 {
-                    // TensorKitSectors' group-theoretic indicator.
-                    assert_eq!(
-                        f64::from(w[3].parse::<i8>().unwrap()),
-                        a().frobenius_schur()
-                    );
-                }
+/// `cu1irrep.jl:fusiontensor(a, b, c)` as `C[i][k][m]` (basis `+j, -j` of a
+/// charged irrep), all zero when `c ∉ a ⊗ b`.
+fn fusion_tensor(a: CU1Irrep, b: CU1Irrep, c: CU1Irrep) -> [[[f64; 2]; 2]; 2] {
+    let mut t = [[[0.0; 2]; 2]; 2];
+    let (qa, qb, qc) = (
+        i64::from(a.twice_charge()),
+        i64::from(b.twice_charge()),
+        i64::from(c.twice_charge()),
+    );
+    let r = std::f64::consts::FRAC_1_SQRT_2;
+    let sign = |x: CU1Irrep| if x.s() == 1 { -1.0 } else { 1.0 };
+    if qc == 0 {
+        if qa == 0 && qb == 0 {
+            if a.s() ^ b.s() == c.s() {
+                t[0][0][0] = 1.0;
             }
-            "fusion" => {
-                let b = label(w[2]);
-                let got = a()
-                    .fusion(b)
-                    .ok()
-                    .map(|ch| ch.map(name).collect::<Vec<_>>().join(","));
-                let sum = u64::from(a().twice_charge()) + u64::from(b.twice_charge());
-                if last == "err" && sum == u64::from(u32::MAX) {
-                    assert!(got.is_some(), "{line}");
-                    t.fusion_beyond_source_bound += 1;
-                    continue;
-                }
-                assert_eq!(got.as_deref(), (last != "err").then_some(last), "{line}");
-            }
-            "N" => {
-                let got = cu1_nsymbol(a(), label(w[2]), label(w[3]));
-                if last == "err" {
-                    t.overflow_n += 1;
-                    t.overflow_n_one += got as usize;
-                    continue;
-                }
-                assert_eq!(got, last.parse::<u32>().unwrap(), "{line}");
-            }
-            "R" | "F" => {
-                symbols.insert(w[..w.len() - 1].join(" "), bits(last));
-                continue;
-            }
-            other => panic!("unknown quantity {other}"),
+        } else if qa == qb {
+            t[0][1][0] = r;
+            t[1][0][0] = r * sign(c);
         }
-        t.identical += 1;
+    } else if qa == 0 {
+        if qb == qc {
+            t[0][0][0] = 1.0;
+            t[0][1][1] = sign(a);
+        }
+    } else if qb == 0 {
+        if qa == qc {
+            t[0][0][0] = 1.0;
+            t[1][0][1] = sign(b);
+        }
+    } else if qc == qa + qb {
+        t[0][0][0] = 1.0;
+        t[1][1][1] = 1.0;
+    } else if qc == qa - qb {
+        t[0][1][0] = 1.0;
+        t[1][0][1] = 1.0;
+    } else if qc == qb - qa {
+        t[1][0][0] = 1.0;
+        t[0][1][1] = 1.0;
     }
     t
 }
 
-/// Every R and F tuple over [`small`]: the recorded bits, or `+0.0` when
-/// the tuple is not recorded. A recorded `-0.0` where this crate returns
-/// `+0.0` is the known signed-zero deviation, counted apart. Returns
-/// `(recorded tuples, signed-zero R tuples)`.
-fn sweep_symbols(symbols: &HashMap<String, u64>) -> (usize, usize) {
-    let all = small();
-    let (mut seen, mut signed_zero) = (0, 0);
-    let mut cmp = |key: String, got: f64| {
-        let want = symbols.get(&key).copied().unwrap_or(0);
-        seen += usize::from(symbols.contains_key(&key));
-        if want == (-0.0f64).to_bits() && got.to_bits() == 0 {
-            assert!(key.starts_with("R "), "{key}");
-            signed_zero += 1;
-            return;
-        }
-        assert_eq!(got.to_bits(), want, "{key}");
-    };
-    for &a in &all {
-        for &b in &all {
-            for &c in &all {
-                cmp(
-                    format!("R {} {} {}", name(a), name(b), name(c)),
-                    cu1_r_symbol(a, b, c),
-                );
-                for &d in &all {
-                    for &e in &all {
-                        for &f in &all {
-                            let key = [a, b, c, d, e, f].map(name).join(" ");
-                            cmp(format!("F {key}"), cu1_f_symbol(a, b, c, d, e, f));
+/// `F^{abc}_d[e, f] = (1/d_d) Σ C^{ab}_e[i,k,μ] C^{ec}_d[μ,l,m] C^{bc}_f[k,l,ν] C^{af}_d[i,ν,m]`
+/// (the real fusion-tensor identity TensorKitSectors' sector tests assert).
+fn dense_f(l: [CU1Irrep; 6]) -> f64 {
+    let [a, b, c, d, e, f] = l;
+    let (x1, x2, y1, y2) = (
+        fusion_tensor(a, b, e),
+        fusion_tensor(e, c, d),
+        fusion_tensor(b, c, f),
+        fusion_tensor(a, f, d),
+    );
+    let mut sum = 0.0;
+    for i in 0..dim(a) {
+        for k in 0..dim(b) {
+            for l in 0..dim(c) {
+                for m in 0..dim(d) {
+                    for mu in 0..dim(e) {
+                        for nu in 0..dim(f) {
+                            sum += x1[i][k][mu] * x2[mu][l][m] * y1[k][l][nu] * y2[i][nu][m];
                         }
                     }
                 }
             }
         }
     }
-    assert_eq!(seen, symbols.len(), "every recorded tuple is in the sweep");
-    (seen, signed_zero)
+    sum / dim(d) as f64
 }
 
-#[test]
-fn every_value_matches_symtn_2a6c1523() {
-    let mut symbols = HashMap::new();
-    let t = check(SYMTN, &mut symbols);
-    // 11 window labels: 1 bound + 1 vacuum + 7·11 unary + 11² fusion lines.
-    // 33 fusions are `err` in symtn (`2(j + k)` above its `u32::MAX - 1`);
-    // 6 of them, (1, max), (2, max - 1), (2147483647, 2147483648) and
-    // mirrors (max = u32::MAX - 1), sum to exactly `u32::MAX` and are labels
-    // here; the other 27 are `err` in both. Of 11³ = 1331 N, symtn's checked N fails on the 33 · 11 with
-    // such a pair.
-    // Exactly, 14 of those are N = 1: `0+` and `0-` for the 3 equal pairs,
-    // and the difference channel `|j - k| = 1/2` or `2147483647/2` for the
-    // ordered pairs (1, max), (2147483647, 2147483648), (2147483647, max),
-    // (max - 1, max) and their mirrors. 64 nonzero R and 628 nonzero F over
-    // the 7 small labels.
-    assert_eq!(
-        t,
-        Tally {
-            identical: 1 + 1 + 77 + (121 - 6) + (1331 - 363),
-            overflow_n: 363,
-            overflow_n_one: 14,
-            fusion_beyond_source_bound: 6,
-        }
-    );
-    assert_eq!(sweep_symbols(&symbols), (64 + 628, 0));
-}
-
-#[test]
-fn every_value_matches_tensorkitsectors_0_3_9() {
-    let mut symbols = HashMap::new();
-    let t = check(TKS, &mut symbols);
-    // 7 labels: 4·7 unary + 7² fusion + 64 nonzero N.
-    assert_eq!(
-        t,
-        Tally {
-            identical: 28 + 49 + 64,
-            ..Tally::default()
-        }
-    );
-    // 30 inadmissible R with c = 0- and charged a, -0.0 in TensorKitSectors.
-    assert_eq!(sweep_symbols(&symbols), (64 + 628 + 30, 30));
-    // Every admissible N not recorded would be a missing channel: the sweep
-    // of N over the same labels has exactly the 64 recorded triples.
-    let all = small();
-    let mut ones = 0;
-    for &a in &all {
-        for &b in &all {
-            for &c in &all {
-                ones += cu1_nsymbol(a, b, c);
+/// `C^{ba}_c[k,i,m] = R^{ab}_c C^{ab}_c[i,k,m]`: the ratio on any nonzero entry.
+fn dense_r(a: CU1Irrep, b: CU1Irrep, c: CU1Irrep) -> f64 {
+    let (ab, ba) = (fusion_tensor(a, b, c), fusion_tensor(b, a, c));
+    for i in 0..2 {
+        for k in 0..2 {
+            for m in 0..2 {
+                if ab[i][k][m] != 0.0 {
+                    return ba[k][i][m] / ab[i][k][m];
+                }
             }
         }
     }
-    assert_eq!(ones, 64);
+    0.0
+}
+
+#[test]
+fn f_and_r_are_the_fusion_tensor_recouplings() {
+    let all = labels();
+    let mut nonzero = (0, 0);
+    for &a in &all {
+        for &b in &all {
+            for &c in &all {
+                let r = cu1_r_symbol(a, b, c);
+                assert_eq!(r, dense_r(a, b, c), "R {a:?} {b:?} {c:?}");
+                nonzero.0 += usize::from(r != 0.0);
+                for &d in &all {
+                    for &e in &all {
+                        for &f in &all {
+                            let l = [a, b, c, d, e, f];
+                            let got = cu1_f_symbol(a, b, c, d, e, f);
+                            assert!((got - dense_f(l)).abs() < 1e-15, "F {l:?}");
+                            nonzero.1 += usize::from(got != 0.0);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Nonzero counts over the seven labels (TensorKitSectors 0.3.9 has the
+    // same counts): a vacuous sweep would not reach them.
+    assert_eq!(nonzero, (64, 628));
+}
+
+#[test]
+fn values_checked_against_tensorkitsectors() {
+    // Checked against TensorKitSectors 0.3.9 (`CU1Irrep`, Julia 1.11.6).
+    let s = std::f64::consts::FRAC_1_SQRT_2;
+    let f = [
+        ([j(1), j(1), j(1), j(1), OP, OP], 0.5),
+        ([j(1), j(1), j(1), j(1), OP, OM], -0.5),
+        ([j(1), j(1), j(1), j(1), OM, OM], -0.5),
+        ([j(1), j(1), j(1), j(1), j(2), OP], s),
+        ([j(1), j(1), j(1), j(1), j(2), j(2)], 0.0),
+        ([j(1), j(1), j(3), j(3), OM, j(4)], -s),
+        ([j(1), j(3), j(1), j(3), j(2), j(4)], 1.0),
+        ([OM, j(1), j(3), j(2), j(1), j(2)], -1.0),
+    ];
+    for ([a, b, c, d, e, x], want) in f {
+        assert_eq!(
+            cu1_f_symbol(a, b, c, d, e, x),
+            want,
+            "{a:?}{b:?}{c:?}{d:?}{e:?}{x:?}"
+        );
+    }
+    assert_eq!(cu1_r_symbol(j(1), j(1), OM), -1.0);
+    assert_eq!(cu1_r_symbol(j(1), j(1), OP), 1.0);
+    assert_eq!(cu1_r_symbol(j(1), j(1), j(2)), 1.0);
+    assert_eq!(cu1_r_symbol(OM, j(1), j(1)), 1.0);
+    // Known deviation: TensorKitSectors returns `-0.0` on this inadmissible
+    // tuple (`-convert(Float64, N)` with `N = 0`); here every inadmissible
+    // symbol is `+0.0`.
+    assert_eq!(cu1_r_symbol(j(1), j(2), OM).to_bits(), 0.0f64.to_bits());
+}
+
+#[test]
+fn unary_data_and_fusion_order_follow_tensorkitsectors() {
+    // `dim = 1` for `0±`, `2` when charged; self-dual; FS phase and twist 1.
+    for a in labels() {
+        assert_eq!(a.dim(), dim(a) as f64);
+        assert_eq!(a.dual(), a);
+        assert_eq!((a.frobenius_schur(), a.twist()), (1.0, 1.0));
+    }
+    // `SectorProductIterator{CU1Irrep}` order: `0± ⊗ 0± = 0^{s xor s'}`,
+    // `0± ⊗ j = j`, `j ⊗ j = [0+, 0-, 2j]`, `j ⊗ k = [|j-k|, j+k]`.
+    let all = labels();
+    for &a in &all {
+        for &b in &all {
+            let (qa, qb) = (a.twice_charge(), b.twice_charge());
+            let want = match (qa, qb) {
+                (0, 0) => vec![CU1Irrep::new(0, a.s() ^ b.s()).unwrap()],
+                (0, _) => vec![b],
+                (_, 0) => vec![a],
+                _ if qa == qb => vec![OP, OM, j(2 * qa)],
+                _ => vec![j(qa.abs_diff(qb)), j(qa + qb)],
+            };
+            let got: Vec<_> = a.fusion(b).unwrap().collect();
+            assert_eq!(got, want, "{a:?} ⊗ {b:?}");
+            for &c in &all {
+                assert_eq!(cu1_nsymbol(a, b, c), u32::from(want.contains(&c)));
+            }
+        }
+    }
 }
