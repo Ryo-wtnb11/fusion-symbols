@@ -1021,8 +1021,8 @@ fn signedroot(coef: &Ratio<BigInt>) -> SignedSqrtRational {
 /// established by the generation-time verification gates** (`docs/gauge.md` §9:
 /// multiplicity, orthonormality, ladder consistency — typed `SunError`, never
 /// silent) **and the independent oracle suites** (`docs/gauge.md` §11: the SU(2)
-/// embedding and the signed element-wise SUNRepresentations.jl v0.4.0
-/// fixtures), **never by this fingerprint.**
+/// embedding and the signed SUNRepresentations.jl v0.4.0 values), **never by
+/// this fingerprint.**
 ///
 /// # Consumer contract
 ///

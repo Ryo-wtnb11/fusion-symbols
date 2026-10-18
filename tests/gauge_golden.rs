@@ -1,36 +1,23 @@
 //! Golden gauge tripwire: a small committed table of coefficient values that
 //! the frozen gauge specification (`docs/gauge.md`, `docs/gauge_soN.md`) fixes.
 //!
-//! # What this suite is, and is not
+//! # What this suite is
 //!
-//! It is **not** an oracle. Every number below was produced by this crate, so
-//! it proves nothing about correctness — that is the job of the independent
-//! suites (`tests/sun_cgc_fixtures.rs` against SUNRepresentations.jl,
-//! `tests/sun_fr_su3_oracle.rs`, `src/bcd/qspace_oracle_tests.rs` against
-//! QSpace, `tests/su2_embedding.rs`).
-//!
-//! It is the **drift detector** for the frozen spec: a change anywhere in the
+//! The **drift detector** for the frozen spec: a change anywhere in the
 //! pipeline that moves a coefficient value fails here, in the default `cgc-gen`
-//! test run, with no reference toolchain in the loop. Under the freeze
-//! (`docs/gauge.md` §Status) such a change is a defect unless it ships as a
-//! spec correction with an epoch bump — and this is what makes it impossible to
-//! ship silently.
+//! test run. Under the freeze (`docs/gauge.md` §Status) such a change is a
+//! defect unless it ships as a spec correction with an epoch bump — and this is
+//! what makes it impossible to ship silently.
 //!
-//! It covers the two places the oracle suites do not fire by default:
-//!
-//! - **SU(3) F symbols** — pinned externally only by the `#[ignore]`d heavy
-//!   table oracle (`tests/sun_fr_su3_oracle.rs`), so an F-contraction gauge
-//!   drift passes an ordinary `cargo test`.
-//! - **SO(5) / Sp(4) CGC** — the QSpace anchor compares the isotypic projector
-//!   `P = Σ_μ C_μ C_μᵀ`, which is invariant under exactly the coupled-side
-//!   gauge this spec fixes (`docs/gauge_soN.md` §8 sign convention, §4 sweep
-//!   order, §9 OM assignment). No test pins a signed B/C/D coefficient. This
-//!   one does.
-//!
-//! The SU(3) CGC rows are the cheap overlap with the SUNRepresentations
-//! fixtures, kept because they include the OM = 2 adjoint vertex — the entry
-//! most sensitive to the multiplicity-column order (`docs/gauge.md` §8), which
-//! is the rule with no independent structural check at all.
+//! The SU(3) rows are checked against SUNRepresentations.jl 0.4.0 (`CGC`, and
+//! `Fsymbol` through TensorKitSectors); they include the OM = 2 adjoint
+//! vertex, the entry most sensitive to the multiplicity-column order
+//! (`docs/gauge.md` §8). The SO(5) / Sp(4) / Spin(N) rows pin the coupled-side
+//! gauge of `docs/gauge_soN.md` (§8 sign convention, §4 sweep order, §9 OM
+//! assignment, §16 spinor seeds); no external implementation shares that
+//! gauge, so they are this crate's frozen values, and gauge-invariant content
+//! (isotypic projectors) is checked independently in
+//! `src/bcd/qspace_oracle_tests.rs`.
 //!
 //! # Tolerance
 //!
@@ -97,7 +84,8 @@ fn bcd(series: Series, d: &[i64]) -> Bcd {
 /// 0-based, with `mu` the multiplicity axis of §8.
 type SunRow = (u32, u32, u32, u32, f64);
 
-/// SU(3) `8 ⊗ 8 → 8`: the outer-multiplicity-2 vertex. The `mu` split is fixed
+/// SU(3) `8 ⊗ 8 → 8`, checked against SUNRepresentations.jl 0.4.0: the
+/// outer-multiplicity-2 vertex. The `mu` split is fixed
 /// by the single block `qrpos! ∘ cref!` gauge-fix of `docs/gauge.md` §4/§8, so
 /// swapping the two columns (or re-signing one) fails here.
 const SU3_ADJOINT_CUBED: &[SunRow] = &[
@@ -111,7 +99,8 @@ const SU3_ADJOINT_CUBED: &[SunRow] = &[
     (0, 7, 2, 0, -0.267_261_241_912_424_4),
 ];
 
-/// SU(3) `3 ⊗ 3̄ → 8`: multiplicity-free, sensitive to the GT basis order (§1)
+/// SU(3) `3 ⊗ 3̄ → 8`, checked against SUNRepresentations.jl 0.4.0:
+/// multiplicity-free, sensitive to the GT basis order (§1)
 /// and the highest-weight column order (§2).
 const SU3_FUNDAMENTAL_ADJOINT: &[SunRow] = &[
     (0, 0, 0, 0, 0.999_999_999_999_999_8),
@@ -154,7 +143,8 @@ fn su3_cgc_matches_the_frozen_gauge() {
 // SU(N): F symbols (the CGC contraction, only heavy-oracle-pinned otherwise).
 // ---------------------------------------------------------------------------
 
-/// `F^{3,3,3}_{1}` with `e = f = 3̄`: every vertex is multiplicity-free, so the
+/// `F^{3,3,3}_{1}` with `e = f = 3̄`, checked against SUNRepresentations.jl
+/// 0.4.0: every vertex is multiplicity-free, so the
 /// block is the single scalar below. It is a pure function of the CGC gauge
 /// through the §11 contraction, which makes it the cheapest F-side tripwire.
 const SU3_F_333_1: f64 = 0.999_999_999_999_999_9;
