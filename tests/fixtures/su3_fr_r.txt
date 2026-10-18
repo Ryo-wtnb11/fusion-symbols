@@ -1,8 +1,8 @@
 # racah SU(3) R-symbol fixtures -- provenance
 # source: SUNRepresentations.jl v0.4.0 via TensorKitSectors v0.3.9
 # gauge: Gelfand-Tsetlin construction, qrpos!∘cref! (docs/gauge.md)
-# generated (UTC): 2026-07-22T14:07:32.775
-# script sha256: 8d235361fae5f63063cce97304843e4a70203365275e767058cff7852405da0a
+# generated (UTC): 2026-10-18T12:59:22.970
+# script sha256: 7beaa45dc52a9edf914dbd4c241a8bc8f34f3979dba891c705dc3331b0f57d71
 # scope: all admissible SU(3) sextets/triples, every irrep dim <= 27
 # value is Float64; multiplicity indices 0-based
 # columns: a b c mu nu value

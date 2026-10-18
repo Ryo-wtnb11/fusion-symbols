@@ -1,8 +1,8 @@
 # racah SU(N) CGC fixtures -- provenance
 # source: SUNRepresentations.jl v0.4.0 (Gelfand-Tsetlin construction, qrpos!∘cref! gauge)
 # RationalRoots v0.2.1 ; julia 1.11.6
-# generated (UTC): 2026-07-22T12:55:03.218
-# script sha256: 244064efd8d7ca11e1e5fc39de7b4e089134561a14fe22010f0d8603fce4bbd7
+# generated (UTC): 2026-10-18T12:59:01.851
+# script sha256: 11ba8ea279b24a9d6f45ba1450eccd0436f8f2e5f0d756d7be330a16afdf4c16
 # indices 1-based (Julia basis order); value is Float64; eltype Float64
 # columns: N s1 s2 s3 m1 m2 m3 mu value
 2 1 1 0 2 1 1 1 -0.7071067811865477

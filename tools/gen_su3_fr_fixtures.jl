@@ -1,5 +1,5 @@
-# Emit SU(3) F- and R-symbol fixtures for the racah table-regeneration oracle
-# (issue #16, oracle 1). Values come straight from SUNRepresentations.jl v0.4.0
+# Emit SU(3) F- and R-symbol fixtures for the SU(3) table-regeneration oracle.
+# Values come straight from SUNRepresentations.jl v0.4.0
 # via TensorKitSectors' Fsymbol/Rsymbol -- never hand-authored -- so the Rust
 # oracle is a *signed, element-wise* match, i.e. the gauge-continuity claim that
 # authorizes a downstream consumer to delete its precomputed SU(3) table.
@@ -7,7 +7,7 @@
 # Scope: every admissible SU(3) sextet (for F) / triple (for R) in which ALL of
 # the involved irreps have Weyl dimension <= 27 -- the downstream table's cut.
 #
-# Run against the session's SUNRepresentations env:
+# Run in an environment with SUNRepresentations v0.4.0:
 #   julia --project=<sunenv> tools/gen_su3_fr_fixtures.jl <outdir>
 # emits <outdir>/su3_fr_f.txt and <outdir>/su3_fr_r.txt.
 #

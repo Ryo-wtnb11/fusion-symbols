@@ -1,6 +1,6 @@
 --- racah B/C/D fixtures (independent oracle)
 --- tool: Oscar 1.8.0
---- script: gen_bcd_fixtures.jl sha256=e277c982206676e23fdd0971bcb7adab4465798b397b1b99df0df72da92c97c0
+--- script: gen_bcd_fixtures.jl sha256=959f9f1a8006b29c8056b3be5a79f7f6832990dd3c2e74fa6c4d96a0ee742803
 --- seed: 197984281  format: SERIES RANK | a | b | dim_a dim_b | c:n ...
 B 2 | 1,0 | 1,2 | 5 35 | 0,2:1 0,4:1 1,2:1 2,0:1 2,2:1
 B 2 | 1,2 | 0,0 | 35 1 | 1,2:1

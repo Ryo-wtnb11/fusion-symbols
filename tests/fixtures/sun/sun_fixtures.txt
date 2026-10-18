@@ -1,10 +1,10 @@
-# racah SU(N) combinatorics fixtures (cgc-gen Layer 1, issue #10)
+# racah SU(N) combinatorics fixtures
 # generator: tools/gen_sun_fixtures.jl
 # SUNRepresentations.jl version: 0.4.0
 # RationalRoots.jl version: 0.2.1
 # julia version: 1.11.6
-# generated (UTC): 2026-07-22T08:12:22.614
-# script sha256: 3d007e882d3d77f7f61dc3f6c1b29b40cfef0878f4739cc7f11acbbcfcee9acf
+# generated (UTC): 2026-10-18T12:58:59.425
+# script sha256: 7a98c6ffb370b053d2b53155837e178e78a0e92bca162109c2fd345ccf8739be
 # record tags: DIM PAT DP LAD  (see script header for field layout)
 DIM;2;0;1;0
 DIM;2;1;2;1

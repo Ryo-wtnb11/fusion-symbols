@@ -1380,7 +1380,7 @@ mod tests {
                 assert_dim_sum_rule(&a, &b);
                 assert_commute_and_dual_twist(&a, &b);
                 assert_eq!(a.dual().dual(), a); // dual involution
-                let _ = a.creation(); // fires the P3 invariant guard in debug
+                let _ = a.creation(); // panics if a raised pattern is missing from the basis
             }
         }
     }
