@@ -14,3 +14,7 @@ docs/*.aux
 docs/*.log
 docs/*.out
 docs/*.toc
+
+# Audit output of tools/anyonwiki/gen_category_tables.py; no test reads it.
+/tests/fixtures/anyonwiki-badbfe2-check.txt
+/tests/fixtures/anyonwiki-badbfe2-unitary-check.txt

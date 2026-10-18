@@ -2,8 +2,8 @@
 //!
 //! Oracles are independent of the code under test: the discovered labels and
 //! multiplicities are gated against the exact [`crate::bcd::directproduct`]
-//! (a separate implementation, itself cross-checked against Sage/OSCAR
-//! fixtures); the per-block weight structure is checked against the irrep's
+//! (a separate implementation, itself checked against an in-test
+//! Brauer–Klimyk decomposition); the per-block weight structure is checked against the irrep's
 //! exact weight system (Freudenthal + Weyl orbits); orthonormality and
 //! determinism are self-consistency invariants.
 
@@ -357,8 +357,8 @@ fn kronecker_first_factor_is_fast_index() {
 /// A **regression snapshot** (not an independent oracle) pinning specific CGC
 /// entries of `B2 vector²`. It guards the CGC *values* against
 /// value-affecting gauge mutations that no label oracle can catch (the
-/// decomposition — labels/dims/multiplicities/isometry — is gauge-invariant); an
-/// external QSpace CGC fixture is the independent oracle.
+/// decomposition — labels/dims/multiplicities/isometry — is gauge-invariant);
+/// the gauge-invariant content is checked in `bcd::intertwiner_tests`.
 ///
 /// Not every gauge choice is catchable here, and the distinction is by
 /// *magnitude*:

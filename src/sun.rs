@@ -641,7 +641,7 @@ impl Irrep {
     /// Ported from `gtpatterns.jl:GTPatternIterator` /
     /// `basis(s) = GTPatternIterator{N}(weight(s))`, reproduced index-for-index.
     /// The order is load-bearing — the CGC gauge is a deterministic function of
-    /// it — so it is pinned by checked-in fixtures. See the private
+    /// it — so it is pinned by `tests/sun_oracle.rs`. See the private
     /// `gt_enumerate` for the recursion.
     pub fn patterns(&self) -> Vec<GtPattern> {
         let n = self.rank();
@@ -1021,8 +1021,8 @@ fn signedroot(coef: &Ratio<BigInt>) -> SignedSqrtRational {
 /// established by the generation-time verification gates** (`docs/gauge.md` §9:
 /// multiplicity, orthonormality, ladder consistency — typed `SunError`, never
 /// silent) **and the independent oracle suites** (`docs/gauge.md` §11: the SU(2)
-/// embedding and the signed element-wise SUNRepresentations.jl v0.4.0
-/// fixtures), **never by this fingerprint.**
+/// embedding and the signed SUNRepresentations.jl v0.4.0 values), **never by
+/// this fingerprint.**
 ///
 /// # Consumer contract
 ///

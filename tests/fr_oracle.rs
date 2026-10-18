@@ -1,82 +1,83 @@
-//! SU(2) F-symbol and R-symbol agreement against TensorKitSectors, the crate's
-//! F/R convention oracle. Fixtures are generated offline by
-//! `tools/gen_fr_fixtures.jl` over all admissible doubled spins <= 12, with a
-//! provenance header recording the resolved package versions.
+//! SU(2) F- and R-symbols follow the TensorKitSectors `SU2Irrep` convention.
 //!
-//! racah composes F exactly (big-rational 6j times the dimension factor under
-//! the root, phase in the sign) and rounds once, so it is at least as accurate
-//! as the reference's Float64 arithmetic; the tolerance covers the reference's
-//! own last-ulp rounding, not any racah error. R is an exact +-1/0 and must
-//! match to the bit.
+//! Contract: `F^{abc}_d[e, f] = (−1)^{a+b+c+d} √((2e+1)(2f+1)) {a b e; c d f}`
+//! (`su2irrep.jl:Fsymbol`, `sqrtdim(e) sqrtdim(f) racahW(a, b, d, c, e, f)`)
+//! and `R^{ab}_c = (−1)^{a+b−c}` on every tuple of doubled spins `≤ 12`, with
+//! the 6j symbol pinned independently in `tests/oracle.rs`; a few values are
+//! checked against TensorKitSectors itself. F is composed exactly and rounded
+//! once, so the tolerance covers only the reference's own last-ulp rounding.
 
-use fusion_symbols::{su2_f_symbol, su2_r_symbol};
+use fusion_symbols::{su2_f_symbol, su2_r_symbol, wigner_6j};
 
-const F_FIXTURES: &str = include_str!("fixtures/su2_f.txt");
-const R_FIXTURES: &str = include_str!("fixtures/su2_r.txt");
+fn tri(a: u32, b: u32, c: u32) -> bool {
+    (a + b + c).is_multiple_of(2) && c >= a.abs_diff(b) && c <= a + b
+}
 
-/// Data lines (skip blank and `#` provenance/header lines).
-fn data_lines(s: &str) -> impl Iterator<Item = (usize, &str)> {
-    s.lines().enumerate().filter_map(|(i, l)| {
-        let l = l.trim();
-        (!l.is_empty() && !l.starts_with('#')).then_some((i + 1, l))
-    })
+/// `(−1)^{k/2}` for an even doubled exponent `k`.
+fn parity(k: u32) -> f64 {
+    if k.is_multiple_of(4) {
+        1.0
+    } else {
+        -1.0
+    }
 }
 
 #[test]
-fn f_symbol_matches_tensorkitsectors() {
-    // Absolute tolerance: F is O(1) here (|F| stays within a few units for
-    // dj <= 12), so 1e-14 is several ulp of headroom over the reference's own
-    // Float64 rounding while still catching any structural (phase/order) error,
-    // which would be O(1)-sized, not ulp-sized.
-    const TOL: f64 = 1e-14;
-    let mut max_err = 0.0f64;
-    let mut checked = 0u64;
-    for (lineno, line) in data_lines(F_FIXTURES) {
-        let f: Vec<&str> = line.split_whitespace().collect();
-        assert_eq!(f.len(), 7, "malformed F fixture line {lineno}: {line}");
-        let mut dj = [0u32; 6];
-        for (slot, s) in dj.iter_mut().zip(&f[0..6]) {
-            *slot = s.parse().unwrap();
+fn f_and_r_are_the_tensorkitsectors_formulas() {
+    const MAX: u32 = 12;
+    let mut admissible = 0;
+    for a in 0..=MAX {
+        for b in 0..=MAX {
+            for c in 0..=MAX {
+                let r = if tri(a, b, c) { parity(a + b - c) } else { 0.0 };
+                assert_eq!(su2_r_symbol(a, b, c), r, "R {a} {b} {c}");
+                for d in 0..=MAX {
+                    for e in 0..=MAX {
+                        for f in 0..=MAX {
+                            let got = su2_f_symbol(a, b, c, d, e, f);
+                            if !(tri(a, b, e) && tri(e, c, d) && tri(b, c, f) && tri(a, f, d)) {
+                                assert_eq!(got, 0.0, "F {:?}", [a, b, c, d, e, f]);
+                                continue;
+                            }
+                            let want = parity(a + b + c + d)
+                                * f64::from((e + 1) * (f + 1)).sqrt()
+                                * wigner_6j(a, b, e, c, d, f).to_f64();
+                            assert!((got - want).abs() <= 1e-14, "F {:?}", [a, b, c, d, e, f]);
+                            admissible += 1;
+                        }
+                    }
+                }
+            }
         }
-        let want: f64 = f[6].parse().unwrap();
-        let got = su2_f_symbol(dj[0], dj[1], dj[2], dj[3], dj[4], dj[5]);
-        let err = (got - want).abs();
-        max_err = max_err.max(err);
-        assert!(
-            err <= TOL,
-            "F mismatch at line {lineno} dj={dj:?}: got={got} want={want} err={err:e}"
-        );
-        checked += 1;
     }
-    assert!(
-        checked > 100_000,
-        "expected the full dj<=12 sweep, got {checked}"
-    );
-    println!("F oracle: {checked} cases, max abs err {max_err:e}");
+    assert!(admissible > 100_000, "{admissible}");
 }
 
 #[test]
-fn r_symbol_matches_tensorkitsectors() {
-    // R is an exact discrete value; require the bit-exact +1.0 / -1.0.
-    let mut checked = 0u64;
-    for (lineno, line) in data_lines(R_FIXTURES) {
-        let f: Vec<&str> = line.split_whitespace().collect();
-        assert_eq!(f.len(), 4, "malformed R fixture line {lineno}: {line}");
-        let dj: [u32; 3] = [
-            f[0].parse().unwrap(),
-            f[1].parse().unwrap(),
-            f[2].parse().unwrap(),
-        ];
-        let want: f64 = f[3].parse().unwrap();
-        let got = su2_r_symbol(dj[0], dj[1], dj[2]);
-        assert_eq!(
-            got, want,
-            "R mismatch at line {lineno} dj={dj:?}: got={got} want={want}"
-        );
-        checked += 1;
+fn values_checked_against_tensorkitsectors() {
+    // Checked against TensorKitSectors 0.3.9 (`SU2Irrep`, Julia 1.11.6);
+    // exact values `−1/2`, `1/2`, `√3/2`, `2√2/3`, `1/2`, `√(5/6)`, `√5/3`
+    // (the reference prints `0.4999999999999999` for the two halves).
+    for (d, want) in [
+        ([1, 1, 1, 1, 0, 0], -0.5),
+        ([1, 1, 1, 1, 2, 2], 0.5),
+        ([1, 1, 1, 1, 0, 2], 0.866_025_403_784_438_6),
+        ([1, 2, 1, 2, 1, 3], 0.942_809_041_582_063_4),
+        ([2, 2, 2, 2, 2, 2], 0.5),
+        ([3, 1, 2, 2, 2, 3], 0.912_870_929_175_276_9),
+        ([2, 2, 2, 2, 0, 4], 0.745_355_992_499_929_9),
+    ] {
+        let got = su2_f_symbol(d[0], d[1], d[2], d[3], d[4], d[5]);
+        assert!((got - want).abs() <= 2.0 * f64::EPSILON, "F {d:?}: {got}");
     }
-    assert!(
-        checked > 100,
-        "expected many admissible R triples, got {checked}"
-    );
+    for (d, want) in [
+        ([1, 1, 0], -1.0),
+        ([1, 1, 2], 1.0),
+        ([2, 2, 2], -1.0),
+        ([2, 1, 1], -1.0),
+        ([3, 3, 4], -1.0),
+        ([2, 2, 0], 1.0),
+    ] {
+        assert_eq!(su2_r_symbol(d[0], d[1], d[2]), want, "R {d:?}");
+    }
 }

@@ -6,12 +6,10 @@
 //! - Heavy (`#[ignore]`, run with `cargo test --release --features cgc-gen --
 //!   --ignored`): the pentagon and hexagon spot checks, including the OM ≥ 2
 //!   D3-adjoint family. These materialize CGC (SVD sweeps) for many intermediate
-//!   irreps and cost seconds-to-minutes each — the same treatment as the heavy
-//!   SU(3) F/R table oracle.
+//!   irreps and cost seconds-to-minutes each.
 //!
 //! All values are racah-generated on both sides; this is a self-consistency
-//! check. The SU(N)-anchored isomorphism battery (SO(6) ≅ SU(4) etc., QSpace
-//! fixtures) lives in `tests/isomorphism.rs` and is not duplicated here.
+//! check. The SU(N)-anchored isomorphism battery (SO(6) ≅ SU(4) etc.) lives in `tests/isomorphism.rs` and is not duplicated here.
 
 #![cfg(feature = "cgc-gen")]
 

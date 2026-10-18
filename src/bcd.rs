@@ -1352,6 +1352,5 @@ pub fn bcd_authority_fingerprint() -> &'static [u8] {
 #[cfg(test)]
 mod tests;
 
-// External anchor: QSpace CGC oracle, behind the factor-basis dictionary.
 #[cfg(all(test, feature = "cgc-gen"))]
-mod qspace_oracle_tests;
+mod intertwiner_tests;

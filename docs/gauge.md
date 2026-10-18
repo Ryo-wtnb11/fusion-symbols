@@ -137,9 +137,9 @@ the reference iteration order.
   admissible second rows `I[i+1]:I[i]` with the **last** sub-row entry varying
   fastest, recursing into `GTPatternIterator{N-1}` as the inner (faster) loop;
   pattern data is stored top row (`l = N`) first.
-- Port: `sun::Irrep::patterns` (`sun.rs`), pinned index-for-index by the GT-pattern
-  fixtures (`tests/sun_oracle.rs`) and re-verified here by the signed CGC oracle
-  (`tests/sun_cgc_fixtures.rs`, §11).
+- Port: `sun::Irrep::patterns` (`sun.rs`), pinned index-for-index against an
+  in-test enumeration of this rule and the SUNRepresentations SU(3) adjoint
+  basis (`tests/sun_oracle.rs`), and re-verified by the signed CGC values (§11).
 - *Implicit in the code, normative here*: nothing in `patterns` announces itself
   as a convention — the order is whatever the recursive enumeration emits. It
   nonetheless indexes every returned coefficient, so a rewritten enumeration that
@@ -376,20 +376,18 @@ in `cgc.rs` (§4a).
 - **SU(2) embedding** (`tests/su2_embedding.rs`): N = 2 CGC vs the crate's exact
   `clebsch_gordan` (big-rational Racah sums, rounded once) over a randomized
   sweep — signed, exact up to the single per-channel highest-weight sign.
-- **Gauge continuity** (`tests/sun_cgc_fixtures.rs`): **signed, element-wise**
-  agreement with SUNRepresentations.jl v0.4.0 fixtures
-  (`tools/gen_sun_cgc_fixtures.jl`, provenance header) across N ∈ {2,3,4}
-  including OM ≥ 2 channels and the `μ`-axis order. Observed worst
-  `|Δ| ≈ 2.4e-15`.
+- **Gauge continuity** (`tests/sun_cgc_gauge.rs`, `tests/sun_fr_su3_values.rs`):
+  isometry and intertwining of the GT raising operators on representative
+  channels across N ∈ {2,3,4}, and signed entries checked against
+  SUNRepresentations.jl v0.4.0 there, including the OM = 2 `8 ⊗ 8 → 8`
+  channel and its `μ`-axis order, and SU(3) F/R blocks.
 
 A change that moves any observed value beyond these oracles' tolerances is a
 deviation from this specification: a defect unless it ships as a specification
 correction under the four-step rule in **Status** above.
 
-The in-repo drift tripwire is `tests/gauge_golden.rs` (§Status). It is not an
-oracle — its numbers come from this crate — and it does not replace the two
-suites above; it is what fires when a refactor moves a value with no reference
-toolchain present.
+The in-repo drift tripwire is `tests/gauge_golden.rs` (§Status); its SU(3)
+rows are checked against SUNRepresentations.jl v0.4.0.
 
 ---
 

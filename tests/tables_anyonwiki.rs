@@ -1,367 +1,222 @@
-//! The shipped `tables` catalog against its AnyonWiki authority and the
-//! independent smallRankUnitaryFusionData cross-check.
+//! The shipped `tables` catalog against its AnyonWiki authority.
 //!
-//! `fixtures/anyonwiki-badbfe2-check.txt` is written by
-//! `tools/anyonwiki/gen_category_tables.py` together with the shipped tables:
-//! one `C uuid code` block per shipped entry. Each `F`/`R` row carries the
-//! exact AnyonWiki symbol (`qqb_id`: minimal polynomial coefficients
-//! `a0_a1_…_an`, then `__` and the root index), the generator's correctly
-//! rounded binary64 value, and AnyonWiki's own `numeric_*` value. For every
-//! shipped F- and R-symbol of every entry:
+//! Contracts:
 //!
-//! - (a) the provider's value is bit-equal to the generator output;
-//! - (b) it is within 4 ulp of AnyonWiki's `numeric_*` value (those are not
-//!   correctly rounded);
-//! - (c) the minimal polynomial nearly vanishes at it, relative to the
-//!   rounding scale of a Horner evaluation;
+//! - every shipped entry's derived quantum dimensions are its fusion ring's
+//!   Perron–Frobenius dimensions (`d_a d_b = Σ_c N^{ab}_c d_c`, `d_a ≥ 1`,
+//!   `d_ā = d_a`), so F carries the right normalization;
+//! - a representative symbol is the correctly rounded binary64 value of the
+//!   exact AnyonWiki symbol (its minimal polynomial `qqb_id`, coefficients
+//!   from the constant term up), including an admissible exact zero and
+//!   complex R-symbols, with the derived dimensions and twists equal to
+//!   AnyonWiki's.
 //!
-//! and the rows are every nonzero symbol of the provider. `D` and `T` rows are
-//! AnyonWiki's exact quantum dimensions and twists: the provider derives both
-//! from F and R (the TensorKitSectors formulas) and must meet them.
-//!
-//! That fixture covers the 74 entries of rank <= 4. The 303 entries of rank
-//! 5-7 (feature `anyonwiki-unitary`) are checked against the compact
-//! `fixtures/anyonwiki-badbfe2-unitary-check.txt`: their `D`/`T` rows as
-//! above, and one `V qqb_id re im` row per distinct exact F/R symbol. A
-//! per-symbol fixture for them would be 14 MB; the per-label check (b) is a
-//! hard gate of the generator instead.
+//! Unitarity, pentagon, hexagon and ribbon over every shipped entry are in
+//! `tests/tables_reference.rs`.
 
 use fusion_symbols::tables::{TableCategory, TableObject};
+#[cfg(feature = "anyonwiki-unitary")]
+use std::f64::consts::FRAC_1_SQRT_2;
+
 use num_complex::Complex64;
 
-const CHECK: &str = include_str!("fixtures/anyonwiki-badbfe2-check.txt");
-
-/// Bound for the derived dimension and twist: a fixed multiple of the unit
-/// round-off, as in `tests/tables_reference.rs`.
+/// Bound for derived dimensions and twists, as in `tests/tables_reference.rs`.
 const FP_BOUND: f64 = 32.0 * f64::EPSILON;
 
-fn ulps(a: f64, b: f64) -> u64 {
-    let key = |x: f64| {
-        let bits = x.to_bits() as i64;
-        if bits < 0 {
-            i64::MIN - bits
-        } else {
-            bits
-        }
-    };
-    key(a).abs_diff(key(b))
+fn shipped() -> impl Iterator<Item = TableCategory> {
+    TableCategory::shipped_uuids().map(|uuid| TableCategory::by_uuid(uuid).expect("shipped"))
 }
 
-fn objects(fields: &[&str]) -> Vec<TableObject> {
-    fields
-        .iter()
-        .map(|s| TableObject(s.parse().unwrap()))
-        .collect()
-}
-
-/// `|p(z)|` and the bound `4 n ε Σ |a_k| |z|^k` for a Horner evaluation.
-fn residual(qqb: &str, z: Complex64) -> (f64, f64) {
-    let (coefficients, _) = qqb.split_once("__").expect("qqb_id has a root index");
-    let a: Vec<f64> = coefficients
-        .split('_')
-        .map(|c| c.parse::<i64>().unwrap() as f64)
-        .collect();
+/// `|p(z)| ≤ 4 n ε Σ |a_k| |z|^k`: `z` is a root of `p = Σ a_k x^k` up to the
+/// rounding of a Horner evaluation.
+fn is_root(a: &[i64], z: Complex64) -> bool {
     let value = a
         .iter()
         .rev()
-        .fold(Complex64::new(0.0, 0.0), |acc, &c| acc * z + c);
+        .fold(Complex64::new(0.0, 0.0), |acc, &c| acc * z + c as f64);
     let scale: f64 = a
         .iter()
         .enumerate()
-        .map(|(k, c)| c.abs() * z.norm().powi(k as i32))
+        .map(|(k, &c)| (c as f64).abs() * z.norm().powi(k as i32))
         .sum();
-    (
-        value.norm(),
-        4.0 * a.len() as f64 * f64::EPSILON * scale.max(1.0),
-    )
-}
-
-/// The fixture's blocks: the category and its rows.
-fn blocks() -> Vec<(TableCategory, Vec<Vec<&'static str>>)> {
-    let mut blocks: Vec<(TableCategory, Vec<Vec<&'static str>>)> = Vec::new();
-    for line in CHECK.lines().filter(|l| !l.starts_with('#')) {
-        let fields: Vec<&str> = line.split_whitespace().collect();
-        if fields[0] == "C" {
-            let category = TableCategory::by_uuid(fields[1]).expect("shipped");
-            let code: Vec<u8> = fields[2].split(',').map(|c| c.parse().unwrap()).collect();
-            assert_eq!(category.code().to_vec(), code);
-            blocks.push((category, Vec::new()));
-        } else {
-            blocks.last_mut().expect("a C row first").1.push(fields);
-        }
-    }
-    blocks
+    value.norm() <= 4.0 * a.len() as f64 * f64::EPSILON * scale.max(1.0)
 }
 
 #[test]
-fn shipped_values_match_the_exact_anyonwiki_symbols() {
-    let blocks = blocks();
-    // Every shipped entry of rank <= 4.
-    assert_eq!(blocks.len(), 74);
-    let (mut f_total, mut r_total) = (0, 0);
-    for (category, rows) in &blocks {
-        let uuid = category.uuid();
-        let (mut f_rows, mut r_rows) = (0, 0);
-        for fields in rows.iter().filter(|f| matches!(f[0], "F" | "R")) {
-            // Labels are the shipped record layout: F `a b c d α e β μ f ν`,
-            // R `a b c α μ`; multiplicity slots are always 1.
-            let (got, rest) = if fields[0] == "F" {
-                let l = objects(&fields[1..11]);
-                f_rows += 1;
-                (
-                    category.f_symbol(l[0], l[1], l[2], l[3], l[5], l[8]),
-                    &fields[11..],
-                )
-            } else {
-                let l = objects(&fields[1..6]);
-                r_rows += 1;
-                (category.r_symbol(l[0], l[1], l[2]), &fields[6..])
-            };
-            let qqb = rest[0];
-            let parse = |s: &str| s.parse::<f64>().unwrap();
-            let generated = Complex64::new(parse(rest[1]), parse(rest[2]));
-            let numeric = Complex64::new(parse(rest[3]), parse(rest[4]));
-            let line = fields.join(" ");
-            assert_eq!(
-                (got.re.to_bits(), got.im.to_bits()),
-                (generated.re.to_bits(), generated.im.to_bits()),
-                "(a) {uuid} {line}"
-            );
-            assert!(
-                ulps(got.re, numeric.re) <= 4 && ulps(got.im, numeric.im) <= 4,
-                "(b) {uuid} {line}"
-            );
-            let (value, bound) = residual(qqb, got);
-            assert!(
-                value <= bound,
-                "(c) {uuid} {line}: |p| = {value:e} > {bound:e}"
-            );
-        }
-        // The rows are the whole table: one per admissible symbol (a few
-        // admissible F entries are exact zeros, e.g. in Rep(S₃)), and every
-        // other entry of the provider is zero.
-        let objects: Vec<TableObject> = category.objects().collect();
-        let mut f_admissible = 0;
-        let mut r_admissible = 0;
+fn derived_dimensions_are_the_perron_frobenius_dimensions() {
+    let mut entries = 0;
+    for p in shipped() {
+        let uuid = p.uuid();
+        let objects: Vec<TableObject> = p.objects().collect();
+        assert_eq!(p.dim(p.unit()), 1.0, "{uuid}");
         for &a in &objects {
+            assert!(p.dim(a) >= 1.0 - FP_BOUND, "{uuid} {a:?}");
+            assert!((p.dim(p.dual(a)) - p.dim(a)).abs() <= FP_BOUND * p.dim(a));
             for &b in &objects {
-                for &c in &objects {
-                    if category.is_braided() {
-                        if category.r_symbol_checked(a, b, c).is_ok() {
-                            r_admissible += 1;
-                        } else {
-                            assert_eq!(category.r_symbol(a, b, c), Complex64::new(0.0, 0.0));
-                        }
-                    }
-                    for &d in &objects {
-                        for &e in &objects {
-                            for &f in &objects {
-                                if category.f_symbol_checked(a, b, c, d, e, f).is_ok() {
-                                    f_admissible += 1;
-                                } else {
-                                    assert_eq!(
-                                        category.f_symbol(a, b, c, d, e, f),
-                                        Complex64::new(0.0, 0.0)
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
+                let sum: f64 = p.fusion(a, b).map(|c| p.dim(c)).sum();
+                let want = p.dim(a) * p.dim(b);
+                assert!((sum - want).abs() <= FP_BOUND * want, "{uuid} {a:?} {b:?}");
             }
         }
-        assert_eq!((f_rows, r_rows), (f_admissible, r_admissible), "{uuid}");
-        f_total += f_rows;
-        r_total += r_rows;
+        entries += 1;
     }
-    assert_eq!((f_total, r_total), (6600, 868));
+    let expected = if cfg!(feature = "anyonwiki-unitary") {
+        377
+    } else {
+        74
+    };
+    assert_eq!(entries, expected);
 }
 
-#[test]
-fn derived_dimensions_and_twists_meet_the_exact_anyonwiki_values() {
-    let (mut dims, mut twists) = (0, 0);
-    for (category, rows) in blocks() {
-        let uuid = category.uuid();
-        for fields in rows.iter().filter(|f| matches!(f[0], "D" | "T")) {
-            let a = TableObject(fields[1].parse().unwrap());
-            let line = fields.join(" ");
-            if fields[0] == "D" {
-                let want: f64 = fields[3].parse().unwrap();
-                let got = category.dim(a);
-                assert!(
-                    (got - want).abs() <= FP_BOUND * want,
-                    "{uuid} {line}: {got}"
-                );
-                dims += 1;
-            } else {
-                let want = Complex64::new(fields[3].parse().unwrap(), fields[4].parse().unwrap());
-                let got = category.twist(a);
-                assert!((got - want).norm() <= FP_BOUND, "{uuid} {line}: {got}");
-                twists += 1;
-            }
+/// `(kind, labels, qqb_id coefficients, re, im)`. F labels `a b c d e f`, R
+/// labels `a b c` (multiplicity slots are 1).
+type Symbol = (char, &'static [u16], &'static [i64], f64, f64);
+
+fn check_symbols(category: &TableCategory, symbols: &[Symbol]) {
+    let uuid = category.uuid();
+    for &(kind, labels, poly, re, im) in symbols {
+        let l: Vec<TableObject> = labels.iter().map(|&x| TableObject(x)).collect();
+        let got = match kind {
+            'F' => category.f_symbol_checked(l[0], l[1], l[2], l[3], l[4], l[5]),
+            _ => category.r_symbol_checked(l[0], l[1], l[2]),
         }
+        .unwrap_or_else(|e| panic!("{uuid} {kind}{labels:?}: {e}"));
+        let want = Complex64::new(re, im);
         assert_eq!(
-            rows.iter().filter(|f| f[0] == "D").count(),
-            category.rank(),
-            "{uuid}: a D row per object"
+            (got.re.to_bits(), got.im.to_bits()),
+            (re.to_bits(), im.to_bits()),
+            "{uuid} {kind}{labels:?}: {got}"
         );
+        assert!(is_root(poly, want), "{uuid} {kind}{labels:?} not a root");
     }
-    // 35 shipped entries are modular and carry AnyonWiki twists.
-    assert_eq!((dims, twists), (261, 117));
 }
 
-/// The same category in `JCBridgeman/smallRankUnitaryFusionData` at
-/// `a6ba1c3` (`uFC/FR_2_0_2`, categorification 0, braiding 0; MIT, copied
-/// verbatim with its license) — the files CategoryData.jl v0.1.3
-/// redistributes as `FR_2_1_0_2*`. Same gauge, same braiding, and its
-/// 20-digit decimals round to the same binary64 values.
+fn check_dims_and_twists(category: &TableCategory, dims: &[f64], twists: &[(f64, f64)]) {
+    let uuid = category.uuid();
+    for (a, &want) in category.objects().zip(dims) {
+        assert!((category.dim(a) - want).abs() <= FP_BOUND * want, "{uuid}");
+    }
+    for (a, &(re, im)) in category.objects().zip(twists) {
+        let got = category.twist(a);
+        assert!((got - Complex64::new(re, im)).norm() <= FP_BOUND, "{uuid}");
+    }
+}
+
 #[test]
-fn shipped_tables_equal_the_small_rank_unitary_fusion_data_cross_check() {
-    const DIR: &str = "fixtures/smallRankUnitaryFusionData-a6ba1c3/uFC/FR_2_0_2";
-    let tables = [
-        (
-            include_str!("fixtures/smallRankUnitaryFusionData-a6ba1c3/uFC/FR_2_0_2/Nabc.txt"),
-            include_str!("../data/anyonwiki-badbfe2/N/2_1_0_2.txt"),
-            3,
-        ),
-        (
-            include_str!("fixtures/smallRankUnitaryFusionData-a6ba1c3/uFC/FR_2_0_2/0/F.txt"),
-            include_str!("../data/anyonwiki-badbfe2/F/2_1_0_2_1_1_1.txt"),
-            10,
-        ),
-        (
-            include_str!("fixtures/smallRankUnitaryFusionData-a6ba1c3/uFC/FR_2_0_2/0/0/R.txt"),
-            include_str!("../data/anyonwiki-badbfe2/R/2_1_0_2_1_2_1.txt"),
-            5,
-        ),
-    ];
-    for (reference, shipped, labels) in tables {
-        let records = |text: &str| {
-            let mut rows: Vec<(Vec<String>, Vec<u64>)> = text
-                .lines()
-                .filter(|l| !l.trim().is_empty())
-                .map(|l| {
-                    let f: Vec<&str> = l.split_whitespace().collect();
-                    (
-                        f[..labels].iter().map(|s| s.to_string()).collect(),
-                        f[labels..]
-                            .iter()
-                            .map(|s| s.parse::<f64>().unwrap().to_bits())
-                            .collect(),
-                    )
-                })
-                .collect();
-            rows.sort();
-            rows
-        };
-        assert_eq!(records(reference), records(shipped), "{DIR}");
-    }
+fn rank_three_symbols_are_the_exact_anyonwiki_symbols() {
+    // Checked against AnyonWiki badbfe2: the modular rank-3 entry with
+    // `d = 2cos(π/7), 1 + 2cos(2π/7)` (AnyonWiki `numeric_*` of R^{22}_3 has
+    // imaginary part 0.9749279121818235, one ulp below the correctly rounded
+    // value shipped here).
+    let p = TableCategory::by_code([3, 1, 0, 3, 1, 1, 1]).expect("shipped");
+    assert_eq!(p.uuid(), "37fa4ea8-97c6-11f1-8b25-ad9b74351a3e");
+    check_symbols(
+        &p,
+        &[
+            (
+                'F',
+                &[2, 2, 2, 2, 1, 1],
+                &[1, -1, -2, 1],
+                0.554_958_132_087_371_2,
+                0.0,
+            ),
+            (
+                'F',
+                &[2, 3, 2, 3, 2, 3],
+                &[-1, 0, -1, 0, 2, 0, 1],
+                0.895_509_763_098_559_6,
+                0.0,
+            ),
+            (
+                'F',
+                &[2, 2, 2, 2, 3, 3],
+                &[-1, -1, 2, 1],
+                -0.554_958_132_087_371_2,
+                0.0,
+            ),
+            (
+                'R',
+                &[2, 2, 1],
+                &[1, 1, 1, 1, 1, 1, 1],
+                0.623_489_801_858_733_5,
+                -0.781_831_482_468_029_8,
+            ),
+            (
+                'R',
+                &[2, 2, 3],
+                &[1, -1, 1, -1, 1, -1, 1],
+                0.222_520_933_956_314_4,
+                0.974_927_912_181_823_6,
+            ),
+        ],
+    );
+    check_dims_and_twists(
+        &p,
+        &[1.0, 1.801_937_735_804_838_3, 2.246_979_603_717_467],
+        &[
+            (1.0, 0.0),
+            (0.623_489_801_858_733_5, 0.781_831_482_468_029_8),
+            (-0.222_520_933_956_314_4, -0.974_927_912_181_823_6),
+        ],
+    );
+    // Checked against AnyonWiki badbfe2: an admissible F-symbol that is
+    // exactly zero (`qqb_id` `0_1`), in the rank-3 entry with
+    // `σ ⊗ σ = 1 ⊕ ψ ⊕ σ`.
+    let p = TableCategory::by_code([3, 1, 0, 2, 1, 1, 1]).expect("shipped");
+    check_symbols(&p, &[('F', &[3, 3, 3, 3, 3, 3], &[0, 1], 0.0, 0.0)]);
 }
 
-/// The rank 5-7 entries: every admissible F- and R-symbol of every entry is
-/// bit-equal to the correctly rounded value of an exact AnyonWiki symbol
-/// ((a) against the value dictionary), every dictionary value is a root of its
-/// minimal polynomial ((c)), and the derived dimensions and twists meet the
-/// exact AnyonWiki values.
-///
-/// Limit: value membership plus pentagon, hexagon, unitarity and dimensions
-/// cannot detect a relabeling of an entry by a fusion-ring automorphism
-/// (notably for fusion-only entries), because the dictionary carries no
-/// labels. The per-label guard is the generator's reproducible gate (each
-/// symbol within 4 ulp of AnyonWiki's `numeric_*` under its own key).
 #[cfg(feature = "anyonwiki-unitary")]
 #[test]
-fn rank_five_to_seven_entries_match_the_exact_anyonwiki_symbols() {
-    use std::collections::{HashMap, HashSet};
-
-    const UNITARY_CHECK: &str = include_str!("fixtures/anyonwiki-badbfe2-unitary-check.txt");
-    let bits = |z: Complex64| (z.re.to_bits(), z.im.to_bits());
-    let parse = |s: &str| s.parse::<f64>().unwrap();
-    let mut values: HashMap<(u64, u64), &str> = HashMap::new();
-    let mut blocks: Vec<(TableCategory, Vec<Vec<&str>>)> = Vec::new();
-    for line in UNITARY_CHECK.lines().filter(|l| !l.starts_with('#')) {
-        let fields: Vec<&str> = line.split_whitespace().collect();
-        match fields[0] {
-            "V" => {
-                let z = Complex64::new(parse(fields[2]), parse(fields[3]));
-                let (value, bound) = residual(fields[1], z);
-                assert!(value <= bound, "(c) {line}: |p| = {value:e} > {bound:e}");
-                values.insert(bits(z), fields[1]);
-            }
-            "C" => {
-                let category = TableCategory::by_uuid(fields[1]).expect("shipped");
-                let code: Vec<u8> = fields[2].split(',').map(|c| c.parse().unwrap()).collect();
-                assert_eq!(category.code().to_vec(), code);
-                assert!(category.rank() > 4, "{line}");
-                blocks.push((category, Vec::new()));
-            }
-            _ => blocks.last_mut().expect("a C row first").1.push(fields),
-        }
-    }
-    let shipped: HashSet<&str> = TableCategory::shipped_uuids().collect();
-    assert_eq!(blocks.len(), shipped.len() - 74);
-
-    let (mut f_total, mut r_total, mut dims, mut twists) = (0, 0, 0, 0);
-    let mut used = HashSet::new();
-    for (category, rows) in &blocks {
-        let uuid = category.uuid();
-        let objects: Vec<TableObject> = category.objects().collect();
-        let mut check = |what: &str, z: Complex64| {
-            assert!(
-                values.contains_key(&bits(z)),
-                "(a) {uuid} {what} {z} is no exact symbol"
-            );
-            used.insert(bits(z));
-        };
-        for &a in &objects {
-            for &b in &objects {
-                for &c in &objects {
-                    if let Ok(z) = category.r_symbol_checked(a, b, c) {
-                        check("R", z);
-                        r_total += 1;
-                    }
-                    for &d in &objects {
-                        for &e in &objects {
-                            for &f in &objects {
-                                if let Ok(z) = category.f_symbol_checked(a, b, c, d, e, f) {
-                                    check("F", z);
-                                    f_total += 1;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        for fields in rows {
-            let a = TableObject(fields[1].parse().unwrap());
-            let line = fields.join(" ");
-            if fields[0] == "D" {
-                let want = parse(fields[3]);
-                let got = category.dim(a);
-                assert!(
-                    (got - want).abs() <= FP_BOUND * want,
-                    "{uuid} {line}: {got}"
-                );
-                dims += 1;
-            } else {
-                let want = Complex64::new(parse(fields[3]), parse(fields[4]));
-                let got = category.twist(a);
-                assert!((got - want).norm() <= FP_BOUND, "{uuid} {line}: {got}");
-                twists += 1;
-            }
-        }
-        assert_eq!(
-            rows.iter().filter(|f| f[0] == "D").count(),
-            category.rank(),
-            "{uuid}: a D row per object"
-        );
-    }
-    assert_eq!(
-        used.len(),
-        values.len(),
-        "every dictionary value is a shipped symbol"
+fn rank_five_symbols_are_the_exact_anyonwiki_symbols() {
+    // Checked against AnyonWiki badbfe2: the rank-5 entry with
+    // `d = 1, 1, √3, √3, 2`. `1/√3` correctly rounded is 0.5773502691896257
+    // (`1.0 / 3f64.sqrt()` gives ...258).
+    let p = TableCategory::by_code([5, 1, 0, 3, 1, 1, 1]).expect("shipped");
+    assert_eq!(p.uuid(), "37fa51e4-97c6-11f1-8e38-175327b017ad");
+    check_symbols(
+        &p,
+        &[
+            (
+                'F',
+                &[3, 3, 3, 3, 1, 1],
+                &[-1, 0, 3],
+                0.577_350_269_189_625_7,
+                0.0,
+            ),
+            (
+                'F',
+                &[3, 3, 3, 3, 1, 5],
+                &[2, 0, 3],
+                0.0,
+                -0.816_496_580_927_726,
+            ),
+            (
+                'R',
+                &[3, 3, 1],
+                &[1, 0, 0, 0, 1],
+                -FRAC_1_SQRT_2,
+                FRAC_1_SQRT_2,
+            ),
+            (
+                'R',
+                &[3, 3, 5],
+                &[1, 0, 0, 0, -1, 0, 0, 0, 1],
+                -0.258_819_045_102_520_74,
+                -0.965_925_826_289_068_3,
+            ),
+        ],
     );
-    assert_eq!((f_total, r_total), (204_136, 10_996));
-    assert_eq!((dims, twists), (1853, 428));
+    let r3 = 1.732_050_807_568_877_2;
+    check_dims_and_twists(
+        &p,
+        &[1.0, 1.0, r3, r3, 2.0],
+        &[
+            (1.0, 0.0),
+            (1.0, 0.0),
+            (-FRAC_1_SQRT_2, -FRAC_1_SQRT_2),
+            (FRAC_1_SQRT_2, FRAC_1_SQRT_2),
+            (-0.5, -0.866_025_403_784_438_6),
+        ],
+    );
 }

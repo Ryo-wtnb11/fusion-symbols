@@ -17,10 +17,8 @@
 //!
 //! Scalars are `f64` (exact `±1` and `0`). TensorKitSectors declares `Int`
 //! here; `f64` is the scalar type of the providers these were ported from
-//! (symtn `symtn-sectors/src/abelian.rs`), whose values they reproduce bit for
-//! bit on every admissible label tuple (`tests/symtn_abelian_values.rs`).
-//! Unlike that port, an inadmissible F or R is `0.0`, as in TensorKitSectors
-//! and [`crate::tables`].
+//! (symtn `symtn-sectors/src/abelian.rs`). Unlike that port, an inadmissible
+//! F or R is `0.0`, as in TensorKitSectors and [`crate::tables`].
 //!
 //! Label domains: [`ZNIrrep`] carries its modulus `N ≥ 1` (`u32`) at runtime;
 //! [`U1Irrep`] holds integer charges in `i32` except `i32::MIN`, whose dual
@@ -822,12 +820,12 @@ mod tests {
         }
     }
 
-    /// TensorKitSectors 0.3.9 (git `67d342a1`, Julia 1.11.6), measured with
-    /// `tests/fixtures/tks_abelian_oracle.jl`: duals, `dim`,
-    /// `frobenius_schur_phase` and `twist` of every Z2, Z3, Z4 and
-    /// FermionParity label; every `Rsymbol` that differs from `Nsymbol`
-    /// (only fZ2 `R(1, 1, 0) = -1`); the count of nonzero `Fsymbol`s over all
-    /// label tuples; and U(1) duals, fusion with charge 1, and two F/R values.
+    /// Checked against TensorKitSectors 0.3.9 (git `67d342a1`, Julia 1.11.6):
+    /// duals, `dim`, `frobenius_schur_phase` and `twist` of every Z2, Z3, Z4
+    /// and FermionParity label; every `Rsymbol` that differs from `Nsymbol`
+    /// (only fZ2 `R(1, 1, 0) = -1`); `Fsymbol` = the product of its four
+    /// `Nsymbol`s (`irreps.jl`) and its nonzero count over all label tuples;
+    /// and U(1) duals, fusion with charge 1, and two F/R values.
     #[test]
     fn matches_measured_tensorkitsectors_values() {
         // (N, duals by charge, nonzero F count); dim, FS phase, twist are 1.
@@ -847,7 +845,13 @@ mod tests {
                         for &d in &labels {
                             for &e in &labels {
                                 for &f in &labels {
-                                    count += usize::from(zn_f_symbol(a, b, c, d, e, f) != 0.0);
+                                    // `irreps.jl:Fsymbol` for abelian irreps.
+                                    let n = zn_nsymbol(a, b, e)
+                                        * zn_nsymbol(e, c, d)
+                                        * zn_nsymbol(b, c, f)
+                                        * zn_nsymbol(a, f, d);
+                                    assert_eq!(zn_f_symbol(a, b, c, d, e, f), f64::from(n));
+                                    count += usize::from(n != 0);
                                 }
                             }
                         }

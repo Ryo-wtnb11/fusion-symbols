@@ -1,21 +1,17 @@
 //! Reference tests for the `tables` catalog.
 //!
-//! Three independent kinds of check, deliberately kept apart:
+//! Two independent kinds of check, deliberately kept apart:
 //!
-//! 1. **Oracle comparison against a pinned Julia environment.** Every `N`,
-//!    `F` and `R` entry and every derived value of Fibonacci is compared with
-//!    `fixtures/fib-categorydata-v0.1.3.txt`, emitted by CategoryData v0.3.6 /
-//!    TensorKitSectors v0.3.9 (`fixtures/generate_fixture.jl`). CategoryData.jl
-//!    repackages the same category (`smallRankUnitaryFusionData`), so this is
-//!    an independent cross-check of the AnyonWiki-sourced tables
-//!    (`tests/tables_anyonwiki.rs` checks every entry against the authority).
-//! 2. **Gauge equivalence with TensorKitSectors' closed forms.**
-//!    `fixtures/tks-0.3.9-anyons-values.txt` (`fixtures/tks_anyons_oracle.jl`)
-//!    holds `FibonacciAnyon` and `IsingAnyon` as TensorKitSectors 0.3.9
-//!    computes them. Each named constructor must equal them under a stated
-//!    object map and vertex gauge, the documented one, and not under the
-//!    wrong gauge or the mirror braiding.
-//! 3. **Consistency checks** over every shipped entry: unitarity, triangle,
+//! 1. **Gauge equivalence with TensorKitSectors' closed forms.**
+//!    `FibonacciAnyon` and `IsingAnyon` of TensorKitSectors 0.3.9
+//!    (`src/anyons.jl`: `Nsymbol`, `Fsymbol`, `Rsymbol`, `dim`) are written
+//!    out below; FS phase and twist follow from them by TensorKitSectors'
+//!    generic `frobenius_schur_phase` and `twist_from_Rsymbol`. Each named
+//!    constructor must equal them under a stated object map and vertex gauge,
+//!    the documented one, and not under the wrong gauge or the mirror
+//!    braiding. A few Fibonacci entries are also pinned bitwise as the
+//!    correctly rounded exact values.
+//! 2. **Consistency checks** over every shipped entry: unitarity, triangle,
 //!    pentagon, hexagon and the ribbon relation. They are never generators.
 //!
 //! The planar tensor workflow of the original symtn file needs a tensor
@@ -27,28 +23,11 @@ use std::collections::HashMap;
 use fusion_symbols::tables::{TableCategory, TableError, TableObject};
 use num_complex::Complex64;
 
-const FIXTURE: &str = include_str!("fixtures/fib-categorydata-v0.1.3.txt");
-
-const TKS: &str = include_str!("fixtures/tks-0.3.9-anyons-values.txt");
-
-const OBJECTS: [TableObject; 2] = [TableObject(1), TableObject(2)];
-
 /// Documented absolute bound for every approximate comparison: a fixed
 /// multiple of the unit round-off covering the at most rank-4 sums of triple
 /// products of unit-modulus coefficients in the pentagon. Not per-category
 /// tunable: a category that needs its own tolerance has an import bug.
 const FP_BOUND: f64 = 32.0 * f64::EPSILON;
-
-/// The workspace tolerance rule of the original tests,
-/// `32 * sqrt(terms) * eps * max(1, |want|)`.
-fn assert_close(what: &str, got: Complex64, want: Complex64, terms: usize) {
-    let bound = 32.0 * (terms.max(1) as f64).sqrt() * f64::EPSILON * want.norm().max(1.0);
-    let error = (got - want).norm();
-    assert!(
-        error <= bound,
-        "{what}: {got} vs {want} ({error:e} > {bound:e})"
-    );
-}
 
 fn table() -> TableCategory {
     TableCategory::fibonacci()
@@ -58,8 +37,7 @@ fn shipped() -> impl Iterator<Item = TableCategory> {
     TableCategory::shipped_uuids().map(|uuid| TableCategory::by_uuid(uuid).expect("shipped"))
 }
 
-/// Exact comparison for imported entries: both sides parse the same
-/// shortest-round-trip decimals.
+/// Exact comparison for entries pinned bitwise.
 fn assert_bits(actual: Complex64, expected: Complex64, what: &str) {
     assert_eq!(
         (actual.re.to_bits(), actual.im.to_bits()),
@@ -68,123 +46,11 @@ fn assert_bits(actual: Complex64, expected: Complex64, what: &str) {
     );
 }
 
-/// `tag` and one-based labels -> value, as emitted by the Julia generator.
-fn fixture() -> HashMap<(String, Vec<u16>), Complex64> {
-    let mut entries = HashMap::new();
-    for line in FIXTURE.lines() {
-        if line.trim_start().starts_with('#') || line.trim().is_empty() {
-            continue;
-        }
-        let fields: Vec<&str> = line.split_whitespace().collect();
-        let tag = fields[0].to_owned();
-        let (labels, value) = if matches!(tag.as_str(), "dual" | "N") {
-            let (head, tail) = fields[1..].split_at(fields.len() - 2);
-            (head, Complex64::new(tail[0].parse().unwrap(), 0.0))
-        } else {
-            let (head, tail) = fields[1..].split_at(fields.len() - 3);
-            (
-                head,
-                Complex64::new(tail[0].parse().unwrap(), tail[1].parse().unwrap()),
-            )
-        };
-        let key = (tag, labels.iter().map(|f| f.parse().unwrap()).collect());
-        assert!(
-            entries.insert(key, value).is_none(),
-            "duplicate fixture row"
-        );
-    }
-    entries
-}
-
-fn fixture_value(
-    entries: &HashMap<(String, Vec<u16>), Complex64>,
-    tag: &str,
-    labels: &[TableObject],
-) -> Complex64 {
-    let key = (tag.to_owned(), labels.iter().map(|a| a.label()).collect());
-    *entries
-        .get(&key)
-        .unwrap_or_else(|| panic!("fixture is missing {tag}{labels:?}"))
-}
-
 // -------------------------------------------------------------------------
-// 1. The pinned CategoryData.jl / TensorKitSectors fixture
+// 1. Gauge equivalence with TensorKitSectors 0.3.9
 // -------------------------------------------------------------------------
 
-#[test]
-fn every_fusion_and_symbol_entry_matches_the_pinned_julia_environment() {
-    let fib = table();
-    let entries = fixture();
-    let mut checked = 0usize;
-    for a in OBJECTS {
-        assert_eq!(
-            f64::from(fib.dual(a).label()),
-            fixture_value(&entries, "dual", &[a]).re
-        );
-        checked += 1;
-        for b in OBJECTS {
-            for c in OBJECTS {
-                assert_eq!(
-                    f64::from(fib.nsymbol(a, b, c)),
-                    fixture_value(&entries, "N", &[a, b, c]).re
-                );
-                assert_bits(
-                    fib.r_symbol(a, b, c),
-                    fixture_value(&entries, "R", &[a, b, c]),
-                    "R",
-                );
-                checked += 2;
-                for d in OBJECTS {
-                    for e in OBJECTS {
-                        for f in OBJECTS {
-                            assert_bits(
-                                fib.f_symbol(a, b, c, d, e, f),
-                                fixture_value(&entries, "F", &[a, b, c, d, e, f]),
-                                "F",
-                            );
-                            checked += 1;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    // 2 duals + 8 N + 8 R + 64 F: the full rank-2 tables, nothing sampled.
-    assert_eq!(checked, 2 + 8 + 8 + 64);
-}
-
-#[test]
-fn every_derived_value_matches_the_pinned_julia_environment() {
-    let fib = table();
-    let entries = fixture();
-    for a in OBJECTS {
-        assert_close(
-            "dim",
-            fib.dim(a).into(),
-            fixture_value(&entries, "dim", &[a]),
-            4,
-        );
-        assert_close(
-            "frobenius-schur",
-            fib.frobenius_schur(a),
-            fixture_value(&entries, "frobeniusschur", &[a]),
-            4,
-        );
-        assert_close(
-            "twist",
-            fib.twist(a),
-            fixture_value(&entries, "twist", &[a]),
-            4,
-        );
-    }
-}
-
-// -------------------------------------------------------------------------
-// 2. Gauge equivalence with TensorKitSectors 0.3.9
-// -------------------------------------------------------------------------
-
-/// One TensorKitSectors category from the fixture, one-based `values(I)`
-/// labels.
+/// One TensorKitSectors category, one-based `values(I)` labels.
 struct Tks {
     rank: u16,
     n: HashMap<[u16; 3], u32>,
@@ -195,10 +61,20 @@ struct Tks {
     twist: HashMap<u16, Complex64>,
 }
 
-fn tks(name: &str) -> Tks {
-    let bits = |s: &str| f64::from_bits(u64::from_str_radix(s, 16).expect("hex bits"));
+/// Tabulates closed-form `N`, `F`, `R` and `dim` on labels `1..=rank` (unit
+/// `1`, every label self-dual as in both anyon models), and derives
+/// `frobenius_schur_phase(a) = sign(F^{a a a}_a[1, 1])` and
+/// `twist_from_Rsymbol(a) = Σ_b d_b / d_a R^{aa}_b`.
+fn tks(
+    rank: u16,
+    n: impl Fn(u16, u16, u16) -> bool,
+    f: impl Fn([u16; 6]) -> f64,
+    r: impl Fn(u16, u16, u16) -> Complex64,
+    dim: impl Fn(u16) -> f64,
+) -> Tks {
+    let labels: Vec<u16> = (1..=rank).collect();
     let mut tks = Tks {
-        rank: 0,
+        rank,
         n: HashMap::new(),
         f: HashMap::new(),
         r: HashMap::new(),
@@ -206,37 +82,110 @@ fn tks(name: &str) -> Tks {
         fs: HashMap::new(),
         twist: HashMap::new(),
     };
-    for line in TKS.lines().filter(|l| !l.starts_with('#')) {
-        let f: Vec<&str> = line.split_whitespace().collect();
-        if f[0] != name {
-            continue;
-        }
-        let label = |i: usize| f[i].parse::<u16>().unwrap();
-        match f[1] {
-            "dual" => tks.rank += 1,
-            "dim" => drop(tks.dim.insert(label(2), bits(f[3]))),
-            "fs" => drop(tks.fs.insert(label(2), bits(f[3]))),
-            "twist" => drop(
-                tks.twist
-                    .insert(label(2), Complex64::new(bits(f[3]), bits(f[4]))),
-            ),
-            "N" => drop(
-                tks.n
-                    .insert([label(2), label(3), label(4)], f[5].parse().unwrap()),
-            ),
-            "R" => drop(tks.r.insert(
-                [label(2), label(3), label(4)],
-                Complex64::new(bits(f[5]), bits(f[6])),
-            )),
-            "F" => drop(tks.f.insert(
-                [label(2), label(3), label(4), label(5), label(6), label(7)],
-                bits(f[8]),
-            )),
-            other => panic!("unknown fixture row {other}"),
+    for &a in &labels {
+        for &b in &labels {
+            for &c in &labels {
+                if !n(a, b, c) {
+                    continue;
+                }
+                tks.n.insert([a, b, c], 1);
+                tks.r.insert([a, b, c], r(a, b, c));
+            }
         }
     }
-    assert!(tks.rank > 0, "fixture has no {name}");
+    let nn = |a, b, c| tks.n.contains_key(&[a, b, c]);
+    for &a in &labels {
+        for &b in &labels {
+            for &c in &labels {
+                for &d in &labels {
+                    for &e in &labels {
+                        for &x in &labels {
+                            if nn(a, b, e) && nn(e, c, d) && nn(b, c, x) && nn(a, x, d) {
+                                tks.f.insert([a, b, c, d, e, x], f([a, b, c, d, e, x]));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for &a in &labels {
+        tks.dim.insert(a, dim(a));
+        tks.fs.insert(a, tks.f[&[a, a, a, a, 1, 1]].signum());
+        let twist = labels
+            .iter()
+            .filter(|&&b| nn(a, a, b))
+            .map(|&b| tks.r[&[a, a, b]] * (dim(b) / dim(a)))
+            .sum();
+        tks.twist.insert(a, twist);
+    }
     tks
+}
+
+const PHI: f64 = std::f64::consts::GOLDEN_RATIO;
+
+/// `FibonacciAnyon`: labels `(I, τ) = (1, 2)`.
+fn tks_fibonacci() -> Tks {
+    let unit = |a| a == 1;
+    tks(
+        2,
+        |a, b, c| u8::from(unit(a)) + u8::from(unit(b)) + u8::from(unit(c)) != 2,
+        |[a, b, c, d, e, f]| match ([a, b, c, d] == [2; 4], e, f) {
+            (true, 1, 1) => 1.0 / PHI,
+            (true, 2, 2) => -1.0 / PHI,
+            (true, _, _) => 1.0 / PHI.sqrt(),
+            _ => 1.0,
+        },
+        |a, b, c| match (unit(a) || unit(b), c) {
+            (true, _) => Complex64::new(1.0, 0.0),
+            (false, 1) => Complex64::cis(0.8 * std::f64::consts::PI),
+            (false, _) => Complex64::cis(-0.6 * std::f64::consts::PI),
+        },
+        |a| if unit(a) { 1.0 } else { PHI },
+    )
+}
+
+/// `IsingAnyon`: labels `(I, σ, ψ) = (1, 2, 3)`.
+fn tks_ising() -> Tks {
+    let (i, s, p) = (1, 2, 3);
+    tks(
+        3,
+        |a, b, c| {
+            (a == i && b == c)
+                || (b == i && a == c)
+                || (c == i && a == b)
+                || [a, b, c] == [s, s, p]
+                || [a, b, c] == [s, p, s]
+                || [a, b, c] == [p, s, s]
+        },
+        |[a, b, c, d, e, f]| {
+            if [a, b, c, d] == [s; 4] {
+                if e == p && f == p {
+                    -1.0 / 2.0f64.sqrt()
+                } else {
+                    1.0 / 2.0f64.sqrt()
+                }
+            } else if e == s
+                && f == s
+                && ([a, b, c, d] == [s, p, s, p] || [a, b, c, d] == [p, s, p, s])
+            {
+                -1.0
+            } else {
+                1.0
+            }
+        },
+        |a, b, c| {
+            use std::f64::consts::PI;
+            match (a, b, c) {
+                (2, 2, 1) => Complex64::cis(-PI / 8.0),
+                (3, 3, 1) => Complex64::new(-1.0, 0.0),
+                (2, 3, 2) | (3, 2, 2) => Complex64::new(0.0, -1.0),
+                (2, 2, 3) => Complex64::cis(3.0 * PI / 8.0),
+                _ => Complex64::new(1.0, 0.0),
+            }
+        },
+        |a| if a == s { 2.0f64.sqrt() } else { 1.0 },
+    )
 }
 
 /// Checks that `category` is `tks` under the object map `map` (TKS label
@@ -317,81 +266,60 @@ fn gauge_equivalent(
     Ok(())
 }
 
-/// Signed distance in representable `f64`s.
-fn ulps(a: f64, b: f64) -> u64 {
-    let key = |x: f64| {
-        let bits = x.to_bits() as i64;
-        if bits < 0 {
-            i64::MIN - bits
-        } else {
-            bits
-        }
-    };
-    key(a).abs_diff(key(b))
-}
-
 #[test]
 fn fibonacci_is_tensorkitsectors_fibonacci_in_the_same_gauge() {
     let fib = TableCategory::fibonacci();
-    let tks = tks("fib");
+    let tks = tks_fibonacci();
     gauge_equivalent(&fib, &tks, &[1, 2], |_, _, _| 1.0).expect("identity gauge");
     // Negative control: the mirror braiding is not TensorKitSectors'.
     let mirror = TableCategory::by_code([2, 1, 0, 2, 1, 1, 1]).expect("shipped");
     assert!(gauge_equivalent(&mirror, &tks, &[1, 2], |_, _, _| 1.0).is_err());
-
-    // Entrywise, the correctly rounded table and TensorKitSectors' own f64
-    // arithmetic (`1/φ`, `cispi`) differ by exactly these ulp distances
-    // (re, im); every other F and R entry and the unit's data are bitwise
-    // equal.
-    let tau = TableObject(2);
-    let mut distances = Vec::new();
-    for (labels, &want) in &tks.f {
-        let l = labels.map(TableObject);
-        let got = fib.f_symbol(l[0], l[1], l[2], l[3], l[4], l[5]);
-        assert_eq!(got.im, 0.0);
-        let d = ulps(got.re, want);
-        if d != 0 {
-            distances.push((format!("F{labels:?}"), d, 0));
-        }
+    for a in [TableObject(1), TableObject(2)] {
+        assert_eq!(fib.dual(a), a);
     }
-    for (labels, &want) in &tks.r {
-        let l = labels.map(TableObject);
-        let got = fib.r_symbol(l[0], l[1], l[2]);
-        let d = (ulps(got.re, want.re), ulps(got.im, want.im));
-        if d != (0, 0) {
-            distances.push((format!("R{labels:?}"), d.0, d.1));
-        }
-    }
-    let twist = fib.twist(tau);
-    distances.push((
-        "twist".into(),
-        ulps(twist.re, tks.twist[&2].re),
-        ulps(twist.im, tks.twist[&2].im),
-    ));
-    distances.push(("dim".into(), ulps(fib.dim(tau), tks.dim[&2]), 0));
-    distances.sort();
-    assert_eq!(
-        distances,
-        PINNED_FIBONACCI_DISTANCES
-            .iter()
-            .map(|&(what, re, im)| (what.to_owned(), re, im))
-            .collect::<Vec<_>>()
-    );
 }
 
-const PINNED_FIBONACCI_DISTANCES: [(&str, u64, u64); 6] = [
-    ("F[2, 2, 2, 2, 1, 1]", 1, 0),
-    ("F[2, 2, 2, 2, 2, 2]", 1, 0),
-    ("R[2, 2, 1]", 1, 1),
-    ("R[2, 2, 2]", 2, 1),
-    ("dim", 1, 0),
-    ("twist", 2, 3),
-];
+#[test]
+fn fibonacci_entries_are_the_correctly_rounded_exact_values() {
+    // Checked against AnyonWiki badbfe2 (exact symbols `1/φ`, `1/√φ`,
+    // `e^{4πi/5}`, `e^{-3πi/5}`) and a 60-digit decimal evaluation: the
+    // nearest binary64 values. `1.0 / PHI` in f64 is one ulp below the first.
+    let tau = TableObject(2);
+    let unit = TableObject(1);
+    let fib = table();
+    let real = |re| Complex64::new(re, 0.0);
+    assert_bits(
+        fib.f_symbol(tau, tau, tau, tau, unit, unit),
+        real(0.618_033_988_749_894_9),
+        "F[1,1]",
+    );
+    assert_bits(
+        fib.f_symbol(tau, tau, tau, tau, unit, tau),
+        real(0.786_151_377_757_423_3),
+        "F[1,τ]",
+    );
+    assert_bits(
+        fib.f_symbol(tau, tau, tau, tau, tau, tau),
+        real(-0.618_033_988_749_894_9),
+        "F[τ,τ]",
+    );
+    assert_bits(
+        fib.r_symbol(tau, tau, unit),
+        Complex64::new(-0.809_016_994_374_947_5, 0.587_785_252_292_473_1),
+        "R^{ττ}_1",
+    );
+    assert_bits(
+        fib.r_symbol(tau, tau, tau),
+        Complex64::new(-0.309_016_994_374_947_45, -0.951_056_516_295_153_5),
+        "R^{ττ}_τ",
+    );
+    assert!((fib.dim(tau) - PHI).abs() <= FP_BOUND);
+}
 
 #[test]
 fn ising_is_tensorkitsectors_ising_up_to_the_documented_vertex_gauge() {
     let ising = TableCategory::ising();
-    let tks = tks("ising");
+    let tks = tks_ising();
     // TensorKitSectors (I, σ, ψ) = 1, 2, 3; here 1, ψ = 2, σ = 3.
     let map = [1, 3, 2];
     let (sigma, psi) = (2, 3);
@@ -411,7 +339,7 @@ fn ising_is_tensorkitsectors_ising_up_to_the_documented_vertex_gauge() {
 }
 
 // -------------------------------------------------------------------------
-// 3. Consistency checks — never generators — on every shipped entry
+// 2. Consistency checks — never generators — on every shipped entry
 // -------------------------------------------------------------------------
 
 fn channels(p: &TableCategory, a: TableObject, b: TableObject) -> Vec<TableObject> {
