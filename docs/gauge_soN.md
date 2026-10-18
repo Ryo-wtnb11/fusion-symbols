@@ -19,7 +19,7 @@ changing code that touches a coefficient value. Documentation map:
 
 This document specifies the **gauge** of the SO(N)/Sp(2N) Clebsch–Gordan
 isometries and projected generators produced by `fusion_symbols::bcd`'s decomposition
-sweep (`src/bcd/sweep.rs`, Layer S3.2) — the deterministic rules that fix the
+sweep (`src/bcd/sweep.rs`) — the deterministic rules that fix the
 otherwise-free basis of each coupled multiplet.
 
 ## Status: FROZEN NORMATIVE SPECIFICATION
@@ -88,10 +88,10 @@ Both are value-affecting gauge choices and therefore part of this contract.
 - The bootstrap works in the **cover** `Spin(2r+1)` / `Sp(2r)` / `Spin(2r)`, so
   the label set is the full dominant weight lattice: the **tensor** class
   (integer ε-basis `λ`) and, for `B`/`D`, the **spinor** class (half-integer
-  `λ`, issue #54). Weights are carried doubled (`2λ`, integral in both classes,
+  `λ`). Weights are carried doubled (`2λ`, integral in both classes,
   the crate's `dj = 2j` convention). A *global form* — which class a caller may
   ask for — is a restriction of the label set applied at construction
-  (`crate::group`, issue #87 §2); it never changes a coefficient value.
+  (`crate::group`); it never changes a coefficient value.
 - The CGC of a coupled multiplet is the isometry `V`, a real `d1·d2 × d3`
   column-major matrix; each column is one coupled state.
 
@@ -280,7 +280,7 @@ and the maximum of the two factors' for a product. A pure-tensor product
 therefore keeps the strict integer gate unchanged. The `d3 × r` matrix of snapped
 eigenvalues is the block's weight table `Z` (row = state, column = Cartan op).
 
-The projected generators are gated by the S3.1 commutator relations, evaluated
+The projected generators are gated by the commutator relations of the defining seeds (`src/bcd/seeds.rs`), evaluated
 in `f64` (the projected `Sp` are generally irrational, so the exact integer
 `check_commutators` does not apply directly): `[Sz_j, Sp_i] = d_{i,j} Sp_i` and
 `[Sp_i, Sp_i†] ∈ span(Sz)`, worst residual `≤ EPS_SWEEP` — else
@@ -353,10 +353,10 @@ happened to produce. racah instead applies the sign convention to **every**
 block, unconditionally. Rationale: a uniform, permutation-independent gauge is
 more predictable, and the QSpace conditionality appears accidental (the sign of
 a coupled block should not depend on whether its states happened to be generated
-already sorted). Consequence for the S3.5 QSpace-CGC-fixture harness: on
+already sorted). Consequence for the QSpace CGC fixture harness: on
 identity-permutation blocks the two implementations may differ by a whole-block
 sign; those are expected and are absorbed by the harness's signed-permutation
-alignment (§13 of the S3.5 plan), not treated as defects.
+alignment, not treated as defects.
 
 ---
 
@@ -369,19 +369,18 @@ multiplicity-free irrep gets `(0, 1)`.
 
 ---
 
-## 10. Exact-multiplicity production gate (Ruling 1)
+## 10. Exact-multiplicity production gate
 
 For every discovered irrep `c`, the sweep multiplicity `M^c_sweep` (the number of
 blocks labelled `c`) must equal the exact fusion multiplicity `N^c_ab` from
-`bcd::directproduct` (S3.0), **and** the discovered support must equal the exact
+`bcd::directproduct`, **and** the discovered support must equal the exact
 support — **both directions**. A missing block (`found = 0 < N`) is as fatal as
 a spurious one (`found > 0 = N`). Any mismatch is
-`SweepError::MultiplicityMismatch`. This gate is on the production path (Ruling
-1); it is not optional or test-only. `decompose(product, expected)` takes the
+`SweepError::MultiplicityMismatch`. This gate is on the production path; it is not optional or test-only. `decompose(product, expected)` takes the
 exact decomposition `expected` and enforces it; `decompose_defining_product`
 computes `expected` from the defining label via `directproduct`.
 
-This is fusion-symbols' addition over QSpace, which has no exact Layer-1 gate (it only
+This is fusion-symbols' addition over QSpace, which has no exact multiplicity gate (it only
 warns on discovered outer multiplicity, `:341`).
 
 ---
@@ -411,7 +410,7 @@ value is *not* a breaking release; loosening one that can, is.
 
 **Reference tolerance-regime deviations.** Three racah tolerance choices differ
 in *regime* (not just value) from QSpace; none moves a discovered label or
-multiplicity, but each is recorded for the S3.5 fixture harness:
+multiplicity, but each is recorded for the QSpace CGC fixture harness:
 
 1. **Descent overlap guards are stricter/absolute.** QSpace's `U`-overlap abort
    fires at `x·x > eps` with `x = aMax(Uᵀvi)`, i.e. a **max-overlap `> 1e-4`**;
@@ -432,7 +431,7 @@ multiplicity, but each is recorded for the S3.5 fixture harness:
    CGC entries too. racah snaps **integers only** (§6), leaving irrational CGC
    entries untouched. Consequence: an exact half-integer (or other small-rational)
    CGC entry that QSpace would snap may differ from fusion-symbols' value by `≤ 1e-12` —
-   below every gate tolerance, absorbed by the S3.5 element-wise comparison.
+   below every gate tolerance, absorbed by the fixture harness's element-wise comparison.
 
 ---
 
@@ -449,8 +448,8 @@ multiplicity, but each is recorded for the S3.5 fixture harness:
 The Gram–Schmidt sweep arithmetic (vector scaling, subtraction, norms, and the
 sparse `Sp`/diagonal-`Sz` applications) is the **gauge algorithm itself** — the
 analogue of `sun::cgc`'s `cref`, which `docs/gauge.md` §10 likewise carries in
-plain code rather than routing through a factorization kernel. The build-time
-`tenferro-rs` revision is recorded in the PR body.
+plain code rather than routing through a factorization kernel. The
+`tenferro-rs` version requirement is in `Cargo.toml`.
 
 The contract is *value agreement within the verification tolerances*, and (on a
 single-threaded run) **bitwise reproducibility** across runs — the sweep is
@@ -463,11 +462,11 @@ identity is not promised (the backend's reductions are not bit-reproducible).
 
 - **Exact decomposition** (`bcd::sweep::tests`): for `defining ⊗ defining` across
   `B2/B3/B4/C2/C3/C4/D3/D4`, the discovered labels and multiplicities equal
-  S3.0's exact `directproduct` (itself cross-checked against Sage/OSCAR
+  the exact `directproduct` (itself cross-checked against Sage/OSCAR
   fixtures — code racah did not write); block dimensions sum to `d1·d2`; each
   CGC is an isometry within tier; and each block's Cartan-eigenvalue rows
   reproduce the irrep's exact weight system (distinct-weight count and total from
-  Freudenthal + Weyl orbits, S3.0).
+  Freudenthal + Weyl orbits).
 - **Outer multiplicity ≥ 2**: `D3 (0,1,1) ⊗ (0,1,1)` — the exact layer predicts
   `N = 2` and the sweep reproduces two `(0,1,1)` blocks with OM indices `(0,2)`
   and `(1,2)`.
@@ -481,7 +480,7 @@ definition of this document, a breaking release.
 
 ---
 
-## 14. The canonical-parent rule (S3.3 `CanonicalCatalog`)
+## 14. The canonical-parent rule (`CanonicalCatalog`)
 
 Sections 1–13 fix the gauge of **one** decomposition of **one** product `a ⊗ b`.
 But an irrep `c` appears in *many* products, and its projected generators
@@ -490,11 +489,11 @@ was decomposed. If the catalog stored `c`'s generators from "whichever product
 was decomposed first", the gauge would depend on **query order**. This section
 specifies the rule that removes that dependence: each non-base irrep's generators
 come from **one** canonical parent product, chosen by a deterministic total order
-over the exact S3.0 data. This rule IS gauge — it is part of the semantic-version
+over the exact decomposition data (`bcd::directproduct`). This rule IS gauge — it is part of the semantic-version
 contract in the same way §§1–13 are.
 
-Design authority: issue #18 Ruling 2, issue #25. Implementation:
-`src/bcd/catalog.rs`. A reader with this section and the S3.0 `directproduct`
+Implementation: `src/bcd/catalog.rs`. A reader with this section and the exact
+`directproduct`
 (§0, `src/bcd.rs`) can re-derive every catalog gauge choice without reading the
 Rust.
 
@@ -515,7 +514,7 @@ half-integer weight as well (`box(V) = 2`, `box(ω_r) = r`, and "remove a box" i
 there — is **unchanged**.
 
 i.e. compare the box count first, then the exact Weyl dimension, then the integer
-Dynkin label read left to right. All three components are exact S3.0 data; no
+Dynkin label read left to right. All three components are exact decomposition data; no
 float, no discovery order.
 
 **Why box count is primary, not dimension.** `dim` alone is **not** a sound
@@ -546,7 +545,7 @@ The **base cases** are the `≺`-minimal irreps of each class of `P/Q` and carry
 generators directly, not from any product:
 
 - the **trivial** rep (dim 1): all generators zero on a 1-dimensional carrier;
-- the **defining** rep `(1,0,…,0)`: the exact S3.1 seed (`src/bcd/seeds.rs`);
+- the **defining** rep `(1,0,…,0)`: the exact defining seed (`src/bcd/seeds.rs`);
 - the **fundamental spinors** (`B`/`D` only): `ω_r` for `B_r`, and `ω_{r-1}`,
   `ω_r` for `D_r` — the Clifford seeds of §16. They are `≺`-minimal in the
   spinor class, and they are base cases of necessity rather than of
@@ -587,7 +586,7 @@ canonical-parent chain passes through the defining rep, and hence the `Spin(N)`
 coefficients coupling into those irreps. That is a value move, so it ships as a
 specification correction under [`gauge.md`, "Status"](gauge.md#status-frozen-normative-specification):
 this amendment, the `epoch = 2` bump, the regenerated `tests/gauge_golden.rs`
-values, and the CHANGELOG breaking-change entry, in one PR.
+values, and the CHANGELOG breaking-change entry, in the same change.
 
 **Candidate-set restriction (class-indexed).** Let `[c] ∈ P/Q` be the central
 class of `c`. If `[c]` lies in the **tensor sublattice** (`{0}` for `B_r`/`C_r`,
@@ -597,11 +596,11 @@ restricted to irreps of the tensor sublattice. Otherwise it is the full
 **without reference to any spinor irrep**. This is a deliberate restriction, not
 a consequence of `≺`; it is what makes a coefficient a function of the irrep
 alone and not of the form it was queried through, and it is what keeps
-`epoch = 1` across issue #54. (The alternative — letting the parent search range
-over the whole cover — is a genuine spec correction: the measured `Spin(5)`
-diagnostic of issue #87 shows the `SO(5)` adjoint's canonical parent moving from
-`(V,V)`, pair key `dim_a+dim_b = 10`, to `(4,4)`, pair key `8`. It is parked as
-its own optional, epoch-bumping change.) Every other (`non-base`) irrep
+the tensor-irrep values independent of the spinor sector. (Letting the parent
+search range over the whole cover would move values — the measured `Spin(5)`
+diagnostic shows the `SO(5)` adjoint's canonical parent moving from `(V,V)`,
+pair key `dim_a+dim_b = 10`, to `(4,4)`, pair key `8` — so it would be an
+epoch-bumping specification correction.) Every other (`non-base`) irrep
 `c` has a **canonical parent pair** `(a, b)`, defined as the minimum, under the
 **pair order**
 
@@ -612,8 +611,8 @@ key(a,b) = ( dim(a) + dim(b),  dim(a),  dynkin(a),  dynkin(b) )   (lex)
 over all pairs satisfying
 
 1. `a ≺ c` and `b ≺ c`  (both factors strictly smaller in `≺`), and
-2. `N^c_{ab} ≥ 1`, i.e. `c` appears in the exact decomposition `a ⊗ b` (S3.0
-   `directproduct`).
+2. `N^c_{ab} ≥ 1`, i.e. `c` appears in the exact decomposition `a ⊗ b`
+   (`bcd::directproduct`).
 
 The pair order's `dim(a)` tie-break (second component) makes the winner unique
 and puts it in canonical `a ⪯ b` form: of the two orderings `(a,b)`/`(b,a)` — which
@@ -627,22 +626,15 @@ by the box-count-first well-order `≺` (§14.1) — that is what makes the recu
 terminate and the existence proof valid. The **selection** among admissible pairs
 uses the dimension-based `key(a,b)` above — box count is irrelevant to numerical
 stability, whereas total dimension is (smaller product space ⇒ balanced split ⇒
-shallow chain ⇒ less round-off, the issue-#18 watch item). Keeping the pair key on
-`(dim_a+dim_b, …)` also minimizes churn: switching only the candidate-set order to
-box-count-first leaves **every** B/C parent, every D non-chiral parent, and the
-already-reachable D4 chirality labels **bitwise unchanged** — the sole parent delta
-is the two previously-unreachable D₃ labels `(0,0,2)`/`(0,2,0)`, which go from
-"no admissible parent (error)" to `(defining, (0,1,1))`.
+shallow chain ⇒ less round-off). Under the box-count-first candidate order the
+D₃ chirality labels `(0,0,2)`/`(0,2,0)` have the admissible parent
+`(defining, (0,1,1))`.
 
-**Deliberate refinement of the issue-#25 sketch.** Issue #25 sketches minimizing
-`(dim_a + dim_b, dim_a, label_a, label_b)` over admissible pairs. That is exactly
-`key(a,b)` above; the refinement this document commits to is the **admissibility
-condition (1)**, `a ≺ c ∧ b ≺ c` under the box-count-first `≺`, as the precise,
-computable-from-S3.0 statement of "already catalog-reachable", together with the
-proof (§14.4) that it is both non-empty and well-founded. The alternative anchoring
-"always take `a` = defining" was rejected: it forces `depth ~ box(c)` (one box per
-level, §14.6), maximizing the chain-depth error accumulation that issue #18 flags
-as a watch item, whereas the `dim_a+dim_b` minimizer favors **balanced** splits and
+**Admissibility.** The **admissibility condition (1)**, `a ≺ c ∧ b ≺ c` under the
+box-count-first `≺`, is the precise, computable-from-`directproduct` statement of
+"already catalog-reachable"; §14.4 proves it is both non-empty and well-founded.
+The alternative anchoring "always take `a` = defining" is not used: it forces `depth ~ box(c)` (one box per
+level, §14.6), maximizing chain-depth error accumulation, whereas the `dim_a+dim_b` minimizer favors **balanced** splits and
 shallow chains (measured: C2 `Sym⁶`, dim 84, has depth 3, not 5).
 
 ### 14.3 On-demand recursion (materialization)
@@ -654,7 +646,7 @@ canonical-parent chain:
 materialize(c):
     if c already has generators: return
     if c is a base case: it is already seeded; return
-    (a, b) = canonical_parent(c)          # §14.2, pure over S3.0
+    (a, b) = canonical_parent(c)          # §14.2, pure over directproduct
     materialize(a); materialize(b)         # a ≺ c, b ≺ c
     decompose (a ⊗ b)                      # the §1–§13 sweep
     harvest the resulting blocks           # §14.5
@@ -675,7 +667,7 @@ The candidate set (pairs meeting conditions 1–2 of §14.2) is **non-empty** fo
 every non-base `c`, so the minimum exists. Argument: every tensor irrep of
 `SO(N)`/`Sp(2N)` lives in a tensor power of the defining (vector) rep `V`
 (this is precisely why the object is the tensor irreps and spinors are excluded,
-§0 / Ruling 3). For non-trivial `c`, the product `V ⊗ c` contains a component `b`
+§0). For non-trivial `c`, the product `V ⊗ c` contains a component `b`
 obtained by **removing one box** from `c`'s highest weight (lowering the absolute
 value of one part of the partition by 1). Then `box(b) = box(c) − 1 < box(c)`, so
 `b ≺ c` under the box-count-first order — **regardless of `dim(b)`** (this is the
@@ -698,7 +690,7 @@ reciprocity (`V` self-dual, as in the tensor argument) `c ∈ V ⊗ b`, so `(V, 
 is admissible and the candidate set is non-empty. The `≺`-minimal spinors are
 exactly the base cases of §14.2. ∎
 
-The search is finite and computable from S3.0 alone: enumerate the finite set
+The search is finite and computable from `directproduct` alone: enumerate the finite set
 `{ x : x ≺ c }` (contained in the irreps with `box(x) ≤ box(c)`, obtained by a
 depth-first walk over integer partitions with **box-count** pruning — box count is
 monotone in every coordinate, so the prune is exact for all three series, unlike a
@@ -715,7 +707,7 @@ Decomposing `a ⊗ b` yields blocks for several irreps at once. The catalog appe
 a block's generators **iff**:
 
 - the block's irrep `c'` has **no** generators yet (append-only; never overwrite,
-  never evict — Ruling 2), **and**
+  never evict), **and**
 - `(a, b)` is exactly `c'`'s canonical parent (§14.2), taking the
   outer-multiplicity-0 copy.
 
@@ -739,7 +731,7 @@ keeps only a **debug-assert-class** check: the rediscovered block's Cartan (weig
 spectrum, compared as a **multiset** of per-state weight vectors, must match the
 stored generators' (cheap, loud, `debug_assert`). The comparison is a multiset,
 not state-by-state, because only the weight *content* is gauge-independent, not the
-state *order*: a stored **base-case** entry (the S3.1 defining seed, whose native
+state *order*: a stored **base-case** entry (the defining seed, whose native
 basis is *not* the sweep's descending-weight order, §6/§7) carries the same weights
 in a different order than a fresh sweep block — a state-by-state check would false-
 positive there. QSpace's error-driven replacement is deliberately dropped: the
@@ -760,7 +752,7 @@ their own canonical parents), and the stored `c` generators come from `c`'s *one
 canonical parent — never reconciled against another copy. The multiset check is the
 honest, provable sanity gate; the stronger per-matrix agreement is left unclaimed.
 
-### 14.6 Atomicity of the byte budget (Ruling 2)
+### 14.6 Atomicity of the byte budget
 
 The catalog is byte-bounded. A materialization that would exceed the budget fails
 with a typed error **before any commit**, leaving no partial chain. The mechanism
@@ -770,26 +762,25 @@ appending only what is missing), the staging buffer's total byte charge is added
 to the current retained bytes, and only if the sum is within budget are the staged
 entries committed; otherwise the staging buffer is discarded untouched. Because
 the chain is a deterministic function of `c` (§14.2–14.5), the failed request is
-reproducible and the committed state is exactly what it was before the call. This
-was chosen over incremental commit-as-you-go (which could leave a half-registered
-chain on the entry that overflows) because atomicity is a Ruling-2 requirement.
+reproducible and the committed state is exactly what it was before the call. Incremental
+commit-as-you-go is not used because it could leave a half-registered chain on
+the entry that overflows.
 
 ### 14.7 What the catalog does NOT own
 
-CGC/F/R **values** are not stored in the catalog (Ruling 2): `cgc(a,b,c)` returns
+CGC/F/R **values** are not stored in the catalog: `cgc(a,b,c)` returns
 the isometry to the caller and does not cache it here. The catalog owns only
 generator **sets** and a byte counter. The generators are `f64` (§12); a chain of
 depth `d` accumulates round-off across `d` sweeps, but each sweep re-gates the
 commutator relations at `≤ EPS_SWEEP` (§6), so a stored set's residual is bounded.
 Measured accumulation stays deep below the gate (C2 symmetric powers: depth-3 sets
-have worst commutator residual `~10⁻¹⁴`), which is the issue-#18 chain-depth watch
-item's evidence.
+have worst commutator residual `~10⁻¹⁴`).
 
 ---
 
 ## 15. Intertwiner alignment of rediscovered frames (this IS gauge)
 
-Reference/authority: issue #29, the PR #28 adjudication, and issue #15 instance 5.
+Reference: issue #29.
 This section is the re-derivation-standard specification of the rung that turns a
 rediscovered coupled block's frame into the **canonical** frame before its CGC is
 returned. It is gauge: it deterministically fixes the frame of every coupled
@@ -798,8 +789,7 @@ multiplet, so a value-affecting change here is a breaking release.
 ### 15.1 The problem it fixes
 
 The sweep gauge (§6–§8) is intrinsic in exact arithmetic but analytically
-**ill-conditioned**: a near-rank-deficient weight space (the QR conditioning
-flagged in PR #24) can leave a coupled multiplet in an O(1)-**rotated** frame
+**ill-conditioned**: a near-rank-deficient weight space (QR conditioning) can leave a coupled multiplet in an O(1)-**rotated** frame
 between two embeddings of the same irrep. The projected generators then carry the
 correct weight *system* (§6 gates each `R.Sz` to the intrinsic, gauge-independent
 weight multiset) but differ from the stored canonical generators by an orthogonal
@@ -842,12 +832,12 @@ A · W_S  =  W_T · B ,   A = R_can[i]ᵀ|_{T,S},   B = R_block[i]ᵀ|_{T,S}
 Stacking `C = A·W_S` and `B` over all `(i, S)`, `W_T` is the orthogonal
 **Procrustes** solution of `W_T·B = C`, i.e. `W_T = U·Vᵀ` from `SVD(C·Bᵀ)`.
 
-Why this does **not** reintroduce the near-tie sensitivity PR #28 removed: the
+Why this does **not** reintroduce the QR near-tie sensitivity: the
 tempting-but-wrong justification is "`C·Bᵀ` is orthogonal up to noise, singular
 values `≈ 1`". That is false — `C·Bᵀ = W_T·(B·Bᵀ)` has *ladder-sized* singular
 values (the squared singular values of the stacked lowering map). The correct
 argument: `B·Bᵀ` is symmetric PSD, so the orthogonal polar factor of `C·Bᵀ` is
-**exactly** `W_T`, and `U·Vᵀ` recovers that polar factor. Unlike the PR #24/#28 QR
+**exactly** `W_T`, and `U·Vᵀ` recovers that polar factor. Unlike the QR near-tie
 danger class there are **no discrete choices** here (no rank cuts, pivots, or
 keep/drop): `U·Vᵀ` is a *continuous* function of the data near nonsingular `B·Bᵀ`,
 and the target frame is the fixed canonical one, so platform noise perturbs `W_T`
@@ -861,7 +851,7 @@ source `S` (strictly higher weight) is solved before its target.
 The commutant of an irrep in the real-matrix ladder basis is `ℝ·I` for all three
 series and both chiralities of the D-odd spinor-tensor labels: complex-type
 Frobenius–Schur structure lives in the compact-unitary picture and creates no
-`SO(2)` rung in the real ladder basis (the PR #28 adjudication settled this). So
+`SO(2)` rung in the real ladder basis. So
 `W` is determined up to the single global sign, which §8 pins. There is no
 continuous gauge freedom left to fix beyond the per-degenerate-space orthogonal
 block the ladder already determines.
@@ -874,8 +864,7 @@ block the ladder already determines.
 disagrees after alignment — a genuinely different irrep, or a numerically hopeless
 embedding whose only remedy is the out-of-scope extended-precision tier (§11, the
 QSpace MPFR analogue) — stays a loud `CatalogError::BasisIncoherent`. The coherence
-guard therefore **moves from before to after** alignment (issue #15 instance 5,
-before/after positions recorded in the PR body); it is never bypassed, and a
+guard therefore **moves from before to after** alignment; it is never bypassed, and a
 coherent block (raw residual already `≤ tol`) skips alignment on a bit-exact fast
 path so no stored value is perturbed.
 
@@ -888,12 +877,12 @@ what unblocks the OM≥2 batteries). The OM *index* order is the catalog's exist
 discovery-order convention (§9). The residual freedom of the O(N) multiplicity-space
 mixing is **not** further canonicalized here: the F/R self-consistency gates and the
 gauge-invariant isotypic projector `P = Σ_μ C_μ C_μᵀ` are both invariant under it,
-and a full canonical multiplicity gauge is left to the S3.5 fitted-unitary harness.
+and a full canonical multiplicity gauge is left to the QSpace CGC fixture harness's fitted-unitary alignment.
 This is the one alignment freedom this rung deliberately does not pin.
 
 ---
 
-## 16. The spinor base cases (`Spin(N)`, issue #54)
+## 16. The spinor base cases (`Spin(N)`)
 
 Sections 1–15 fix the gauge of everything the bootstrap *computes*. This section
 fixes the remaining input: the generator matrices of the second base case, the

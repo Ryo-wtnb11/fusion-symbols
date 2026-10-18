@@ -62,7 +62,7 @@ with no signal anywhere. Under this freeze the arrow points the other way:
 
 A change to a returned coefficient value, its normalization, or the canonical
 convention it is expressed in is not an ordinary change. It is a **specification
-correction**, and it requires, in one PR:
+correction**, and it requires, in the same change:
 
 1. **The spec edit.** The changed rule edited here (or in `gauge_soN.md`), with
    the defect it corrects stated — what the old rule got wrong, not merely what
@@ -137,7 +137,7 @@ the reference iteration order.
   admissible second rows `I[i+1]:I[i]` with the **last** sub-row entry varying
   fastest, recursing into `GTPatternIterator{N-1}` as the inner (faster) loop;
   pattern data is stored top row (`l = N`) first.
-- Port: `sun::Irrep::patterns` (`sun.rs`), pinned index-for-index by the Layer 1
+- Port: `sun::Irrep::patterns` (`sun.rs`), pinned index-for-index by the GT-pattern
   fixtures (`tests/sun_oracle.rs`) and re-verified here by the signed CGC oracle
   (`tests/sun_cgc_fixtures.rs`, §11).
 - *Implicit in the code, normative here*: nothing in `patterns` announces itself
@@ -321,8 +321,8 @@ Port: `cgc.rs:trivial_cgc`.
   multiplicity columns is a specification deviation.
 - This is the same ordering SUNRepresentations produces (its 4th CGC index).
   The signed oracle (§11) checks OM ≥ 2 channels **including the `μ` order**, so
-  a divergent column order would fail the oracle. (Umbrella #9 pins the
-  consumer-facing multiplicity order to TensorKit `[μ,ν,κ,λ]`; that is a
+  a divergent column order would fail the oracle. (The
+  consumer-facing multiplicity order is pinned to TensorKit `[μ,ν,κ,λ]`; that is a
   downstream adapter concern, outside this crate.)
 
 ---
@@ -365,7 +365,7 @@ full-matrices SVD and is pinned by the `cgc-gen` feature.
 | gauge sign | `qrpos!` (`qr!` + `sign(diag R)`) | `qr_with_options(QrGauge::PositiveDiagonal)` → `Q` |
 | descent | `ldiv!(qr!(eqs), rhs)` | `lstsq(eqs, rhs)` |
 
-Build-time tenferro-rs revision is recorded in the PR body. `cref!` is **not** a
+The tenferro-rs version requirement is in `Cargo.toml`. `cref!` is **not** a
 factorization kernel — it is the gauge algorithm itself and is ported directly
 in `cgc.rs` (§4a).
 
