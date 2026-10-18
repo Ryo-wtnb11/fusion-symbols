@@ -1,4 +1,4 @@
-//! Low-rank isomorphism oracle battery (issue #32, deliverable 1).
+//! Low-rank isomorphism oracle battery.
 //!
 //! Role (see `tools/README.md` matrix): *internal consistency* strand. Each of
 //! the three exceptional low-rank Lie-algebra isomorphisms is a fact of
@@ -234,7 +234,7 @@ fn so4_su2xsu2_two_paths_agree() {
             // Factor products: SU(2) via GT engine (sun N=2) vs exact base. Only
             // the left factor (p, p2) is exercised — the right factor (q) obeys the
             // identical SU(2) rule, so a q2 loop would add redundant, not new,
-            // coverage (the reviewer's dead-loop nit, PR #33).
+            // coverage.
             for &p2 in &spins {
                 let gt_left = sun_channels(
                     &Sun::from_dynkin(&[p]).unwrap(),
@@ -269,12 +269,12 @@ fn wrong_so6_map_is_detected() {
 }
 
 // ---------------------------------------------------------------------------
-// The spinor image of the low-rank isomorphisms (issue #54, stage (b) of #87).
+// The spinor image of the low-rank isomorphisms.
 //
-// The three label maps above were restricted to the tensor sublattice only
-// because `fusion_symbols::bcd` rejected the spinor labels. With `Spin(N)` shipped the
-// same maps are defined on the **whole** weight lattice, and the isomorphism
-// oracles extend to it: these are the checks #54 names, now runnable.
+// The three label maps above are checked on the tensor sublattice, where
+// `SO(N)` and `Spin(N)` agree. Under `Spin(N)` the same maps are defined on the
+// **whole** weight lattice, and the isomorphism oracles extend to the spinor
+// labels.
 // ---------------------------------------------------------------------------
 
 use fusion_symbols::bcd::BcdError;
@@ -379,7 +379,7 @@ fn spin5_sp4_dimensions_agree_including_spinors() {
 }
 
 /// `Spin(5) ≅ Sp(4)`: every ordered product agrees, spinor channels included.
-/// This contains the #87 §5 diagnostic `4 ⊗ 4 = 1 + 5 + 10` as one row.
+/// This contains the SO(5) diagnostic `4 ⊗ 4 = 1 + 5 + 10` as one row.
 #[test]
 fn spin5_sp4_products_agree_including_spinors() {
     for a in SPIN5_LABELS {
@@ -422,7 +422,7 @@ fn spin5_sp4_frobenius_schur_agrees_including_spinors() {
 
 /// `Spin(3) ≅ SU(2)`: `B_1` is an excluded rank in [`fusion_symbols::bcd`], so the
 /// isomorphism is delivered as a **form-aware redirect** rather than as a
-/// second code path — and the redirect now distinguishes the cover from the
+/// second code path — and the redirect distinguishes the cover from the
 /// quotient, which is the whole point of the isomorphism (`Spin(3) = SU(2)`
 /// has half-integer `j`, `SO(3)` does not).
 #[test]

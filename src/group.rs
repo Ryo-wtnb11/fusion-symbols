@@ -1,5 +1,5 @@
 //! Root datum plus global form: which dominant weights are genuine
-//! representations of *which group* (issue #87, stage (a)).
+//! representations of *which group*.
 //!
 //! Specifying the Lie **algebra** does not specify the **group**. `so(N)` is
 //! the algebra of both `Spin(N)` and `SO(N) = Spin(N)/Z2`; `su(N)` is the
@@ -61,8 +61,8 @@
 //! Connected compact groups only. `O(N)` and `Pin(N)` are not central
 //! quotients of a simply connected group and are out of scope. The `G2`–`E8`
 //! variants of [`RootSystem`](crate::group::RootSystem) exist so the type is complete, but carry no
-//! predicate logic yet (their centers are `1`, `1`, `Z3`, `Z2`, `1`); only
-//! `SimplyConnected` is answerable for them today.
+//! predicate logic (their centers are `1`, `1`, `Z3`, `Z2`, `1`); only
+//! `SimplyConnected` is answerable for them.
 
 use std::fmt;
 
@@ -216,7 +216,7 @@ pub enum GlobalForm {
 /// constructors below are the ergonomic public surface; they are fallible,
 /// matching the house style of [`crate::bcd::Irrep::from_dynkin`].
 ///
-/// # Why the fields stay public (issue #87 §9)
+/// # Why the fields stay public
 ///
 /// This is deliberately a **low-level root-datum record**, not a validated
 /// handle. Direct construction can pair a [`CenterSubgroup`] with a
@@ -470,7 +470,7 @@ impl GroupId {
                 }
             }
             // Not a subgroup of this root system's center (or an exceptional
-            // family, whose quotient forms carry no logic yet).
+            // family, whose quotient forms carry no logic).
             _ => false,
         }
     }

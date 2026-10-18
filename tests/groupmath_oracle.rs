@@ -1,5 +1,4 @@
-//! GroupMath external value-oracle: tensor-product channels and multiplicities
-//! (issue #32, deliverable 2).
+//! GroupMath external value-oracle: tensor-product channels and multiplicities.
 //!
 //! Role (see `tools/README.md` matrix): GroupMath is the primary external value
 //! oracle across SU(N) and B/C/D. This test consumes the gauge-free part of
@@ -12,8 +11,7 @@
 //!
 //! The CGC *values* (GroupMath `Invariants`) are a different gauge with no
 //! documented deterministic map to racah's; per the exactness contract they
-//! are not compared here — that is the #29 alignment-harness job (see the
-//! generator's API-reconnaissance header).
+//! are not compared here (see the generator's API-reconnaissance header).
 #![cfg(feature = "cgc-gen")]
 
 use std::collections::BTreeMap;

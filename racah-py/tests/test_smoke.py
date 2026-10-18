@@ -1,4 +1,4 @@
-"""Smoke tests for the racah Python bindings (issue #81)."""
+"""Smoke tests for the racah Python bindings."""
 
 import numpy as np
 import pytest

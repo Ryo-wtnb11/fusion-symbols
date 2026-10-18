@@ -8,7 +8,7 @@
 //! magnetic indices, leaving four outer multiplicity indices `[μ, ν, κ, λ]`
 //! (SUNRepresentations.jl `sector.jl:_Fsymbol`, `:58-89`; the contraction wiring
 //! and axis order match TensorKitSectors `sectors.jl:Fsymbol_from_fusiontensor`,
-//! `:406-418`). The PR #17 review established that this logic depends on nothing
+//! `:406-418`). This logic depends on nothing
 //! SU(N)-specific: only on an irrep label type, a fusion-multiplicity source
 //! `N^c_{ab}`, a CGC provider returning **sparse real** `(m1, m2, m3, mu, value)`
 //! entries, and `f64` scalars. Real-valuedness holds for B/C/D CGC too (the sweep
@@ -30,8 +30,7 @@
 //!
 //! CGC are sparse, and each F/R element is a sum over matched magnetic-index
 //! keys, so the contraction is a sequence of sparse joins over shared magnetic
-//! indices — data-structure code, not a dense numeric kernel (issue #16:
-//! "sparse-aware assembly is acceptable and likely optimal"; a densified GEMM
+//! indices — data-structure code, not a dense numeric kernel (a densified GEMM
 //! would be mostly zeros and pay a densify+GEMM+scatter tax the join avoids).
 
 use std::collections::HashMap;

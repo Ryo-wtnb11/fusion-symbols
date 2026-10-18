@@ -1,6 +1,6 @@
-//! Tests for the S3.1 defining-rep seeds. Anchors are independent of the code
+//! Tests for the defining-rep seeds. Anchors are independent of the code
 //! under test: entry-for-entry against QSpace `Setup_*` (@ `dd2cc7e`) read by
-//! hand, dimensions against Fulton–Harris / the merged S3.0 `Irrep::dim`, and
+//! hand, dimensions against Fulton–Harris / the exact `Irrep::dim`, and
 //! weights against the classical vector/fundamental weight sets.
 
 use super::*;
@@ -19,7 +19,7 @@ fn sorted_sp(seed: &Seed, i: usize) -> Vec<(usize, usize, i64)> {
     v
 }
 
-// ---- rank guard (inherited from S3.0) ------------------------------------
+// ---- rank guard (shared with `Irrep::from_dynkin`) -------------------------
 
 #[test]
 fn excluded_low_ranks_rejected() {
@@ -92,7 +92,7 @@ fn sen_d3_entries() {
     assert_eq!(s.cartan()[2], vec![0, 0, 0, 0, 1, -1]);
 }
 
-// ---- dimension anchors (== S3.0 wdim of the defining label) --------------
+// ---- dimension anchors (== exact wdim of the defining label) ---------------
 
 #[test]
 fn dims_match_s30_defining_wdim() {
@@ -109,14 +109,14 @@ fn dims_match_s30_defining_wdim() {
     ] {
         let s = defining_seed(series, r).unwrap();
         assert_eq!(s.dim() as u32, want, "{series:?}_{r} dim");
-        // Defining label (1,0,...,0): wdim from the merged S3.0.
+        // Defining label (1,0,...,0): wdim from the exact `Irrep::dim`.
         let mut dynkin = vec![0i64; r];
         dynkin[0] = 1;
         let irr = Irrep::from_dynkin(series, &dynkin).unwrap();
         assert_eq!(
             irr.dim(),
             num_bigint::BigInt::from(s.dim()),
-            "{series:?}_{r} vs S3.0 wdim"
+            "{series:?}_{r} vs Irrep::dim"
         );
     }
 }

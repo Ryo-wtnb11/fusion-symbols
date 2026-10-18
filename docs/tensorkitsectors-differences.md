@@ -108,7 +108,7 @@ known difference and the reason recorded for it. Per-symbol provenance is in
   `±F^{τττ}_τ[𝟙,𝟙]`, `R^{ττ}`, `dim τ` and `θ_τ` differ from
   TensorKitSectors' f64 arithmetic by 1–3 ulp. Reason: `TableCategory` is the
   single Fibonacci path, and it ships the correctly rounded projection of
-  the exact data (CHANGELOG 0.4.0, fusion-symbols #134).
+  the exact data.
 - **Only unitary AnyonWiki entries are shipped.** Non-unitary entries, entries
   whose pivotal structure is not unitary, and (without `anyonwiki-unitary`)
   rank 5–7 entries are refused with a typed `Unsupported` error. Reason: the

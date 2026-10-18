@@ -21,7 +21,7 @@ The audit adapts the repeated exact-symbol regime in `benches/wigner.rs::bench_r
 | SU(3) | 15306750 ± 226167 | 2958 ± 1 | 17897167 ± 56250 |
 | SU(4) | 22424666 ± 206584 | 2708 ± 83 | 30360291 ± 160251 |
 
-The forward and reverse fresh-reset sequential traces end at the same occupancy: SU(2) `3j/6j/F = 1/2/1` entries and `182/357/56` charged bytes; SU(N) product/CGC/F = `4/8/2` and `1352/6688/1184` bytes. All evictions were zero. The SU-only leaf intentionally does not exercise B/C/D CGC/F: their rows remain zero and are not a measurement of those tiers. The exact prime/factorial support tables grow to 122 rows, 30 primes, and 13240 conservative retained-capacity bytes.
+The forward and reverse fresh-reset sequential traces end at the same occupancy: SU(2) `3j/6j/F = 1/2/1` entries and `182/357/56` charged bytes; SU(N) product/CGC/F = `4/8/2` and `1352/6688/1184` bytes. All evictions were zero. The SU-only measurement intentionally does not exercise B/C/D CGC/F: their rows remain zero and are not a measurement of those tiers. The exact prime/factorial support tables grow to 122 rows, 30 primes, and 13240 conservative retained-capacity bytes.
 
 `charged bytes` are cache-entry charge only. The System wrapper records requested live bytes routed through Rust `GlobalAlloc`, not allocator-live memory: it excludes C/library allocations and allocator metadata. Each timed phase resets its peak to its starting requested-live value; this is an approximate observed requested-live peak under backend concurrency. `transient_requested_live_lower_bound` is `peak - max(start, end)`, so retained cache/output growth is excluded. macOS samples current RSS with `ps -o rss= -p PID` outside timed sections; the representative trace records the samples.
 
@@ -33,8 +33,8 @@ Public return allocation is measured by monotonic successful allocation requests
 
 ## Policy decision
 
-1. Configurable small/default/HPC budgets: **defer** to #66; this leaf establishes only a tiny SU working set, not a budget choice.
-2. Deterministic `trim_to`: **defer** to #67; no policy implementation belongs in this measurement leaf.
+1. Configurable small/default/HPC budgets: **defer** to #66; this measurement establishes only a tiny SU working set, not a budget choice.
+2. Deterministic `trim_to`: **defer** to #67; no policy implementation belongs in this measurement.
 3. Aggregate scaling without shared LRU: **defer**; the tiny no-eviction trace gives no evidence to replace the current independent tiers or to introduce cross-tier competition. #66 needs broader pressure measurements.
 4. Internal shared `Arc<Cgc>` / `Arc<FBlock>` consumption where ownership permits: **defer**; public clone slopes motivate investigation, while any consumer-visible shared accessor remains a separate ownership/API decision.
 5. Prime/factorial table policy: **recommend** retaining the new private observation; defer any bound/reset policy until workloads above the observed 122-row support table are measured.

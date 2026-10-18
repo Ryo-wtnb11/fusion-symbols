@@ -14,10 +14,10 @@
   for CGC/F/R across SU(N) and B/C/D. This fixture commits only the part that is
   deterministically comparable to racah WITHOUT a gauge-alignment step: the
   channel list and integer multiplicities. The CGC-value / invariant-projector
-  comparison needs the #29 alignment harness and is out of scope here.
+  comparison needs a gauge-alignment harness and is out of scope here.
 
   ------------------------------------------------------------------------------
-  API RECONNAISSANCE (done before any comparison test; issue #32 requirement)
+  API RECONNAISSANCE (done before any comparison test)
   ------------------------------------------------------------------------------
   Two GroupMath entry points were surveyed:
 
@@ -41,11 +41,11 @@
      NORMALIZATION / BASIS: Invariants applies NormalizeAndSymmetrize by default
      (orthonormal invariant basis, permutation-symmetry-adapted). This basis is
      GroupMath's own gauge; it is NOT the racah GT/QSpace gauge, and there is no
-     documented deterministic map between them. Per the issue's rule ("do not
-     fake agreement"), the CGC VALUES are therefore NOT committed here. The
+     documented deterministic map between them. Per the rule "do not
+     fake agreement", the CGC VALUES are therefore NOT committed here. The
      gauge-invariant projector P = C C^T onto each isotypic block is the robust
-     comparable object, but building it on the racah side is exactly the #29
-     alignment harness -- deferred there, not duplicated here.
+     comparable object, but building it on the racah side is the job of the
+     gauge-alignment harness, not of this fixture.
   ------------------------------------------------------------------------------
 *)
 
@@ -60,10 +60,12 @@ AppendTo[$Path, groupmathDir];
 (* Suppress GroupMath's load-time banner (a Print) so stdout is pure fixture. *)
 Block[{Print = (Null &)}, Quiet[Get["GroupMath`"]]];
 
-(* Curated battery (no RNG): the channels named in issue #32 -- SO5/Sp4 vector
+(* Curated battery (no RNG): the curated channels -- SO5/Sp4 vector
    products, SO6 adjoint^2 (incl. the 84 and the OM=2 adjoint channel) -- plus
    SU(N) samples that independently audit the SUNRepresentations lineage. Only
-   tensor (non-spinor) B/C/D labels appear, since fusion_symbols::bcd rejects spinors. *)
+   tensor (non-spinor) B/C/D labels appear, since the oracle test builds them with
+   fusion_symbols::bcd::Irrep::from_dynkin (the SO(N)/Sp(2N) forms), which rejects
+   spinors; spinors need Irrep::from_dynkin_in with a Spin(N) group. *)
 cases = {
   (* SU(N): fundamental x antifundamental, adjoint^2, and a mixed product. *)
   {"SU2", SU2, {2}, {2}},
@@ -100,7 +102,7 @@ sha = Hash[ReadString[$InputFileName], "SHA256", "HexString"];
 Print["--- racah GroupMath product fixtures (external value oracle)"];
 Print["--- tool: GroupMath 1.1.3 (arXiv:2011.01764)"];
 Print["--- script: gen_groupmath_products.wls sha256=" <> ToLowerCase[sha]];
-Print["--- entry point: ReduceRepProduct (gauge-free multiplicities; CGC via Invariants deferred to #29)"];
+Print["--- entry point: ReduceRepProduct (gauge-free multiplicities; CGC values are not compared here)"];
 Print["--- format: GROUP | a | b | dim_a dim_b | c:n c:n ..."];
 
 Do[

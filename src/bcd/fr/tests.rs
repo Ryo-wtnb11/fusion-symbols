@@ -1,4 +1,4 @@
-//! Guard-inventory (red-first) and shape tests for the B/C/D F/R surface.
+//! Ill-posed-input guard and shape tests for the B/C/D F/R surface.
 //! Heavier self-consistency oracles (unitarity/pentagon/hexagon, the OM>=2
 //! family, and the Sp(4)/SO(5) isomorphism spot check) live in
 //! `tests/bcd_fr.rs`.
@@ -20,12 +20,12 @@ fn warm_state_does_not_resweep() {
     // C2 vector v=(0,1), v⊗v = 1 ⊕ (2,0) ⊕ (0,2). After a single cgc_entries for
     // channel (2,0), the *other* channel (0,2) must already be in the tier — i.e.
     // one sweep populated both, so a later (0,2) request is a hit, not a re-sweep.
-    // Red-first: before the P1 fix each cgc() re-decomposed v⊗v per channel, so
-    // (0,2) would be absent after the (2,0) request.
+    // A per-channel re-decomposition of v⊗v would leave (0,2) absent after the
+    // (2,0) request.
     //
     // Asserted via tier CONTENTS (specific keys), not a shared sweep-counter
     // delta, so it is robust to other tests touching the process-global tier
-    // concurrently. (The counter `cgc_sweeps()` remains for the bench/PR arith.)
+    // concurrently. (The counter `cgc_sweeps()` serves the benchmarks.)
     crate::cache::reset();
     let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap();
     let v = irr(Series::C, &[0, 1]);
@@ -51,7 +51,7 @@ fn warm_state_does_not_resweep() {
     assert!(CGC_SWEEPS.load(Ordering::Relaxed) > sweeps_before);
 }
 
-// ---- guard inventory: red-first ill-posed inputs ----
+// ---- ill-posed inputs are typed errors ----
 
 #[test]
 fn f_symbol_zero_vertex_is_typed_error() {
@@ -150,12 +150,12 @@ fn c2_vector_cubed_f_is_multiplicity_free_scalar() {
 
 #[test]
 fn d3_adjoint_square_84_channel_cgc_is_coherent_or_bricks() {
-    // The restored QSpace coherence guard (issue #15 instance 5) on the CGC path:
+    // The QSpace coherence guard on the CGC path:
     // a coupled channel is either coherent (Ok) or refused with a typed
     // BasisIncoherent naming irrep/product/residual — never a silent wrong CGC.
     //
-    // WHICH happens for a near-rank-deficient channel (the D3 84 = (0,2,2), PR
-    // #24) is platform-dependent (a deterministic near-tie resolution: rotated on
+    // WHICH happens for a near-rank-deficient channel (the D3 84 = (0,2,2))
+    // is platform-dependent (a deterministic near-tie resolution: rotated on
     // dev macOS ARM at residual 3.65, may be coherent on CI Linux x86), so we
     // assert the disjunction. The guard's firing is pinned deterministically by
     // `sweep::tests::coherence_residual_detects_degenerate_rotation`.

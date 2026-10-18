@@ -1,5 +1,5 @@
-//! Exact agreement with SUNRepresentations.jl v0.4.0 for the cgc-gen Layer 1
-//! SU(N) combinatorics (issue #10).
+//! Exact agreement with SUNRepresentations.jl v0.4.0 for the SU(N)
+//! combinatorics.
 //!
 //! The oracle is independent: values come from the Julia reference package
 //! (`tools/gen_sun_fixtures.jl`), checked in with a provenance header, never

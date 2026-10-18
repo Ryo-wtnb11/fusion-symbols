@@ -1,7 +1,7 @@
 //! SU(2) cross-check of the SU(N) F/R contraction against the crate's exact
 //! closed-form SU(2) recoupling (`su2_f_symbol` / `su2_r_symbol`), which are
 //! the independent value authority (phase-composed exact 6j; Racah big-rational
-//! sums rounded once). This is oracle 2 of issue #16.
+//! sums rounded once).
 //!
 //! # The per-channel sign relation (documented reconciliation)
 //!

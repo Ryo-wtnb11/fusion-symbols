@@ -1,4 +1,4 @@
-//! SU(N) Frobenius–Schur phase and indicator (issue #118).
+//! SU(N) Frobenius–Schur phase and indicator.
 //!
 //! Oracles: SUNRepresentations 0.4.0 / TensorKitSectors 0.3.9 values, the sign
 //! of racah's own `F[a, ā, a, a, 1, 1]` (the reference definition,

@@ -206,7 +206,7 @@ down as a **frozen normative specification** — [`docs/gauge.md`](gauge.md)
 (SO(N)/Sp(2N)). Frozen means the documents are the authority and the code
 implements them: a change that moves a returned value is a bug unless it ships
 as a specification correction with a fingerprint epoch bump, a CHANGELOG
-breaking-change entry, and regenerated golden values in one PR. The per-family
+breaking-change entry, and regenerated golden values in the same change. The per-family
 authority fingerprints are therefore *specification versions* — persist them
 next to anything you derive, and compare by equality
 ([User Guide: gauge and reproducibility](user-guide/resources.md#gauge-and-reproducibility)).
@@ -216,7 +216,7 @@ next to anything you derive, and compare by equality
 Feature-complete for its v0 scope; all families are implemented and
 oracle-checked. The base SU(2) surface — authority fingerprint, checked
 representation layer, cache resource contract — is stable; the `cgc-gen`
-generated-provider surface is unstable while its contract is negotiated; the
+generated-provider surface is unstable; the
 rustdoc marker is on `sun_authority_fingerprint`, `bcd_authority_fingerprint`,
 `cache::GENERATED_CACHE_MAX_BYTES` and `cache::GeneratedCacheStats`.
 

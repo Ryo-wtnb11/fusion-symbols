@@ -1,4 +1,4 @@
-//! Python bindings for the `racah` surfaces (issues #81, #107).
+//! Python bindings for the `racah` surfaces.
 //!
 //! Deliberately thin: irrep labels, fusion with outer multiplicities, the
 //! m-basis Clebsch-Gordan tensor, F/R symbols with their multiplicity axes, the
@@ -235,16 +235,16 @@ fn su2_frobenius_schur(two_j: u32) -> f64 {
     racah_core::su2_frobenius_schur(two_j)
 }
 
-// --- the exact SU(2) surface (issue #107) ------------------------------------------
+// --- the exact SU(2) surface --------------------------------------------------------
 //
 // Spins are doubled throughout (`dj = 2j`, `dm = 2m`), as in the crate: it keeps every
 // label an exact integer, which is the whole reason the engine below can be exact.
 //
 // These are the *infallible* engines. An inadmissible label set is exact zero, not an
 // error -- the crate's documented contract, and what a consumer that already guards with
-// a triangle test wants. The crate's `*_checked` twins are deliberately not bound yet:
-// nothing has asked to distinguish "zero because forbidden" from "zero because zero",
-// and each would add a stub, a test and an error mapping. Bind them when something does.
+// a triangle test wants. The crate's `*_checked` twins are deliberately not bound:
+// distinguishing "zero because forbidden" from "zero because zero" has no consumer,
+// and each would add a stub, a test and an error mapping.
 
 /// The Wigner 3j symbol `(dj1 dj2 dj3; dm1 dm2 dm3)`, spins and projections doubled.
 ///
@@ -331,7 +331,7 @@ fn racah(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(check_hexagon, m)?)?;
     m.add_function(wrap_pyfunction!(sun_authority_fingerprint, m)?)?;
     m.add_function(wrap_pyfunction!(su2_frobenius_schur, m)?)?;
-    // the exact SU(2) surface (#107)
+    // the exact SU(2) surface
     m.add_function(wrap_pyfunction!(wigner_3j, m)?)?;
     m.add_function(wrap_pyfunction!(wigner_6j, m)?)?;
     m.add_function(wrap_pyfunction!(su2_clebsch_gordan, m)?)?;

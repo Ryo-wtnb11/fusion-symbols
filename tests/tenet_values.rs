@@ -20,8 +20,7 @@
 //! | `inv_sqrt_dim_scalar` | `1.0 / dim.sqrt()` |
 //! | closed-form `f_symbol_scalar`, FS phase | real `f64`, imaginary part `+0.0` |
 //!
-//! The crate's own closed-form Fibonacci was removed (fusion-symbols #134);
-//! [`TableCategory::fibonacci`] is the single Fibonacci path, and both
+//! [`TableCategory::fibonacci`] is the crate's single Fibonacci path, and both
 //! recorded providers are checked against it. The table rows must match bit
 //! for bit. The closed-form rows differ by pinned ulp distances, by design:
 //! symtn evaluated `1/φ` in f64 (one ulp below the correctly rounded
@@ -133,8 +132,8 @@ fn every_value_matches_tenet_957ccc05() {
     for line in VALUES.lines().filter(|l| !l.starts_with('#')) {
         let fields: Vec<&str> = line.split_whitespace().collect();
         let p: &dyn Provider = match fields[0] {
-            // The closed form was removed; its recorded values stay as an
-            // oracle for the table, at the pinned distances.
+            // The `closed` rows are symtn's recorded closed-form values; they
+            // are an oracle for the table, at the pinned distances.
             "closed" | "table" => &table,
             other => panic!("unknown provider {other}"),
         };

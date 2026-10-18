@@ -1,4 +1,4 @@
-//! B/C/D F/R self-consistency oracles (Stage 3 S3.4, issue #27).
+//! B/C/D F/R self-consistency oracles.
 //!
 //! Two tiers, mirroring the SU(N) F/R suites:
 //! - CI-fast (`#[test]`): F-move unitarity on seeded small families, and the
@@ -9,9 +9,9 @@
 //!   irreps and cost seconds-to-minutes each — the same treatment as the heavy
 //!   SU(3) F/R table oracle.
 //!
-//! All values are racah-generated on both sides; this is an intra-stage
-//! self-consistency check. The SU(N)-anchored isomorphism battery (SO(6) ≅ SU(4)
-//! etc., QSpace fixtures) belongs to S3.5 and is not duplicated here.
+//! All values are racah-generated on both sides; this is a self-consistency
+//! check. The SU(N)-anchored isomorphism battery (SO(6) ≅ SU(4) etc., QSpace
+//! fixtures) lives in `tests/isomorphism.rs` and is not duplicated here.
 
 #![cfg(feature = "cgc-gen")]
 
@@ -29,27 +29,26 @@ fn irr(s: Series, d: &[i64]) -> Irrep {
 //
 // An F/R gate on a family EITHER closes (Ok — the F-move is unitary / the
 // pentagon-hexagon identity holds within tolerance) OR fail-loud with a typed
-// `BasisIncoherent` — it must NEVER return a silently-wrong value. Before issue
-// #29 an ill-conditioned coupled channel embedded in an O(1)-rotated frame on
-// some platforms, so these were `closes_or_bricks` disjunctions. Intertwiner
-// alignment (#29) now rotates every such frame onto the canonical stored frame,
-// so the gates CLOSE — including the previously-bricking D3 84 = (0,2,2) and the
-// OM=2 D3-adjoint family. We therefore assert plain closure. A residual that
+// `BasisIncoherent` — it must NEVER return a silently-wrong value. An
+// ill-conditioned coupled channel can embed in an O(1)-rotated frame on some
+// platforms; intertwiner alignment rotates every such frame onto the canonical
+// stored frame, so the gates CLOSE — including the ill-conditioned D3
+// 84 = (0,2,2) channel and the OM=2 D3-adjoint family. We therefore assert
+// plain closure. A residual that
 // STILL exceeds tolerance after alignment (a numerically hopeless embedding)
 // remains a loud `BasisIncoherent`; `assert_closes` fails on it, which is the
 // intended signal that alignment regressed on this platform. (The alignment /
 // guard boundary is pinned by the synthetic-rotation tests in `bcd::sweep`.)
 // ---------------------------------------------------------------------------
 
-/// Post-#29 contract: the gate CLOSES. A `BasisIncoherent` here means alignment
-/// failed to recover a coherent frame — a regression, not the accepted outcome
-/// it was before #29.
+/// The gate CLOSES. A `BasisIncoherent` here means alignment failed to recover
+/// a coherent frame — a regression.
 #[track_caller]
 fn assert_closes(r: Result<(), FrError>) {
     match r {
         Ok(()) => {}
         other => panic!(
-            "gate must close after intertwiner alignment (#29); \
+            "gate must close after intertwiner alignment; \
              a BasisIncoherent here is an alignment regression — got {other:?}"
         ),
     }
@@ -67,9 +66,9 @@ fn c2_vector_f_move_closes() {
 #[test]
 fn b2_vector_f_move_closes() {
     // B2 = SO(5), vector (1,0). Its F-move pulls the (1,2) dim-35 channel, whose
-    // frame is ill-conditioned (residual √6 ≈ 2.449 on dev macOS ARM); before #29
-    // it bricked there. Alignment now rotates it onto the canonical frame and the
-    // F-move closes on every platform.
+    // frame is ill-conditioned (residual √6 ≈ 2.449 on dev macOS ARM without
+    // alignment). Alignment rotates it onto the canonical frame and the F-move
+    // closes on every platform.
     let mut cat = CanonicalCatalog::new(Series::B, 2).unwrap();
     let v = irr(Series::B, &[1, 0]);
     let adj = irr(Series::B, &[0, 2]);
@@ -88,7 +87,7 @@ fn d3_vector_f_move_closes() {
 // ---------------------------------------------------------------------------
 // Sp(4) ≅ SO(5) F-level spot check (CI-fast), sign-sensitive.
 //
-// Label dictionary (derived from the S3.0 Dynkin↔partition maps and confirmed by
+// Label dictionary (derived from the exact Dynkin↔partition maps and confirmed by
 // matching Weyl dims across the whole (p, q even) grid): the SO(5)/Sp(4) diagram
 // isomorphism swaps the two nodes, so a B2 label (a1, a2) corresponds to the C2
 // label (a2, a1). Under it, B2 vector (1,0) ↔ C2 vector (0,1), B2 adjoint (0,2) ↔
@@ -103,7 +102,7 @@ fn d3_vector_f_move_closes() {
 // solved by Gaussian elimination. A consistent fit that leaves no residual proves
 // the two F tensors are gauge-EQUIVALENT INCLUDING sign; a contradiction (0 = 1)
 // means a genuine sign mismatch and fails. We also assert the magnitudes match.
-// (Full sign/basis alignment for OM ≥ 2 needs the S3.5 fitted-unitary harness.)
+// (This sign fit does not cover full sign/basis alignment for OM ≥ 2.)
 // ---------------------------------------------------------------------------
 
 /// A GF(2) linear system in row-echelon form: each row is `(variable set, rhs)`
@@ -219,19 +218,13 @@ fn sp4_so5_vector_f_coboundary_fit_signed() {
 }
 
 // ---------------------------------------------------------------------------
-// Pentagon / hexagon, now plain CLOSURE (heavy — run with --release --ignored).
+// Pentagon / hexagon CLOSURE (heavy — run with --release --ignored).
 //
-// Before issue #29 these were closes-or-bricks disjunctions: a gate that pulled
-// an ill-conditioned channel bricked with a typed BasisIncoherent on some
-// platforms. Dev-macOS-ARM measurements had C2 vector pentagon brick at the
-// (2,2)-type channel, B2 vector hexagon brick at (1,2) (√6), and the D3 adjoint
-// OM≥2 (0,1,1)² battery brick at the 84 = (0,2,2) channel (residual 3.65).
-// Intertwiner alignment (#29) rotates each of those onto the canonical stored
-// frame, so all four gates now CLOSE — verified in release on dev macOS ARM.
-//
-// (Earlier "~5 s green" figures in this file's history were a measurement bug —
-// the timing ran through a pipe whose exit code was grep's, not the test's, so
-// the gates had never actually run.)
+// These gates pull ill-conditioned channels: on dev macOS ARM, without
+// intertwiner alignment, the C2 vector pentagon hits the (2,2)-type channel,
+// the B2 vector hexagon (1,2) (√6), and the D3 adjoint OM≥2 (0,1,1)² battery
+// the 84 = (0,2,2) channel (residual 3.65). Intertwiner alignment rotates each
+// of those onto the canonical stored frame, so all four gates CLOSE.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -258,12 +251,11 @@ fn b2_vector_hexagon_closes() {
     assert_closes(check_hexagon(&mut cat, &v, &v, &v));
 }
 
-/// The B2 vector pentagon — the gate that was **missing** from this release
-/// list, which is how the base-case frame mismatch of issue #90 survived: the
-/// goldens pin CGC values (self-consistent within the mismatched frame) rather
-/// than the F-contractions that cross it. It failed on `epoch = 1` with residual
-/// `0.285_239_560_970_874_55`; with the defining seed re-framed into the sweep
-/// order (`docs/gauge_soN.md` §14.2) it closes.
+/// The B2 vector pentagon. It detects a base-case frame mismatch that the
+/// goldens cannot: they pin CGC values (self-consistent within a mismatched
+/// frame) rather than the F-contractions that cross it. With the defining seed
+/// framed in the sweep order (`docs/gauge_soN.md` §14.2) it closes; a
+/// mismatched seed frame gives residual `0.285_239_560_970_874_55`.
 #[test]
 #[ignore = "heavy: materializes many CGC; run with --release --ignored"]
 fn b2_vector_pentagon_closes() {
@@ -272,9 +264,8 @@ fn b2_vector_pentagon_closes() {
     assert_closes(check_pentagon(&mut cat, &v, &v, &v, &v));
 }
 
-/// The D3 vector pentagon — the other #90 witness (residual
-/// `0.129_099_444_873_580_74` on `epoch = 1`), and the D-series counterpart of
-/// the B2 gate above.
+/// The D3 vector pentagon — the D-series counterpart of the B2 gate above (a
+/// mismatched seed frame gives residual `0.129_099_444_873_580_74`).
 #[test]
 #[ignore = "heavy: materializes many CGC; run with --release --ignored"]
 fn d3_vector_pentagon_closes() {
@@ -284,12 +275,12 @@ fn d3_vector_pentagon_closes() {
 }
 
 /// OM ≥ 2 on the D3 adjoint g = (0,1,1): `g⊗g → g` has multiplicity 2 (exact
-/// S3.0). The g⊗g decomposition's 84 = (0,2,2) channel is near-rank-deficient in
-/// QR (PR #24) and embeds in an O(1)-rotated frame (residual 3.65 on dev macOS
-/// ARM), which bricked the braiding battery before #29. Intertwiner alignment
-/// aligns the 84 (and both OM=2 adjoint copies, each on the coupled side) onto
-/// the canonical frame, so the OM≥2 hexagon now CLOSES — this test is the #29
-/// acceptance gate for the OM≥2 path.
+/// decomposition). The g⊗g decomposition's 84 = (0,2,2) channel is
+/// near-rank-deficient in QR and embeds in an O(1)-rotated frame (residual 3.65
+/// on dev macOS ARM without alignment). Intertwiner alignment aligns the 84 (and
+/// both OM=2 adjoint copies, each on the coupled side) onto the canonical frame,
+/// so the OM≥2 hexagon CLOSES — this test is the acceptance gate for intertwiner
+/// alignment on the OM≥2 path.
 ///
 /// `#[ignore]` (release-only): materializes the adjoint CGC chain; seconds in
 /// release, minutes under the unoptimized debug SVD.

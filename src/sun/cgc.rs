@@ -1,5 +1,4 @@
-//! SU(N) Clebsch-Gordan coefficient generation (Layer 2 of the `cgc-gen`
-//! track): highest-weight nullspace, deterministic gauge canonicalization, and
+//! SU(N) Clebsch-Gordan coefficient generation: highest-weight nullspace, deterministic gauge canonicalization, and
 //! reverse-lex weight-ladder descent.
 //!
 //! Ported from SUNRepresentations.jl v0.4.0 `src/clebschgordan.jl`. The
@@ -68,7 +67,7 @@ pub struct CgcEntry {
 /// m-basis tensor with the outer multiplicity carried on a trailing axis.
 ///
 /// Shape is $[\dim(s_1), \dim(s_2), \dim(s_3), N]$ with $N = N^{s_3}_{s_1 s_2}$ the
-/// Layer 1 fusion multiplicity ([`crate::sun::directproduct`]). Only nonzero entries (after
+/// exact fusion multiplicity ([`crate::sun::directproduct`]). Only nonzero entries (after
 /// the `TOL_PURGE` cut) are stored, sorted by `(m1, m2, m3, mu)`.
 ///
 /// Coefficient values realize the SUNRepresentations.jl v0.4.0 gauge (see
@@ -198,7 +197,7 @@ fn is_trivial(s: &Irrep) -> bool {
 /// - [`SunError::RankMismatch`] if `s1`, `s2`, `s3` are not all SU(N) for one
 ///   `N`.
 /// - [`SunError::NullspaceDimMismatch`] if the SVD rank cut disagrees with the
-///   Layer 1 fusion multiplicity (`clebschgordan.jl` `@assert N123 == …`).
+///   exact fusion multiplicity (`clebschgordan.jl` `@assert N123 == …`).
 /// - [`SunError::NotOrthonormal`] / [`SunError::LadderInconsistent`] if a
 ///   generation gate fails.
 /// - [`SunError::Linalg`] if a dense factorization backend call fails.
@@ -234,7 +233,7 @@ pub fn cgc(s1: &Irrep, s2: &Irrep, s3: &Irrep) -> Result<Cgc, SunError> {
 
 /// The pure generation pipeline (no cache). `expected_override` forces the
 /// multiplicity-gate target for the `#[cfg(test)]` forced-mismatch scenario;
-/// `None` uses the Layer 1 fusion multiplicity.
+/// `None` uses the exact fusion multiplicity.
 fn generate(
     s1: &Irrep,
     s2: &Irrep,

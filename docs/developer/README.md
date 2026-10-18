@@ -39,18 +39,17 @@ The collectors that produce these are `src/cache_audit.rs`,
 - [`benches/`](#benchmarks) — `cargo bench` harnesses (not CI gates); see the
   index below.
 
-## Implementation notes that used to live in the README
+## Implementation notes
 
 **Kernel routing.** All dense numerical work behind `cgc-gen` — the
 nullspace/QR/least-squares factorizations and the CGC contractions producing
 F/R — routes through the Tenferro traced surface at a single seam
 (`src/sun/linalg.rs`, `src/bcd/linalg.rs`). `fusion-symbols` contains no hand-rolled
-numeric kernels. That seam is currently executed on the CPU faer backend,
-constructed internally; selecting a backend is **not yet public API**. An
+numeric kernels. That seam is executed on the CPU faer backend,
+constructed internally; selecting a backend is **not public API**. An
 extended-precision tier (the QSpace model: compute in ~128-bit precision,
-tighten tolerances, store `f64`) is a future backend capability with an
-explicit unsupported boundary until implemented, not a private arithmetic stack
-inside this crate.
+tighten tolerances, store `f64`) is not supported; it would be a
+dense-backend capability, not a private arithmetic stack inside this crate.
 
 **Gauge continuity.** The SU(N) pipeline reproduces the gauge of its reference
 implementation by construction: the canonical gauge is a deterministic function

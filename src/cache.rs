@@ -37,7 +37,7 @@
 //! thousands of times, so a warm hit should cost a hash lookup rather than a
 //! fresh big-rational Racah sum. WignerSymbols.jl v2.0.0 caches transparently
 //! inside `wigner3j`/`wigner6j` (per-kind `LRU` dicts keyed by canonical Regge
-//! labels); racah follows that model but bounds the cache by policy — Julia's
+//! labels); this crate follows that model but bounds the cache by policy — Julia's
 //! caches are effectively unbounded in entries.
 //!
 //! # Why no gauge/version key component (in-process)
@@ -75,7 +75,7 @@
 //! `VecDeque` retained capacity and scaffolding, allocator metadata and RSS,
 //! transient or external clones, and values returned through public APIs.
 //! Per-tier and total statistics are exposed via [`base_cache_stats`]; reset
-//! ownership is on [`reset`]. (Design record: racah #43, PR-A.)
+//! ownership is on [`reset`].
 
 use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
@@ -450,7 +450,7 @@ fn validate_budgets(b: CoefficientCacheBudgets) -> Result<(), CacheBudgetError> 
 }
 
 /// Aggregate conservative retained-charge cap for the three base SU(2) tiers
-/// (3j, 6j, derived-F), currently `192 MiB` = `3 × 64 MiB`.
+/// (3j, 6j, derived-F): `192 MiB` = `3 × 64 MiB`.
 ///
 /// This is a **documented static partition**, not a shared budget: each tier is
 /// bounded independently by its own per-tier charged-entry cap
@@ -473,12 +473,11 @@ pub const BASE_CACHE_MAX_BYTES: usize = 192 << 20;
 const _: () = assert!(BASE_CACHE_MAX_BYTES == 3 * DEFAULT_MAX_BYTES);
 
 /// Aggregate conservative retained-charge cap for the five generated `cgc-gen` tiers
-/// (SU(N) product, SU(N) CGC, SU(N) F, B/C/D CGC, B/C/D F), currently
+/// (SU(N) product, SU(N) CGC, SU(N) F, B/C/D CGC, B/C/D F):
 /// `640 MiB + 128 KiB` = `128 KiB + 256 MiB + 64 MiB + 256 MiB + 64 MiB`.
 ///
-/// **Unstable: shape may change while the generated-provider contract is
-/// negotiated** (racah #47; there is no Cargo-feature way to express an
-/// instability tier, so this doc label plus that issue are the ledger).
+/// **Unstable: shape may change.** There is no Cargo-feature way to express an
+/// instability tier, so this doc label is the marker.
 ///
 /// # Two-layer aggregate story (why there is no single crate-wide constant)
 ///
@@ -494,8 +493,7 @@ const _: () = assert!(BASE_CACHE_MAX_BYTES == 3 * DEFAULT_MAX_BYTES);
 /// single cross-feature constant spanning both: this constant only exists under
 /// `cgc-gen`, so a "one number" whole-crate cap would *change value with the
 /// feature flag* and read as if the base cap shrank when `cgc-gen` is off —
-/// misleading. Two feature-honest layers instead (racah #47 design record 2,
-/// D4). Like the base cap this is a **static partition, not a shared pool**:
+/// misleading. Two feature-honest layers instead. Like the base cap this is a **static partition, not a shared pool**:
 /// `Σ tier charged bytes ≤ Σ tier caps = GENERATED_CACHE_MAX_BYTES` holds as a
 /// corollary without global enforcement.
 ///
@@ -569,7 +567,7 @@ pub struct TierStats {
 /// read lock). [`total`](BaseCacheStats::total) is a field-wise sum of the three
 /// per-tier snapshots, **not** a single global atomic snapshot: a concurrent
 /// filler can interleave between the tier reads, so the total is only
-/// eventually consistent. Racah does not take a global lock spanning the tiers —
+/// eventually consistent. This crate does not take a global lock spanning the tiers —
 /// that would serialize otherwise-independent lookups for no correctness gain
 /// (the individual tier charged-entry caps already hold independently).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -600,8 +598,7 @@ impl BaseCacheStats {
 /// Per-tier statistics for the five generated `cgc-gen` tiers (SU(N) product,
 /// SU(N) CGC, SU(N) F, B/C/D CGC, B/C/D F).
 ///
-/// **Unstable: shape may change while the generated-provider contract is
-/// negotiated** (racah #47). The struct is `#[non_exhaustive]` — it is
+/// **Unstable: shape may change.** The struct is `#[non_exhaustive]` — it is
 /// constructed only inside the crate (by [`generated_cache_stats`]); consumers
 /// read its fields or call [`total`](GeneratedCacheStats::total).
 ///
@@ -617,7 +614,7 @@ impl BaseCacheStats {
 /// read lock). [`total`](GeneratedCacheStats::total) is a field-wise sum of the
 /// five per-tier snapshots, **not** a single global atomic snapshot: a
 /// concurrent filler can interleave between the tier reads, so the total is only
-/// eventually consistent. Racah does not take a global lock spanning the tiers —
+/// eventually consistent. This crate does not take a global lock spanning the tiers —
 /// that would serialize otherwise-independent lookups for no correctness gain
 /// (the individual tier charged-entry caps hold independently). Same contract as
 /// [`BaseCacheStats`].
@@ -978,7 +975,7 @@ pub(crate) fn cache_6j() -> &'static FifoCache<Regge6j, SignedSqrtRational> {
     &CACHE_6J
 }
 
-/// Derived-f64 F-symbol tier (#7). Stores the rounded `f64` F-symbol so a warm
+/// Derived-f64 F-symbol tier. Stores the rounded `f64` F-symbol so a warm
 /// hit returns a `Copy` scalar without re-running the bigint `sqrt` in
 /// [`SignedSqrtRational::to_f64`]. It is a *presentation* tier over the exact
 /// 6j tier (the value authority), never an independent value source: its `f64`
@@ -1015,7 +1012,7 @@ mod cgc_cache {
 
     /// Canonical cache key: the three irrep labels.
     ///
-    /// **No [`GroupId`](crate::group::GroupId), deliberately** (issue #87 §8).
+    /// **No [`GroupId`](crate::group::GroupId), deliberately.**
     /// A global form gates *which* highest weights may be requested; it never
     /// changes a coefficient of a weight that survives. Admissibility is
     /// enforced once, at construction, by
@@ -1053,10 +1050,10 @@ pub(crate) fn cache_cgc() -> &'static FifoCache<cgc_cache::CgcKey, std::sync::Ar
     &cgc_cache::CACHE_CGC
 }
 
-/// Bounded exact SU(N) tensor-product tier (`cgc-gen`, issue #59).
+/// Bounded exact SU(N) tensor-product tier (`cgc-gen`).
 ///
 /// The unordered irrep pair is a complete key after `sun::directproduct`
-/// rejects rank mismatch. Values are sorted shared channel slices: Racah's
+/// rejects rank mismatch. Values are sorted shared channel slices: this crate's
 /// multiplicity/channel consumers avoid rebuilding a public `BTreeMap`, while
 /// the public API preserves its owned-map contract by reconstructing one from
 /// this exact value. The cache computes outside the lock and rechecks on write,
@@ -1091,8 +1088,7 @@ pub(crate) fn cache_sun_product(
     &sun_product_cache::CACHE_SUN_PRODUCT
 }
 
-/// Bounded, byte-accounted derived-f64 SU(N) F-symbol cache (`cgc-gen`,
-/// Layer 3, issue #16).
+/// Bounded, byte-accounted derived-f64 SU(N) F-symbol cache (`cgc-gen`).
 ///
 /// An F block is the contraction of four CGC; even with warm CGC that is real
 /// work, so the derived `[μ,ν,κ,λ]` block is cached. Keyed by the **plain
@@ -1139,8 +1135,7 @@ pub(crate) fn cache_sun_f(
     &sun_f_cache::CACHE_SUN_F
 }
 
-/// Bounded, byte-accounted derived-f64 B/C/D F-symbol cache (`cgc-gen`, Stage 3
-/// S3.4, issue #27).
+/// Bounded, byte-accounted derived-f64 B/C/D F-symbol cache (`cgc-gen`).
 ///
 /// The B/C/D analogue of [`cache_sun_f`]: an F block is the contraction of four
 /// catalog-driven CGC, real work even with warm generators, so the derived
@@ -1150,8 +1145,8 @@ pub(crate) fn cache_sun_f(
 /// shared `Arc<FBlock>` [`CacheCharge`] impl, in-memory only (values are
 /// gauge/algorithm-dependent, so a persisted store would need a version key).
 ///
-/// R needs no cache: it is a single sparse join of two CGC (issue #27, "R
-/// uncached unless measured").
+/// R needs no cache: it is a single sparse join of two CGC, and no measurement
+/// shows a benefit from caching it.
 #[cfg(feature = "cgc-gen")]
 mod bcd_f_cache {
     use super::FifoCache;
@@ -1178,8 +1173,7 @@ pub(crate) fn cache_bcd_f(
     &bcd_f_cache::CACHE_BCD_F
 }
 
-/// Bounded, byte-accounted B/C/D CGC value tier (`cgc-gen`, Stage 3 S3.4 P1
-/// review, issue #27).
+/// Bounded, byte-accounted B/C/D CGC value tier (`cgc-gen`).
 ///
 /// The B/C/D analogue of the SU(N) [`cache_cgc`] tier: a
 /// [`CatalogCgc`](crate::bcd::CatalogCgc) is expensive (a full decomposition
@@ -1192,7 +1186,7 @@ pub(crate) fn cache_bcd_f(
 ///
 /// Keyed by the canonical `(s1, s2, s3)` labels — the complete value key, since
 /// the CGC is a deterministic function of the labels and the canonical gauge
-/// (Ruling 2), independent of which catalog instance produced it (exactly the
+/// (`docs/gauge_soN.md`), independent of which catalog instance produced it (exactly the
 /// SU(N) `cache_cgc` argument). In-memory only: values are gauge/algorithm-
 /// dependent, so a persisted store would need a version key.
 ///
@@ -1203,11 +1197,11 @@ pub(crate) fn cache_bcd_f(
 /// entries it populated here. Cached values remain valid because catalog
 /// instances implement the same canonical convention and tolerance contract, and
 /// the complete family/rank/irrep labels determine the key. So [`reset`] and
-/// catalog lifetime stay separate axes — no coupling is needed (issue #47, D5).
+/// catalog lifetime stay separate axes — no coupling is needed.
 ///
 /// # Why a single (s1,s2,s3) tier and not a global tier plus a per-call memo
 ///
-/// One process-global value tier serves both roles the P1 review split out — it
+/// One process-global value tier serves both roles — it
 /// dedups the sweep across coupled channels (all channels of a product share the
 /// one sweep that first populates any of them) *and* across calls. A separate
 /// call-scoped memo would duplicate ownership of the same CGC across a global
@@ -1221,7 +1215,7 @@ mod bcd_cgc_cache {
 
     /// Canonical cache key: the three B/C/D irrep labels.
     ///
-    /// **No [`GroupId`](crate::group::GroupId), deliberately** (issue #87 §8).
+    /// **No [`GroupId`](crate::group::GroupId), deliberately.**
     /// A global form gates *which* highest weights may be requested; it never
     /// changes a coefficient of a weight that survives. Admissibility is
     /// enforced once, at construction, by

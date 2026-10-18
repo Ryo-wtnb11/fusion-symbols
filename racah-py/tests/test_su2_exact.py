@@ -1,4 +1,4 @@
-"""The exact SU(2) surface (issue #107).
+"""The exact SU(2) surface.
 
 Two questions, and the second is the reason this file exists. First, do the exact
 functions return the textbook values? Second, how do they relate to the *generated*
@@ -10,10 +10,9 @@ coefficients **differ by one sign per channel**.
 **No timing assertion here, deliberately.** The cost argument for binding this surface is
 about the *cold* path — the generated tier builds a CGC tensor the first time it is asked
 — and a test process cannot measure that reliably: the caches are process-global, so
-whichever test ran first has already warmed them. An earlier draft compared a warm
-generated call against the closed form, measured 0.5 us against 0.5 us, and asserted a
-10x margin between them; it passed on one machine and failed in CI, which is what a
-benchmark wearing a test's clothes does. The measurement lives in issue #107 and the
+whichever test ran first has already warmed them, and a warm generated call costs about
+the same as the closed form (0.5 us each). A timing margin here would be a benchmark
+wearing a test's clothes. The cold-path measurement lives in issue #107 and the
 CHANGELOG, where it can carry its conditions.
 """
 
@@ -53,7 +52,7 @@ def test_inadmissible_is_exact_zero_not_an_error():
 
     A consumer that already guards with a triangle test wants this; a consumer that
     wants the distinction wants the crate's ``*_checked`` twins, which are deliberately
-    not bound yet.
+    not bound.
     """
     assert racah.wigner_3j(1, 1, 4, 1, -1, 0) == 0.0
     assert racah.wigner_6j(1, 1, 4, 1, 1, 1) == 0.0
@@ -107,7 +106,7 @@ def su2_irrep(dj):
 
 
 def test_r_symbol_agrees_with_the_generated_surface():
-    """The claim issue #107 rests on, as a test rather than a one-off measurement.
+    """R agrees between the two surfaces, as a test rather than a one-off measurement.
 
     Every admissible triangle up to ``2j = 4``. SU(2) has no outer multiplicity, so the
     generated block is 1x1 and its single entry is the scalar.
@@ -128,7 +127,7 @@ def test_r_symbol_agrees_with_the_generated_surface():
 
 
 def test_f_symbol_agrees_with_the_generated_surface():
-    """The same for F, over the label box the comparison in issue #107 used.
+    """The same for F.
 
     Smaller than the R box because the generated F-symbol is the expensive one: each
     entry costs a CGC construction plus contractions, so this is a few seconds and the

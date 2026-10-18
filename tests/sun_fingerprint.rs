@@ -1,9 +1,9 @@
 //! Compatibility-policy and determinism tests for the generated SU(N) authority
-//! fingerprint (`fusion_symbols::sun::sun_authority_fingerprint`, issue #47 leaf L2).
+//! fingerprint (`fusion_symbols::sun::sun_authority_fingerprint`).
 //!
 //! Mirrors `tests/su2_fingerprint.rs`, with the generated-family contract: equal
 //! bytes identify the convention / generation pipeline / tolerance policy, not
-//! byte-identical values (`docs/gauge.md`; issue #47 design record 2).
+//! byte-identical values (`docs/gauge.md`).
 #![cfg(feature = "cgc-gen")]
 
 use fusion_symbols::sun::sun_authority_fingerprint;

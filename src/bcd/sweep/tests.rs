@@ -1,10 +1,10 @@
-//! Tests for the S3.2 decomposition sweep.
+//! Tests for the decomposition sweep.
 //!
 //! Oracles are independent of the code under test: the discovered labels and
-//! multiplicities are gated against S3.0's exact [`crate::bcd::directproduct`]
+//! multiplicities are gated against the exact [`crate::bcd::directproduct`]
 //! (a separate implementation, itself cross-checked against Sage/OSCAR
 //! fixtures); the per-block weight structure is checked against the irrep's
-//! exact weight system (Freudenthal + Weyl orbits, S3.0); orthonormality and
+//! exact weight system (Freudenthal + Weyl orbits); orthonormality and
 //! determinism are self-consistency invariants.
 
 use std::collections::HashSet;
@@ -19,7 +19,7 @@ fn defining_irrep(series: Series, r: usize) -> Irrep {
 }
 
 /// Number of distinct weights of an irrep and the total (= dim), computed
-/// independently from S3.0's dominant-weight multiplicities expanded over Weyl
+/// independently from the exact dominant-weight multiplicities expanded over Weyl
 /// orbits (signed permutations for B/C, even-signed for D). Basis-independent,
 /// so it can be compared to the sweep block's Cartan-eigenvalue rows.
 fn weight_counts(a: &Irrep) -> (usize, usize) {
@@ -87,7 +87,7 @@ fn defining_squared_matches_exact_decomposition() {
         let decomp = decompose_defining_product(&seed, &seed).unwrap();
 
         // The sweep multiplicities equal the exact decomposition (this is the
-        // Ruling 1 gate, but assert it explicitly as a test too).
+        // production gate, but assert it explicitly as a test too).
         assert_eq!(
             decomp.multiplicities(),
             expected,
@@ -250,7 +250,7 @@ fn so3_exclusion_inherited() {
 
 #[test]
 fn spurious_multiplicity_expectation_is_gated() {
-    // A wrong `expected` map (a spurious extra irrep) must fail the Ruling 1
+    // A wrong `expected` map (a spurious extra irrep) must fail the production
     // gate — proving the gate is live on the production path.
     let seed = defining_seed(Series::C, 2).unwrap();
     let ga = Generators::from_seed(&seed);
@@ -358,7 +358,7 @@ fn kronecker_first_factor_is_fast_index() {
 /// entries of `B2 vector²`. It guards the CGC *values* against
 /// value-affecting gauge mutations that no label oracle can catch (the
 /// decomposition — labels/dims/multiplicities/isometry — is gauge-invariant); an
-/// external QSpace CGC fixture (S3.5) is the independent oracle.
+/// external QSpace CGC fixture is the independent oracle.
 ///
 /// Not every gauge choice is catchable here, and the distinction is by
 /// *magnitude*:
@@ -415,9 +415,9 @@ fn assert_close(cgc: &[f64], _cols: usize, col: usize, row: usize, v: f64) {
     );
 }
 
-// ---- coherence guard: deterministic synthetic rotation (issue #15 instance 5) ----
+// ---- coherence guard: deterministic synthetic rotation -----------------------
 
-/// Pins `Generators::coherence_residual` (the restored QSpace `normDiff`
+/// Pins `Generators::coherence_residual` (the QSpace `normDiff`
 /// cross-copy measure) on EVERY platform, independent of which real ill-
 /// conditioned irrep happens to rotate on a given target. Two embeddings that
 /// differ by a known orthogonal rotation `W` inside a degenerate weight space —
@@ -464,7 +464,7 @@ fn coherence_residual_detects_degenerate_rotation() {
     assert_eq!(canonical.coherence_residual(&canonical), 0.0);
 }
 
-// ---- intertwiner alignment (issue #29) -------------------------------------
+// ---- intertwiner alignment --------------------------------------------------
 
 /// A real coupled block with a degenerate weight space: the SO(5) adjoint (0,2),
 /// dim 10, from vector⊗vector. Its zero-weight space has multiplicity `rank = 2`,
@@ -513,7 +513,7 @@ fn zero_weight_indices(g: &Generators) -> [usize; 2] {
     [zeros[0], zeros[1]]
 }
 
-/// PR #28 template — rotate, align, require exact recovery of the canonical
+/// Rotate, align, require exact recovery of the canonical
 /// values. A block put into an O(1)-rotated frame inside its degenerate weight
 /// space (the platform-fragile incoherence class) aligns back to the canonical
 /// frame: the aligned generators match the canonical set below the guard

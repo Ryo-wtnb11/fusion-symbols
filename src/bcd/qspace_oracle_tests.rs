@@ -1,6 +1,6 @@
-//! QSpace CGC external anchor for the B/C/D intertwiner alignment (issue #29,
-//! S3.5). Compares racah's **aligned** CGC against QSpace `getCG` fixtures
-//! (`tests/fixtures/qspace_cgc.txt`, PR #31; unit-Frobenius per `(channel, OM
+//! QSpace CGC external anchor for the B/C/D intertwiner alignment. Compares
+//! racah's **aligned** CGC against QSpace `getCG` fixtures
+//! (`tests/fixtures/qspace_cgc.txt`; unit-Frobenius per `(channel, OM
 //! slice)`, product index `q = i1 + SIZE_a·i2` — the same "factor a fast"
 //! Kronecker convention racah pins).
 //!
@@ -11,12 +11,12 @@
 //! coupled-side gauge alignment fixes — the internal frame of `c` and the O(N)
 //! outer-multiplicity mixing (§15.6 leaves the latter open, so a non-invariant
 //! comparison could not test the OM≥2 channels at all). What `P` still depends on
-//! is the per-**factor** basis: racah's S3.1 seed frame and QSpace's fixture frame
+//! is the per-**factor** basis: racah's defining-seed frame and QSpace's fixture frame
 //! are two bases of the same factor irrep, related by an orthogonal
 //! **factor-basis dictionary** `O_f`.
 //!
-//! `O_f` is **derived and verified**, not fitted (the reviewer's P2 on the earlier
-//! sign-fit). QSpace's own generator matrices (`Sp_k`, `Sz_k`) for the six needed
+//! `O_f` is **derived and verified**, not fitted: a sign fit would let the
+//! anchor agree by construction. QSpace's own generator matrices (`Sp_k`, `Sz_k`) for the six needed
 //! irreps are exported in `tests/fixtures/qspace_generators.txt`; the dictionary is
 //! solved as the orthogonal intertwiner `Sp_q[i]·O = O·Sp_r[i]` by the same
 //! weight-space Procrustes descent the production alignment uses
@@ -57,7 +57,7 @@ use super::{CanonicalCatalog, Irrep, Series};
 /// Post-verification headroom below the intertwiner tolerance the anchor demands.
 /// A dictionary that verifies but sits *just* under `1e-10` is a watch item; the
 /// tests log the actual residual so a shrinking margin is visible before it
-/// bricks (reviewer's margin caveat, PR #34).
+/// bricks.
 const DICT_RESIDUAL_TOL: f64 = 1e-10;
 
 /// One parsed fixture channel.
@@ -311,7 +311,7 @@ fn weight_spaces(g: &QGen, dim: usize) -> WeightSpaces {
 /// `Sp_q[i]·M = M·Sp_r[i]` for every simple root `i`, block-diagonal over weight
 /// spaces (it commutes with the shared Cartans). Returns `(M, residual)` where
 /// `residual` is the element-wise intertwiner check `max_i ‖Sp_q[i]·M − M·Sp_r[i]‖_∞`
-/// — the fit-free verification the S3.5 anchor demands.
+/// — the fit-free verification the anchor demands.
 ///
 /// Same descent as the production `intertwiner` (§15.3 of `docs/gauge_soN.md`),
 /// but across two *different* native state orderings (racah's vs QSpace's),
@@ -572,8 +572,8 @@ fn check_group(series: Series, rank: usize, sym: &str, factors: &[Vec<i64>], cha
     }
 }
 
-/// Defining-factor anchor (item 1): the vector² channels, now against a
-/// **verified** dictionary (fit-free, the reviewer's P2). One dictionary per group,
+/// Defining-factor anchor: the vector² channels, against a **verified**
+/// dictionary (fit-free). One dictionary per group,
 /// solved from QSpace's own generators and asserted as an element-wise intertwiner.
 /// Sp(4) has its own combined test below (both factors).
 #[test]
@@ -583,11 +583,11 @@ fn qspace_vector_products_match_under_verified_dictionary() {
     check_group(Series::D, 3, "SO6", &[vec![1, 0, 0]], &channels);
 }
 
-/// Sp(4) anchor (issue #36): the full `P = Σ C_μ C_μᵀ` projector match for **all
+/// Sp(4) anchor: the full `P = Σ C_μ C_μᵀ` projector match for **all
 /// 8** Sp(4) `[1 0]`/`[0 1]` channels — `[1 0]²`, `[0 1]²`, and the `[1 0]⊗[0 1]`
-/// cross product — each under its own verified factor-basis dictionary. Promotes
-/// the five `[0 1]`-factor channels from structural-only now that Sp(4) `[0 1]`
-/// (dim 5) generators are exported. Sp(4)'s adjoint `[2 0]` has exported generators
+/// cross product — each under its own verified factor-basis dictionary, including
+/// the five `[0 1]`-factor channels (the Sp(4) `[0 1]`, dim 5, generators are
+/// exported). Sp(4)'s adjoint `[2 0]` has exported generators
 /// but no `[2 0]²` fixture channel, so adjoint² stays untestable here.
 #[test]
 fn qspace_sp4_products_match_under_verified_dictionary() {
@@ -620,7 +620,8 @@ fn qspace_adjoint_products_match_under_verified_dictionary() {
 /// Structural anchor for the non-defining-factor channels (adjoint², incl. the
 /// SO(6) 84 = (0,2,2) and the OM=2 channel): racah reproduces QSpace's coupled
 /// dimension and outer multiplicity for every fixture channel. The full projector
-/// match for these needs the adjoint factor-basis dictionary (S3.5 follow-up).
+/// match for these would need an adjoint factor-basis dictionary, which this
+/// anchor does not derive.
 #[test]
 fn qspace_channel_structure_matches() {
     let mut checked = 0usize;

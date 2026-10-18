@@ -1,15 +1,14 @@
-//! The S3.3 `CanonicalCatalog`: the single, append-only owner of discovered
+//! The `CanonicalCatalog`: the single, append-only owner of discovered
 //! generator sets for one B/C/D family instance (series + rank fixed at
 //! construction), providing on-demand, query-order-independent generator and
-//! Clebsch–Gordan materialization on top of the S3.2 sweep.
+//! Clebsch–Gordan materialization on top of the decomposition sweep.
 //!
-//! Design authority: issue #18 Ruling 2, spec: issue #25. The **canonical
-//! parent rule** — which product `a ⊗ b` produces each irrep's generators, and
-//! why the choice is a deterministic function of the exact S3.0 data rather than
+//! The **canonical parent rule** — which product `a ⊗ b` produces each irrep's generators, and
+//! why the choice is a deterministic function of the exact decomposition data rather than
 //! of discovery order — is specified to re-derivation standard in
 //! `docs/gauge_soN.md` §14 (it IS gauge: the parent's sweep fixes `c`'s basis).
 //!
-//! # What it owns (Ruling 2)
+//! # What it owns
 //!
 //! Exactly one generator set [`Generators`] per irrep, **append-only** for the
 //! catalog's lifetime (no per-entry eviction; the whole catalog may be
@@ -32,7 +31,7 @@
 //! QSpace's fixed-pass `dmax` enumeration (`clebsch.cc` bootstrap loop) is **not**
 //! ported as semantics — see §14.
 //!
-//! # Atomic byte budget (Ruling 2)
+//! # Atomic byte budget
 //!
 //! A request whose recursive materialization would exceed the byte budget fails
 //! atomically with [`CatalogError::BudgetExceeded`], leaving **no** partial
@@ -41,8 +40,8 @@
 //!
 //! # Single-threaded
 //!
-//! The API is `&mut self`; there is no global state and no interior mutability.
-//! Concurrency is a later, separately reviewed extension (issue #18 Ruling 2).
+//! The API is `&mut self`; there is no global state and no interior mutability,
+//! so sharing one catalog across threads requires external synchronization.
 
 use std::collections::HashMap;
 
@@ -58,7 +57,7 @@ use super::{defining_seed, directproduct, BcdError, Irrep, Series};
 /// [`CatalogError::BudgetExceeded`] before committing.
 const DEFAULT_MAX_BYTES: usize = 256 << 20;
 
-/// Coherence tolerance for the restored QSpace cross-copy check
+/// Coherence tolerance for the QSpace cross-copy check
 /// ([`CatalogError::BasisIncoherent`]): two embeddings of one irrep must present
 /// the same canonical basis to this element-wise generator residual. Provenance:
 /// QSpace `normDiff <= 1e-10` (`clebsch.cc:6710-6718 @ dd2cc7e`). A coherent pair
@@ -66,12 +65,11 @@ const DEFAULT_MAX_BYTES: usize = 256 << 20;
 /// is O(1) — the tolerance cleanly separates the two.
 const TOL_BASIS_COHERENT: f64 = 1.0e-10;
 
-// ---- typed errors (guard inventory, issue #15) -----------------------------
+// ---- typed errors -----------------------------------------------------------
 
 /// Failure of a [`CanonicalCatalog`] request. Every ill-posed input is a typed
-/// error (never a panic, never a silent zero) — the PR #14 trivial-coupling
-/// lesson applied verbatim: every `N^c_ab = 0` triple is
-/// [`CatalogError::ZeroFusionChannel`], red-first.
+/// error (never a panic, never a silent zero): every `N^c_ab = 0` triple is
+/// [`CatalogError::ZeroFusionChannel`].
 ///
 /// Not `Eq`: [`CatalogError::Sweep`] carries a [`SweepError`], several of whose
 /// variants hold an `f64` residual.
@@ -88,13 +86,13 @@ pub enum CatalogError {
     },
     /// A malformed or out-of-scope label surfaced while constructing the family
     /// or an intermediate irrep (empty/negative/spinor/excluded-rank). Wraps the
-    /// S3.0 [`BcdError`].
+    /// label-level [`BcdError`].
     Label(BcdError),
     /// [`cgc`](CanonicalCatalog::cgc) was asked for a triple with `N^c_ab = 0`
-    /// (the coupled irrep `c` does not appear in `a ⊗ b`, per the exact S3.0
+    /// (the coupled irrep `c` does not appear in `a ⊗ b`, per the exact
     /// [`directproduct`]). The reference sweep would simply never emit such a
-    /// block; a query API must reject the ill-posed question loudly (issue #15
-    /// guard class; PR #14 trivial-coupling P1). Carries the Dynkin labels.
+    /// block; a query API must reject the ill-posed question loudly instead of
+    /// returning an empty or zero block. Carries the Dynkin labels.
     ZeroFusionChannel {
         /// Dynkin label of the left factor `a`.
         a: Vec<i64>,
@@ -105,26 +103,25 @@ pub enum CatalogError {
     },
     /// The recursive materialization of a request would push the catalog's
     /// retained generator bytes past its budget. Reported **before** any commit,
-    /// so no partial chain is ever observable (Ruling 2 atomicity).
+    /// so no partial chain is ever observable.
     BudgetExceeded {
         /// The byte budget.
         limit: usize,
         /// The bytes that would be retained after committing this request.
         needed: usize,
     },
-    /// The S3.2 sweep (or a product-generator composition) failed while
+    /// The decomposition sweep (or a product-generator composition) failed while
     /// materializing a canonical-parent chain. Surfaced, not panicked: the
-    /// floating-point stages are verification-gated (Ruling 1).
+    /// floating-point stages are verification-gated.
     Sweep(SweepError),
     /// A coupled multiplet discovered in one product does **not** present the
     /// same canonical carrier basis as the stored embedding of that irrep — its
-    /// projected generators differ beyond the coherence tolerance (the restored
-    /// QSpace `normDiff` cross-copy check, `clebsch.cc:6710-6718 @ dd2cc7e`;
-    /// issue #15 instance 5). An ill-conditioned QR can leave an irrep in a
+    /// projected generators differ beyond the coherence tolerance (the QSpace
+    /// `normDiff` cross-copy check, `clebsch.cc:6710-6718 @ dd2cc7e`). An ill-conditioned QR can leave an irrep in a
     /// rotated frame between two embeddings, which would silently corrupt every
     /// F/R contraction that shares that irrep across its coupled and factor
     /// roles; this crate refuses to return such a value. Intertwiner alignment
-    /// (issue #29) first tries to rotate the frame onto the canonical stored
+    /// first tries to rotate the frame onto the canonical stored
     /// basis; this error is what remains when even the aligned frame disagrees
     /// beyond tolerance (a genuinely different irrep, or a numerically hopeless
     /// embedding whose remedy would be the out-of-scope extended-precision tier).
@@ -301,7 +298,7 @@ impl CanonicalCatalog {
     /// Build a catalog for `series` at rank `r` with the default byte budget.
     ///
     /// Seeds the two base cases — the trivial rep and the defining rep, the
-    /// latter from the exact S3.1 [`defining_seed`]. Rejects the excluded
+    /// latter from the exact [`defining_seed`]. Rejects the excluded
     /// low-rank isomorphisms (`SO(3)`, `Sp(2)`, `SO(4)`) with
     /// [`CatalogError::Label`] carrying [`BcdError::ExcludedRank`].
     pub fn new(series: Series, r: usize) -> Result<Self, CatalogError> {
@@ -349,13 +346,13 @@ impl CanonicalCatalog {
     }
 
     /// Seed the two base cases: the trivial rep (a 1-dimensional carrier, all
-    /// generators zero) and the defining rep (from the exact S3.1 seed). Both
+    /// generators zero) and the defining rep (from the exact defining seed). Both
     /// are `≺`-minimal (§14), so every canonical-parent chain bottoms out here.
     ///
     /// The defining seed is stored in QSpace's `Setup_*` state order, which is
     /// **not** the sweep's descending-weight order; it is therefore brought into
     /// the canonical frame by one pass of the §1–§8 sweep over its own carrier
-    /// (`docs/gauge_soN.md` §14.2, issue #90) — exactly what the spinor base
+    /// (`docs/gauge_soN.md` §14.2) — exactly what the spinor base
     /// cases already do (§16.3). One frame convention for every catalog entry:
     /// a rediscovered defining block is then coherent with the stored one, so
     /// the §15 coherence guard and the alignment apply to it unchanged.
@@ -417,7 +414,7 @@ impl CanonicalCatalog {
     /// # Errors
     /// - [`CatalogError::WrongGroup`] if the three irreps are not one family.
     /// - [`CatalogError::ZeroFusionChannel`] if `N^{s3}_{s1 s2} = 0` (`s3` does
-    ///   not appear in `s1 ⊗ s2`) — the red-first ill-posed-input guard.
+    ///   not appear in `s1 ⊗ s2`) — the ill-posed-input guard.
     /// - [`CatalogError::BudgetExceeded`] / [`CatalogError::Sweep`] as for
     ///   [`generators`](Self::generators).
     pub fn cgc(&mut self, s1: &Irrep, s2: &Irrep, s3: &Irrep) -> Result<CatalogCgc, CatalogError> {
@@ -425,8 +422,8 @@ impl CanonicalCatalog {
         self.check_group(s2)?;
         self.check_group(s3)?;
 
-        // Ill-posed-input guard (PR #14 lesson): every N^c_ab = 0 is a typed
-        // error, decided by the exact S3.0 decomposition before any float work.
+        // Ill-posed-input guard: every N^c_ab = 0 is a typed error, decided by
+        // the exact decomposition before any float work.
         let expected = directproduct(s1, s2)?;
         if expected.get(s3).copied().unwrap_or(0) == 0 {
             return Err(CatalogError::ZeroFusionChannel {
@@ -460,7 +457,7 @@ impl CanonicalCatalog {
     /// ([`crate::cache::cache_bcd_cgc`]) is built on: the associativity/braiding
     /// gates request many different `s3` from the same `s1 ⊗ s2`, and
     /// [`cgc`](Self::cgc) re-runs the full `s1 ⊗ s2` sweep for each — this runs it
-    /// once and hands back all channels (issue #27 P1 review). `pub(crate)`: the
+    /// once and hands back all channels. `pub(crate)`: the
     /// per-channel [`cgc`](Self::cgc) stays the public surface.
     ///
     /// # Errors
@@ -509,16 +506,14 @@ impl CanonicalCatalog {
     /// [`cgc_product`](Self::cgc_product) so both produce the identical isometry.
     ///
     /// Each copy is brought into `s3`'s stored canonical frame before its columns
-    /// are appended (issue #29): a copy already coherent to [`TOL_BASIS_COHERENT`]
-    /// is used verbatim (bit-exact fast path); a copy in a rotated frame (issue
-    /// #24 ill-conditioning) is aligned by [`align_block`] and re-verified. The
-    /// coherence guard (issue #15 instance 5) still fires — now on the
-    /// **post-alignment** residual — as [`CatalogError::BasisIncoherent`] when a
-    /// frame cannot be aligned within tolerance (a genuinely different irrep or a
+    /// are appended: a copy already coherent to [`TOL_BASIS_COHERENT`]
+    /// is used verbatim (bit-exact fast path); a copy in a rotated frame (an
+    /// ill-conditioned QR) is aligned by [`align_block`] and re-verified. The
+    /// coherence guard fires on the **post-alignment** residual, as
+    /// [`CatalogError::BasisIncoherent`], when a frame cannot be aligned within tolerance (a genuinely different irrep or a
     /// numerically hopeless embedding). **No irrep is exempt** — every catalog
     /// entry, base cases included, is stored in the sweep's descending-weight
-    /// frame (issue #90), so the element-wise comparison is meaningful for all of
-    /// them and a frame mismatch can no longer hide behind an exemption.
+    /// frame, so the element-wise comparison is meaningful for all of them.
     fn assemble_cgc(
         &self,
         s1: &Irrep,
@@ -538,11 +533,9 @@ impl CanonicalCatalog {
                 // identity up to sign, so this avoids perturbing stored values).
                 cols.extend_from_slice(b.cgc());
             } else {
-                // Rotated frame (issue #24 ill-conditioning): align to the
-                // canonical stored frame (issue #29) instead of bricking. The
-                // coherence guard now runs on the POST-alignment residual — it
-                // moved after alignment, it was not removed (issue #15 ledger):
-                // a frame that still disagrees is a genuinely different irrep
+                // Rotated frame (ill-conditioned QR): align to the canonical
+                // stored frame instead of bricking. The coherence guard runs on
+                // the POST-alignment residual: a frame that still disagrees is a genuinely different irrep
                 // or a numerically hopeless embedding and stays BasisIncoherent.
                 let (aligned, residual) = align_block(b, stored)?;
                 if residual > TOL_BASIS_COHERENT {
@@ -619,8 +612,8 @@ impl CanonicalCatalog {
         self.store.contains_key(c)
     }
 
-    /// The worst commutator residual of `c`'s stored generators (issue #18
-    /// chain-depth error bench). `c` must already be materialized.
+    /// The worst commutator residual of `c`'s stored generators (chain-depth
+    /// error watch). `c` must already be materialized.
     #[cfg(test)]
     pub(crate) fn stored_commutator_residual(&self, c: &Irrep) -> Option<f64> {
         self.store.get(c).map(|g| g.max_commutator_residual())
@@ -656,8 +649,8 @@ fn is_spinor_base(c: &Irrep) -> bool {
 /// (which moves it by 2), and — unlike `dim` — monotone in **every** coordinate
 /// including the D-series sign-carrying last part. The primary `≺` component.
 ///
-/// Doubling is a uniform rescaling of the old `Σ|λ_i|`, so `≺` — and every
-/// parent chosen through it — is unchanged on the tensor irreps; what doubling
+/// Doubling is a uniform rescaling of `Σ|λ_i|`, so `≺` — and every parent
+/// chosen through it — agrees with the undoubled order on the tensor irreps; what doubling
 /// buys is that a spinor's half-integer weight has an integer box count too
 /// (`box'(ω_r) = r`).
 fn box_count(c: &Irrep) -> i64 {
@@ -676,7 +669,7 @@ fn prec_key(c: &Irrep) -> (i64, BigInt, Vec<i64>) {
 }
 
 /// The canonical parent pair `(a, b)` of a non-base irrep `c` (§14): among all
-/// pairs with `a ≺ c`, `b ≺ c`, and `c ∈ a ⊗ b` (exact S3.0), the minimum under
+/// pairs with `a ≺ c`, `b ≺ c`, and `c ∈ a ⊗ b` (exact decomposition), the minimum under
 /// the pair order `(dim_a + dim_b, dim_a, dynkin_a, dynkin_b)`. Returns the pair
 /// in canonical `a ⪯ b` form (the order's tie-break fixes which is `a`).
 ///
@@ -746,10 +739,10 @@ fn canonical_parent(series: Series, rank: usize, c: &Irrep) -> Option<(Irrep, Ir
 /// ascending by `(dim, dynkin)` — the order the pruning in
 /// [`canonical_parent`] relies on.
 ///
-/// **Class restriction (option (B) of issue #87 §5).** If `c` lies in the
+/// **Class restriction.** If `c` lies in the
 /// tensor sublattice of `P/Q`, the candidate set is restricted to the tensor
-/// sublattice; a spinor is never a parent of a tensor irrep, so every shipped
-/// `SO(N)`/`Sp(2N)` coefficient is unaffected by the arrival of `Spin(N)`. If
+/// sublattice; a spinor is never a parent of a tensor irrep, so every
+/// `SO(N)`/`Sp(2N)` coefficient is independent of the `Spin(N)` labels. If
 /// `c` is a spinor, both classes are candidates (a spinor's parents are a
 /// spinor and a tensor irrep — no product of tensor irreps contains a spinor).
 ///
@@ -757,7 +750,7 @@ fn canonical_parent(series: Series, rank: usize, c: &Irrep) -> Option<(Irrep, Ir
 /// nonincreasing, `≥ 0`, all of one parity; the D series additionally emits the
 /// `λ_r < 0` chiral partner) bounded by the doubled **box count**
 /// `Σ|2λ_i| ≤ box_count(c)`. Box count is monotone in every coordinate
-/// (including the D-series last part, where `dim` is not — the P1 fix), so the
+/// (including the D-series last part, where `dim` is not), so the
 /// prune is exact for all three series. Every `x ≺ c` has
 /// `box_count(x) ≤ box_count(c)`, so the walk is a complete superset; the
 /// `retain` keeps exactly `{ x : x ≺ c }`.
@@ -847,7 +840,7 @@ fn lookup<'a>(
 /// but the store does not yet have, into `staged` (no commit, no budget check —
 /// [`CanonicalCatalog::ensure`] does both once the whole chain is staged).
 ///
-/// Harvest discipline (Ruling 2): decomposing the canonical parent yields blocks
+/// Harvest discipline: decomposing the canonical parent yields blocks
 /// for several irreps; a block's generators are staged **only** if that irrep has
 /// no generators yet **and** this product is its canonical parent. A rediscovery
 /// (the irrep already committed/staged) never writes — instead it debug-asserts
@@ -864,11 +857,11 @@ fn build_into(
         return Ok(()); // already committed or staged (includes the base cases)
     }
 
-    // Spinor base case (§14.2, issue #54): the fundamental spinors are not in
-    // any product of already-materialized irreps — they carry their own S3.1
+    // Spinor base case (§14.2): the fundamental spinors are not in
+    // any product of already-materialized irreps — they carry their own exact
     // Clifford seed. Seeded on demand rather than at construction, so a catalog
     // that is only ever asked for tensor irreps builds no spinor matrices and
-    // its byte accounting is exactly what it always was.
+    // its byte accounting counts tensor irreps only.
     if is_spinor_base(c) {
         for (label, seed) in spinor_seeds(series, rank)? {
             if Irrep::from_dynkin_in(&series.cover_group(rank), &label)? == *c {
@@ -937,8 +930,7 @@ fn build_into(
 /// Compared as a **multiset** of per-state weight vectors, not state-by-state:
 /// the weight *content* of an irrep is gauge-independent, but the state *order*
 /// is not, and this cheap check deliberately makes no order claim — the
-/// element-wise statement (which since issue #90 does bind every entry, base
-/// cases included) is the production coherence guard in
+/// element-wise statement (which binds every entry, base cases included) is the production coherence guard in
 /// [`assemble_cgc`](CanonicalCatalog::assemble_cgc). Weights are
 /// integer Cartan eigenvalues (snapped in the sweep, §6), so they compare exactly
 /// after rounding.

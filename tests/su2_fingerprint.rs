@@ -1,5 +1,5 @@
 //! Compatibility-policy and determinism tests for the base SU(2) authority
-//! fingerprint (`fusion_symbols::su2_authority_fingerprint`, issue #43 leaf C).
+//! fingerprint (`fusion_symbols::su2_authority_fingerprint`).
 
 use fusion_symbols::su2_authority_fingerprint;
 

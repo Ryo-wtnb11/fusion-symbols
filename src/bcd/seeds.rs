@@ -1,5 +1,4 @@
-//! Defining-representation generator seeds for the B/C/D series (Layer S3.1 of
-//! the `cgc-gen` track; design authority: issue #18 rulings, spec: issue #21).
+//! Defining-representation generator seeds for the B/C/D series.
 //!
 //! This module ports, entry-for-entry, the exact sparse raising operators
 //! `Sp[i]` and Cartan generators `Sz[i]` of the *defining* representation for
@@ -11,7 +10,7 @@
 //! together with [`check_commutators`], the exact self-check that gates them —
 //! the Rust analogue of QSpace's `initCommRel` / `checkCommRel`
 //! (`clebsch.cc:5949-6120` @ `dd2cc7e`). This self-check is the load-bearing
-//! gate the numeric sweep (S3.2) will reuse against generated matrices.
+//! gate the numeric decomposition sweep reuses against generated matrices.
 //!
 //! # Exactness: every entry is an integer at `dd2cc7e`
 //!
@@ -49,7 +48,8 @@
 //! [`check_commutators`] verifies *exactly these three QSpace relations*, with
 //! the coefficients derived by the same Frobenius-projection recipe QSpace uses
 //! — deliberately **not** substituting a textbook Chevalley normalization,
-//! because S3.2 ports QSpace's sweep against precisely these matrices. The
+//! because the decomposition sweep ports QSpace's sweep against precisely these
+//! matrices. The
 //! derived `f` and `d` are returned in [`CommReport`] so downstream layers and
 //! tests can inspect the actual (QSpace-basis) root system.
 //!
@@ -156,9 +156,9 @@ impl Seed {
 ///
 /// Returns [`BcdError::ExcludedRank`] (with SU(2)/SU(2)×SU(2) redirection) for
 /// the low-rank isomorphisms `B_1 = SO(3)`, `C_1 = Sp(2)`, `D_2 = SO(4)`,
-/// inheriting the S3.0 rank guard.
+/// the same rank guard as [`Irrep::from_dynkin`](crate::bcd::Irrep::from_dynkin).
 ///
-/// # Guard inventory (issue #15; QSpace asserts around the Setups)
+/// # Guard inventory (QSpace asserts around the Setups)
 ///
 /// - QSpace `if (D<2||D>10)` (`Sp`) / `if (D<3||D>12)` (`SO`/`SEN`): the *lower*
 ///   bound is the low-rank-isomorphism guard, mapped to
@@ -299,7 +299,7 @@ fn setup_sen(r: usize) -> Seed {
     }
 }
 
-// ---- spinor base cases (issue #54; docs/gauge_soN.md §16) ------------------
+// ---- spinor base cases (docs/gauge_soN.md §16) -----------------------------
 
 /// The exact **spinor** base-case generator seeds of `series` at rank `r`, each
 /// paired with the Dynkin label of the irrep it carries — the second base case
@@ -507,8 +507,8 @@ pub struct CommReport {
 /// first [`BcdError::CommutatorViolation`].
 ///
 /// This is the Rust analogue of QSpace's `initCommRel` + `checkCommRel`
-/// (`clebsch.cc:5949-6120` @ `dd2cc7e`) and the foundation of the S3.2 sweep's
-/// gate. Because every seed entry is an integer, the whole check is exact
+/// (`clebsch.cc:5949-6120` @ `dd2cc7e`) and the foundation of the decomposition
+/// sweep's gate. Because every seed entry is an integer, the whole check is exact
 /// (`i64` matrix arithmetic; `Ratio<i64>` structure constants); there are no
 /// float tolerances. Relations checked (see module docs for the basis
 /// convention):

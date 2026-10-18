@@ -139,11 +139,11 @@ against another implementation or auditing a value, not to learn the API.
 ## Caveats
 
 - The generated (`cgc-gen`) provider surface is marked **unstable**; its shape
-  may change while the contract is negotiated. The base SU(2) surface is stable.
+  may change. The base SU(2) surface is stable.
 - There is deliberately no single cross-feature cache constant: one number
   spanning feature-gated tiers would change meaning with the `cgc-gen` flag.
-- Selecting a linear-algebra backend is not public API today. All dense work
-  routes through one seam, currently executed on a CPU backend.
+- Selecting a linear-algebra backend is not public API. All dense work
+  routes through one seam, executed on the CPU backend.
 
 ## Related API
 
