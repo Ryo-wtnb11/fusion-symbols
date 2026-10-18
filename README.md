@@ -35,12 +35,12 @@ Supported symmetries:
 The base SU(2) surface is stable. In the `cgc-gen` surface,
 `sun_authority_fingerprint`, `bcd_authority_fingerprint`,
 `cache::GENERATED_CACHE_MAX_BYTES` and `cache::GeneratedCacheStats` are marked
-unstable in their rustdoc. Deligne products are next.
+unstable in their rustdoc.
 
 This crate succeeds the [`racah`](https://crates.io/crates/racah) crate on
 crates.io (0.2.4), with the same modules and API under `fusion_symbols::`.
 The Python bindings in [`racah-py/`](racah-py/README.md) keep the import name
-`racah` for now and cover the Lie-group families.
+`racah` and cover the Lie-group families.
 
 ```toml
 [dependencies]
@@ -113,8 +113,6 @@ for fusion-category data, and G. Vercleyen and J. K. Slingerland, *On low rank
 fusion rings*, J. Math. Phys. 64, 091703 (2023),
 [doi:10.1063/5.0148848](https://doi.org/10.1063/5.0148848), for fusion-ring
 data.
-
-A DOI will be added once a release is archived on Zenodo.
 
 ## License
 

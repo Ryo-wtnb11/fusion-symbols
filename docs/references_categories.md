@@ -31,9 +31,8 @@
 Every number the table provider ships is traceable to the rows below. The crate
 performs no derivation of the *source* data: it parses the committed tables and
 derives only the API-level quantities that TensorKitSectors also derives
-(dimension, Frobenius–Schur phase, twist). The closed-form Fibonacci module
-of 0.3.0 was removed (#134); `TableCategory::fibonacci()` is the single
-Fibonacci path.
+(dimension, Frobenius–Schur phase, twist). `TableCategory::fibonacci()` is the
+single Fibonacci path.
 
 ### Authority — AnyonWiki database (exact symbols)
 
@@ -117,9 +116,9 @@ the generator's hard gate there (a per-symbol fixture would be 14 MB).
 ### The `Complex64` projection epoch
 
 Epoch identifier:
-**`fusion-symbols/tables/anyonwiki-badbfe2/projection/2026-10-16`** (unchanged
-by #134: the conversion is the same; only the selection and file layout are
-new, and those are in each entry's provenance and fingerprint).
+**`fusion-symbols/tables/anyonwiki-badbfe2/projection/2026-10-16`**. The
+entry selection and file layout are recorded in each entry's provenance and
+fingerprint, not in the epoch.
 
 1. Each exact symbol is rounded correctly to binary64 offline (above).
 2. At load, split each record on ASCII whitespace; the trailing two fields

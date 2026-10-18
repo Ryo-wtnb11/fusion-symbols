@@ -21,7 +21,7 @@ computes it exactly, in integer arithmetic, for every family.
 
 Before anything else. `N^c_ab` tells you which coupling channels exist at all,
 and it is the length of the multiplicity axis on every CGC, F and R block you
-will later ask for. If `N^c_ab = 0` there is no coefficient to compute, and the
+ask for. If `N^c_ab = 0` there is no coefficient to compute, and the
 coefficient APIs say so with a typed error instead of returning zeros.
 
 ## SU(2)

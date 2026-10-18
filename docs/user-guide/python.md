@@ -155,7 +155,7 @@ SU(2) is reachable two ways, and they are not the same tier. `Irrep([2j])` is a 
 SU(N) label, so every function above answers for it — by running the full generated
 pipeline: a Gelfand-Tsetlin CGC construction with an SVD nullspace, a least-squares
 ladder descent and a QR gauge fix. The crate also carries a closed-form SU(2) engine in
-exact big-rational arithmetic, and since #107 it is bound too.
+exact big-rational arithmetic, and it is bound too.
 
 Labels are **doubled** here: `dj = 2j` and `dm = 2m`, so `1` is spin 1/2 and `dm=-1` is
 $m = -1/2$. Doubling keeps every label an exact integer, which is what lets the engine
