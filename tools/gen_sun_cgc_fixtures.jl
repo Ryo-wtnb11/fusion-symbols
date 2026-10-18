@@ -1,5 +1,5 @@
 # Emit SU(N) Clebsch-Gordan coefficient fixtures for the racah gauge-continuity
-# oracle (issue #12). Values come straight from SUNRepresentations.jl v0.4.0 --
+# oracle. Values come straight from SUNRepresentations.jl v0.4.0 --
 # never hand-authored -- so the Rust oracle checks a *signed, element-wise*
 # match, which is the gauge-continuity claim.
 #

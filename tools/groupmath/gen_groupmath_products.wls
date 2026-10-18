@@ -14,10 +14,10 @@
   for CGC/F/R across SU(N) and B/C/D. This fixture commits only the part that is
   deterministically comparable to racah WITHOUT a gauge-alignment step: the
   channel list and integer multiplicities. The CGC-value / invariant-projector
-  comparison needs the #29 alignment harness and is out of scope here.
+  comparison needs a gauge-alignment harness and is out of scope here.
 
   ------------------------------------------------------------------------------
-  API RECONNAISSANCE (done before any comparison test; issue #32 requirement)
+  API RECONNAISSANCE (done before any comparison test)
   ------------------------------------------------------------------------------
   Two GroupMath entry points were surveyed:
 
@@ -41,11 +41,11 @@
      NORMALIZATION / BASIS: Invariants applies NormalizeAndSymmetrize by default
      (orthonormal invariant basis, permutation-symmetry-adapted). This basis is
      GroupMath's own gauge; it is NOT the racah GT/QSpace gauge, and there is no
-     documented deterministic map between them. Per the issue's rule ("do not
-     fake agreement"), the CGC VALUES are therefore NOT committed here. The
+     documented deterministic map between them. Per the rule "do not
+     fake agreement", the CGC VALUES are therefore NOT committed here. The
      gauge-invariant projector P = C C^T onto each isotypic block is the robust
-     comparable object, but building it on the racah side is exactly the #29
-     alignment harness -- deferred there, not duplicated here.
+     comparable object, but building it on the racah side is the job of the
+     gauge-alignment harness, not of this fixture.
   ------------------------------------------------------------------------------
 *)
 
@@ -60,7 +60,7 @@ AppendTo[$Path, groupmathDir];
 (* Suppress GroupMath's load-time banner (a Print) so stdout is pure fixture. *)
 Block[{Print = (Null &)}, Quiet[Get["GroupMath`"]]];
 
-(* Curated battery (no RNG): the channels named in issue #32 -- SO5/Sp4 vector
+(* Curated battery (no RNG): the curated channels -- SO5/Sp4 vector
    products, SO6 adjoint^2 (incl. the 84 and the OM=2 adjoint channel) -- plus
    SU(N) samples that independently audit the SUNRepresentations lineage. Only
    tensor (non-spinor) B/C/D labels appear, since fusion_symbols::bcd rejects spinors. *)

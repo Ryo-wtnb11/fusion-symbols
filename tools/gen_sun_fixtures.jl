@@ -1,6 +1,6 @@
 #!/usr/bin/env julia
 # Generate exact SU(N) combinatorics fixtures for the racah crate's
-# cgc-gen Layer 1 oracle (issue #10), from SUNRepresentations.jl v0.4.0.
+# SU(N) combinatorics oracle, from SUNRepresentations.jl v0.4.0.
 #
 # One tagged line per record (';'-separated fields):
 #   DIM;N;dynkin;dim;dualdynkin

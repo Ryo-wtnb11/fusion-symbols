@@ -1,5 +1,5 @@
-//! SU(N) F- and R-symbols derived from Layer 2 Clebsch-Gordan coefficients
-//! (Layer 3 of the `cgc-gen` track).
+//! SU(N) F- and R-symbols derived from the generated SU(N) Clebsch-Gordan
+//! coefficients.
 //!
 //! Ported from SUNRepresentations.jl v0.4.0 `src/sector.jl`:
 //! - [`f_symbol`] ports `_Fsymbol` (`sector.jl:58-89`): the F-symbol as the
@@ -9,11 +9,9 @@
 //!
 //! The four-CGC contraction, the `[μ, ν, κ, λ]` axis order (TensorKitSectors
 //! `sectors.jl:Fsymbol_from_fusiontensor`, `:406-418`), and the pentagon/hexagon/
-//! F-unitarity gates all live in the **family-generic** `frcore` core
-//! (issue #27); this module is the SU(N) binding of that core — the
-//! [`SunFamily`] provider plus the per-family public API. The SU(N) behavior is
-//! unchanged by the genericization: [`SunFamily`] returns exactly the same
-//! multiplicities and CGC entries the old inline contraction consumed.
+//! F-unitarity gates all live in the **family-generic** `frcore` core;
+//! this module is the SU(N) binding of that core — the
+//! [`SunFamily`] provider plus the per-family public API.
 //!
 //! # Conjugation
 //!
@@ -74,7 +72,7 @@ impl Family for SunFamily {
 
 // ---------------------------------------------------------------------------
 // Multiplicity / rank helpers (the reference's compile-time `SUNIrrep{N}` and
-// `Nsymbol` guards, re-erected as runtime typed errors -- issue #15).
+// `Nsymbol` guards, re-erected as runtime typed errors).
 // ---------------------------------------------------------------------------
 
 /// `N^c_{ab}`, the fusion multiplicity of `a ⊗ b → c`. Errors
@@ -145,7 +143,7 @@ fn require_same_rank(labels: &[&Irrep]) -> Result<(), SunError> {
 /// - [`SunError::RankMismatch`] if the six labels are not all SU(N) for one `N`.
 /// - [`SunError::ZeroFusionChannel`] if any of the four vertices is empty. (The
 ///   reference returns an all-zero block here; this query API returns a typed
-///   error — issue #15.)
+///   error.)
 /// - [`SunError::NullspaceDimMismatch`] / [`SunError::NotOrthonormal`] /
 ///   [`SunError::LadderInconsistent`] / [`SunError::Linalg`] surfaced from an
 ///   underlying CGC generation.

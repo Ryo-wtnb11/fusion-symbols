@@ -63,8 +63,8 @@
 //!   construction), and SO(N)/Sp(2N) (defining-representation seeds plus a
 //!   family-generic decomposition loop). Dense factorizations and the CGC
 //!   contractions producing F/R route through the Tenferro traced surface at a
-//!   single seam, currently executed on the CPU faer backend; no hand-rolled
-//!   kernels, and no public backend-selection API yet.
+//!   single seam, executed on the CPU faer backend; no hand-rolled kernels,
+//!   and backend selection is not public API.
 //!
 //! The boundary is mathematical, not organizational: SU(2) has closed forms and
 //! needs no matrix computation, so a consumer needing only SU(2) never pulls a
@@ -245,7 +245,7 @@ pub mod sun;
 pub mod bcd;
 
 // Family-generic F/R contraction + gates core, shared by `sun::fr` and
-// `bcd::fr` (Stage 3 S3.4, issue #27). Private: the public F/R surfaces stay
+// `bcd::fr`. Private: the public F/R surfaces stay
 // per-family; only the block types (`FBlock`/`RBlock`) are re-exported.
 #[cfg(feature = "cgc-gen")]
 mod frcore;

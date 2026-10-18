@@ -485,7 +485,7 @@ fn f_symbol_exact(
 /// a hit (see the f64-tier test in `cache.rs`).
 ///
 /// Layering (the reference splits `@cached Fsymbol` from the coefficient
-/// caches for the same reason): the exact 6j tier (#5) owns the *value*; this
+/// caches for the same reason): the exact 6j tier owns the *value*; this
 /// tier owns the *presentation*. The two never disagree because the f64 here is
 /// derived from that same exact value, never independently.
 ///
@@ -585,7 +585,7 @@ impl Regge6j {
     }
 }
 
-/// Key for the derived-f64 F-symbol tier ([`su2_f_symbol`], #7).
+/// Key for the derived-f64 F-symbol tier ([`su2_f_symbol`]).
 ///
 /// # Why these three components, and why they are complete
 ///
@@ -883,7 +883,7 @@ pub fn canonical_regge_3j(
 }
 
 // ---------------------------------------------------------------------------
-// Checked SU(2) representation surface (issue #43, section 2).
+// Checked SU(2) representation surface.
 //
 // Additive layer over the infallible functions above. The infallible functions
 // keep their zero convention unchanged (an inadmissible tuple returns exact
@@ -1258,9 +1258,8 @@ pub fn su2_r_symbol_checked(dj1: u32, dj2: u32, dj3: u32) -> Result<f64, Su2Erro
 /// patch, which would force consumers to re-derive on releases that change no
 /// value. A hand-bumped epoch makes the change an explicit, mutation-visible
 /// review event: the compatibility-policy test (`tests/su2_fingerprint.rs`)
-/// pins the exact bytes, so any value-affecting PR must touch that test, and
-/// updating it is where the breaking-release decision is recorded. (Rationale
-/// per the issue #43 design record.)
+/// pins the exact bytes, so any value-affecting change must touch that test, and
+/// updating it is where the breaking-release decision is recorded.
 ///
 /// # Tags and the conventions they pin
 ///
@@ -1298,8 +1297,7 @@ pub fn su2_r_symbol_checked(dj1: u32, dj2: u32, dj3: u32) -> Result<f64, Su2Erro
 /// Deliberately **excluded**: the doubled-spin label encoding (`dj = 2j`) is
 /// input addressing / API shape, not a property of a returned value — changing
 /// it would be an API-compatibility matter that leaves every coefficient value
-/// unchanged, so it does not belong in a value fingerprint (design record: API
-/// shape is not included). The crate version and any source/doc hash are
+/// unchanged, so it does not belong in a value fingerprint. The crate version and any source/doc hash are
 /// excluded for the reasons above.
 pub fn su2_authority_fingerprint() -> &'static [u8] {
     // Spec version. Bump the trailing `epoch=N` (and the literal in

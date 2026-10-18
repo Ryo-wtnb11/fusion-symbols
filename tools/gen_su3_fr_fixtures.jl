@@ -1,5 +1,5 @@
 # Emit SU(3) F- and R-symbol fixtures for the racah table-regeneration oracle
-# (issue #16, oracle 1). Values come straight from SUNRepresentations.jl v0.4.0
+# Values come straight from SUNRepresentations.jl v0.4.0
 # via TensorKitSectors' Fsymbol/Rsymbol -- never hand-authored -- so the Rust
 # oracle is a *signed, element-wise* match, i.e. the gauge-continuity claim that
 # authorizes a downstream consumer to delete its precomputed SU(3) table.

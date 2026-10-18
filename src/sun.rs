@@ -34,7 +34,7 @@
 //! subtracting `λ_N`. The Dynkin labels `aᵢ = λᵢ − λᵢ₊₁` (all `≥ 0`) are
 //! derivable via [`Irrep::dynkin`](crate::sun::Irrep::dynkin).
 //!
-//! # Published object and global form (issues #87, #54)
+//! # Published object and global form
 //!
 //! The object is the set of finite-dimensional linear representations of a
 //! **connected compact group** with root system `A_{N-1}`. Which group is named
@@ -154,7 +154,7 @@ pub enum SunError {
         /// Rank `N` of the second irrep.
         b: usize,
     },
-    /// The highest-weight nullspace dimension did not equal the Layer 1 fusion
+    /// The highest-weight nullspace dimension did not equal the exact fusion
     /// multiplicity `N^{s3}_{s1 s2}`. Ported gate from `clebschgordan.jl`'s
     /// `@assert N123 == directproduct(s1, s2)[s3]`; a mismatch means the
     /// numerical rank cut disagrees with the exact combinatorics.
@@ -186,8 +186,8 @@ pub enum SunError {
     /// fusion vertices is empty (`N^c_{ab} = 0`). The reference `_Fsymbol` /
     /// `_Rsymbol` return an all-zero block *by construction* when a channel is
     /// empty; this crate exposes a query API, so an empty vertex is an
-    /// ill-posed question and becomes a typed error (issue #15 guard class —
-    /// the reference's `Nsymbol(...) == 0 && return zeros` short-circuit).
+    /// ill-posed question and becomes a typed error (the reference's
+    /// `Nsymbol(...) == 0 && return zeros` short-circuit).
     /// Carries the offending vertex `a ⊗ b → c` as Dynkin labels.
     ZeroFusionChannel {
         /// Dynkin label of the vertex's left factor.
@@ -441,7 +441,7 @@ impl Irrep {
     }
 
     /// Construct from the `N-1` Dynkin labels of `group` — the form-aware
-    /// constructor (issue #87 §6), the `A`-series analogue of
+    /// constructor, the `A`-series analogue of
     /// [`bcd::Irrep::from_dynkin_in`](crate::bcd::Irrep::from_dynkin_in).
     ///
     /// `group.root_system` must be `A(N-1)` and `dynkin.len()` must equal its
@@ -486,7 +486,7 @@ impl Irrep {
             });
         }
         // The central-character condition, one implementation, in
-        // `crate::group` (issue #87 §2). `sun` must not restate the N-ality
+        // `crate::group`. `sun` must not restate the N-ality
         // rule.
         if !group.admits(dynkin) {
             return Err(SunError::NotAdmissible {
@@ -875,7 +875,7 @@ fn subrow_rec(j: usize, m: usize, toprow: &[i64], cur: &mut Vec<i64>, out: &mut 
 /// Ported from `gtpatterns.jl:directproduct`. Requires `rank(a) == rank(b)`
 /// (both label the same SU(N)); a rank mismatch is an ill-posed input across
 /// distinct groups and returns [`SunError::RankMismatch`] rather than a
-/// zero-channel map — this signature is Layer 2's foundation. The reference
+/// zero-channel map. The reference
 /// iterates the smaller-dimensional basis; we replicate the `dim` swap (the
 /// result is independent of it, but the port stays faithful).
 ///
@@ -996,7 +996,7 @@ fn signedroot(coef: &Ratio<BigInt>) -> SignedSqrtRational {
 /// deserving a new fingerprint.
 ///
 /// The value therefore changes only when the specification itself is corrected:
-/// an exceptional, deliberate, loud event that requires, in one PR, the
+/// an exceptional, deliberate, loud event that requires, together, the
 /// `docs/gauge.md` edit stating the defect it corrects, the `epoch` bump here
 /// and in `tests/sun_fingerprint.rs`, a CHANGELOG breaking-change entry, and
 /// regenerated golden values (`docs/gauge.md`, "Status"). For a consumer that
@@ -1068,9 +1068,8 @@ fn signedroot(coef: &Ratio<BigInt>) -> SignedSqrtRational {
 ///
 /// # Stability
 ///
-/// **Unstable: shape may change while the generated-provider contract is
-/// negotiated.** Cargo features cannot express instability tiers; this label and
-/// issue #47 are the ledger.
+/// **Unstable: shape may change.** Cargo features cannot express instability
+/// tiers, so this rustdoc label is the marker.
 #[cfg(feature = "cgc-gen")]
 pub fn sun_authority_fingerprint() -> &'static [u8] {
     // Spec version. Bump the trailing `epoch=N` (and the literal in
