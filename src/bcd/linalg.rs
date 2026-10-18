@@ -1,4 +1,4 @@
-//! Dense factorization / contraction seams for the S3.2 decomposition sweep,
+//! Dense factorization / contraction seams for the decomposition sweep,
 //! routed through `tenferro-linalg`'s public traced surface (no hand-rolled
 //! numeric kernels — `AGENTS.md`).
 //!
@@ -15,8 +15,7 @@
 //!   check.
 //!
 //! The mirror of `sun::linalg`, at the B/C/D layer and with [`SweepError`]. The
-//! two seams stay separate (different error type, different layer); unifying the
-//! ~40 lines of tenferro plumbing is a later refactor, not this PR's scope.
+//! two seams stay separate (different error type, different family).
 //! `ponytail:` shared tenferro-plumbing helper, extract when a third consumer
 //! appears.
 
@@ -167,7 +166,7 @@ pub(crate) fn tmatmul(a: &Dense, b: &Dense) -> Result<Dense, SweepError> {
 ///
 /// Returns `(U, s, Vt)` with `U` (`rows × k`), `s` (length `k`), `Vt` (`k × cols`),
 /// `k = min(rows, cols)`. The only consumer is the small per-weight-space
-/// orthogonal Procrustes solve in intertwiner alignment (issue #29): for a square
+/// orthogonal Procrustes solve in intertwiner alignment: for a square
 /// `M`, `W = U · Vt` is the nearest orthogonal matrix to `M`. No hand-rolled
 /// kernel — the decision to route factorizations through the backend is `AGENTS.md`.
 pub(crate) fn svd(a: &Dense) -> Result<(Dense, Vec<f64>, Dense), SweepError> {

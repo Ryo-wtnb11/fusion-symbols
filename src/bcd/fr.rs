@@ -1,5 +1,4 @@
-//! B/C/D (SO(2r+1)/Sp(2r)/SO(2r)) F- and R-symbols from catalog-driven CGC
-//! (Stage 3 S3.4; design authority: issue #18; spec: issue #27).
+//! B/C/D (SO(2r+1)/Sp(2r)/SO(2r)) F- and R-symbols from catalog-driven CGC.
 //!
 //! The four-CGC contraction and the pentagon/hexagon/F-unitarity gates are the
 //! **family-generic** [`crate::frcore`] core, shared with `crate::sun::fr`; this
@@ -39,7 +38,7 @@ pub use crate::frcore::{FBlock, RBlock};
 /// Failure of a B/C/D F/R request or verification gate.
 ///
 /// Wraps the catalog's [`CatalogError`] (materialization, budget, sweep-gate,
-/// wrong-group, and the red-first zero-fusion-channel guard) and adds the three
+/// wrong-group, and the zero-fusion-channel guard) and adds the three
 /// self-consistency gate violations. Kept separate from [`CatalogError`] so the
 /// catalog's contract stays "a catalog request outcome"; the gate residuals are a
 /// property of the F/R algebra, not of a catalog lookup.
@@ -49,8 +48,7 @@ pub use crate::frcore::{FBlock, RBlock};
 pub enum FrError {
     /// An underlying catalog request failed (includes
     /// [`CatalogError::ZeroFusionChannel`] for an ill-posed vertex and
-    /// [`CatalogError::WrongGroup`] for a foreign label — the guard-inventory
-    /// typed errors, issue #15).
+    /// [`CatalogError::WrongGroup`] for a foreign label).
     Catalog(CatalogError),
     /// The F-move matrix (rows `(e, μ, ν)`, cols `(f, κ, λ)` for fixed outer
     /// labels `a, b, c, d`) failed the unitarity gate. Worst `|(M Mᵀ - I)_{ij}|`.
@@ -126,7 +124,7 @@ impl Family for BcdFamily<'_> {
     /// On a miss the whole `a ⊗ b` product is decomposed **once**
     /// ([`CanonicalCatalog::cgc_product`]) and every coupled channel is cached, so
     /// the gates' many `(a, b, ·)` requests share one sweep instead of
-    /// re-sweeping per coupled irrep (issue #27 P1 review).
+    /// re-sweeping per coupled irrep.
     fn cgc_entries(
         &mut self,
         a: &Irrep,
@@ -157,7 +155,7 @@ impl Family for BcdFamily<'_> {
     }
 }
 
-/// `N^c_{ab}` from the exact S3.0 decomposition (no float work). A group/rank
+/// `N^c_{ab}` from the exact decomposition (no float work). A group/rank
 /// mismatch surfaces as [`CatalogError::Label`] via [`super::BcdError`].
 fn bcd_mult(a: &Irrep, b: &Irrep, c: &Irrep) -> Result<usize, CatalogError> {
     Ok(directproduct(a, b)?.get(c).copied().unwrap_or(0) as usize)
@@ -195,8 +193,8 @@ fn sparse_entries(s1: &Irrep, cgc: &CatalogCgc) -> Vec<MEntry> {
 }
 
 /// Verify every label belongs to the catalog's family (series and rank),
-/// red-first, before any materialization — the guard-inventory series/rank
-/// mismatch check (issue #15).
+/// before any materialization, so a series/rank mismatch is a typed error
+/// rather than a wrong-family sweep.
 fn require_catalog_family(cat: &CanonicalCatalog, labels: &[&Irrep]) -> Result<(), CatalogError> {
     for s in labels {
         if s.series() != cat.series() || s.rank() != cat.rank() {
@@ -256,7 +254,7 @@ fn require_catalog_family(cat: &CanonicalCatalog, labels: &[&Irrep]) -> Result<(
 ///   not of the catalog's family.
 /// - [`FrError::Catalog`] wrapping [`CatalogError::ZeroFusionChannel`] if any of
 ///   the four vertices is empty (the reference returns an all-zero block; this
-///   query API returns a typed error — issue #15).
+///   query API returns a typed error).
 /// - [`FrError::Catalog`] wrapping [`CatalogError::BudgetExceeded`] /
 ///   [`CatalogError::Sweep`] from an underlying materialization.
 #[allow(clippy::too_many_arguments)]
@@ -282,8 +280,8 @@ pub fn f_symbol(
     if let Some(hit) = cache.get(&key) {
         return Ok((*hit).clone());
     }
-    // Guard: every vertex non-empty, decided by the exact S3.0 decomposition
-    // before any float work (PR #14 lesson; issue #15). Mirrors sun::f_symbol.
+    // Guard: every vertex non-empty, decided by the exact decomposition before
+    // any float work. Mirrors sun::f_symbol.
     // It runs on a miss only: this function is the cache's sole writer and
     // inserts a key only after the label-only guard passed.
     let vertices = [(a, b, e), (e, c, d), (b, c, f), (a, f, d)];

@@ -1,11 +1,11 @@
-//! Tests for the S3.3 [`CanonicalCatalog`].
+//! Tests for the [`CanonicalCatalog`].
 //!
 //! Oracles are independent of the code under test: canonical-parent choices are
-//! checked against the exact S3.0 [`crate::bcd::directproduct`] (a separate
+//! checked against the exact [`crate::bcd::directproduct`] (a separate
 //! implementation, itself cross-checked against Sage/OSCAR fixtures); generator
-//! validity against the S3.1 commutator relations; query-order independence and
-//! reset stability are bitwise self-consistency invariants; the ill-posed guards
-//! are red-first (the PR #14 trivial-coupling lesson).
+//! validity against the seed commutator relations; query-order independence and
+//! reset stability are bitwise self-consistency invariants; every ill-posed
+//! input (e.g. a trivial coupling `N^c_ab = 0`) must be a typed error.
 
 use super::*;
 
@@ -34,12 +34,12 @@ fn construction_seeds_base_cases() {
 }
 
 /// The base cases are stored in the sweep's descending-weight frame, like every
-/// other catalog entry (`docs/gauge_soN.md` §14.2 "Base-case frame", issue #90).
+/// other catalog entry (`docs/gauge_soN.md` §14.2 "Base-case frame").
 ///
 /// `1 ⊗ V → V` rediscovers the defining rep inside a product and so runs it
-/// through the coherence guard, which no longer exempts base cases. Under
-/// `epoch = 1` — the defining seed stored in QSpace's `Setup_*` order while the
-/// sweep produced the descending-weight order — this exact call reported
+/// through the coherence guard, which exempts no base case. A defining seed
+/// left in QSpace's `Setup_*` order (instead of the sweep's descending-weight
+/// order) makes this exact call report
 /// `BasisIncoherent { irrep: [1,0], residual: 2.0 }` for `B`/`D`.
 #[test]
 fn base_cases_are_stored_in_the_sweep_frame() {
@@ -87,7 +87,7 @@ fn foreign_group_is_typed_error() {
     ));
 }
 
-// ---- 1. canonical-parent rule (exact, over S3.0) ---------------------------
+// ---- 1. canonical-parent rule (exact decomposition) ------------------------
 
 #[test]
 fn enumerated_irrep_equals_from_dynkin() {
@@ -130,11 +130,11 @@ fn canonical_parent_is_order_independent() {
     assert_eq!(p1, p2);
 }
 
-// ---- 2. materialization + inherited Ruling-1 gate --------------------------
+// ---- 2. materialization + inherited production gate ------------------------
 
 #[test]
 fn materialize_valid_irreps_passes_commutator_gate() {
-    // Every stored generator set satisfies the S3.1 commutator relations (the
+    // Every stored generator set satisfies the seed commutator relations (the
     // sweep gates them; here we confirm the catalog's stored sets do too).
     for (series, r, dynkin) in [
         (Series::C, 2, vec![2, 0]),
@@ -157,7 +157,7 @@ fn materialize_valid_irreps_passes_commutator_gate() {
     }
 }
 
-// ---- 3. query-order independence (the Ruling-2 acceptance) -----------------
+// ---- 3. query-order independence -------------------------------------------
 
 /// Materialize a set of irreps in a given query order; return the catalog for
 /// byte-comparison of its stored generators.
@@ -211,7 +211,7 @@ fn cgc_bitwise_identical_across_query_orders() {
     assert_eq!(cgc_a, cgc_c, "CGC depends on prior queries");
 }
 
-// ---- 4. ill-posed cgc inputs are typed errors (PR #14 lesson) --------------
+// ---- 4. ill-posed cgc inputs are typed errors ------------------------------
 
 #[test]
 fn cgc_zero_channel_is_typed_error() {
@@ -330,7 +330,7 @@ fn chain_depth(series: Series, r: usize, c: &Irrep) -> usize {
 #[test]
 fn deep_chain_materializes_with_bounded_error() {
     // Symmetric powers of the C2 vector give progressively deeper chains. Report
-    // (depth, worst commutator residual) — the issue #18 chain-depth watch item.
+    // (depth, worst commutator residual) — the chain-depth error watch.
     let series = Series::C;
     let r = 2;
     let mut cat = CanonicalCatalog::new(series, r).unwrap();
@@ -399,7 +399,8 @@ fn appending_from_non_canonical_product_would_diverge() {
     // is the current product. Take the antisymmetric (0,1) of Sp(4); its
     // canonical parent is defining ⊗ defining. It ALSO appears in other,
     // non-canonical products, so a naive "append whatever the sweep discovers
-    // first" harvest would be order-dependent. Confirm both facts from S3.0.
+    // first" harvest would be order-dependent. Confirm both facts from the exact
+    // decomposition.
     let series = Series::C;
     let r = 2;
     let d = defining(series, r);
@@ -431,15 +432,15 @@ fn appending_from_non_canonical_product_would_diverge() {
     );
 }
 
-// ---- 9. D-series chirality (P1 fix: box-count-first well-order) -------------
+// ---- 9. D-series chirality (box-count-first well-order) --------------------
 
 #[test]
 fn d_chirality_pairs_materialize() {
     // dim is NOT monotone in the D last partition coordinate (partition (1,1,0)
-    // has dim 15 > (1,1,±1) dim 10), so the old (dim, dynkin) order left the
-    // D3/D4 chirality labels with an empty candidate set. Box-count-first fixes
-    // it: (defining, c-minus-a-box) is always admissible. Each must materialize
-    // and pass the S3.1 commutator gate.
+    // has dim 15 > (1,1,±1) dim 10), so a (dim, dynkin) order would leave the
+    // D3/D4 chirality labels with an empty candidate set. Under box-count-first
+    // (defining, c-minus-a-box) is always admissible. Each must materialize
+    // and pass the seed commutator gate.
     for (series, r, dynkin) in [
         (Series::D, 3, vec![0, 0, 2]),
         (Series::D, 3, vec![0, 2, 0]),
@@ -497,8 +498,8 @@ fn golden_canonical_parent_table() {
         // B2 (SO(5)).
         (Series::B, 2, &[2, 0], &[1, 0], &[1, 0]),
         (Series::B, 2, &[0, 2], &[1, 0], &[1, 0]),
-        // D3 (SO(6)) non-chiral, and the chirality pair (the P1 fix): both now
-        // resolve to (defining, (0,1,1)) — unmaterializable under the old order.
+        // D3 (SO(6)) non-chiral, and the chirality pair: both resolve to
+        // (defining, (0,1,1)) — unmaterializable under a (dim, dynkin) order.
         (Series::D, 3, &[2, 0, 0], &[1, 0, 0], &[1, 0, 0]),
         (Series::D, 3, &[0, 1, 1], &[1, 0, 0], &[1, 0, 0]),
         (Series::D, 3, &[0, 0, 2], &[1, 0, 0], &[0, 1, 1]),

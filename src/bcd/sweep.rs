@@ -1,26 +1,26 @@
-//! The S3.2 decomposition sweep: a port of QSpace's `getSymmetryStates`
+//! The decomposition sweep: a port of QSpace's `getSymmetryStates`
 //! (`clebsch_aux.cc:53-348` @ `dd2cc7e`) plus `findMaxWeight`
 //! (`clebsch_aux.cc:957-1045`), operating on given tensor-product generators
 //! and producing, per coupled irrep, a CGC isometry, projected generators, a
 //! Dynkin label and an outer-multiplicity index.
 //!
-//! Design authority: issue #18 (Rulings 1-4), spec: issue #23. The gauge — every
+//! The gauge — every
 //! deterministic rule the sweep applies — is specified to re-derivation standard
 //! in `docs/gauge_soN.md`; any value-affecting change here is a breaking release.
 //!
 //! # Scope
 //!
-//! S3.2 takes the **product generators** as input (the caller builds them from
+//! The sweep takes the **product generators** as input (the caller builds them from
 //! two irrep generator sets via [`Generators::product`], the Kronecker
 //! composition helper). It decomposes that product into irreducible multiplets.
-//! The catalog/bootstrap deciding *which* products to decompose (S3.3), F/R
-//! (S3.4), and QSpace `getCG` fixtures (S3.5) are separate, later layers.
+//! Deciding *which* products to decompose is the canonical catalog's job, and
+//! F/R contraction is `bcd::fr`'s; neither lives here.
 //!
-//! # Production gate (Ruling 1)
+//! # Production gate
 //!
 //! For every discovered irrep `c` the sweep multiplicity `M^c_sweep` must equal
-//! the exact fusion multiplicity `N^c_ab` from [`crate::bcd::directproduct`]
-//! (S3.0), and the discovered support must equal the exact support — **both
+//! the exact fusion multiplicity `N^c_ab` from [`crate::bcd::directproduct`],
+//! and the discovered support must equal the exact support — **both
 //! directions** (a missing block is as fatal as a spurious one). This is not
 //! optional or test-only; [`decompose`] takes the exact decomposition and gates
 //! against it, returning [`SweepError::MultiplicityMismatch`] on any divergence.
@@ -67,11 +67,11 @@ const FIXRATIONAL_TOL: f64 = 1e-6;
 /// `recDiff2(0,i) > 1e-8`).
 const EPS_MW_UNIQUE: f64 = 1e-8;
 
-// ---- typed errors (guard inventory, issue #15) -----------------------------
+// ---- typed errors -----------------------------------------------------------
 
 /// Failure of the decomposition sweep. Every variant maps a QSpace `wblog(...,
-/// "ERR ...")` abort in `getSymmetryStates`/`findMaxWeight` to a typed error
-/// (guard inventory in the PR body), or is a racah production gate (Ruling 1).
+/// "ERR ...")` abort in `getSymmetryStates`/`findMaxWeight` to a typed error,
+/// or is a racah production gate.
 ///
 /// Not `Eq`: several variants carry an `f64` residual for diagnostics.
 #[derive(Clone, Debug, PartialEq)]
@@ -159,7 +159,7 @@ pub enum SweepError {
         /// The offending Dynkin label.
         dynkin: Vec<i64>,
     },
-    /// **Ruling 1 production gate.** The multiset of discovered irreps does not
+    /// **Production gate.** The multiset of discovered irreps does not
     /// equal the exact tensor-product decomposition
     /// ([`crate::bcd::directproduct`]): for some `c`, `M^c_sweep ≠ N^c_ab`.
     /// Both directions are fatal (a missing block has `found = 0`, a spurious
@@ -167,13 +167,13 @@ pub enum SweepError {
     MultiplicityMismatch {
         /// The irrep `c` whose multiplicity disagreed, as a Dynkin label.
         dynkin: Vec<i64>,
-        /// Exact `N^c_ab` from S3.0.
+        /// Exact `N^c_ab` from [`crate::bcd::directproduct`].
         expected: u32,
         /// `M^c_sweep` found by the sweep.
         found: u32,
     },
-    /// A projected generator set failed the commutator relations (S3.1's check,
-    /// in `f64` — the projected `Sp` are generally non-integer). The worst
+    /// A projected generator set failed the commutator relations (the seed
+    /// check [`crate::bcd::check_commutators`], in `f64` — the projected `Sp` are generally non-integer). The worst
     /// residual is carried.
     CommutatorResidual {
         /// The block index.
@@ -264,8 +264,8 @@ impl std::error::Error for SweepError {}
 ///
 /// The defining-rep set comes from a [`Seed`] via [`Generators::from_seed`];
 /// products of two sets via [`Generators::product`]. Higher-irrep generator sets
-/// are produced by the sweep itself ([`Block::generators`](Block::generators)) and, in S3.3, stored
-/// in the catalog.
+/// are produced by the sweep itself ([`Block::generators`](Block::generators)) and stored in the
+/// canonical catalog.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Generators {
     series: Series,
@@ -277,9 +277,9 @@ pub struct Generators {
     sz: Vec<Vec<f64>>,
     /// Denominator of the grid the Cartan eigenvalues live on: `1` for a
     /// carrier built entirely from tensor irreps, `2` once a spinor factor is
-    /// present (half-integer weights, issue #54). It is the grid the §6 snap
-    /// and its `NonIntegerWeight` gate use, so a pure-tensor product keeps the
-    /// strict integer gate it has always had.
+    /// present (half-integer weights). It is the grid the §6 snap and its
+    /// `NonIntegerWeight` gate use, so a pure-tensor product keeps the strict
+    /// integer gate.
     weight_denom: u32,
 }
 
@@ -293,7 +293,7 @@ impl Generators {
         self.rank
     }
     /// The `i`-th Cartan diagonal. Pins the Kronecker composite-index
-    /// convention at its site (§1 of `docs/gauge_soN.md`) and lets the S3.3
+    /// convention at its site (§1 of `docs/gauge_soN.md`) and lets the canonical
     /// catalog compare a rediscovered block's Cartan spectrum against a stored
     /// generator set (the debug-assert that replaces QSpace's `normDiff`
     /// cross-copy check, `clebsch.cc:6710-6718 @ dd2cc7e`).
@@ -303,7 +303,7 @@ impl Generators {
 
     /// The `i`-th raising operator (dense `D×D`, column-major). The counterpart
     /// of [`cartan_diag`](Self::cartan_diag) for the ladder matrices; used by the
-    /// S3.5 QSpace external anchor to solve the factor-basis dictionary as a
+    /// QSpace external anchor to solve the factor-basis dictionary as a
     /// verified intertwiner between racah's and QSpace's generator sets.
     #[cfg(test)]
     pub(crate) fn raising(&self, i: usize) -> &Dense {
@@ -311,8 +311,8 @@ impl Generators {
     }
 
     /// Worst element-wise difference between this generator set and `other`'s —
-    /// the restored QSpace cross-copy coherence measure (`normDiff`,
-    /// `clebsch.cc:6710-6718 @ dd2cc7e`; issue #15 instance 5).
+    /// the QSpace cross-copy coherence measure (`normDiff`,
+    /// `clebsch.cc:6710-6718 @ dd2cc7e`).
     ///
     /// Two embeddings of the *same* irrep must present the *same* canonical
     /// carrier basis — the raising operators and Cartan diagonals must agree
@@ -342,10 +342,10 @@ impl Generators {
         worst
     }
 
-    /// Worst residual of the S3.1 commutator relations satisfied by this
+    /// Worst residual of the seed commutator relations satisfied by this
     /// generator set (`f64` analogue — the projected `Sp` are generally
-    /// irrational). Exposed for the S3.3 chain-depth error bench (issue #18
-    /// watch item): a catalog entry materialized through a deep canonical-parent
+    /// irrational). Exposed for the catalog's chain-depth error
+    /// watch: a catalog entry materialized through a deep canonical-parent
     /// chain accumulates round-off, and this reports it. The sweep already gates
     /// every stored set at `≤ EPS_SWEEP`, so a stored set's residual is bounded.
     #[cfg(test)]
@@ -359,7 +359,7 @@ impl Generators {
     }
 
     /// The generator set for `seed` (dense `f64` from the exact [`Seed`]) —
-    /// the defining rep, or one of the spinor base cases (issue #54).
+    /// the defining rep, or one of the spinor base cases.
     ///
     /// The seed's exact scales are applied here: the Cartan records are
     /// multiplied by `Seed::cartan_scale` and the raising records by
@@ -405,7 +405,7 @@ impl Generators {
 
     /// The trivial (vacuum) generator set of `series` at rank `r`: a
     /// 1-dimensional carrier on which every raising and Cartan operator is zero.
-    /// The `≺`-minimal base case for the S3.3 catalog (§14 of `docs/gauge_soN.md`).
+    /// The `≺`-minimal base case for the canonical catalog (§14 of `docs/gauge_soN.md`).
     pub fn trivial(series: Series, r: usize) -> Generators {
         Generators {
             series,
@@ -580,7 +580,7 @@ impl Decomposition {
 // ---- public entry points ---------------------------------------------------
 
 /// Decompose the product of the two defining-rep generator sets `a` and `b`
-/// (built from [`Seed`]s), gated against the exact S3.0 decomposition.
+/// (built from [`Seed`]s), gated against the exact decomposition.
 ///
 /// Convenience wrapper over [`decompose`]: composes the product generators,
 /// derives the two irrep labels from the seeds' defining label, and computes the
@@ -602,8 +602,7 @@ pub fn decompose_defining_product(a: &Seed, b: &Seed) -> Result<Decomposition, S
 }
 
 /// Decompose `product` into irreducible multiplets, gated against the exact
-/// decomposition `expected` (`N^c_ab` from [`crate::bcd::directproduct`],
-/// Ruling 1).
+/// decomposition `expected` (`N^c_ab` from [`crate::bcd::directproduct`]).
 ///
 /// Runs the sweep (`get_symmetry_states`), assigns Dynkin labels and
 /// outer-multiplicity indices, and enforces every production gate:
@@ -616,7 +615,7 @@ pub fn decompose(
 ) -> Result<Decomposition, SweepError> {
     let blocks = get_symmetry_states(product)?;
 
-    // Ruling 1: both-direction multiplicity gate.
+    // Production gate: both-direction multiplicity check.
     let found: BTreeMap<Irrep, u32> = {
         let mut m = BTreeMap::new();
         for b in &blocks {
@@ -955,7 +954,7 @@ fn find_max_weight(
     let dynkin = to_dynkin(series, r, &qm, block)?;
     // The bootstrap works in the **cover**: a product with a spinor factor
     // discovers spinor labels, which are representations of `Spin(N)` and not
-    // of the published `SO(N)` (issue #54). Nothing else changes — a product of
+    // of the published `SO(N)`. Nothing else changes — a product of
     // tensor irreps only ever discovers tensor labels.
     let irrep = Irrep::from_dynkin_in(&series.cover_group(r), &dynkin)
         .map_err(|_| SweepError::InvalidDiscoveredLabel { dynkin })?;
@@ -1088,12 +1087,12 @@ fn assign_outer_multiplicity(blocks: &mut [Block]) {
     }
 }
 
-// ---- projected-generator commutator gate (f64 analogue of S3.1) ------------
+// ---- projected-generator commutator gate (f64 analogue of the seed check) ---
 
 /// Worst residual of the commutator relations the projected generators must
 /// satisfy: `[Sz_j, Sp_i] = d_{i,j} Sp_i` (root eigenvector) and
 /// `[Sp_i, Sp_i†] = Σ_k f_{i,k} Sz_k` (Cartan span). `f64` because the projected
-/// `Sp` are generally irrational; S3.1's exact `check_commutators` is the
+/// `Sp` are generally irrational; the exact seed `check_commutators` is the
 /// integer analogue for seeds.
 fn commutator_residual(sp: &[Dense], sz_diag: &[Vec<f64>], d0: usize) -> f64 {
     let r = sp.len();
@@ -1358,7 +1357,7 @@ fn ratio_f64(x: Ratio<i64>) -> f64 {
     *x.numer() as f64 / *x.denom() as f64
 }
 
-// ---- intertwiner alignment of rediscovered frames (issue #29, gauge_soN §15) --
+// ---- intertwiner alignment of rediscovered frames (gauge_soN §15) ----------
 
 /// Threshold separating distinct integer weights when partitioning states into
 /// weight spaces, and detecting a nonzero ladder coupling `Sp[i]` matrix element.
@@ -1380,23 +1379,22 @@ fn identity(d: usize) -> Dense {
 /// return `(aligned CGC, post-alignment generator residual)`.
 ///
 /// The sweep gauge is intrinsic in exact arithmetic but analytically
-/// ill-conditioned: a near-rank-deficient weight space (issue #24) can leave a
+/// ill-conditioned: a near-rank-deficient weight space can leave a
 /// coupled multiplet in an O(1)-rotated frame between two embeddings, which
-/// [`Generators::coherence_residual`] detects (the restored QSpace `normDiff`
-/// guard, issue #15 instance 5). Rather than brick, this solves the orthogonal
+/// [`Generators::coherence_residual`] detects (the QSpace `normDiff`
+/// guard). Rather than brick, this solves the orthogonal
 /// intertwiner `W` with `R_can[i]·W = W·R_block[i]` for every generator `i`,
 /// applies `Wᵀ` to the block's CGC columns (`V_can = V·Wᵀ`), and re-derives the
 /// residual against the canonical generators. A residual still above the guard
 /// tolerance is a genuinely different irrep or a numerically hopeless frame — the
-/// caller keeps that as `BasisIncoherent` (the guard moved *after* alignment, not
-/// removed; issue #29 exactness contract).
+/// caller keeps that as `BasisIncoherent` (the guard runs *after* alignment).
 ///
 /// `W` is computed numerically but the returned residual is the element-wise
 /// generator agreement, so the caller re-verifies it against the same tolerance —
 /// alignment never fabricates a coherent-looking value. Determinism: `W` targets
 /// the canonical stored frame, so every platform's rotated `R_block` maps onto the
-/// one canonical answer (the near-tie sensitivity of PR #28 is not reintroduced —
-/// the alignment target is fixed, not discovered).
+/// one canonical answer (no near-tie choice can flip between platforms — the
+/// alignment target is fixed, not discovered).
 pub(crate) fn align_block(
     block: &Block,
     canonical: &Generators,
@@ -1440,7 +1438,7 @@ fn conjugate_generators(g: &Generators, w: &Dense) -> Result<Generators, SweepEr
 /// Solve the orthogonal intertwiner `W` (`d × d`) with `R_can[i]·W = W·R_block[i]`
 /// for all generators, block-diagonal over weight spaces.
 ///
-/// Method (issue #29 spec, §2): `W` commutes with the snapped Cartans, hence is
+/// Method: `W` commutes with the snapped Cartans, hence is
 /// block-diagonal with one orthogonal block per weight space. Propagate from the
 /// 1-dim highest-weight space (block `= +1`, fixing the global sign) down the
 /// ladder: for a target weight space `T`, every lowering operator `Sp[i]ᵀ` from an
@@ -1454,8 +1452,8 @@ fn conjugate_generators(g: &Generators, w: &Dense) -> Result<Generators, SweepEr
 /// factor. Crucially `U·Vᵀ` is a *continuous* function of the data near
 /// nonsingular `B·Bᵀ` with **no discrete choices** (no rank cuts, pivots, or
 /// keep/drop decisions), and the target frame is the fixed canonical one, so
-/// platform noise perturbs `W_T` only at round-off scale — the PR #28 near-tie
-/// flip class is not reintroduced. A genuinely singular `B·Bᵀ` surfaces as a loud
+/// platform noise perturbs `W_T` only at round-off scale, with no discrete
+/// near-tie flip. A genuinely singular `B·Bᵀ` surfaces as a loud
 /// post-alignment residual failure, never a silent wrong value.
 ///
 /// Returns the identity (so the caller's residual re-check bricks loudly) when the
