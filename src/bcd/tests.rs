@@ -732,8 +732,8 @@ fn dimensions_are_the_weyl_dimension_formula() {
     assert!(checked > 100, "{checked}");
 }
 
-/// B/C/D rank 2-4 pairs (the former Oscar 1.8.0 battery, seed 197984281), up
-/// to B3 `[2,2,2] ⊗ [1,2,0]` (19 683 × 693) with multiplicities up to 22.
+/// B/C/D rank 2-4 pairs, up to B3 `[2,2,2] ⊗ [1,2,0]` (19 683 × 693) with
+/// multiplicities up to 22.
 const KLIMYK_PAIRS: &[(Series, &[i64], &[i64])] = &[
     (Series::B, &[0, 0, 1, 0], &[0, 0, 1, 0]),
     (Series::B, &[0, 0, 1, 0], &[1, 0, 0, 0]),

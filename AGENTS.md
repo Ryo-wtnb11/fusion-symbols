@@ -85,10 +85,11 @@ the patch.
 
 ## Verification
 
-- Oracles are independent: reference-implementation outputs (WignerSymbols,
-  SUNRepresentations, GroupMath, QSpace after gauge alignment), checked-in
-  fixtures with provenance, and self-consistency identities. Values derived
-  from the code under test are not oracles.
+- Oracles are independent and readable in the test (`tools/README.md`,
+  "Test oracles"): closed forms, identities, dense expansions, or a few
+  literals naming the reference they were checked against (WignerSymbols.jl,
+  TensorKitSectors, SUNRepresentations.jl, GroupMath, Oscar, AnyonWiki).
+  Values derived from the code under test are not oracles.
 - **Reference-inventory rule.** Any "existing X" a spec/issue/PR relies on
   (function, symbol, test, fixture) must be cited as `file::symbol` and
   verified to exist before it is built on. Unverified references block merge.
@@ -96,7 +97,5 @@ the patch.
   requires a test proving a warm second call is served from cache without
   re-sweeping. Consumer-only strands (they call an existing decomposition)
   are exempt.
-- Fixture strands document normalization, OM-axis convention, and label
-  format in their header (`tools/README.md`, "Fixture and spec rules").
 - `cargo fmt` and `cargo test` (all feature combinations touched) before
   every commit; fine-grained commits, each building and testing green.

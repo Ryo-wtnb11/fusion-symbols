@@ -28,8 +28,8 @@ The collectors that produce these are `src/cache_audit.rs`,
 - [`../../AGENTS.md`](../../AGENTS.md) — contribution policy: boundaries,
   acceptance criteria for coefficient-affecting changes, guard-inventory
   discipline.
-- [`../../tools/README.md`](../../tools/README.md) — fixture provenance: which
-  external implementation is allowed to generate which oracle fixture, and why.
+- [`../../tools/README.md`](../../tools/README.md) — test-oracle rules (expected
+  values readable in the test) and the AnyonWiki data-build tool.
 - [`../gauge.md`](../gauge.md), [`../gauge_soN.md`](../gauge_soN.md) — the
   frozen gauge specifications. Implementation internals (GT construction,
   B/C/D bootstrap, canonical parent, sweep order, alignment) are documented
@@ -54,17 +54,16 @@ dense-backend capability, not a private arithmetic stack inside this crate.
 **Gauge continuity.** The SU(N) pipeline reproduces the gauge of its reference
 implementation by construction: the canonical gauge is a deterministic function
 of the GT basis order and the nullspace subspace, so a faithful port reproduces
-reference-generated coefficient tables to numerical tolerance. Existing
-table-based deployments can therefore demote their tables from authority to
-oracle fixtures. SO(N)/Sp(2N) carry their own gauge tag; cross-checks against
-QSpace numbers go through an explicit gauge-transformation harness.
+reference-generated coefficient tables to numerical tolerance; the tests pin
+it on representative channels, not on whole tables. SO(N)/Sp(2N) carry their
+own gauge tag.
 
 **Oracle independence.** Every oracle is independent of the code under test:
-exhaustive agreement with the exact SU(2) crate over its label domain plus
-reference fixtures beyond it; regeneration diffs against reference-generated
-SU(N) tables; Regge/tetrahedral symmetries, pentagon/hexagon identities and
-orthogonality as internal consistency gates; QSpace numbers for SO(N)/Sp(2N)
-after gauge alignment.
+closed forms and identities written in the tests (Condon–Shortley, Racah sum
+rule, Weyl dimension, Brauer–Klimyk, Gelfand–Tsetlin, Chevalley–Serre,
+intertwining), a few literals checked against the reference implementations,
+and Regge/tetrahedral symmetries, pentagon/hexagon identities and orthogonality
+as internal consistency gates.
 
 **Guard discipline.** Every port PR carries a guard inventory — see
 [`../../AGENTS.md`](../../AGENTS.md) and issue

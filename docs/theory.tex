@@ -842,8 +842,9 @@ $m_\lambda(\lambda)=1$. $[8]$ \S22.3.
 \end{fact}
 
 Equations~\eqref{eq:weyldim} and~\eqref{eq:freudenthal} are pure integer
-combinatorics; \code{racah} computes both in exact arithmetic, with QSpace
-$[3]$ used as the independent numerical dimension oracle for $B/C/D$.
+combinatorics; \code{racah} computes both in exact arithmetic, and its tests
+recompute them independently (the Weyl product and an in-test Freudenthal
+recursion).
 
 %======================================================================
 \section{The families, their bases, and the two constructions}
@@ -911,8 +912,8 @@ which is why the chain is written with $U(k)$, not $SU(k)$.
 \begin{convention}[GT basis order]
 The magnetic indices $m_a$ of every $SU(N)$ coefficient are positions in
 \code{racah}'s GT enumeration order, which reproduces
-SUNRepresentations.jl $[9]$ index-for-index and is pinned by checked-in
-fixtures. This order is \emph{load-bearing}: a re-enumeration emitting the same
+SUNRepresentations.jl $[9]$ index-for-index and is pinned by an in-test
+enumeration of the same rule. This order is \emph{load-bearing}: a re-enumeration emitting the same
 set of patterns in a different order permutes every returned coefficient. The
 normative statement, including which pattern occupies the last basis index, is
 \gaugemd{} \S1.
@@ -1107,8 +1108,9 @@ $N^c_{ab}$ is exact integer combinatorics.
 
 Implementations: \code{sun} uses the LR route via
 SUNRepresentations.jl $[9]$; \code{bcd} uses Brauer--Klimyk over
-Freudenthal weight multiplicities \eqref{eq:freudenthal}, with
-QSpace $[3]$ and GroupMath $[6]$ fixtures as cross-checks.
+Freudenthal weight multiplicities \eqref{eq:freudenthal}; the tests check
+both against an independently written Brauer--Klimyk decomposition and a few
+rows of GroupMath $[6]$ and Oscar.
 
 \begin{convention}[Multiplicity ordering]
 Nothing in the mathematics orders the $\mu$-copies: any basis of the
@@ -1243,12 +1245,11 @@ across refactors. \code{racah} freezes:
     (\gaugemd{} \S12).
 \end{itemize}
 
-Cross-checks against a \emph{different} convention necessarily go through the
-gauge-invariant projector \eqref{eq:projector} or an explicit
-gauge-transformation harness --- which is exactly how the QSpace CGC oracle for
-$B/C/D$ is built $[3]$. Where the reference convention is the same, the check
-is signed and element-wise: SUNRepresentations.jl $[9]$ for $SU(N)$, and the
-\code{wigner-symbols} crate $[11]$ for $SU(2)$.
+Checks that must hold in every gauge go through gauge-invariant data: the
+isotypic projector \eqref{eq:projector}, isometry and intertwining of the CGC.
+Where the reference convention is the same, a few signed values pin the gauge:
+SUNRepresentations.jl $[9]$ for $SU(N)$, WignerSymbols.jl and TensorKitSectors
+for $SU(2)$.
 
 %======================================================================
 \section{Recoupling: $6j$, $F$-symbols, $R$-symbols}
@@ -1665,7 +1666,8 @@ coefficient values.
 \paragraph{Independent oracles.} Consistency checks cannot detect a systematic
 convention divergence (see the gauge-covariance remark in
 Section~\ref{sec:pentagon}), so each family is additionally checked against an
-implementation that is not this one:
+independent reference, written in the tests as a closed form or identity or
+pinned by a few values checked against a reference implementation:
 
 \begin{center}
 \small
@@ -1673,20 +1675,18 @@ implementation that is not this one:
 \toprule
 Family & Oracle & Nature of the comparison \\
 \midrule
-$SU(2)$ & \code{wigner-symbols} crate v0.5.1 $[11]$ & exhaustive over its label domain \\
-$SU(N)$ & SUNRepresentations.jl v0.4.0 $[9]$ & signed, element-wise, including the $\mu$ order \\
-$SU(N)$ & GroupMath v1.1.3 $[6]$ & products and multiplicities \\
-$SO(N)$, $Sp(2N)$ & QSpace v4 $[3]$ & projector battery \eqref{eq:projector} \\
-$B/C/D$ dims & QSpace v4 $[3]$ & exact dimension agreement \\
+$SU(2)$ & closed forms, Racah sum rule & exact; WignerSymbols.jl values \\
+$SU(N)$ & SUNRepresentations.jl v0.4.0 $[9]$ & signed values, incl.\ $\mu$ order \\
+products & Brauer--Klimyk; GroupMath $[6]$ & multiplicities \\
+$SO(N)$, $Sp(2N)$ & Chevalley--Serre, intertwining & projector \eqref{eq:projector} \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-The $SU(2)$ and $SU(N)$ comparisons are signed and element-wise because
-\code{racah} adopts those references' conventions outright; the $B/C/D$
-comparison goes through the gauge-invariant projector
-\eqref{eq:projector} because \code{racah}'s $B/C/D$ gauge deliberately deviates
-from QSpace's in documented, enumerated ways (\gaugeson{}).
+The $SU(2)$ and $SU(N)$ values are signed because \code{racah} adopts those
+references' conventions outright; the $B/C/D$ checks go through gauge-invariant
+data because \code{racah}'s $B/C/D$ gauge deliberately deviates from QSpace's
+in documented, enumerated ways (\gaugeson{}).
 
 %======================================================================
 \begin{thebibliography}{21}
@@ -1725,7 +1725,7 @@ No DOI (predates DOI registration).
 \emph{Comput. Phys. Commun.} \textbf{267}, 108085 (2021).
 \href{https://doi.org/10.1016/j.cpc.2021.108085}{doi:10.1016/j.cpc.2021.108085};
 \href{https://arxiv.org/abs/2011.01764}{arXiv:2011.01764}.
-\code{racah} fixtures use GroupMath v1.1.3.
+\code{racah} checks product rows against GroupMath v1.1.3.
 
 \bibitem{fultonharris} W. Fulton, J. Harris,
 \emph{Representation Theory: A First Course},

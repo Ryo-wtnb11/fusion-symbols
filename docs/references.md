@@ -54,7 +54,7 @@ possible, and it is $SU(N)$-specific (see [`docs/theory.tex`](theory.tex) §8).
 
 | Implementation area (`file::symbol`) | Reference (project, version, `file:symbol`) | What was taken | Why this reference / algorithm | Deviations |
 |---|---|---|---|---|
-| `sun.rs::Irrep` (`dim`, `dual`, `patterns`, `creation`) | SUNRepresentations.jl v0.4.0, `src/sunirrep.jl`, `src/gtpatterns.jl` (`GTPatternIterator`, `creation`), `src/sector.jl` $[9]$, algorithm $[1]$ | GT pattern enumeration, Weyl dimension, dual, exact ladder (creation) matrices | GT chain is multiplicity-free → unique labels + closed-form ladder elements | `Irrep::patterns` basis order reproduces `gtpatterns.jl:GTPatternIterator` **index-for-index** and is pinned by checked-in fixtures — load-bearing, because the Layer-2 gauge depends on it |
+| `sun.rs::Irrep` (`dim`, `dual`, `patterns`, `creation`) | SUNRepresentations.jl v0.4.0, `src/sunirrep.jl`, `src/gtpatterns.jl` (`GTPatternIterator`, `creation`), `src/sector.jl` $[9]$, algorithm $[1]$ | GT pattern enumeration, Weyl dimension, dual, exact ladder (creation) matrices | GT chain is multiplicity-free → unique labels + closed-form ladder elements | `Irrep::patterns` basis order reproduces `gtpatterns.jl:GTPatternIterator` **index-for-index** and is pinned by an in-test enumeration (`tests/sun_oracle.rs`) — load-bearing, because the Layer-2 gauge depends on it |
 | `sun.rs` product (`directproduct`) | SUNRepresentations.jl v0.4.0, `src/gtpatterns.jl:directproduct` $[9]$ | Littlewood–Richardson fusion multiplicities $N^c_{ab}$ | Exact integer combinatorics | — |
 | `sun/cgc.rs::cgc` (`highest_weight_CGC`, `lower_weight_CGC!`, `cref!`, `purge!`, `weightmap`, `weight`) | SUNRepresentations.jl v0.4.0, `src/clebschgordan.jl:_CGC` and helpers $[9]$ | Highest-weight nullspace → gauge canonicalization → weight-ladder descent | The exact ladder elements let the CGC be solved subspace by subspace | Tolerances `TOL_NULLSPACE = 1e-13`, `TOL_GAUGE = 1e-11`, `TOL_PURGE = 1e-14` ported verbatim; gauge specified in [`docs/gauge.md`](gauge.md) |
 | `sun/linalg.rs` | SUNRepresentations.jl v0.4.0, `src/clebschgordan.jl:_nullspace!` (`svd!(A; full=true)`), `qrpos!`, `lower_weight_CGC!` least squares $[9]$ | Nullspace, positive-diagonal QR, least squares | The three dense factorizations the CGC solve needs | Routed through the Tenferro dense backend seam; no hand-rolled kernels |
@@ -109,13 +109,19 @@ conventions are independently derived in the `group` module rustdoc.
 
 The oracles are independent of the code under test:
 
-- **SU(2)**: exhaustive agreement with the Rust `wigner-symbols` crate v0.5.1
-  $[11]$ over its label domain, plus reference fixtures beyond it.
-- **SU(N)**: signed element-wise table regeneration against SUNRepresentations.jl
-  v0.4.0 $[9]$; products/multiplicities cross-checked against GroupMath v1.1.3
-  fixtures $[6]$.
-- **SO(N)/Sp(2N)**: the QSpace v4 CGC projector battery $[3]$ through verified
-  factor-basis dictionaries (`bcd/qspace_oracle_tests.rs`). Fixture provenance:
+- **SU(2)**: Condon–Shortley closed forms and recursion, Racah's sum rule,
+  exact orthogonality up to doubled spins in the thousands, and textbook values
+  checked against WignerSymbols.jl 2.0.0; F/R against the TensorKitSectors
+  `SU2Irrep` formula (`tests/oracle.rs`, `tests/fixtures_large.rs`,
+  `tests/fr_oracle.rs`).
+- **SU(N)**: Weyl dimensions, an in-test Gelfand–Tsetlin enumeration and
+  Brauer–Klimyk decomposition, CGC isometry and intertwining, and signed
+  CGC/F/R values checked against SUNRepresentations.jl v0.4.0 $[9]$; product
+  rows checked against GroupMath v1.1.3 $[6]$.
+- **SO(N)/Sp(2N)**: Weyl dimensions and an in-test Freudenthal/Brauer–Klimyk
+  decomposition (rows checked against Oscar 1.8.0), Chevalley–Serre checks of
+  the generators, and CGC isometry and intertwining whose isotypic projectors
+  sum to the identity (`bcd/intertwiner_tests.rs`). Rules:
   [`tools/README.md`](../tools/README.md).
 
 ## Bibliography
@@ -144,8 +150,8 @@ Every identifier below was verified against the publisher/preprint record.
 6. R. M. Fonseca, "GroupMath: A Mathematica package for group theory
    calculations," *Comput. Phys. Commun.* **267**, 108085 (2021).
    DOI: [10.1016/j.cpc.2021.108085](https://doi.org/10.1016/j.cpc.2021.108085);
-   arXiv: [2011.01764](https://arxiv.org/abs/2011.01764). `fusion-symbols` fixtures use
-   GroupMath v1.1.3.
+   arXiv: [2011.01764](https://arxiv.org/abs/2011.01764). `fusion-symbols` checks product
+   rows against GroupMath v1.1.3.
 7. W. Fulton, J. Harris, *Representation Theory: A First Course*, Graduate Texts
    in Mathematics **129**, Springer (1991). ISBN 0-387-97495-4.
    DOI: [10.1007/978-1-4612-0979-9](https://doi.org/10.1007/978-1-4612-0979-9).
