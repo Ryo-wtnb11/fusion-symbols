@@ -3,9 +3,8 @@
 //! (255..600 and a few in the thousands). See `tools/gen_fixtures.jl`.
 //!
 //! Split into two tiers by spin magnitude. Both run by default: the
-//! prime-factorized engine (issue #3) evaluates the thousands tier in a
-//! fraction of a second, where the earlier direct big-rational sum took
-//! minutes, so the no-ceiling property is now a default-suite gate.
+//! prime-factorized engine evaluates the thousands tier in a fraction of a
+//! second, so the no-ceiling property is a default-suite gate.
 
 use num_bigint::BigInt;
 use num_rational::Ratio;

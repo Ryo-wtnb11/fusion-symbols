@@ -1,4 +1,4 @@
-//! `Spin(N)` acceptance suite (issue #54, stage (b) of #87): the spinor irreps
+//! `Spin(N)` acceptance suite: the spinor irreps
 //! of the simply-connected form of the `B`/`D` families.
 //!
 //! Role (`tools/README.md` matrix): *internal consistency* strand. The
@@ -12,20 +12,18 @@
 //! Each public operation gets its own focused test rather than one umbrella
 //! run, so a regression names the operation that broke.
 //!
-//! # The former limitation, now closed (issue #90)
+//! # Base-case frame
 //!
-//! Until `epoch = 2` the recoupling gates (`check_f_unitarity` /
-//! `check_pentagon` / `check_hexagon`) closed on the spinor channels that did
-//! **not** route through a *defining*-rep coupled channel and failed on the ones
-//! that did — not a spinor defect but the base-case frame mismatch of issue #90
-//! (the QSpace-seeded defining rep stored in `Setup_*` order, rediscovered in
-//! the sweep's descending-weight order, with base cases exempt from the
-//! coherence guard and the alignment). It also made the *tensor* `B_2` and `D_3`
-//! vector pentagons fail, with residuals `0.285_239_560_970_874_6` and
-//! `0.129_099_444_873_580_7`. `docs/gauge_soN.md` §14.2 "Base-case frame" now
-//! puts the defining seed through the same sweep pass the spinor seeds already
-//! took, and the gates below — including the ones that route through the
-//! defining rep — close.
+//! The recoupling gates (`check_f_unitarity` / `check_pentagon` /
+//! `check_hexagon`) on spinor channels that route through a *defining*-rep
+//! coupled channel are sensitive to the frame of the defining seed: a
+//! QSpace-seeded defining rep stored in `Setup_*` order, but rediscovered in
+//! the sweep's descending-weight order, makes them fail (and the *tensor* `B_2`
+//! and `D_3` vector pentagons too, with residuals `0.285_239_560_970_874_6` and
+//! `0.129_099_444_873_580_7`). `docs/gauge_soN.md` §14.2 "Base-case frame"
+//! puts the defining seed through the same sweep pass as the spinor seeds, so
+//! the gates below — including the ones that route through the defining rep —
+//! close.
 
 #![cfg(feature = "cgc-gen")]
 
@@ -49,11 +47,11 @@ fn ir(n: usize, dynkin: &[i64]) -> Irrep {
 }
 
 // ---------------------------------------------------------------------------
-// The seed (S3.1).
+// The seed.
 // ---------------------------------------------------------------------------
 
 /// Every spinor seed passes the same exact commutator self-check as the
-/// defining seeds — the gate issue #87 §4(2) requires of the new base case.
+/// defining seeds, as every base case must.
 #[test]
 fn spinor_seed_commutators_close() {
     for &(series, r, _) in FAMILIES {
@@ -121,11 +119,11 @@ fn spinor_seeds_reject_the_excluded_low_ranks() {
 }
 
 // ---------------------------------------------------------------------------
-// Labels (S3.0).
+// Labels.
 // ---------------------------------------------------------------------------
 
 /// A spinor label is admissible in `Spin(N)` and rejected by `SO(N)` — the
-/// whole content of "global form" at the label layer (#87 §2).
+/// whole content of "global form" at the label layer.
 #[test]
 fn spinor_labels_are_admissible_only_in_the_cover() {
     for &(series, r, n) in FAMILIES {
@@ -190,7 +188,7 @@ fn spinor_dimensions_are_the_clifford_module_dimensions() {
 }
 
 /// The Frobenius–Schur indicator of the fundamental spinor is the `N mod 8`
-/// reality type (a #54 design requirement): real for `N ≡ 0, ±1, 2`,
+/// reality type: real for `N ≡ 0, ±1, 2`,
 /// quaternionic for `N ≡ 3, 4, 5`, and `0` for the `D_r`-odd half-spinors,
 /// which are a conjugate pair rather than self-dual.
 #[test]
@@ -216,8 +214,8 @@ fn spinor_frobenius_schur_is_the_n_mod_8_reality_type() {
 }
 
 /// `D_r` with `r` odd exchanges the two half-spinors under duality; with `r`
-/// even each is self-dual. This is the existing `dual` rule, now exercised on
-/// the labels it was written for.
+/// even each is self-dual: the general `dual` rule applied to the spinor
+/// labels.
 #[test]
 fn half_spinor_duality_follows_the_d_series_chirality_rule() {
     let s = ir(6, &[0, 0, 1]);
@@ -258,7 +256,7 @@ fn spinor_fusion_matches_the_textbook_products() {
         channels(&ir(8, &[0, 0, 0, 1]), &ir(8, &[1, 0, 0, 0])),
         vec![(vec![0, 0, 1, 0], 1), (vec![1, 0, 0, 1], 1)]
     );
-    // Spin(5): 4 ⊗ 4 = 1 + 5 + 10 (the #87 SO(5) diagnostic, now first-class).
+    // Spin(5): 4 ⊗ 4 = 1 + 5 + 10 (the SO(5) global-form diagnostic).
     assert_eq!(
         channels(&ir(5, &[0, 1]), &ir(5, &[0, 1])),
         vec![(vec![0, 0], 1), (vec![0, 2], 1), (vec![1, 0], 1)]
@@ -266,7 +264,7 @@ fn spinor_fusion_matches_the_textbook_products() {
 }
 
 // ---------------------------------------------------------------------------
-// The catalog and the CGC (S3.2/S3.3).
+// The catalog and the CGC.
 // ---------------------------------------------------------------------------
 
 /// Worst `|(CᵀC − I)|` over the outer-multiplicity copies of a CGC block.
@@ -286,9 +284,8 @@ fn isometry_residual(c: &CatalogCgc) -> f64 {
     worst
 }
 
-/// Every spinor CGC is an isometry — the orthonormality half of the #54
-/// verification list, asserted on the returned coefficients rather than only
-/// inside the sweep.
+/// Every spinor CGC is an isometry — orthonormality asserted on the returned
+/// coefficients rather than only inside the sweep.
 #[test]
 fn spinor_cgc_columns_are_orthonormal() {
     for &(series, r, n) in FAMILIES {
@@ -327,8 +324,7 @@ fn the_recursion_reaches_a_non_base_spinor() {
 }
 
 /// A catalog that is only ever asked for tensor irreps materializes **no**
-/// spinor generators: the class-indexed candidate-set restriction (option (B)
-/// of #87 §5) keeps the spinor sector entirely out of the tensor bootstrap,
+/// spinor generators: the class-indexed candidate-set restriction keeps the spinor sector entirely out of the tensor bootstrap,
 /// which is what preserves every shipped `SO(N)`/`Sp(2N)` coefficient.
 #[test]
 fn the_tensor_bootstrap_never_touches_the_spinor_sector() {
@@ -338,7 +334,8 @@ fn the_tensor_bootstrap_never_touches_the_spinor_sector() {
     cat.generators(&adjoint).unwrap();
     assert!(cat.len() > before, "the adjoint must materialize something");
     // Nothing in the catalog is a spinor: with a spinor parent the SO(5)
-    // adjoint's frame would have moved (the #87 Q4 diagnostic).
+    // adjoint's frame would have moved (the `so5_canonical_parent_hand_example`
+    // diagnostic in `tests/global_form.rs`).
     let spinor = ir(5, &[0, 1]);
     let mut probe = CanonicalCatalog::new(Series::B, 2).unwrap();
     probe.generators(&adjoint).unwrap();
@@ -390,10 +387,10 @@ fn spinor_hexagon_closes_on_spin6() {
 }
 
 /// The `Spin(6)` `4 ⊗ 4 = 6 + 1̄0` family routes through the **defining**-rep
-/// coupled channel, which is exactly what the base-case frame mismatch of issue
-/// #90 broke: on `epoch = 1` this pentagon failed at residual
-/// `0.750_000_000_000_000_4` and the hexagon at `0.75`. With the defining seed
-/// re-framed into the sweep order (`docs/gauge_soN.md` §14.2) both close.
+/// coupled channel, so it detects a base-case frame mismatch: with a mismatched
+/// defining seed this pentagon fails at residual `0.750_000_000_000_000_4` and
+/// the hexagon at `0.75`. With the defining seed framed in the sweep order
+/// (`docs/gauge_soN.md` §14.2) both close.
 #[test]
 fn spinor_recoupling_closes_through_the_defining_channel_on_spin6() {
     let s = ir(6, &[0, 0, 1]);

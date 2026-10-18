@@ -1,4 +1,4 @@
-//! Base SU(2) coefficient-cache resource contract (issue #43, PR-A).
+//! Base SU(2) coefficient-cache resource contract.
 //!
 //! Kept in one `#[test]`: the 3j/6j/derived-F tiers are process-global and
 //! `cache::reset()`/`base_cache_stats()` act on shared state, so splitting into

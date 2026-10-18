@@ -284,7 +284,7 @@ def su2_frobenius_schur(two_j: int) -> float:
     half-integer spin (``two_j`` odd).
     """
 
-# --- the exact SU(2) surface (issue #107) -------------------------------------------
+# --- the exact SU(2) surface ---------------------------------------------------------
 #
 # Doubled labels throughout: ``dj = 2j`` and ``dm = 2m``, so ``dj1=1`` is spin 1/2 and
 # ``dm1=-1`` is m = -1/2. Doubling is what keeps every label an exact integer, which is

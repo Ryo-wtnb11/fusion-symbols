@@ -1,8 +1,9 @@
-//! Global form (issue #87, stage (a)): the per-family congruence tables, the
-//! equivalence of the predicate with the rejection `bcd` already ships, and
-//! closure of admissibility under fusion.
+//! Global form: the per-family congruence tables, the equivalence of the
+//! admissibility predicate with the rejection `bcd` ships, and closure of
+//! admissibility under fusion.
 //!
-//! Nothing here computes a coefficient; stage (a) changes no value.
+//! A global form only selects admissible labels; it changes no coefficient
+//! value (the cross-global-form section checks this).
 
 use fusion_symbols::group::{
     d_odd_central_class, CenterSubgroup, GlobalForm, GroupError, GroupId, RootSystem,
@@ -275,7 +276,7 @@ mod against_bcd {
     use super::*;
     use fusion_symbols::bcd::{directproduct, BcdError, Irrep, Series};
 
-    /// The group `bcd` publishes for `series` at rank `r` (issue #18 Ruling 3).
+    /// The group `bcd` publishes for `series` at rank `r` .
     fn published(series: Series, r: usize) -> GroupId {
         match series {
             Series::B => GroupId::so(2 * r + 1).unwrap(),
@@ -294,7 +295,7 @@ mod against_bcd {
         }
     }
 
-    /// The whole point of stage (a): `from_dynkin` rejects exactly what the
+    /// `from_dynkin` rejects exactly what the
     /// published form fails to admit, over a sector sweep.
     #[test]
     fn predicate_matches_shipped_rejection() {
@@ -388,8 +389,7 @@ mod against_bcd {
         }
     }
 
-    /// **Diagnostic, not an assertion of policy** (issue #87 Q4, the flagged
-    /// verification gap). Run with `--ignored`.
+    /// **Diagnostic, not an assertion of policy** (a flagged verification gap). Run with `--ignored`.
     ///
     /// The hand example: for `B₂ = so(5)` the adjoint `10` has both the
     /// spinor `4` and the vector `5` strictly below it in `≺` (box counts
@@ -459,7 +459,7 @@ fn sweep(r: usize, cap: i64) -> Vec<Vec<i64>> {
 }
 
 // ---------------------------------------------------------------------------
-// `sun` in the global-form model (issue #87 §1)
+// `sun` in the global-form model
 // ---------------------------------------------------------------------------
 
 /// The A-series form-aware constructor, mirroring `bcd::Irrep::from_dynkin_in`.
@@ -630,7 +630,7 @@ mod sun_forms {
 }
 
 // ---------------------------------------------------------------------------
-// The admissibility error is generic, not spinor-specific (issue #87 §2)
+// The admissibility error is generic, not spinor-specific
 // ---------------------------------------------------------------------------
 
 /// (9) `PSp(2N)` has no spinors at all — `C_r` is simply connected — yet it
@@ -671,7 +671,7 @@ fn psp_rejection_uses_the_generic_not_admissible_error() {
 }
 
 // ---------------------------------------------------------------------------
-// GroupId construction invariants (issue #87 §4)
+// GroupId construction invariants
 // ---------------------------------------------------------------------------
 
 /// The public fields let a caller build a root datum whose quotient subgroup is
@@ -713,7 +713,7 @@ fn nonsensical_root_datum_admits_nothing() {
 }
 
 // ---------------------------------------------------------------------------
-// Cross-global-form coefficient identity (issue #87 §3)
+// Cross-global-form coefficient identity
 // ---------------------------------------------------------------------------
 
 /// The invariant this whole design rests on: for a `λ` admissible in **both**

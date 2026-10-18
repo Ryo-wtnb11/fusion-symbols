@@ -1,5 +1,5 @@
 //! A warm F/CGC cache hit hands out the cached coefficients without copying
-//! them (issue #118): `FBlock` and `sun::Cgc` share their buffers, so no
+//! them: `FBlock` and `sun::Cgc` share their buffers, so no
 //! allocation on a hit is as large as the coefficient buffer. The hit still
 //! allocates the owned cache key (one small buffer per label), independent of
 //! the coefficient count.

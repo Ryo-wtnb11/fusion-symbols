@@ -1,4 +1,4 @@
-//! Timing for the prime-factorized 3j/6j engine (issue #3). Not a CI gate.
+//! Timing for the prime-factorized 3j/6j engine. Not a CI gate.
 //!
 //! Two comparisons against `wigner-symbols 0.5.1` on the doubled-spin <= 254
 //! overlap domain (exact-value evaluation, no float rounding on either side),
@@ -113,7 +113,7 @@ fn bench_6j_thousands(c: &mut Criterion) {
     });
 }
 
-/// The repeated-label regime (issue #5): the same small label sets recur many
+/// The repeated-label regime: the same small label sets recur many
 /// thousands of times, as in tensor-network consumption. `racah_warm` primes
 /// the cache once so every iteration is a hit (target: ~hash-lookup cost);
 /// `racah_cold` clears the cache before each batch so every call recomputes the

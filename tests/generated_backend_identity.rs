@@ -1,7 +1,6 @@
-//! D2 backend structural-identity gate (issue #47 leaf L2).
+//! Backend structural-identity gate.
 //!
-//! Design record 2 ruling D2 (accepted with an acceptance gate): backend
-//! identity stays OUT of the authority fingerprints — per-backend ULP
+//! Backend identity stays OUT of the authority fingerprints — per-backend ULP
 //! differences are not semantic identity — but the *discrete/structural* outputs
 //! of generation (channel set, multiplicities, block dims, OM indices, and the
 //! sign/gauge-discrete data) must be verified identical across supported
@@ -9,8 +8,8 @@
 //!
 //! ## Single-backend reduction (what this test actually asserts)
 //!
-//! Per the L2 design confirmation: with a single supported backend at the pinned
-//! tenferro revision, the cross-backend gate reduces to asserting that the
+//! With a single supported backend at the pinned tenferro revision, the
+//! cross-backend gate reduces to asserting that the
 //! discrete layer is a function of the convention ALONE. Concretely, two
 //! independent in-process generation runs — caches reset between them, and a
 //! fresh `CanonicalCatalog` for the B/C/D run — must produce byte-identical
@@ -21,13 +20,11 @@
 //! ## Cross-backend activation condition
 //!
 //! The full cross-backend form of the gate — run the same generation on backend
-//! A and backend B and compare the discrete outputs — activates when a second
-//! backend becomes selectable. It is recorded here as the activation condition
-//! rather than fabricating a second backend now (L2 design confirmation, "the
-//! cross-backend form of the gate activates when a second backend becomes
-//! selectable"). The structural signatures compared below are exactly the ones
-//! that cross-backend comparison would use, so enabling it later is a matter of
-//! swapping the second run's backend, not rewriting the assertions.
+//! A and backend B and compare the discrete outputs — applies once a second
+//! backend is selectable; this file does not fabricate one. The structural
+//! signatures compared below are exactly the ones that cross-backend comparison
+//! uses, so it needs only the second run's backend swapped, not new
+//! assertions.
 //!
 //! The representative set is deliberately small but covers an outer-multiplicity
 //! `>= 2` channel in each family (the case where a divergent OM index order or

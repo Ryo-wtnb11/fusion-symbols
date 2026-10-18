@@ -180,12 +180,12 @@ type BcdRow = (usize, usize, usize, f64);
 
 /// SO(5) `[1,0] ⊗ [1,0] → [0,2]` (vector² → adjoint, 5⊗5 → 10).
 ///
-/// Regenerated at `epoch = 2` (issue #90): the defining rep is now stored in the
-/// sweep's descending-weight frame, which permutes the product rows `i1 + 5·i2`
-/// of every coupling with a defining-rep factor — the old coordinates
-/// `(2,0)/(10,0)/(14,1)` are exactly zero in the corrected frame. The Sp(4) rows
-/// below are byte-identical across the correction (`Setup_SpN` was already in
-/// that order), which is the C-family half of the claim.
+/// Pinned at `epoch = 2`: the defining rep is stored in the sweep's
+/// descending-weight frame, which fixes the product rows `i1 + 5·i2` of every
+/// coupling with a defining-rep factor (the `Setup_*`-order coordinates
+/// `(2,0)/(10,0)/(14,1)` are exactly zero in this frame). The Sp(4) rows below
+/// are identical in both frames (`Setup_SpN` is already in that order), which is
+/// the C-family half of the claim.
 const SO5_V_V_ADJ: &[BcdRow] = &[
     (0, 1, 0, 0.707_106_781_186_547_6),
     (0, 5, 0, -0.707_106_781_186_547_6),
@@ -254,10 +254,9 @@ fn sp4_f_symbol_matches_the_frozen_gauge() {
 }
 
 // ---------------------------------------------------------------------------
-// Spin(N): signed spinor CGC and F (issue #54; docs/gauge_soN.md §16).
+// Spin(N): signed spinor CGC and F (docs/gauge_soN.md §16).
 //
-// The spinor sector is new gauge, so it needs its own pins from the day it
-// ships: nothing else fixes the sign of a spinor coefficient, and the seed
+// The spinor sector has its own gauge, so it needs its own pins: nothing else fixes the sign of a spinor coefficient, and the seed
 // conventions of §16 (Fock index order, Jordan–Wigner signs, the descending
 // weight order, the 1/√2 short-root scale) are all value-affecting. These rows
 // are the tripwire for every one of them.
@@ -399,8 +398,8 @@ fn spinor_f_symbol_matches_the_frozen_gauge() {
 
 /// Print every significant entry of a B/C/D CGC as a `BcdRow` literal. The
 /// pinned coordinates are not stable across a specification correction — a
-/// re-framed factor basis permutes the product rows (issue #90 moved the SO(5)
-/// rows off their old coordinates entirely) — so the regeneration path dumps the
+/// re-framed factor basis permutes the product rows (it can move every SO(5)
+/// row off its coordinates) — so the regeneration path dumps the
 /// whole block and the pins are re-picked from it.
 fn print_nonzeros(c: &fusion_symbols::bcd::CatalogCgc) {
     let (rows, cols) = c.copy_shape();

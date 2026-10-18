@@ -1,4 +1,4 @@
-//! SU(3) table-regeneration oracle (oracle 1 of issue #16) — the
+//! SU(3) table-regeneration oracle — the
 //! gauge-continuity gate that authorizes a downstream consumer to delete its
 //! precomputed SU(3) F/R table.
 //!

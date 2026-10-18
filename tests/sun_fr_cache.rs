@@ -1,6 +1,5 @@
-//! Derived-f64 SU(N) F-symbol cache behaviour through the public API
-//! (oracle 4 of issue #16): a warm hit returns the identical block, `reset`
-//! clears it, `stats` accounts it, and concurrent generation is race-free.
+//! Derived-f64 SU(N) F-symbol cache behaviour through the public API: a warm
+//! hit returns the identical block, `reset` clears it, `stats` accounts it, and concurrent generation is race-free.
 //!
 //! The FIFO bound / byte-eviction / eviction-never-changes-values machinery is
 //! covered generically in `src/cache.rs` (and specialised for the `Arc<FBlock>`

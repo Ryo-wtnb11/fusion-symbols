@@ -1,4 +1,4 @@
-//! Generated-tier coefficient-cache resource contract (issue #47, leaf L1).
+//! Generated-tier coefficient-cache resource contract.
 //!
 //! The `cgc-gen` analogue of `tests/base_cache_contract.rs`: the five generated
 //! tiers (SU(N) product, SU(N) CGC, SU(N) F, B/C/D CGC, B/C/D F) are process-global and

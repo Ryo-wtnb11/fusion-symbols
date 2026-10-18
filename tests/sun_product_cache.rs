@@ -1,4 +1,4 @@
-//! SU(N) product-cache API and concurrency contract (issues #59 and #62).
+//! SU(N) product-cache API and concurrency contract.
 //!
 //! One sequential test owns the process-global reset policy for this binary.
 

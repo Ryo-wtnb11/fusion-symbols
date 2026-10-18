@@ -1,10 +1,9 @@
 //! Compatibility-policy and determinism tests for the generated SO(N)/Sp(2N)
-//! authority fingerprint (`fusion_symbols::bcd::bcd_authority_fingerprint`, issue #47
-//! leaf L2).
+//! authority fingerprint (`fusion_symbols::bcd::bcd_authority_fingerprint`).
 //!
 //! Mirrors `tests/su2_fingerprint.rs`, with the generated-family contract: equal
 //! bytes identify the convention / generation pipeline / tolerance policy, not
-//! byte-identical values (`docs/gauge_soN.md`; issue #47 design record 2).
+//! byte-identical values (`docs/gauge_soN.md`).
 #![cfg(feature = "cgc-gen")]
 
 use fusion_symbols::bcd::bcd_authority_fingerprint;
@@ -30,7 +29,7 @@ use fusion_symbols::bcd::bcd_authority_fingerprint;
 ///
 /// Epoch history:
 /// - `epoch=1` — the initial frozen B/C/D specification.
-/// - `epoch=2` — `docs/gauge_soN.md` §14.2 "Base-case frame" (issue #90): the
+/// - `epoch=2` — `docs/gauge_soN.md` §14.2 "Base-case frame": the
 ///   B/D defining seed is re-framed into the sweep's descending-weight order, so
 ///   every B/D coefficient coupling through the defining rep moves (C values are
 ///   unchanged — `Setup_SpN` was already in that order).

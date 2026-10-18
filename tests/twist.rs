@@ -1,4 +1,4 @@
-//! Twist oracle (issue #118): every family's `twist()` must equal the
+//! Twist oracle: every family's `twist()` must equal the
 //! TensorKitSectors generic definition
 //! `src/sectors.jl:twist_from_Rsymbol`,
 //! θ_a = Σ_{c ∈ a⊗a} (d_c / d_a) tr R^{aa}_c,

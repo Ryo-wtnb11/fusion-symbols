@@ -1,5 +1,5 @@
-//! Pentagon, hexagon, and F-move-unitarity self-consistency gates for SU(3)
-//! (oracle 3 of issue #16). These are internal consistency identities — the
+//! Pentagon, hexagon, and F-move-unitarity self-consistency gates for SU(3).
+//! These are internal consistency identities — the
 //! F/R data satisfy the fusion-category axioms — and are independent of the
 //! closed-form / SUNRepresentations oracles.
 //!
