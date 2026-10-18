@@ -864,7 +864,7 @@ block the ladder already determines.
 disagrees after alignment — a genuinely different irrep, or a numerically hopeless
 embedding whose only remedy is the out-of-scope extended-precision tier (§11, the
 QSpace MPFR analogue) — stays a loud `CatalogError::BasisIncoherent`. The coherence
-guard therefore **moves from before to after** alignment; it is never bypassed, and a
+guard therefore runs **after** alignment, not before it; it is never bypassed, and a
 coherent block (raw residual already `≤ tol`) skips alignment on a bit-exact fast
 path so no stored value is perturbed.
 
