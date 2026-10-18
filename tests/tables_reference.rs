@@ -122,7 +122,7 @@ fn tks(
     tks
 }
 
-const PHI: f64 = 1.618_033_988_749_895;
+const PHI: f64 = std::f64::consts::GOLDEN_RATIO;
 
 /// `FibonacciAnyon`: labels `(I, τ) = (1, 2)`.
 fn tks_fibonacci() -> Tks {
