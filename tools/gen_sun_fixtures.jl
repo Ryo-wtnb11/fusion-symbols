@@ -100,7 +100,7 @@ end
 function main()
     script = @__FILE__
     hash = bytes2hex(sha256(read(script)))
-    println("# racah SU(N) combinatorics fixtures (cgc-gen Layer 1, issue #10)")
+    println("# racah SU(N) combinatorics fixtures")
     println("# generator: tools/gen_sun_fixtures.jl")
     println("# SUNRepresentations.jl version: ", pkgversion(SUNRepresentations))
     println("# RationalRoots.jl version: ", pkgversion(RationalRoots))

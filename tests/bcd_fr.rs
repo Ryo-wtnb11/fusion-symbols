@@ -48,7 +48,7 @@ fn assert_closes(r: Result<(), FrError>) {
     match r {
         Ok(()) => {}
         other => panic!(
-            "gate must close after intertwiner alignment (#29); \
+            "gate must close after intertwiner alignment; \
              a BasisIncoherent here is an alignment regression — got {other:?}"
         ),
     }

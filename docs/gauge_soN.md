@@ -665,9 +665,9 @@ query-order-independent **structurally**, not procedurally.
 
 The candidate set (pairs meeting conditions 1–2 of §14.2) is **non-empty** for
 every non-base `c`, so the minimum exists. Argument: every tensor irrep of
-`SO(N)`/`Sp(2N)` lives in a tensor power of the defining (vector) rep `V`
-(this is precisely why the object is the tensor irreps and spinors are excluded,
-§0). For non-trivial `c`, the product `V ⊗ c` contains a component `b`
+`SO(N)`/`Sp(2N)` lives in a tensor power of the defining (vector) rep `V`;
+this argument covers the tensor class (§0), and the spinor class is covered by
+the spinor branch below. For non-trivial tensor `c`, the product `V ⊗ c` contains a component `b`
 obtained by **removing one box** from `c`'s highest weight (lowering the absolute
 value of one part of the partition by 1). Then `box(b) = box(c) − 1 < box(c)`, so
 `b ≺ c` under the box-count-first order — **regardless of `dim(b)`** (this is the

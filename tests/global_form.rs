@@ -402,7 +402,7 @@ mod against_bcd {
     /// the isomorphism `Spin(5) ≅ Sp(4)`, where the `B₂` spinor is the `Sp(4)`
     /// defining rep `(1,0)` and the `B₂` vector is `(0,1)`.
     #[test]
-    #[ignore = "diagnostic for issue #87 Q4; run with --ignored"]
+    #[ignore = "diagnostic: SO(5) canonical-parent hand example; run with --ignored"]
     fn so5_canonical_parent_hand_example() {
         use num_bigint::BigInt;
         let irrep = |a: i64, b: i64| Irrep::from_dynkin(Series::C, &[a, b]).unwrap();

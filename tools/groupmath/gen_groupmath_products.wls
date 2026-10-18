@@ -63,7 +63,9 @@ Block[{Print = (Null &)}, Quiet[Get["GroupMath`"]]];
 (* Curated battery (no RNG): the curated channels -- SO5/Sp4 vector
    products, SO6 adjoint^2 (incl. the 84 and the OM=2 adjoint channel) -- plus
    SU(N) samples that independently audit the SUNRepresentations lineage. Only
-   tensor (non-spinor) B/C/D labels appear, since fusion_symbols::bcd rejects spinors. *)
+   tensor (non-spinor) B/C/D labels appear, since the oracle test builds them with
+   fusion_symbols::bcd::Irrep::from_dynkin (the SO(N)/Sp(2N) forms), which rejects
+   spinors; spinors need Irrep::from_dynkin_in with a Spin(N) group. *)
 cases = {
   (* SU(N): fundamental x antifundamental, adjoint^2, and a mixed product. *)
   {"SU2", SU2, {2}, {2}},
@@ -100,7 +102,7 @@ sha = Hash[ReadString[$InputFileName], "SHA256", "HexString"];
 Print["--- racah GroupMath product fixtures (external value oracle)"];
 Print["--- tool: GroupMath 1.1.3 (arXiv:2011.01764)"];
 Print["--- script: gen_groupmath_products.wls sha256=" <> ToLowerCase[sha]];
-Print["--- entry point: ReduceRepProduct (gauge-free multiplicities; CGC via Invariants deferred to #29)"];
+Print["--- entry point: ReduceRepProduct (gauge-free multiplicities; CGC values are not compared here)"];
 Print["--- format: GROUP | a | b | dim_a dim_b | c:n c:n ..."];
 
 Do[

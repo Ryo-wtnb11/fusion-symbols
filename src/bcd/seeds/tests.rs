@@ -116,7 +116,7 @@ fn dims_match_s30_defining_wdim() {
         assert_eq!(
             irr.dim(),
             num_bigint::BigInt::from(s.dim()),
-            "{series:?}_{r} vs S3.0 wdim"
+            "{series:?}_{r} vs directproduct wdim"
         );
     }
 }
