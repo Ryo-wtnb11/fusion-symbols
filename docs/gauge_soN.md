@@ -40,9 +40,9 @@ specification-correction rule — spec edit, epoch bump, CHANGELOG breaking-chan
 entry, regenerated golden values — declared in
 [`gauge.md`, "Status"](gauge.md#status-frozen-normative-specification), which
 governs all three families. `tests/gauge_golden.rs` pins signed SO(5) and Sp(4)
-coefficients as the in-repo tripwire (the QSpace anchor in
-`src/bcd/qspace_oracle_tests.rs` compares the isotypic projector, which is by
-construction blind to exactly the coupled-side gauge this document fixes).
+coefficients as the in-repo tripwire (`src/bcd/intertwiner_tests.rs` checks the
+generators and the isotypic projectors, which are by construction blind to
+exactly the coupled-side gauge this document fixes).
 
 The construction is a port of **QSpace v4** (Weichselbaum), revision `dd2cc7e`,
 `Source/clebsch_aux.cc:getSymmetryStates` (`:53-348`) and `findMaxWeight`
@@ -353,9 +353,9 @@ happened to produce. racah instead applies the sign convention to **every**
 block, unconditionally. Rationale: a uniform, permutation-independent gauge is
 more predictable, and the QSpace conditionality appears accidental (the sign of
 a coupled block should not depend on whether its states happened to be generated
-already sorted). Consequence for the QSpace CGC fixture harness: on
+already sorted). Consequence for a comparison with QSpace: on
 identity-permutation blocks the two implementations may differ by a whole-block
-sign; those are expected and are absorbed by the harness's signed-permutation
+sign; those are expected and are absorbed by a signed-permutation
 alignment, not treated as defects.
 
 ---
@@ -410,7 +410,7 @@ value is *not* a breaking release; loosening one that can, is.
 
 **Reference tolerance-regime deviations.** Three racah tolerance choices differ
 in *regime* (not just value) from QSpace; none moves a discovered label or
-multiplicity, but each is recorded for the QSpace CGC fixture harness:
+multiplicity, but each is recorded for any comparison with QSpace:
 
 1. **Descent overlap guards are stricter/absolute.** QSpace's `U`-overlap abort
    fires at `x·x > eps` with `x = aMax(Uᵀvi)`, i.e. a **max-overlap `> 1e-4`**;
@@ -431,7 +431,7 @@ multiplicity, but each is recorded for the QSpace CGC fixture harness:
    CGC entries too. racah snaps **integers only** (§6), leaving irrational CGC
    entries untouched. Consequence: an exact half-integer (or other small-rational)
    CGC entry that QSpace would snap may differ from fusion-symbols' value by `≤ 1e-12` —
-   below every gate tolerance, absorbed by the fixture harness's element-wise comparison.
+   below every gate tolerance.
 
 ---
 
@@ -462,8 +462,8 @@ identity is not promised (the backend's reductions are not bit-reproducible).
 
 - **Exact decomposition** (`bcd::sweep::tests`): for `defining ⊗ defining` across
   `B2/B3/B4/C2/C3/C4/D3/D4`, the discovered labels and multiplicities equal
-  the exact `directproduct` (itself cross-checked against Sage/OSCAR
-  fixtures — code racah did not write); block dimensions sum to `d1·d2`; each
+  the exact `directproduct` (itself checked against an in-test Brauer–Klimyk
+  decomposition and Oscar 1.8.0 rows, `bcd::tests`); block dimensions sum to `d1·d2`; each
   CGC is an isometry within tier; and each block's Cartan-eigenvalue rows
   reproduce the irrep's exact weight system (distinct-weight count and total from
   Freudenthal + Weyl orbits).
@@ -877,7 +877,7 @@ what unblocks the OM≥2 batteries). The OM *index* order is the catalog's exist
 discovery-order convention (§9). The residual freedom of the O(N) multiplicity-space
 mixing is **not** further canonicalized here: the F/R self-consistency gates and the
 gauge-invariant isotypic projector `P = Σ_μ C_μ C_μᵀ` are both invariant under it,
-and a full canonical multiplicity gauge is left to the QSpace CGC fixture harness's fitted-unitary alignment.
+and a full canonical multiplicity gauge is not specified.
 This is the one alignment freedom this rung deliberately does not pin.
 
 ---

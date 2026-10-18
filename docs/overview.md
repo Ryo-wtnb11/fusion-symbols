@@ -224,7 +224,7 @@ rustdoc marker is on `sun_authority_fingerprint`, `bcd_authority_fingerprint`,
 |---|---|---|
 | SU(2) | exact closed-form big-rational | exhaustive agreement with `wigner-symbols` 0.5.1 over its label domain, plus reference fixtures beyond it |
 | SU(N), SU(N)/Z_k, PSU(N) | Gelfand–Tsetlin | signed element-wise table regeneration against SUNRepresentations.jl v0.4.0 (dim ≤ 8 every `cargo test`; a full dim ≤ 27 sweep, 76,853 F blocks, run explicitly); products cross-checked against GroupMath 1.1.3 |
-| SO(N) / Sp(2N) | generator bootstrap (B/C/D) | the QSpace v4 CGC projector battery — 33 rank-2/3 channels projector-tested to round-off, 0 structural-only, 9 higher-rank rows out of the anchor's scope (see `src/bcd/qspace_oracle_tests.rs`) |
+| SO(N) / Sp(2N) | generator bootstrap (B/C/D) | generators checked as Chevalley–Serre data and the CGC of 33 rank-2/3 channels as isometric intertwiners whose isotypic projectors sum to the identity (`src/bcd/intertwiner_tests.rs`); products against an in-test Brauer–Klimyk decomposition |
 | Spin(N) | same bootstrap, Clifford seeds | `Spin(6) ≅ SU(4)` and `Spin(5) ≅ Sp(4)` on the whole weight lattice — dimensions, duals, FS indicators, every ordered product, spinor labels included (`tests/isomorphism.rs`, `tests/spin.rs`) |
 
 Internal consistency gates run alongside: Regge/tetrahedral symmetries,

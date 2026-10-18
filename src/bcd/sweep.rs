@@ -302,9 +302,8 @@ impl Generators {
     }
 
     /// The `i`-th raising operator (dense `D×D`, column-major). The counterpart
-    /// of [`cartan_diag`](Self::cartan_diag) for the ladder matrices; used by the
-    /// QSpace external anchor to solve the factor-basis dictionary as a
-    /// verified intertwiner between racah's and QSpace's generator sets.
+    /// of [`cartan_diag`](Self::cartan_diag) for the ladder matrices; used by
+    /// `intertwiner_tests` to check the generators and CGC as Lie-algebra data.
     #[cfg(test)]
     pub(crate) fn raising(&self, i: usize) -> &Dense {
         &self.sp[i]

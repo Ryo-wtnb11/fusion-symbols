@@ -81,7 +81,6 @@ pinned by [`docs/gauge_soN.md`](gauge_soN.md). See [`docs/theory.tex`](theory.te
 | `bcd/linalg.rs` | QSpace v4 (rev `dd2cc7e`), `OrthoNormalizeColsQR`, `Wb::MatProd` $[3]$ | Positive-diagonal QR, matmul | The two dense primitives the sweep needs | `QrGauge::PositiveDiagonal` tightens QSpace's unspecified QR sign (documented in [`docs/gauge_soN.md`](gauge_soN.md)); via the Tenferro backend seam |
 | `bcd/catalog.rs::CanonicalCatalog` | QSpace v4 (rev `dd2cc7e`), `Source/clebsch.cc` cross-copy `normDiff` check (`:6710-6718`) $[3]$ | Per-(series, rank) catalog caching the aligned CGC; cross-copy coherence check | Aligns and reuses the generator/CGC data across couplings | QSpace's fixed-pass `dmax` enumeration is **not** ported (`catalog.rs` module doc); coherence is a loud debug assert, deviation-by-design from `normDiff` replacement |
 | `bcd/fr.rs` | QSpace v4 (rev `dd2cc7e`), `wbsparray::setRec_kron` (product packing) $[3]$; shared `frcore` | Kronecker product index packing; F/R contraction | Consistent product-basis packing between generation and contraction | — |
-| `bcd/qspace_oracle_tests.rs` (oracle, not production) | QSpace v4 (rev `dd2cc7e`), `getCG` and generator fixtures ($Sp_k$, $Sz_k$) $[3]$ | Projector battery via verified factor-basis dictionaries | Independent external oracle: `fusion-symbols`'s aligned CGC vs QSpace to round-off | Compares gauge-invariant projectors through solved intertwiner dictionaries |
 
 ## Family-generic F/R core and gates
 

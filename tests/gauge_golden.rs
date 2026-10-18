@@ -17,7 +17,7 @@
 //! assignment, §16 spinor seeds); no external implementation shares that
 //! gauge, so they are this crate's frozen values, and gauge-invariant content
 //! (isotypic projectors) is checked independently in
-//! `src/bcd/qspace_oracle_tests.rs`.
+//! `src/bcd/intertwiner_tests.rs`.
 //!
 //! # Tolerance
 //!
@@ -231,6 +231,8 @@ fn so5_and_sp4_cgc_match_the_frozen_gauge() {
 }
 
 /// Sp(4) F symbol: the B/C/D contraction path, multiplicity-free vertices.
+/// Its magnitude is the closed form `|F^{a ā a}_a[1, f]| = √d_f / d_a = √10 / 4`;
+/// the sign is the frozen gauge.
 const SP4_F: f64 = 0.790_569_415_042_094_8;
 
 #[test]
@@ -354,7 +356,9 @@ fn spinor_cgc_matches_the_frozen_gauge() {
 
 /// `Spin(6)` F symbol on the `4 ⊗ 4̄` spinor family, with the trivial internal
 /// channel. Every vertex is multiplicity-free and no vertex couples into the
-/// defining rep, so this is a clean spinor-side F pin.
+/// defining rep, so this is a clean spinor-side F pin. Magnitudes: `√15 / 4`
+/// (`√d_f / d_a`) and, by unitarity of the 2×2 block, `1 / 4`; the signs are
+/// the frozen gauge.
 const SPIN6_F_TRIVIAL_INTERNAL: f64 = 0.968_245_836_551_854_4;
 /// The same family with the adjoint internal channel.
 const SPIN6_F_ADJOINT_INTERNAL: f64 = 0.250_000_000_000_000_06;
