@@ -15,6 +15,7 @@
 //! `tests/tables_reference.rs`.
 
 use fusion_symbols::tables::{TableCategory, TableObject};
+#[cfg(feature = "anyonwiki-unitary")]
 use std::f64::consts::FRAC_1_SQRT_2;
 
 use num_complex::Complex64;
