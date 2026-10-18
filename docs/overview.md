@@ -15,12 +15,14 @@ rank 7 with the `anyonwiki-unitary` feature) from pinned AnyonWiki tables, the a
 Z_N, U(1) with fermion parity, and CU(1) = U(1) ⋊ C, now; Deligne products next. The first consumer is
 [symtn](https://github.com/Ryo-wtnb11/symtn-rs).
 
-Coefficients for any admissible labels are computed on demand — exactly for
-SU(2), and through a deterministically gauged, verification-gated numerical
-pipeline for the generated families. There is no precomputed table and no
-generation-time label cut: labels are bounded only by the machine-word ranges
-of the label types, which report a typed overflow error rather than a wrong
-answer.
+For the Lie-group families, coefficients for any admissible labels are
+computed on demand — exactly for SU(2), and through a deterministically
+gauged, verification-gated numerical pipeline for the generated families.
+Those families have no precomputed table and no generation-time label cut:
+labels are bounded only by the machine-word ranges of the label types, which
+report a typed overflow error rather than a wrong answer. The abelian and
+CU(1) symbols are closed forms; only the `tables` categories ship data, the
+pinned AnyonWiki tables described below.
 
 ## Supported groups
 
