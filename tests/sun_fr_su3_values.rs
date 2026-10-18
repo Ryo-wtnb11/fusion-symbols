@@ -1,7 +1,7 @@
 //! SU(3) F- and R-symbols in the SUNRepresentations gauge.
 //!
 //! Contract: the generated blocks equal SUNRepresentations.jl 0.4.0 (through
-//! TensorKitSectors 0.3.10 `Fsymbol` / `Rsymbol`) signed and element-wise,
+//! TensorKitSectors 0.3.9 `Fsymbol` / `Rsymbol`) signed and element-wise,
 //! including the multiplicity-axis order of `8 ⊗ 8 → 8`. Pentagon, hexagon and
 //! unitarity over the small irreps are in `tests/sun_fr_gates.rs`; they are
 //! gauge invariant, so these literals are what pins the gauge.

@@ -730,6 +730,19 @@ fn dimensions_are_the_weyl_dimension_formula() {
         }
     }
     assert!(checked > 100, "{checked}");
+    // Oscar 1.8.0 dimensions for labels with an entry 3, outside the sweep.
+    for (series, d, want) in [(Series::B, [3, 2], 154), (Series::C, [3, 2], 140)] {
+        assert_eq!(
+            weyl_dimension(series, &d),
+            BigInt::from(want),
+            "{series:?} {d:?}"
+        );
+        assert_eq!(
+            irr(series, &d).dim(),
+            BigInt::from(want),
+            "{series:?} {d:?}"
+        );
+    }
 }
 
 /// B/C/D rank 2-4 pairs, up to B3 `[2,2,2] ⊗ [1,2,0]` (19 683 × 693) with
