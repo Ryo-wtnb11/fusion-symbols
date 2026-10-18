@@ -1348,7 +1348,7 @@ mod tests {
     #[test]
     fn three_j_known_value() {
         // (1/2 1/2 1; 1/2 -1/2 0) = +1/sqrt(6), signed_square = +1/6
-        // (verified against wigner-symbols 0.5.1 / WignerSymbols.jl).
+        // (checked against WignerSymbols.jl 2.0.0).
         let v = wigner_3j(1, 1, 2, 1, -1, 0);
         assert_eq!(sq(&v), Ratio::new(BigInt::from(1), BigInt::from(6)));
     }

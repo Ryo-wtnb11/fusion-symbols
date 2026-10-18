@@ -92,7 +92,7 @@ need the `cgc-gen` feature.
 
 | Bench | What it measures | How to run |
 |---|---|---|
-| `wigner` | Prime-factorized exact 3j/6j vs `wigner-symbols 0.5.1` on the doubled-spin ≤ 254 overlap domain, plus the thousands-tier 6j labels the reference crate's u8 keys cannot reach. | `cargo bench --bench wigner` |
+| `wigner` | Prime-factorized exact 3j/6j on doubled spins ≤ 254, the thousands tier, and the repeated-label cache-hit regime. | `cargo bench --bench wigner` |
 | `sun_cgc` | SU(N) CGC generation cost across representative `(N, dim)` channels, plus the warm cache-hit path. | `cargo bench --bench sun_cgc --features cgc-gen` |
 | `sun_fr` | SU(N) F-symbol cost, cold (full four-CGC contraction, CGC caches cleared) and warm (derived-f64 F cache hit). R is not benched separately: a single sparse join of two CGC, no cache. | `cargo bench --bench sun_fr --features cgc-gen` |
 | `sun_product` | SU(N) tensor-product cache working set (counting global allocator) plus cold/warm decomposition timing. | `cargo bench --bench sun_product --features cgc-gen` |
