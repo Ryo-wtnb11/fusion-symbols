@@ -21,7 +21,11 @@ symbol by symbol, plus the bibliography: [`references.md`](references.md).
 
 ## Which document answers which question
 
-- *"What can this library compute?"* → [README](../README.md).
+- *"What can this library compute?"* → [README](../README.md), then
+  [overview](overview.md) for the supported groups, feature flags and
+  verification status.
+- *"How does this differ from TensorKitSectors.jl?"* →
+  [`tensorkitsectors-differences.md`](tensorkitsectors-differences.md).
 - *"How do I call this from Python?"* →
   [User Guide: Python bindings](user-guide/python.md); the typed API surface is
   [`racah-py/racah.pyi`](../racah-py/racah.pyi).
