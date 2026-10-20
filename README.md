@@ -1,7 +1,6 @@
 # fusion-symbols
 
 [![CI](https://github.com/Ryo-wtnb11/fusion-symbols/actions/workflows/ci.yml/badge.svg)](https://github.com/Ryo-wtnb11/fusion-symbols/actions/workflows/ci.yml)
-[![wheels](https://github.com/Ryo-wtnb11/fusion-symbols/actions/workflows/wheels.yml/badge.svg)](https://github.com/Ryo-wtnb11/fusion-symbols/actions/workflows/wheels.yml)
 [![crates.io](https://img.shields.io/crates/v/fusion-symbols.svg)](https://crates.io/crates/fusion-symbols)
 [![docs.rs](https://img.shields.io/docsrs/fusion-symbols)](https://docs.rs/fusion-symbols)
 [![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Ryo-wtnb11/fusion-symbols/badges/badge.json)](https://github.com/Ryo-wtnb11/fusion-symbols/actions/workflows/ci.yml)
@@ -43,8 +42,9 @@ unstable in their rustdoc.
 
 This crate succeeds the [`racah`](https://crates.io/crates/racah) crate on
 crates.io (0.2.4), with the same modules and API under `fusion_symbols::`.
-The Python bindings in [`racah-py/`](racah-py/README.md) keep the import name
-`racah` and cover the Lie-group families.
+There are no Python bindings in this repository; the last release of the
+earlier bindings is `racah-py` 0.1.2 on PyPI (import name `racah`), which is no
+longer developed here (#130).
 
 ```toml
 [dependencies]
