@@ -1527,6 +1527,7 @@ mod tests {
 
     #[test]
     fn public_stats_and_reset_smoke() {
+        let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
         // The global wrappers aggregate the per-kind caches (rigorously covered
         // in cache::tests); here just confirm they observe activity and reset
         // without panicking. Counts are only checked monotonically because the

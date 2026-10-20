@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use crate::cache::{self, CoefficientCacheTier};
 use crate::lie::su2::{wigner_3j, wigner_6j};
-use crate::sun::{directproduct, Irrep};
+use crate::lie::sun::{directproduct, Irrep};
 
 fn rss_bytes() -> Option<usize> {
     let output = std::process::Command::new("ps")
@@ -47,6 +47,7 @@ fn workload() {
 }
 
 fn run(mode: &str) {
+    let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
     cache::reset();
     workload();
     let before = cache::base_cache_stats();

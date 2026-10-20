@@ -4,8 +4,8 @@
 //! fermion parity, CU(1), and tabulated finite fusion categories.
 //!
 //! `fusion-symbols` is the successor of the `racah` crate (published up to
-//! 0.2.4): the same modules and API, with `racah::` paths now
-//! `fusion_symbols::`.
+//! 0.2.4). The mathematical data remain; #146 reorganizes the Rust API around
+//! category values under `fusion_symbols::`.
 //!
 //! Lie-group coefficients for any admissible labels are computed on demand —
 //! there is no precomputed table and no generation-time label cut. Pure
@@ -26,7 +26,8 @@
 //! assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
 //! ```
 //!
-//! A1 category symbols use validated Dynkin labels and inline blocks:
+//! Lie categories use validated Dynkin labels. A1 blocks are stored inline;
+//! A(r), r >= 2, uses cached generated blocks with `cgc-gen`:
 //!
 //! ```
 //! use fusion_symbols::{category::FusionCategory, lie::{su2::wigner_6j, GroupId, LieGroup}};
@@ -45,7 +46,7 @@
 //! | You want | Go to |
 //! |---|---|
 //! | SU(2): 3j, 6j, CG, F, R, Frobenius–Schur — exact, no feature flag | [`lie::su2`] and [`lie::LieGroup`] |
-//! | SU(N), SU(N)/Z_k, PSU(N) — Gelfand–Tsetlin construction | [`sun`] (`cgc-gen`) |
+//! | SU(N), SU(N)/Z_k, PSU(N) — Gelfand–Tsetlin construction | [`lie::LieGroup`] (`cgc-gen`) |
 //! | SO(N), Spin(N), Sp(2r) — generator bootstrap, B/C/D series | [`bcd`] (`cgc-gen`) |
 //! | Which highest weights a global form admits | [`lie::GroupId`] |
 //! | Cache ceilings, budgets, statistics | [`cache`] |
@@ -54,6 +55,12 @@
 //! | Fermion parity in closed form | [`fermion::FermionParity`] |
 //! | CU(1) = U(1) ⋊ C (`O(2)`) in closed form (TensorKitSectors `CU1Irrep`) | [`cu1`] |
 //! | Finite multiplicity-free unitary categories (Fibonacci, Ising, …, rank ≤ 4; rank ≤ 7 with `anyonwiki-unitary`) from pinned AnyonWiki tables (exact symbols, correctly rounded) | [`table`] |
+//!
+//! SU(N) uses the same [`lie::LieGroup`] and [`lie::LieIrrep`] layer as A1.
+//! With `cgc-gen`, higher A-series fusion shares cached product lists, and
+//! [`category::GroupRepresentations::cgc`] returns [`lie::LieCgc`]. Empty
+//! vertices give zero blocks; genuine generation failures are opaque
+//! [`lie::LieError::Generation`] diagnostics with an error source.
 //!
 //! # Non-Lie families
 //!
@@ -105,11 +112,11 @@
 //!
 //! Each family publishes an opaque **authority fingerprint** naming the
 //! convention set its coefficients are computed in
-//! ([`category::FusionCategory::authority_fingerprint`], [`sun::sun_authority_fingerprint`],
+//! ([`category::FusionCategory::authority_fingerprint`],
 //! [`bcd::bcd_authority_fingerprint`]). Persist the bytes next to anything you
 //! derive from these coefficients and compare by equality on load; never parse
 //! them. The base SU(2) provider adds a checked representation surface
-//! ([`lie::LieIrrep`] and the `*_checked` coefficient functions) and a cache
+//! ([`lie::LieIrrep`] and [`lie::LieGroup`]) and a cache
 //! resource contract ([`cache::base_cache_stats`],
 //! [`cache::BASE_CACHE_MAX_BYTES`], [`cache::reset`]). The
 //! [User Guide][guide-resources] carries the prose.
@@ -232,13 +239,6 @@ mod cache_budget_pressure;
 #[cfg(all(test, feature = "cgc-gen"))]
 mod cache_trim_pressure;
 
-/// SU(N), `SU(N)/Z_k` and `PSU(N)`: irreps from Dynkin labels, exact Weyl
-/// dimensions, duals, Littlewood–Richardson products, and the Clebsch–Gordan /
-/// F / R coefficients built by the Gelfand–Tsetlin construction.
-/// Compilation-gated behind `cgc-gen`.
-#[cfg(feature = "cgc-gen")]
-pub mod sun;
-
 /// SO(N), Spin(N) and Sp(2r) — the B, C, D Cartan series: irreps from Dynkin
 /// labels, exact Weyl dimensions, duals, Frobenius–Schur indicators,
 /// Freudenthal weight multiplicities, the exact Brauer–Klimyk/Racah–Speiser
@@ -248,7 +248,7 @@ pub mod sun;
 #[cfg(feature = "cgc-gen")]
 pub mod bcd;
 
-// Family-generic F/R contraction + gates core, shared by `sun::fr` and
+// Family-generic F/R contraction + gates core, shared by the private SU(N) implementation and
 // `bcd::fr`. Private: the public F/R surfaces stay
 // per-family; only the block types (`FBlock`/`RBlock`) are re-exported.
 #[cfg(feature = "cgc-gen")]

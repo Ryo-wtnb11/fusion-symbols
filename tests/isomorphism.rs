@@ -6,7 +6,7 @@
 //! isomorphism must produce the **same** integer data (dimensions, product
 //! decompositions, and the fusion multiplicities `N^c_{ab}` — the "N-symbols")
 //! exactly. No external tool is involved: the oracle is racah's own SU(N)
-//! pipeline ([`fusion_symbols::sun`]) checking racah's B/C/D pipeline ([`fusion_symbols::bcd`]),
+//! pipeline ([`fusion_symbols::lie`]) checking racah's B/C/D pipeline ([`fusion_symbols::bcd`]),
 //! and racah's two independent SU(2) implementations checking each other.
 //!
 //! This strand verifies only the *tensor* (linear, non-spinor) image of each
@@ -21,7 +21,7 @@
 //! per isomorphism in the sections below (the node identification from the folded
 //! / relabelled Dynkin diagram) and then cross-checked against matching dimensions
 //! and product channels through both sides, never merely assumed from a numerical
-//! coincidence. `A_{n}` uses [`fusion_symbols::sun`]
+//! coincidence. `A_{n}` uses [`fusion_symbols::lie`]
 //! Dynkin labels `(a_1,…,a_n)`; `B_r`/`C_r`/`D_r` use [`fusion_symbols::bcd`] Dynkin
 //! labels `(b_0,…,b_{r-1})` in the module's node order (node 0 = vector for
 //! `B`/`D`, per `docs/gauge_soN.md`).
@@ -70,8 +70,8 @@
 //! `SO(4)` is the excluded rank `D_2` in [`fusion_symbols::bcd`] (redirected to the
 //! SU(2) machinery). The isomorphism content — an `SO(4)` tensor irrep is a
 //! pair of `SU(2)` irreps with `SO(4)` products factoring as independent
-//! `SU(2)` products — is checked here between racah's **two independent
-//! `SU(2)` code paths**: the general Gelfand–Tsetlin engine ([`fusion_symbols::sun`]
+//! `SU(2)` products — is checked in `src/lie/sun/su2_embedding_tests.rs` between racah's **two independent
+//! `SU(2)` code paths**: the general Gelfand–Tsetlin engine ([`fusion_symbols::lie`]
 //! at `N = 2`) and the exact closed-form base module ([`fusion_symbols::lie::su2`],
 //! reached through [`fusion_symbols::lie::su2::clebsch_gordan`]). An `SO(4)` label `(p, q)`
 //! carries `SU(2)` spins `(p/2, q/2)` (doubled spins `dj = p, q`), dimension
@@ -79,11 +79,13 @@
 
 #![cfg(feature = "cgc-gen")]
 
+#[path = "common/lie.rs"]
+mod lie_test;
 use std::collections::BTreeMap;
 
 use fusion_symbols::bcd::{directproduct as bdp, Irrep as Bcd, Series};
-use fusion_symbols::lie::su2::clebsch_gordan;
-use fusion_symbols::sun::{directproduct as sdp, Irrep as Sun};
+use fusion_symbols::lie::LieIrrep as Sun;
+use lie_test::product as sdp;
 
 /// `SU(4)` Dynkin `(a_1,a_2,a_3)` → `SO(6)=D_3` Dynkin `(a_2,a_1,a_3)`.
 /// Panics if the image is a spinor (`a_1 + a_3` odd) — callers stay in the
@@ -144,9 +146,9 @@ const SO5_LABELS: &[[i64; 2]] = &[
 #[test]
 fn so6_su4_dimensions_agree() {
     for a in SO6_LABELS {
-        let s = Sun::from_dynkin(a).unwrap();
+        let s = lie_test::irrep(a).unwrap();
         let d = su4_to_so6(a);
-        assert_eq!(s.dim(), d.dim(), "dim mismatch SU(4) {a:?} vs SO(6)");
+        assert_eq!(s.dim_exact(), d.dim(), "dim mismatch SU(4) {a:?} vs SO(6)");
     }
 }
 
@@ -156,7 +158,7 @@ fn so6_su4_products_agree() {
     // D_3, must equal the SO(6) decomposition exactly (channels and N-symbols).
     for a in SO6_LABELS {
         for b in SO6_LABELS {
-            let s = sun_channels(&Sun::from_dynkin(a).unwrap(), &Sun::from_dynkin(b).unwrap());
+            let s = sun_channels(&lie_test::irrep(a).unwrap(), &lie_test::irrep(b).unwrap());
             let d = bcd_channels(&su4_to_so6(a), &su4_to_so6(b));
             // Remap each SU(4) summand label to its D_3 image and compare.
             let s_mapped: BTreeMap<Vec<i64>, u32> = s
@@ -201,56 +203,6 @@ fn sp4_so5_products_agree() {
     }
 }
 
-/// SU(2) fusion multiplicity of doubled-spin `dj3` in `dj1 ⊗ dj2`, via racah's
-/// exact closed-form base module ([`fusion_symbols::lie::su2`]): the highest-weight Clebsch–
-/// Gordan coefficient is nonzero iff the coupling is allowed, and SU(2)
-/// multiplicities are 0/1. This is an independent code path from the GT engine.
-fn su2_mult_base(dj1: i32, dj2: i32, dj3: i32) -> u32 {
-    // Highest-weight state of j3: m3 = dj3, m1 = dj1, m2 = dj3 - dj1.
-    let dm2 = dj3 - dj1;
-    if dm2.abs() > dj2 {
-        return 0;
-    }
-    let cg = clebsch_gordan(dj1 as u32, dj1, dj2 as u32, dm2, dj3 as u32, dj3);
-    (cg.sign() != 0) as u32
-}
-
-#[test]
-fn so4_su2xsu2_two_paths_agree() {
-    // SO(4) tensor irreps (p + q even), spins (p/2, q/2). Check both the
-    // dimension identity and that the two SU(2) code paths give the same
-    // fusion multiplicities on each factor.
-    let spins = [0i64, 1, 2, 3, 4]; // doubled spins dj
-    for &p in &spins {
-        for &q in &spins {
-            if (p + q) % 2 != 0 {
-                continue; // not a tensor (linear) SO(4) irrep
-            }
-            // dim (p+1)(q+1) via the sun N=2 dims, integer-exact.
-            let dl = Sun::from_dynkin(&[p]).unwrap().dim();
-            let dr = Sun::from_dynkin(&[q]).unwrap().dim();
-            assert_eq!(dl.clone() * dr, num_bigint::BigInt::from((p + 1) * (q + 1)));
-
-            // Factor products: SU(2) via GT engine (sun N=2) vs exact base. Only
-            // the left factor (p, p2) is exercised — the right factor (q) obeys the
-            // identical SU(2) rule, so a q2 loop would add redundant, not new,
-            // coverage.
-            for &p2 in &spins {
-                let gt_left = sun_channels(
-                    &Sun::from_dynkin(&[p]).unwrap(),
-                    &Sun::from_dynkin(&[p2]).unwrap(),
-                );
-                // Compare against base-module multiplicities for every dj3.
-                for dj3 in 0..=(p + p2) {
-                    let gt = *gt_left.get(&vec![dj3]).unwrap_or(&0);
-                    let base = su2_mult_base(p as i32, p2 as i32, dj3 as i32);
-                    assert_eq!(gt, base, "SU(2) mult {p} x {p2} -> {dj3}");
-                }
-            }
-        }
-    }
-}
-
 /// Negative control: the isomorphism tests have teeth. A deliberately wrong
 /// `SO(6)` label map (dropping the node-0/node-1 swap) must break the
 /// dimension agreement, proving the passing tests are not vacuous.
@@ -259,10 +211,10 @@ fn wrong_so6_map_is_detected() {
     // Identity map (a_1,a_2,a_3) -> D_3 (a_1,a_2,a_3) is wrong for e.g. the
     // vector/6: SU(4) [0,1,0] is dim 6, but D_3 [0,1,0] is a spinor (rejected)
     // or, for [2,0,0] (dim 10), D_3 [2,0,0] is dim 20 != 10.
-    let s = Sun::from_dynkin(&[2, 0, 0]).unwrap();
+    let s = lie_test::irrep(&[2, 0, 0]).unwrap();
     let wrong = Bcd::from_dynkin(Series::D, &[2, 0, 0]).unwrap();
     assert_ne!(
-        s.dim(),
+        s.dim_exact(),
         wrong.dim(),
         "wrong map must not accidentally agree"
     );
@@ -322,9 +274,13 @@ const SPIN5_LABELS: &[[i64; 2]] = &[
 #[test]
 fn spin6_su4_dimensions_agree_including_spinors() {
     for a in SPIN6_LABELS {
-        let s = Sun::from_dynkin(a).unwrap();
+        let s = lie_test::irrep(a).unwrap();
         let d = su4_to_spin6(a);
-        assert_eq!(s.dim(), d.dim(), "dim mismatch SU(4) {a:?} vs Spin(6)");
+        assert_eq!(
+            s.dim_exact(),
+            d.dim(),
+            "dim mismatch SU(4) {a:?} vs Spin(6)"
+        );
     }
     assert_eq!(su4_to_spin6(&[1, 0, 0]).dim(), 4u32.into());
     assert!(su4_to_spin6(&[1, 0, 0]).is_spinor());
@@ -337,7 +293,7 @@ fn spin6_su4_dimensions_agree_including_spinors() {
 fn spin6_su4_products_agree_including_spinors() {
     for a in SPIN6_LABELS {
         for b in SPIN6_LABELS {
-            let s = sun_channels(&Sun::from_dynkin(a).unwrap(), &Sun::from_dynkin(b).unwrap());
+            let s = sun_channels(&lie_test::irrep(a).unwrap(), &lie_test::irrep(b).unwrap());
             let d = bcd_channels(&su4_to_spin6(a), &su4_to_spin6(b));
             let s_mapped: BTreeMap<Vec<i64>, u32> = s
                 .into_iter()
@@ -356,9 +312,9 @@ fn spin6_su4_products_agree_including_spinors() {
 #[test]
 fn spin6_su4_duals_agree_including_spinors() {
     for a in SPIN6_LABELS {
-        let s = Sun::from_dynkin(a).unwrap();
+        let s = lie_test::irrep(a).unwrap();
         assert_eq!(
-            su4_to_spin6(&s.dual().dynkin()).dynkin(),
+            su4_to_spin6(&lie_test::dual(&s).dynkin()).dynkin(),
             su4_to_spin6(a).dual().dynkin(),
             "dual mismatch SU(4) {a:?} vs Spin(6)"
         );

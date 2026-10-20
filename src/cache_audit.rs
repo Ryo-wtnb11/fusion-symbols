@@ -5,8 +5,8 @@ use std::time::{Duration, Instant};
 
 use crate::cache;
 use crate::lie::su2::{f_symbol as exact_f, wigner_3j, wigner_6j};
+use crate::lie::sun::{cgc, directproduct, f_symbol, shared_directproduct, Irrep};
 use crate::primefactor;
-use crate::sun::{cgc, directproduct, f_symbol, shared_directproduct, Irrep};
 
 fn irr(dynkin: &[i64]) -> Irrep {
     Irrep::from_dynkin(dynkin).unwrap()
@@ -204,6 +204,7 @@ fn sequential_trace(label: &str, work: &[(&str, fn())]) {
 #[test]
 #[ignore = "manual release-only cache measurement; run --release --features cgc-gen -- --ignored --nocapture"]
 fn coefficient_cache_audit() {
+    let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
     eprintln!(
         "COEFFICIENT_CACHE_AUDIT {{\"kind\":\"metadata\",\"revision\":\"{}\",\"features\":\"cgc-gen\",\"consumer_revision\":\"N/A\",\"allocator\":\"System tracking test wrapper\",\"platform\":\"{}/{}\",\"rustc\":\"recorded by command\"}}",
         option_env!("RACAH_AUDIT_REVISION").unwrap_or("not-embedded; record git rev-parse HEAD with command"),

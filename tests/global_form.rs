@@ -5,6 +5,9 @@
 //! A global form only selects admissible labels; it changes no coefficient
 //! value (the cross-global-form section checks this).
 
+#[cfg(feature = "cgc-gen")]
+#[path = "common/lie.rs"]
+mod lie_test;
 use fusion_symbols::lie::{
     d_odd_central_class, CenterSubgroup, GlobalForm, GroupError, GroupId, RootSystem,
 };
@@ -384,7 +387,7 @@ mod against_bcd {
             let su = GroupId::su(n).unwrap();
             for label in sweep(n - 1, 3) {
                 assert!(su.admits(&label));
-                assert!(fusion_symbols::sun::Irrep::from_dynkin(&label).is_ok());
+                assert!(lie_test::irrep(&label).is_ok());
             }
         }
     }
@@ -466,7 +469,9 @@ fn sweep(r: usize, cap: i64) -> Vec<Vec<i64>> {
 #[cfg(feature = "cgc-gen")]
 mod sun_forms {
     use super::*;
-    use fusion_symbols::sun::{Irrep, SunError};
+    use crate::lie_test::{self};
+    use fusion_symbols::category::FusionCategory;
+    use fusion_symbols::lie::LieError;
 
     /// `N`-ality `Σ i·aᵢ`, computed here independently of the library so the
     /// tests are not checking `group::admits` against itself.
@@ -485,8 +490,8 @@ mod sun_forms {
         for n in 2..=5usize {
             let su = GroupId::su(n).unwrap();
             for label in sweep(n - 1, 3) {
-                let via_form = Irrep::from_dynkin_in(&su, &label).expect("SU(N) admits everything");
-                assert_eq!(via_form, Irrep::from_dynkin(&label).unwrap());
+                let via_form = lie_test::irrep_in(&su, &label).expect("SU(N) admits everything");
+                assert_eq!(via_form, lie_test::irrep(&label).unwrap());
             }
         }
     }
@@ -498,14 +503,11 @@ mod sun_forms {
         for n in 2..=5usize {
             let psu = GroupId::psu(n).unwrap();
             for label in sweep(n - 1, 4) {
-                let built = Irrep::from_dynkin_in(&psu, &label);
+                let built = lie_test::irrep_in(&psu, &label);
                 let zero_nality = nality(&label).rem_euclid(n as i64) == 0;
                 match (&built, zero_nality) {
                     (Ok(_), true) => {}
-                    (Err(SunError::NotAdmissible { group, dynkin }), false) => {
-                        assert_eq!(*group, psu);
-                        assert_eq!(dynkin, &label);
-                    }
+                    (Err(LieError::NotAdmissible), false) => {}
                     other => panic!("PSU({n}) on {label:?}: {other:?}"),
                 }
             }
@@ -515,18 +517,18 @@ mod sun_forms {
             adjoint[0] += 1;
             adjoint[n - 2] += 1;
             assert_eq!(nality(&adjoint).rem_euclid(n as i64), 0);
-            assert!(Irrep::from_dynkin_in(&psu, &adjoint).is_ok());
+            assert!(lie_test::irrep_in(&psu, &adjoint).is_ok());
         }
         // The stated example: PSU(3) takes the adjoint 8, not the fundamental 3.
         let psu3 = GroupId::psu(3).unwrap();
-        assert!(Irrep::from_dynkin_in(&psu3, &[1, 1]).is_ok());
+        assert!(lie_test::irrep_in(&psu3, &[1, 1]).is_ok());
         assert!(matches!(
-            Irrep::from_dynkin_in(&psu3, &[1, 0]),
-            Err(SunError::NotAdmissible { .. })
+            lie_test::irrep_in(&psu3, &[1, 0]),
+            Err(LieError::NotAdmissible)
         ));
         assert!(matches!(
-            Irrep::from_dynkin_in(&psu3, &[0, 1]),
-            Err(SunError::NotAdmissible { .. })
+            lie_test::irrep_in(&psu3, &[0, 1]),
+            Err(LieError::NotAdmissible)
         ));
     }
 
@@ -543,7 +545,7 @@ mod sun_forms {
             for label in sweep(n - 1, 3) {
                 let ok = nality(&label).rem_euclid(k as i64) == 0;
                 assert_eq!(
-                    Irrep::from_dynkin_in(&g, &label).is_ok(),
+                    lie_test::irrep_in(&g, &label).is_ok(),
                     ok,
                     "SU({n})/Z{k} on {label:?}"
                 );
@@ -558,19 +560,24 @@ mod sun_forms {
         for n in 2..=5usize {
             let su = GroupId::su(n).unwrap();
             for label in sweep(n - 1, 3) {
-                let a = Irrep::from_dynkin(&label).unwrap();
-                let b = Irrep::from_dynkin_in(&su, &label).unwrap();
+                let a = lie_test::irrep(&label).unwrap();
+                let b = lie_test::irrep_in(&su, &label).unwrap();
                 assert_eq!(a, b);
-                assert_eq!(a.weight(), b.weight());
+                assert_eq!(a.dim_exact(), b.dim_exact());
                 assert_eq!(a.dynkin(), b.dynkin());
-                assert_eq!(a.rank(), n);
+                assert_eq!(a.dynkin().len() + 1, n);
             }
         }
         assert!(matches!(
-            Irrep::from_dynkin(&[-1, 0]),
-            Err(SunError::NegativeDynkin { .. })
+            lie_test::irrep(&[-1, 0]),
+            Err(LieError::InvalidLabel)
         ));
-        assert_eq!(Irrep::from_dynkin(&[]).unwrap(), Irrep::trivial(1).unwrap());
+        assert_eq!(
+            fusion_symbols::lie::LieGroup::new(GroupId::su(3).unwrap())
+                .unwrap()
+                .irrep(&[]),
+            Err(LieError::InvalidLabel)
+        );
     }
 
     /// (6) Global-form validation is a gate, not a transform: the GT data of a
@@ -580,14 +587,18 @@ mod sun_forms {
         let su3 = GroupId::su(3).unwrap();
         let psu3 = GroupId::psu(3).unwrap();
         for label in sweep(2, 4).into_iter().filter(|l| psu3.admits(l)) {
-            let cover = Irrep::from_dynkin_in(&su3, &label).unwrap();
-            let quotient = Irrep::from_dynkin_in(&psu3, &label).unwrap();
-            assert_eq!(cover, quotient);
-            assert_eq!(cover.dim(), quotient.dim());
-            assert_eq!(cover.dual(), quotient.dual());
-            assert_eq!(cover.patterns(), quotient.patterns());
-            assert_eq!(cover.creation(), quotient.creation());
-            assert_eq!(cover.annihilation(), quotient.annihilation());
+            let cover = lie_test::irrep_in(&su3, &label).unwrap();
+            let quotient = lie_test::irrep_in(&psu3, &label).unwrap();
+            assert_ne!(cover, quotient);
+            assert_eq!(cover.dim_exact(), quotient.dim_exact());
+            assert_eq!(
+                lie_test::dual(&cover).dynkin(),
+                fusion_symbols::lie::LieGroup::new(psu3)
+                    .unwrap()
+                    .dual(&quotient)
+                    .dynkin()
+            );
+            assert_eq!(cover.gt_patterns(), quotient.gt_patterns());
         }
     }
 
@@ -595,21 +606,16 @@ mod sun_forms {
     #[test]
     fn from_dynkin_in_rejects_a_foreign_root_system_and_a_wrong_length_label() {
         assert!(matches!(
-            Irrep::from_dynkin_in(&GroupId::so(7).unwrap(), &[1, 0, 0]),
-            Err(SunError::UnsupportedRootSystem {
-                root_system: RootSystem::B(3)
-            })
+            lie_test::irrep_in(&GroupId::so(7).unwrap(), &[1, 0, 0]),
+            Err(LieError::Unsupported { .. })
         ));
         assert!(matches!(
-            Irrep::from_dynkin_in(&GroupId::su(3).unwrap(), &[1, 0, 0]),
-            Err(SunError::LabelRankMismatch {
-                expected: 2,
-                got: 3
-            })
+            lie_test::irrep_in(&GroupId::su(3).unwrap(), &[1, 0, 0]),
+            Err(LieError::InvalidLabel)
         ));
         assert!(matches!(
-            Irrep::from_dynkin_in(&GroupId::su(3).unwrap(), &[-1, 0]),
-            Err(SunError::NegativeDynkin { .. })
+            lie_test::irrep_in(&GroupId::su(3).unwrap(), &[-1, 0]),
+            Err(LieError::InvalidLabel)
         ));
     }
 
@@ -621,7 +627,7 @@ mod sun_forms {
         let psu2 = GroupId::psu(2).unwrap();
         for dj in 0..8i64 {
             assert_eq!(
-                Irrep::from_dynkin_in(&psu2, &[dj]).is_ok(),
+                lie_test::irrep_in(&psu2, &[dj]).is_ok(),
                 dj % 2 == 0,
                 "PSU(2) = SO(3) admits integer spin only: dj={dj}"
             );
@@ -706,7 +712,7 @@ fn nonsensical_root_datum_admits_nothing() {
         #[cfg(feature = "cgc-gen")]
         {
             let zero = vec![0i64; root_system.rank()];
-            assert!(fusion_symbols::sun::Irrep::from_dynkin_in(&g, &zero).is_err());
+            assert!(lie_test::irrep_in(&g, &zero).is_err());
             assert!(fusion_symbols::bcd::Irrep::from_dynkin_in(&g, &zero).is_err());
         }
     }
@@ -808,7 +814,9 @@ mod cross_form_coefficients {
     /// and a second nontrivial one, the decuplet.
     #[test]
     fn su_and_psu_share_coefficient_data() {
-        use fusion_symbols::sun::{cgc, f_symbol, Irrep};
+        use crate::lie_test::{self};
+        use fusion_symbols::category::{FusionCategory, GroupRepresentations};
+        use fusion_symbols::lie::LieGroup;
 
         let su3 = GroupId::su(3).unwrap();
         let psu3 = GroupId::psu(3).unwrap();
@@ -825,43 +833,61 @@ mod cross_form_coefficients {
             for l in [&a, &b, &c] {
                 assert!(psu3.admits(l), "{l:?} must be a PSU(3) rep");
             }
-            let cov = |l: &[i64]| Irrep::from_dynkin_in(&su3, l).unwrap();
-            let quo = |l: &[i64]| Irrep::from_dynkin_in(&psu3, l).unwrap();
-            assert_eq!(cov(&a), quo(&a));
-            assert_eq!(
+            let cov = |l: &[i64]| lie_test::irrep_in(&su3, l).unwrap();
+            let quo = |l: &[i64]| lie_test::irrep_in(&psu3, l).unwrap();
+            assert_ne!(cov(&a), quo(&a));
+            assert_ne!(
                 hash_of(&(cov(&a), cov(&b), cov(&c))),
                 hash_of(&(quo(&a), quo(&b), quo(&c))),
                 "the SU(N) CGC cache key carries no GlobalForm"
             );
 
-            let cover = cgc(&cov(&a), &cov(&b), &cov(&c)).unwrap();
-            let quot = cgc(&quo(&a), &quo(&b), &quo(&c)).unwrap();
-            assert_eq!(cover.multiplicity(), quot.multiplicity());
+            let cover = LieGroup::new(su3)
+                .unwrap()
+                .cgc(&cov(&a), &cov(&b), &cov(&c))
+                .unwrap();
+            let quot = LieGroup::new(psu3)
+                .unwrap()
+                .cgc(&quo(&a), &quo(&b), &quo(&c))
+                .unwrap();
+            assert_eq!(cover.dims()[3], quot.dims()[3]);
             assert_eq!(cover.dims(), quot.dims());
-            assert_eq!(cover.nnz(), quot.nnz());
             assert_eq!(
-                cover.entries(),
-                quot.entries(),
+                lie_test::entries(&cover).len(),
+                lie_test::entries(&quot).len()
+            );
+            assert_eq!(
+                lie_test::entries(&cover),
+                lie_test::entries(&quot),
                 "SU(3) vs PSU(3) CGC entries for {a:?} ⊗ {b:?} → {c:?}"
             );
         }
         assert!(
-            cgc(
-                &Irrep::from_dynkin(&adj).unwrap(),
-                &Irrep::from_dynkin(&adj).unwrap(),
-                &Irrep::from_dynkin(&adj).unwrap()
+            lie_test::cgc(
+                &lie_test::irrep(&adj).unwrap(),
+                &lie_test::irrep(&adj).unwrap(),
+                &lie_test::irrep(&adj).unwrap()
             )
             .unwrap()
-            .multiplicity()
+            .dims()[3]
                 == 2,
             "8 ⊗ 8 → 8 is the multiplicity-2 channel this test wants"
         );
 
         // An F-symbol over the common reps agrees bit for bit.
-        let triv = Irrep::trivial(3).unwrap();
+
         let f = |g: &GroupId| {
-            let i = |l: &[i64]| Irrep::from_dynkin_in(g, l).unwrap();
-            f_symbol(&triv, &i(&adj), &i(&adj), &i(&adj), &i(&adj), &i(&adj)).unwrap()
+            let i = |l: &[i64]| lie_test::irrep_in(g, l).unwrap();
+            let cat = LieGroup::new(*g).unwrap();
+            cat.f_symbol(
+                &cat.unit(),
+                &i(&adj),
+                &i(&adj),
+                &i(&adj),
+                &i(&adj),
+                &i(&adj),
+            )
+            .unwrap()
         };
         let (fc, fq) = (f(&su3), f(&psu3));
         assert_eq!(fc.dims(), fq.dims());
@@ -886,35 +912,39 @@ mod cross_form_coefficients {
     /// construction, strictly before any cache is touched.
     #[test]
     fn an_inadmissible_rep_cannot_reach_the_cache_through_the_quotient_api() {
-        use fusion_symbols::sun::{cgc, Irrep, SunError};
+        use crate::lie_test::{self};
+        use fusion_symbols::category::GroupRepresentations;
+        use fusion_symbols::lie::{LieError, LieGroup};
 
         let su3 = GroupId::su(3).unwrap();
         let psu3 = GroupId::psu(3).unwrap();
-        let three = Irrep::from_dynkin_in(&su3, &[1, 0]).unwrap();
-        let threebar = Irrep::from_dynkin_in(&su3, &[0, 1]).unwrap();
-        let adj = Irrep::from_dynkin_in(&su3, &[1, 1]).unwrap();
+        let three = lie_test::irrep_in(&su3, &[1, 0]).unwrap();
+        let threebar = lie_test::irrep_in(&su3, &[0, 1]).unwrap();
+        let adj = lie_test::irrep_in(&su3, &[1, 1]).unwrap();
 
         // Populate the cover's entry for 3 ⊗ 3bar → 8.
-        let warm = cgc(&three, &threebar, &adj).unwrap();
-        assert!(warm.nnz() > 0);
+        let warm = lie_test::cgc(&three, &threebar, &adj).unwrap();
+        assert!(!lie_test::entries(&warm).is_empty());
 
         // The quotient still cannot name the fundamental — before, and after.
         for label in [[1i64, 0], [0, 1], [2, 0], [0, 2]] {
             assert!(matches!(
-                Irrep::from_dynkin_in(&psu3, &label),
-                Err(SunError::NotAdmissible { .. }),
+                lie_test::irrep_in(&psu3, &label),
+                Err(LieError::NotAdmissible),
             ));
         }
         // And a warm entry for a *shared* weight is genuinely shared: the
         // quotient's request returns the identical data.
-        let again = cgc(
-            &Irrep::from_dynkin_in(&psu3, &[1, 1]).unwrap(),
-            &Irrep::from_dynkin_in(&psu3, &[1, 1]).unwrap(),
-            &Irrep::from_dynkin_in(&psu3, &[1, 1]).unwrap(),
-        )
-        .unwrap();
-        let cover_again = cgc(&adj, &adj, &adj).unwrap();
-        assert_eq!(again.entries(), cover_again.entries());
+        let again = LieGroup::new(psu3)
+            .unwrap()
+            .cgc(
+                &lie_test::irrep_in(&psu3, &[1, 1]).unwrap(),
+                &lie_test::irrep_in(&psu3, &[1, 1]).unwrap(),
+                &lie_test::irrep_in(&psu3, &[1, 1]).unwrap(),
+            )
+            .unwrap();
+        let cover_again = lie_test::cgc(&adj, &adj, &adj).unwrap();
+        assert_eq!(lie_test::entries(&again), lie_test::entries(&cover_again));
     }
 
     /// The same bypass argument on the B/D side: `SO(N)` cannot reach a spinor

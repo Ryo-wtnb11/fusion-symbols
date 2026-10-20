@@ -25,8 +25,8 @@ Differences in detail are listed in docs/.
 Supported symmetries:
 
 - SU(2), SO(3), Spin(3), Sp(2), PSU(2) through `lie::LieGroup`, exact (default);
-- SU(N), SU(N)/Z_k, PSU(N), SO(N), Spin(N), Sp(2N), generated at run time
-  (`cgc-gen` feature);
+- SU(N), SU(N)/Z_k, PSU(N) through `lie::LieGroup`, generated (`cgc-gen`);
+- SO(N), Spin(N), Sp(2N) through `bcd`, generated (`cgc-gen`);
 - U(1), Z_N (including Z2) and fermion parity via `category::FusionCategory`
   (`abelian::{U1, ZN}`, `fermion::FermionParity`), closed form (default);
 - CU(1) = U(1) ⋊ C via `cu1::CU1` and `FusionCategory`, closed form (default);
@@ -36,7 +36,7 @@ Supported symmetries:
 
 The exact SU(2) evaluators live under `lie::su2`; category operations use
 `lie::LieGroup` and `category::FusionCategory`. In the `cgc-gen` surface,
-`sun_authority_fingerprint`, `bcd_authority_fingerprint`,
+`FusionCategory::authority_fingerprint`, `bcd_authority_fingerprint`,
 `cache::GENERATED_CACHE_MAX_BYTES` and `cache::GeneratedCacheStats` are marked
 unstable in their rustdoc.
 

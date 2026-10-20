@@ -83,19 +83,20 @@ The exact 3j/6j/CG evaluators retain their `_checked` forms and `Su2Error`.
 ## SU(N): blocks over multiplicity indices
 
 ```rust
-use fusion_symbols::sun::{f_symbol, r_symbol, Irrep};
+use fusion_symbols::{category::{FusionCategory}, lie::{GroupId, LieGroup}};
+let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-let three = Irrep::from_dynkin(&[1, 0]).unwrap();
-let anti = three.dual();
-let eight = Irrep::from_dynkin(&[1, 1]).unwrap();
+let three = cat.irrep(&[1, 0]).unwrap();
+let anti = cat.dual(&three);
+let eight = cat.irrep(&[1, 1]).unwrap();
 
 // F^{3 3bar 3}_{3}[8, 8]
-let block = f_symbol(&three, &anti, &three, &three, &eight, &eight).unwrap();
+let block = cat.f_symbol(&three, &anti, &three, &three, &eight, &eight).unwrap();
 assert_eq!(block.dims(), [1, 1, 1, 1]);
 assert!((block.at(0, 0, 0, 0) - 1.0 / 3.0).abs() < 1e-12);
 
 // R^{3 3bar}_{8}
-let r = r_symbol(&three, &anti, &eight).unwrap();
+let r = cat.r_symbol(&three, &anti, &eight).unwrap();
 assert_eq!(r.dim(), 1);
 assert!((r.at(0, 0).abs() - 1.0).abs() < 1e-12);
 ```
@@ -165,23 +166,25 @@ trailing axis — `μ` on `a ⊗ b → e`, `ν` on `e ⊗ c → d`, `κ` on `b �
 `λ` on `a ⊗ f → d` — exactly as in the table.
 
 ```rust
-use fusion_symbols::sun::{cgc, directproduct, f_symbol, Irrep};
+use fusion_symbols::{category::{FusionCategory, GroupRepresentations}, lie::{GroupId, LieGroup, LieIrrep}};
+let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-let eight = Irrep::from_dynkin(&[1, 1]).unwrap();
+let eight = cat.irrep(&[1, 1]).unwrap();
 let dim = 8usize;
 
 // N^8_88 = 2, so every multiplicity axis below has length 2.
-assert_eq!(directproduct(&eight, &eight).unwrap()[&eight], 2);
+assert_eq!(cat.fusion(&eight, &eight).unwrap()
+    .map(|c| { let n = cat.nsymbol(&eight, &eight, &c); (c, n) })
+    .collect::<std::collections::BTreeMap<_, _>>()[&eight], 2);
 
-// Densify a sparse CGC into (row-major buffer, dims), indexed [m1][m2][m3][mu].
-let dense = |s1: &Irrep, s2: &Irrep, s3: &Irrep| {
-    let t = cgc(s1, s2, s3).unwrap();
+// Materialize a CGC into (row-major buffer, dims), indexed [m1][m2][m3][mu].
+let dense = |s1: &LieIrrep, s2: &LieIrrep, s3: &LieIrrep| {
+    let t = cat.cgc(s1, s2, s3).unwrap();
     let [d1, d2, d3, n] = t.dims();
     let mut buf = vec![0.0f64; d1 * d2 * d3 * n];
-    for e in t.entries() {
-        let (m1, m2, m3, mu) = (e.m1 as usize, e.m2 as usize, e.m3 as usize, e.mu as usize);
-        buf[((m1 * d2 + m2) * d3 + m3) * n + mu] = e.value;
-    }
+    for m1 in 0..d1 { for m2 in 0..d2 { for m3 in 0..d3 { for mu in 0..n {
+        buf[((m1 * d2 + m2) * d3 + m3) * n + mu] = t.at(m1, m2, m3, mu);
+    }}}}
     (buf, [d1, d2, d3, n])
 };
 let at = |t: &(Vec<f64>, [usize; 4]), i: usize, j: usize, k: usize, l: usize| {
@@ -193,12 +196,13 @@ let left = dense(&eight, &eight, &eight);
 
 // Right tree: for every channel f of 8 x 8, the F block F^{888}_8[e=8, f]
 // (shape [2, 2, N^f_88, N^8_8f]) and the two CGC carrying kappa and lambda.
-let right: Vec<_> = directproduct(&eight, &eight)
-    .unwrap()
+let right: Vec<_> = cat.fusion(&eight, &eight).unwrap()
+    .map(|c| { let n = cat.nsymbol(&eight, &eight, &c); (c, n) })
+    .collect::<std::collections::BTreeMap<_, _>>()
     .keys()
     .map(|f| {
         (
-            f_symbol(&eight, &eight, &eight, &eight, &eight, f).unwrap(),
+            cat.f_symbol(&eight, &eight, &eight, &eight, &eight, f).unwrap(),
             dense(&eight, &eight, f), // C^{bc->f}[mb, mc, mf, kappa]
             dense(&eight, f, &eight), // C^{af->d}[ma, mf, md, lambda]
         )
@@ -250,29 +254,31 @@ carry the full `2 × 2` left-tree `(μ, ν)` axes.
 
 ## Self-checks you can call
 
-The identities that gate generation are also public API, per family, so you can
-use them as oracles on your own labels:
+Generic residual functions evaluate the identities against `FusionCategory`,
+including multiplicity sums. They return the maximum absolute residual; the
+caller chooses the tolerance:
 
 ```rust
-use fusion_symbols::sun::{check_f_unitarity, check_hexagon, check_pentagon, Irrep};
+use fusion_symbols::{category::{FusionCategory}, lie::{GroupId, LieGroup}};
+let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-let three = Irrep::from_dynkin(&[1, 0]).unwrap();
-let anti = three.dual();
-check_f_unitarity(&three, &anti, &three, &three).unwrap();
-check_pentagon(&three, &anti, &three, &anti).unwrap();
-check_hexagon(&three, &anti, &three).unwrap();
+let three = cat.irrep(&[1, 0]).unwrap();
+let anti = cat.dual(&three);
+assert!(fusion_symbols::category::f_unitarity_residual(&cat, &three, &anti, &three, &three).unwrap() < 1e-10);
+assert!(fusion_symbols::category::pentagon_residual(&cat, &three, &anti, &three, &anti).unwrap() < 1e-10);
+assert!(fusion_symbols::category::hexagon_residual(&cat, &three, &anti, &three).unwrap() < 1e-10);
 ```
 
-`fusion_symbols::bcd` has the same three (taking `&mut CanonicalCatalog` first) plus
-`check_commutators` for the seed algebra. CGC orthonormality and R-orthogonality
+`fusion_symbols::bcd` retains its generation checks (taking
+`&mut CanonicalCatalog` first), plus `check_commutators` for the seed algebra. CGC orthonormality and R-orthogonality
 run as generation gates only — they are not callable, and a violation surfaces
 as a typed error.
 
 ## Caveats
 
-- **Generated Lie APIs: an empty vertex is an error.** If any of the four F-symbol vertices has zero
+- **B/C/D (`bcd` module): an empty vertex is an error.** If any of the four F-symbol vertices has zero
   fusion multiplicity, the call returns a typed error rather than a zero block.
-  Check the channels with [`directproduct`](fusion.md) first if in doubt.
+  `LieGroup` returns a zero block for an empty vertex.
 - **Cost.** The first F-symbol on a set of labels generates the underlying CGC;
   after that both the CGC and the F block are cached. R is a single sparse join
   of two CGC and is not separately cached.
@@ -284,20 +290,21 @@ as a typed error.
 
 ## Related API
 
-- [`fusion_symbols::category::FusionCategory::f_symbol`], [`fusion_symbols::category::FusionCategory::r_symbol`], [`fusion_symbols::lie::su2::wigner_6j`],
-  and their `*_checked` twins
-- [`sun::f_symbol`], [`sun::r_symbol`], [`sun::check_f_unitarity`],
-  `check_pentagon`, `check_hexagon`
-- [`bcd::f_symbol`], [`bcd::r_symbol`], and the same three checks
+- [`fusion_symbols::category::FusionCategory::f_symbol`], [`fusion_symbols::category::FusionCategory::r_symbol`], [`fusion_symbols::lie::su2::wigner_6j`]
+- [`FusionCategory::f_symbol`], [`FusionCategory::r_symbol`], [`category::f_unitarity_residual`],
+  [`category::pentagon_residual`], [`category::hexagon_residual`]
+- [`bcd::f_symbol`], [`bcd::r_symbol`]
 - [`FBlock`], [`RBlock`]
 
 [`fusion_symbols::category::FusionCategory::f_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.f_symbol
 [`fusion_symbols::category::FusionCategory::r_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.r_symbol
 [`fusion_symbols::lie::su2::wigner_6j`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/su2/fn.wigner_6j.html
-[`sun::f_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/fn.f_symbol
-[`sun::r_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/fn.r_symbol
-[`sun::check_f_unitarity`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/fn.check_f_unitarity.html
+[`FusionCategory::f_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
+[`FusionCategory::r_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
+[`category::f_unitarity_residual`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/fn.f_unitarity_residual.html
+[`category::pentagon_residual`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/fn.pentagon_residual.html
+[`category::hexagon_residual`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/fn.hexagon_residual.html
 [`bcd::f_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/fn.f_symbol
 [`bcd::r_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/fn.r_symbol
-[`FBlock`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/struct.FBlock.html
-[`RBlock`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/struct.RBlock.html
+[`FBlock`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
+[`RBlock`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html

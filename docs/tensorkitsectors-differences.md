@@ -51,9 +51,10 @@ known difference and the reason recorded for it. Per-symbol provenance is in
   U(1) and CU(1) fusion can report label overflow. Object constructors validate
   labels; foreign cyclic or table objects panic. On fusion-only tables,
   `r_symbol` returns `TableError::NoBraiding` and `twist` panics, both after
-  rejecting foreign objects. Generated Lie families retain their existing
-  `Result` APIs. Reason: validation belongs at construction and an absent
-  coupling must remain distinguishable from generation failure.
+  rejecting foreign objects. SU(N) uses `LieGroup` too: absent
+  channels return empty blocks and generation failures are opaque
+  `LieError::Generation` diagnostics with an error source. B/C/D (`bcd` module)
+  keeps its `Result`-only functions, where an absent channel is an error. Validation belongs at construction.
 
 ## Labels
 

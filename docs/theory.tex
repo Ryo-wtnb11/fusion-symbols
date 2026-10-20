@@ -604,7 +604,7 @@ must share the cache entry.
 API: \code{fusion\_symbols::group} --- \code{RootSystem}, \code{GlobalForm},
 \code{CenterSubgroup}, \code{GroupId}, and the predicate
 \code{GroupId::admits}; the form-aware constructors
-\code{sun::Irrep::from\_dynkin\_in} and \code{bcd::Irrep::from\_dynkin\_in}
+\code{LieGroup::irrep} and \code{bcd::Irrep::from\_dynkin\_in}
 (the plain \code{from\_dynkin} constructors keep their historically published
 groups).
 \end{sloppypar}
@@ -664,7 +664,7 @@ key: it exists only where a defining-representation seed and a canonical
 catalogue exist, so it has exactly three variants $B$, $C$, $D$. The single
 bridge is \code{bcd::Series::root\_system}; neither type is an alias of the
 other. $A$-series labels are not a \code{Series} at all --- they go through
-\code{sun::Irrep} (and $A_1$ through \code{su2}).
+\code{lie::LieIrrep} (and $A_1$ through \code{su2}).
 
 \paragraph{A group is a root system plus a global form.} The whole of
 \code{GroupId} is
@@ -705,7 +705,7 @@ works in the \emph{cover} --- the bootstrap needs the spinor seeds, so its
 internal catalogue is over $Spin(2r+1)$, $Sp(2r)$, $Spin(2r)$ --- while the
 labels a query \emph{publishes} are cut down to a chosen default form:
 $SO(2r+1)$ for $B$, $Sp(2r)$ for $C$, $SO(2r)$ for $D$. The form-aware
-constructors \code{sun::Irrep::from\_dynkin\_in} and
+constructors \code{LieGroup::irrep} and
 \code{bcd::Irrep::from\_dynkin\_in} take a \code{GroupId} explicitly; the plain
 \code{from\_dynkin} constructors keep those historically published defaults.
 API: \code{bcd::Series::cover\_group}, \code{bcd::Series::published\_group}.
@@ -815,7 +815,7 @@ the short simple root is $\alpha_r$ and $a_r$ is the spinor label). Internally
 the combinatorics use the $\varepsilon$-basis components
 $\lambda=(\lambda_1\ge\lambda_2\ge\cdots)$; the two are related by the
 series-specific linear map, and both directions are exact integer (or
-half-integer, for spinors) arithmetic. API: \code{sun::Irrep::from\_dynkin},
+half-integer, for spinors) arithmetic. API: \code{LieGroup::irrep},
 \code{bcd::Irrep::from\_dynkin}.
 \end{convention}
 
@@ -1435,7 +1435,7 @@ and columns by $\nu$. In the multiplicity-free case it is a single phase, and
 for $SU(2)$ it is $(-1)^{j_a+j_b-j_c}$ on an admissible triangle and exactly
 $0$ otherwise (the zero mirrors $N^c_{ab}=0$ and stops a caller multiplying a
 spurious sign into a forbidden channel). API:
-\code{sun::\{f\_symbol, r\_symbol\}}, \code{bcd::\{f\_symbol, r\_symbol\}}.
+\code{FusionCategory::\{f\_symbol, r\_symbol\}}, \code{bcd::\{f\_symbol, r\_symbol\}}.
 
 \begin{remark}[No $6j$ outside $SU(2)$]
 The recoupling surface for the generated families is $F$ and $R$ only. There is

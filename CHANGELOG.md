@@ -45,7 +45,17 @@ value/gauge rule noted below.
   move to base `lie` storage with allocation-free `one` constructors;
   generated-family re-exports remain. SU(2) values and fingerprints are
   unchanged for every rank-one form. Python-visible names remain unchanged.
-  Higher-rank LieGroup dispatch is deferred to slice 4.
+  Slice 4a extends `LieGroup` to A(r), r ≥ 2 (`cgc-gen`), with global-form
+  validation and cached fusion, CGC, F/R. `LieIrrep` loses `Copy`; `gt_patterns`
+  returns optional GT basis data (`lie::GtPattern`). The public `sun` module
+  and its `Irrep`, constructors, products, CGC types/functions, F/R functions,
+  `check_*`, `SunError`, and `sun_authority_fingerprint` are removed. Use
+  `FusionCategory` / `GroupRepresentations`; `LieError::Generation` contains
+  opaque `GenerationError` with a diagnostic source. Generic
+  `category::{f_unitarity_residual,pentagon_residual,hexagon_residual}` return
+  maximum absolute residuals without a library tolerance. SU(N) N=0 returns
+  zero blocks. Rust gauge values, fingerprint bytes and cache APIs stay
+  unchanged. B/C/D remains slice 4b.
   The existing interface `category::FusionCategory` replaces
   abelian per-object `dim`, `dual`, `frobenius_schur`, `twist`, `fusion`
   methods and all `z2_*`, `zn_*`, `u1_*`, `fermion_parity_*` free functions

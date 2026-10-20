@@ -9,10 +9,10 @@
 
 #![cfg(feature = "cgc-gen")]
 
-use fusion_symbols::sun::{check_f_unitarity, check_hexagon, check_pentagon, Irrep};
-
+#[path = "common/lie.rs"]
+mod lie_test;
 fn irr(d: &[i64]) -> Irrep {
-    Irrep::from_dynkin(d).unwrap()
+    lie_test::irrep(d).unwrap()
 }
 
 /// A deterministic sample of small SU(3) irreps to sweep the gates over.
@@ -94,3 +94,7 @@ fn su3_octet_pentagon_om2() {
     let e8 = irr(&[1, 1]);
     check_pentagon(&e8, &e8, &e8, &e8).unwrap();
 }
+use fusion_symbols::lie::LieIrrep as Irrep;
+use lie_test::check_f_unitarity;
+use lie_test::check_hexagon;
+use lie_test::check_pentagon;

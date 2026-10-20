@@ -225,7 +225,7 @@ pub enum GlobalForm {
 /// quotient). Such a pairing is not silently wrong and does not propagate:
 /// [`admits`](GroupId::admits) returns `false` for **every** weight, and the
 /// two form-aware constructors
-/// ([`crate::bcd::Irrep::from_dynkin_in`], [`crate::sun::Irrep::from_dynkin_in`])
+/// ([`crate::bcd::Irrep::from_dynkin_in`], [`crate::lie::LieGroup::irrep`])
 /// therefore reject every label with the ordinary not-admissible error. A
 /// nonsensical datum has no representations, which is the mathematically
 /// honest answer for a group that does not exist.

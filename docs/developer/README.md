@@ -33,7 +33,7 @@ The collectors that produce these are `src/cache_audit.rs`,
 - [`../gauge.md`](../gauge.md), [`../gauge_soN.md`](../gauge_soN.md) — the
   frozen gauge specifications. Implementation internals (GT construction,
   B/C/D bootstrap, canonical parent, sweep order, alignment) are documented
-  rule by rule there and in the module rustdoc of `src/sun/`, `src/bcd/`.
+  rule by rule there and in the module rustdoc of `src/lie/sun/`, `src/bcd/`.
 - [`../../CHANGELOG.md`](../../CHANGELOG.md) — the breaking-change ledger the
   gauge specification's fingerprint epochs are recorded in.
 - [`benches/`](#benchmarks) — `cargo bench` harnesses (not CI gates); see the
@@ -44,7 +44,7 @@ The collectors that produce these are `src/cache_audit.rs`,
 **Kernel routing.** All dense numerical work behind `cgc-gen` — the
 nullspace/QR/least-squares factorizations and the CGC contractions producing
 F/R — routes through t4a-faer with explicit `Par::Seq` and scratch workspaces
-(`src/sun/linalg.rs`, `src/bcd/linalg.rs`). Only `std` is enabled, without
+(`src/lie/sun/linalg.rs`, `src/bcd/linalg.rs`). Only `std` is enabled, without
 `rayon`; global parallelism is neither set nor consulted. `fusion-symbols`
 contains no hand-rolled numeric kernels; selecting a backend is **not public API**. An
 extended-precision tier (the QSpace model: compute in ~128-bit precision,

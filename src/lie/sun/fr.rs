@@ -23,11 +23,10 @@
 use std::sync::Arc;
 
 use super::{cgc, shared_directproduct, Irrep, SunError};
-use crate::frcore::{
-    self, f_block_raw, f_unitarity_residual, hexagon_residual, pentagon_residual, r_block_raw,
-    Family, MEntry,
-};
+use crate::frcore::{f_block_raw, r_block_raw, Family, MEntry};
 
+#[cfg(test)]
+use crate::frcore::{self, f_unitarity_residual, hexagon_residual, pentagon_residual};
 pub use crate::frcore::{FBlock, RBlock};
 
 /// The SU(N) binding of the generic F/R core: a stateless zero-sized provider.
@@ -125,25 +124,10 @@ fn require_same_rank(labels: &[&Irrep]) -> Result<(), SunError> {
 /// and the CGC are then cached, so repeated queries are lookups. Recomputing a
 /// block from those cached CGC uses a stable summation order within the process.
 ///
-/// ```
-/// use fusion_symbols::sun::{f_symbol, Irrep};
-///
-/// let three = Irrep::from_dynkin(&[1, 0]).unwrap();
-/// let anti = three.dual();
-/// let eight = Irrep::from_dynkin(&[1, 1]).unwrap();
-///
-/// // F^{3 3bar 3}_{3}[8, 8] — every vertex multiplicity-free here.
-/// let block = f_symbol(&three, &anti, &three, &three, &eight, &eight).unwrap();
-/// assert_eq!(block.dims(), [1, 1, 1, 1]);
-/// assert!((block.at(0, 0, 0, 0) - 1.0 / 3.0).abs() < 1e-12);
-/// ```
 ///
 /// # Errors
 ///
 /// - [`SunError::RankMismatch`] if the six labels are not all SU(N) for one `N`.
-/// - [`SunError::ZeroFusionChannel`] if any of the four vertices is empty. (The
-///   reference returns an all-zero block here; this query API returns a typed
-///   error.)
 /// - [`SunError::NullspaceDimMismatch`] / [`SunError::NotOrthonormal`] /
 ///   [`SunError::LadderInconsistent`] / [`SunError::Linalg`] surfaced from an
 ///   underlying CGC generation.
@@ -177,25 +161,6 @@ pub fn f_symbol(
     if let Some(hit) = cache.get(&key) {
         return Ok((*hit).clone());
     }
-    // Guard: every vertex must be non-empty (the reference's
-    // `Nsymbol(...) == 0 && return zeros` short-circuit becomes a typed error).
-    // It runs on a miss only: this function is the cache's sole writer and
-    // inserts a key only after the label-only guard passed.
-    let vertices = [
-        (a, b, e), // N1 = μ
-        (e, c, d), // N2 = ν
-        (b, c, f), // N3 = κ
-        (a, f, d), // N4 = λ
-    ];
-    for (x, y, z) in vertices {
-        if mult(x, y, z)? == 0 {
-            return Err(SunError::ZeroFusionChannel {
-                a: x.dynkin(),
-                b: y.dynkin(),
-                c: z.dynkin(),
-            });
-        }
-    }
     let block = f_block_raw(&mut SunFamily, a, b, c, d, e, f)?;
     let stored = cache.insert(key, Arc::new(block));
     Ok((*stored).clone())
@@ -218,37 +183,18 @@ pub fn f_symbol(
 /// of two CGC and is not separately cached. Repeated calls from the same cached
 /// CGC sum in a stable order and return bit-identical blocks within the process.
 ///
-/// ```
-/// use fusion_symbols::sun::{r_symbol, Irrep};
-///
-/// let three = Irrep::from_dynkin(&[1, 0]).unwrap();
-/// let eight = Irrep::from_dynkin(&[1, 1]).unwrap();
-///
-/// // R^{3 3bar}_{8} is a 1x1 block holding a phase.
-/// let r = r_symbol(&three, &three.dual(), &eight).unwrap();
-/// assert_eq!(r.dim(), 1);
-/// assert!((r.at(0, 0).abs() - 1.0).abs() < 1e-12);
-/// ```
 ///
 /// # Errors
 ///
 /// - [`SunError::RankMismatch`] if `a`, `b`, `c` are not all SU(N) for one `N`.
-/// - [`SunError::ZeroFusionChannel`] if $a \otimes b \to c$ is empty.
 /// - CGC generation errors are surfaced.
 pub fn r_symbol(a: &Irrep, b: &Irrep, c: &Irrep) -> Result<RBlock, SunError> {
     require_same_rank(&[a, b, c])?;
-    if mult(a, b, c)? == 0 {
-        return Err(SunError::ZeroFusionChannel {
-            a: a.dynkin(),
-            b: b.dynkin(),
-            c: c.dynkin(),
-        });
-    }
     r_block_raw(&mut SunFamily, a, b, c)
 }
 
 // ---------------------------------------------------------------------------
-// Gates (shipped as public API: generation gates and oracle harnesses).
+// Legacy gates retained as internal comparison oracles.
 // ---------------------------------------------------------------------------
 
 /// Verify that the F-move for fixed outer labels `(a, b, c, d)` is unitary
@@ -259,6 +205,7 @@ pub fn r_symbol(a: &Irrep, b: &Irrep, c: &Irrep) -> Result<RBlock, SunError> {
 ///
 /// [`SunError::FNotUnitary`] with the worst `|(M Mᵀ - I)_{ij}|` if the gate
 /// fails; [`SunError::RankMismatch`] on mixed ranks; CGC errors surfaced.
+#[cfg(test)]
 pub fn check_f_unitarity(a: &Irrep, b: &Irrep, c: &Irrep, d: &Irrep) -> Result<(), SunError> {
     require_same_rank(&[a, b, c, d])?;
     let worst = f_unitarity_residual(&mut SunFamily, a, b, c, d)?;
@@ -275,6 +222,7 @@ pub fn check_f_unitarity(a: &Irrep, b: &Irrep, c: &Irrep, d: &Irrep) -> Result<(
 ///
 /// [`SunError::PentagonViolation`] (worst residual) on failure;
 /// [`SunError::RankMismatch`] on mixed ranks; CGC errors surfaced.
+#[cfg(test)]
 pub fn check_pentagon(a: &Irrep, b: &Irrep, c: &Irrep, d: &Irrep) -> Result<(), SunError> {
     require_same_rank(&[a, b, c, d])?;
     let worst = pentagon_residual(&mut SunFamily, a, b, c, d)?;
@@ -291,6 +239,7 @@ pub fn check_pentagon(a: &Irrep, b: &Irrep, c: &Irrep, d: &Irrep) -> Result<(), 
 ///
 /// [`SunError::HexagonViolation`] (worst residual) on failure;
 /// [`SunError::RankMismatch`] on mixed ranks; CGC errors surfaced.
+#[cfg(test)]
 pub fn check_hexagon(a: &Irrep, b: &Irrep, c: &Irrep) -> Result<(), SunError> {
     require_same_rank(&[a, b, c])?;
     let worst = hexagon_residual(&mut SunFamily, a, b, c)?;
@@ -304,13 +253,38 @@ pub fn check_hexagon(a: &Irrep, b: &Irrep, c: &Irrep) -> Result<(), SunError> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn category_residuals_agree_with_generation_gates() {
+        use crate::{
+            category,
+            lie::{GroupId, LieGroup},
+        };
+        let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+        for d in [&[1, 0][..], &[1, 1][..]] {
+            let a = irr(d);
+            let label = cat.irrep(d).unwrap();
+            let old = f_unitarity_residual(&mut SunFamily, &a, &a, &a, &a).unwrap();
+            let new = category::f_unitarity_residual(&cat, &label, &label, &label, &label).unwrap();
+            assert!((old - new).abs() < 1e-14);
+            check_f_unitarity(&a, &a, &a, &a).unwrap();
+        }
+        let a = irr(&[1, 0]);
+        let label = cat.irrep(&[1, 0]).unwrap();
+        let old = pentagon_residual(&mut SunFamily, &a, &a, &a, &a).unwrap();
+        let new = category::pentagon_residual(&cat, &label, &label, &label, &label).unwrap();
+        assert!((old - new).abs() < 1e-14);
+        let old = hexagon_residual(&mut SunFamily, &a, &a, &a).unwrap();
+        let new = category::hexagon_residual(&cat, &label, &label, &label).unwrap();
+        assert!((old - new).abs() < 1e-14);
+    }
+
     fn irr(d: &[i64]) -> Irrep {
         Irrep::from_dynkin(d).unwrap()
     }
 
     #[test]
     fn private_product_consumers_do_not_reconstruct_public_maps() {
-        crate::sun::reset_public_directproduct_reconstructions();
+        crate::lie::sun::reset_public_directproduct_reconstructions();
 
         let trivial = Irrep::trivial(3).unwrap();
         let three = irr(&[1, 0]);
@@ -322,21 +296,22 @@ mod tests {
             std::slice::from_ref(&three)
         );
         let _ = f_symbol(&trivial, &three, &three, &six, &three, &six).unwrap();
-        assert_eq!(crate::sun::public_directproduct_reconstructions(), 0);
+        assert_eq!(crate::lie::sun::public_directproduct_reconstructions(), 0);
 
-        let _ = crate::sun::directproduct(&trivial, &three).unwrap();
-        assert_eq!(crate::sun::public_directproduct_reconstructions(), 1);
+        let _ = crate::lie::sun::directproduct(&trivial, &three).unwrap();
+        assert_eq!(crate::lie::sun::public_directproduct_reconstructions(), 1);
     }
 
     // ---- guard inventory: red-first ill-posed inputs ----
 
     #[test]
-    fn f_symbol_zero_vertex_is_typed_error() {
+    fn f_symbol_zero_vertex_is_zero() {
         // SU(3): a⊗b→e with e ∉ a⊗b. 3⊗3 = 6 ⊕ 3̄, so e = 8 is empty.
         let three = irr(&[1, 0]);
         let eight = irr(&[1, 1]);
-        let err = f_symbol(&three, &three, &three, &three, &eight, &three).unwrap_err();
-        assert!(matches!(err, SunError::ZeroFusionChannel { .. }));
+        let block = f_symbol(&three, &three, &three, &three, &eight, &three).unwrap();
+        assert!(block.dims().contains(&0));
+        assert!(block.data().is_empty());
     }
 
     #[test]
@@ -348,12 +323,13 @@ mod tests {
     }
 
     #[test]
-    fn r_symbol_zero_vertex_is_typed_error() {
+    fn r_symbol_zero_vertex_is_zero() {
         // 3 ⊗ 3 → 8 is empty (3⊗3 = 6 ⊕ 3̄).
         let three = irr(&[1, 0]);
         let eight = irr(&[1, 1]);
-        let err = r_symbol(&three, &three, &eight).unwrap_err();
-        assert!(matches!(err, SunError::ZeroFusionChannel { .. }));
+        let block = r_symbol(&three, &three, &eight).unwrap();
+        assert_eq!(block.dim(), 0);
+        assert!(block.data().is_empty());
     }
 
     #[test]
@@ -457,5 +433,48 @@ mod tests {
     fn su3_hexagon_multiplicity_free() {
         let three = irr(&[1, 0]);
         check_hexagon(&three, &three, &three).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod residual_tests {
+    use super::*;
+    use crate::{
+        category,
+        lie::{GroupId, LieGroup},
+    };
+
+    #[test]
+    fn generic_residuals_agree_with_generated_gates() {
+        let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+        for labels in [
+            [[1, 0], [0, 1], [1, 0], [1, 0]],
+            [[1, 0], [0, 1], [1, 0], [0, 1]],
+            [[1, 1]; 4],
+        ] {
+            let [a, b, c, d] = labels.map(|label| cat.irrep(&label).unwrap());
+            let [pa, pb, pc, pd] = [&a, &b, &c, &d].map(|x| x.generated.as_ref().unwrap());
+            let pairs = [
+                (
+                    category::f_unitarity_residual(&cat, &a, &b, &c, &d).unwrap(),
+                    f_unitarity_residual(&mut SunFamily, pa, pb, pc, pd).unwrap(),
+                ),
+                (
+                    category::pentagon_residual(&cat, &a, &b, &c, &d).unwrap(),
+                    pentagon_residual(&mut SunFamily, pa, pb, pc, pd).unwrap(),
+                ),
+                (
+                    category::hexagon_residual(&cat, &a, &b, &c).unwrap(),
+                    hexagon_residual(&mut SunFamily, pa, pb, pc).unwrap(),
+                ),
+            ];
+            for (generic, old) in pairs {
+                assert!((generic - old).abs() < 1e-12, "{generic:e} vs {old:e}");
+                assert!(generic < 1e-10);
+            }
+            check_f_unitarity(pa, pb, pc, pd).unwrap();
+            check_pentagon(pa, pb, pc, pd).unwrap();
+            check_hexagon(pa, pb, pc).unwrap();
+        }
     }
 }

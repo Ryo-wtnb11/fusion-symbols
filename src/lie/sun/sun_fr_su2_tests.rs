@@ -8,7 +8,7 @@
 //! SUNRepresentations' deterministic SU(2) CGC gauge and the Condon–Shortley
 //! convention of the exact core differ by one overall sign `ε(j1,j2,j3) = ±1`
 //! per fusion channel (the highest-weight `qrpos!` sign — the same sign
-//! `tests/su2_embedding.rs` aligns). The F/R symbols are gauge-*covariant*
+//! `super::su2_embedding_tests` aligns). The F/R symbols are gauge-*covariant*
 //! under a per-vertex CGC sign flip `C(x,y,z) → ε(x,y,z) C(x,y,z)`:
 //!
 //! - F contracts one CGC at each of its four vertices `(a,b,e)`, `(e,c,d)`,
@@ -26,7 +26,7 @@
 //! coefficient `⟨j1 j1; j2, j3−j1 | j3 j3⟩ > 0`. Those two extreme coefficients
 //! differ in sign by exactly `(-1)^(j1+j2-j3)` (the CGC row-reversal symmetry),
 //! so that is `ε`. Each channel is otherwise ladder-fixed identically in both
-//! gauges, hence one global sign per channel. `tests/su2_embedding.rs` observes
+//! gauges, hence one global sign per channel. `super::su2_embedding_tests` observes
 //! this same per-channel sign; here it is pinned to the closed form.
 //!
 //! Consequences for F and R, both telescoping to an **even** exponent:
@@ -36,18 +36,16 @@
 //! So the F/R **blocks are sign-difference-invariant** (the per-vertex
 //! coboundary cancels) even though 56 of 140 individual SU(2) channels
 //! (`dj ≤ 6`) have `ε = -1`. The comparison reconciles via the exact `ε` rule —
-//! each `ε` computed independently from `fusion_symbols::lie::su2::clebsch_gordan`, and asserted
+//! each `ε` computed independently from `crate::lie::su2::clebsch_gordan`, and asserted
 //! equal to `(-1)^(j1+j2−j3)` per channel (strictly stronger than the product
 //! pin) — so a future gauge change that broke either the per-channel law or the
 //! cancellation would surface here.
 
 #![cfg(feature = "cgc-gen")]
 
-#[path = "common/a1.rs"]
-mod a1;
-use a1::{exact_f, exact_r};
-use fusion_symbols::lie::su2::clebsch_gordan;
-use fusion_symbols::sun::{cgc, f_symbol, r_symbol, Irrep};
+use crate::lie::su2::clebsch_gordan;
+use crate::lie::su2::{f_symbol as exact_f, r_symbol as exact_r};
+use crate::lie::sun::{cgc, f_symbol, r_symbol, Irrep};
 
 fn su2(dj: u32) -> Irrep {
     Irrep::from_dynkin(&[dj as i64]).unwrap()

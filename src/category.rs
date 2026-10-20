@@ -277,3 +277,6 @@ pub trait GroupRepresentations: FusionCategory {
         c: &Self::Object,
     ) -> Result<Self::Cgc, Self::Error>;
 }
+
+mod residual;
+pub use residual::{f_unitarity_residual, hexagon_residual, pentagon_residual};

@@ -22,8 +22,8 @@ computes it exactly, in integer arithmetic, for every family.
 Before anything else. `N^c_ab` tells you which coupling channels exist at all,
 and it is the length of the multiplicity axis on every CGC, F and R block you
 ask for. If `N^c_ab = 0` there is no coefficient to compute, and the
-`FusionCategory` APIs return exact zero symbols. The generated Lie APIs
-retain their existing typed errors for absent channels.
+`FusionCategory` APIs return exact zero symbols. SU(N) returns empty blocks for absent channels; B/C/D keeps its existing
+typed errors in this slice.
 
 ## SU(2)
 
@@ -43,21 +43,24 @@ The only failure is `LieError::LabelOverflow`, when `dj1 + dj2` exceeds `u32`.
 
 ## SU(N)
 
-`sun::directproduct` returns a `BTreeMap<Irrep, u32>` — every `c` with
-`N^c_ab > 0`, mapped to its multiplicity. The computation is
-Littlewood–Richardson, exact.
+`cat.fusion(&a, &b)` yields each outcome once in deterministic order.
+`cat.nsymbol(&a, &b, &c)` gives its exact integer multiplicity. Collect a
+map only when needed; the iterator shares the cached product list.
 
 ```rust
-use fusion_symbols::sun::{directproduct, Irrep};
+use fusion_symbols::{category::{FusionCategory}, lie::{GroupId, LieGroup}};
+let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-let three = Irrep::from_dynkin(&[1, 0]).unwrap();
-let anti = three.dual();
-let out = directproduct(&three, &anti).unwrap();
+let three = cat.irrep(&[1, 0]).unwrap();
+let anti = cat.dual(&three);
+let out = cat.fusion(&three, &anti).unwrap()
+    .map(|c| { let n = cat.nsymbol(&three, &anti, &c); (c, n) })
+    .collect::<std::collections::BTreeMap<_, _>>();
 
 // 3 ⊗ 3-bar = 1 ⊕ 8, each once.
 assert_eq!(out.len(), 2);
-assert_eq!(out[&Irrep::trivial(3).unwrap()], 1);
-assert_eq!(out[&Irrep::from_dynkin(&[1, 1]).unwrap()], 1);
+assert_eq!(out[&cat.unit()], 1);
+assert_eq!(out[&cat.irrep(&[1, 1]).unwrap()], 1);
 ```
 
 ### Multiplicity greater than one
@@ -66,17 +69,18 @@ assert_eq!(out[&Irrep::from_dynkin(&[1, 1]).unwrap()], 1);
 coefficient blocks arrays instead of scalars.
 
 ```rust
-use fusion_symbols::sun::{directproduct, Irrep};
+use fusion_symbols::{category::{FusionCategory}, lie::{GroupId, LieGroup}};
+let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-let eight = Irrep::from_dynkin(&[1, 1]).unwrap();       // SU(3) adjoint
-let out = directproduct(&eight, &eight).unwrap();
+let eight = cat.irrep(&[1, 1]).unwrap();       // SU(3) adjoint
+let out = cat.fusion(&eight, &eight).unwrap()
+    .map(|c| { let n = cat.nsymbol(&eight, &eight, &c); (c, n) })
+    .collect::<std::collections::BTreeMap<_, _>>();
 assert_eq!(out[&eight], 2);     // the 8 appears twice in 8 ⊗ 8
 ```
 
-There is a second entry point, `sun::shared_directproduct`, which returns a
-cheaply cloneable [`SunProduct`] backed by the process-global product cache. Use
-it when you decompose the same pair repeatedly; use `directproduct` when you
-want a plain owned map.
+Repeated `fusion` and `nsymbol` calls use the same process-global cache;
+a warm second call does not sweep the weights again. Each yielded label is cloned.
 
 ## SO(N) / Sp(2N) / Spin(N)
 
@@ -131,8 +135,8 @@ with some twist minus one, and `Anyonic` otherwise.
 
 ## Caveats
 
-- Both `directproduct` functions require the two irreps to belong to the same
-  family and rank; a mismatch is a typed error, not a panic.
+- SU(N) category methods panic on foreign objects. B/C/D decomposition
+  retains its typed family/rank mismatch errors.
 - Multiplicity is `u32`. The B/C/D weight-multiplicity accumulation is `i128`
   internally and reports overflow as a typed error rather than wrapping.
 - Fusion respects global forms automatically: if `a` and `b` are admissible for
@@ -141,12 +145,12 @@ with some twist minus one, and `Anyonic` otherwise.
 ## Related API
 
 - [`category::FusionCategory::fusion`], [`lie::LieFusion`]
-- [`sun::directproduct`], [`sun::shared_directproduct`], [`SunProduct`]
+- [`FusionCategory::fusion`], [`FusionCategory::fusion`], [`lie::LieFusion`]
 - [`bcd::directproduct`]
 
 [`category::FusionCategory::fusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.fusion
 [`lie::LieFusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieFusion.html
-[`sun::directproduct`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/fn.directproduct.html
-[`sun::shared_directproduct`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/fn.shared_directproduct.html
-[`SunProduct`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/struct.SunProduct.html
+[`FusionCategory::fusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
+[`FusionCategory::fusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
+[`lie::LieFusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
 [`bcd::directproduct`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/fn.directproduct.html

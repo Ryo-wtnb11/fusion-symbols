@@ -51,9 +51,8 @@ with no signal anywhere. Under this freeze the arrow points the other way:
   easy to break by accident, so being written down is the only protection they
   have.
 - The **authority fingerprints are the version of this specification**, not a
-  label for the current build's output. `sun_authority_fingerprint()`,
-  `bcd_authority_fingerprint()`, and `FusionCategory::authority_fingerprint()` change only
-  when the specification they cite is corrected.
+  label for the current build's output. `FusionCategory::authority_fingerprint()`
+  and `bcd_authority_fingerprint()` change only when the specification they cite is corrected.
 - The fingerprint strings keep their `racah:` prefix **permanently**: they are
   identifiers, not a crate name. The rename to `fusion-symbols` does not change
   them, and no later change should "fix" the prefix.
@@ -68,7 +67,7 @@ correction**, and it requires, in the same change:
    the defect it corrects stated — what the old rule got wrong, not merely what
    the new rule says.
 2. **A fingerprint bump.** The affected family's `epoch=N` tag incremented in
-   `lie/su2.rs::fingerprint` / `sun.rs:sun_authority_fingerprint` /
+   `lie/su2.rs::fingerprint` / `lie/sun.rs::fingerprint` /
    `bcd.rs:bcd_authority_fingerprint`, and the pinned literal in the matching
    `tests/*_fingerprint.rs` updated in the same PR. Epochs are per-family and
    independent: correcting the SU(N) spec never invalidates SU(2)- or
@@ -100,7 +99,7 @@ so two independent generations of the same coupling can differ by a few ULPs
 (within a single process the cache serializes all readers to one winner value).
 
 **§1–§11 specify the SU(N) family** — the coefficients produced by
-`fusion_symbols::sun::cgc` and the F/R symbols contracted from them. The construction is
+`fusion_symbols::GroupRepresentations::cgc` and the F/R symbols contracted from them. The construction is
 a port of **SUNRepresentations.jl v0.4.0** (`src/`). Every choice below cites the
 reference `file:symbol` and its implementing function in this crate. A reader
 with this document and the reference source can re-derive the gauge without
@@ -137,7 +136,7 @@ the reference iteration order.
   admissible second rows `I[i+1]:I[i]` with the **last** sub-row entry varying
   fastest, recursing into `GTPatternIterator{N-1}` as the inner (faster) loop;
   pattern data is stored top row (`l = N`) first.
-- Port: `sun::Irrep::patterns` (`sun.rs`), pinned index-for-index against an
+- Port: `LieIrrep::gt_patterns` (`src/lie/sun.rs`), pinned index-for-index against an
   in-test enumeration of this rule and the SUNRepresentations SU(3) adjoint
   basis (`tests/sun_oracle.rs`), and re-verified by the signed CGC values (§11).
 - *Implicit in the code, normative here*: nothing in `patterns` announces itself
@@ -169,7 +168,7 @@ highest-weight state:
 $$ (J^+_l(s_1) \otimes \mathbb{1} + \mathbb{1} \otimes J^+_l(s_2))\, |m_1, m_2\rangle = 0, \quad l = 1 \dots N-1 $$
 
 The raising matrices are the exact GT ladder matrices
-(`gtpatterns.jl:creation`, `sun::Irrep::creation`), entries `signedroot(coef)`.
+(`gtpatterns.jl:creation`, `private GT raising operator`), entries `signedroot(coef)`.
 
 **Column (coupling-pair) order — gauge-relevant.** The columns of the system
 are the coupling pairs `(m1, m2)` enumerated in this exact order
@@ -210,7 +209,7 @@ nullspace = copy(SVD.Vt[indstart:end, :]')  # trailing right-singular vectors
 
 **Multiplicity gate.** `#{nullspace vectors} == directproduct(s1, s2)[s3]` must
 hold (`clebschgordan.jl` `@assert N123 == directproduct(s1, s2)[s3]`); a
-mismatch is the typed error `SunError::NullspaceDimMismatch` (never silent).
+mismatch is the typed error `GenerationError (nullspace dimension mismatch)` (never silent).
 
 ---
 
@@ -263,7 +262,7 @@ Q = q * Diagonal(d);  R = Diagonal(d) \ r     # so every R[i,i] ≥ 0
 
 `gaugefix!` keeps **`Q`** (`first(...)`), the orthonormal basis with the sign
 convention "each `R` diagonal entry is non-negative; an exactly-zero diagonal is
-left unflipped." Port: `src/sun/linalg.rs::qr_positive_q` uses unpivoted
+left unflipped." Port: `src/lie/sun/linalg.rs::qr_positive_q` uses unpivoted
 QR and folds each negative R-diagonal sign into Q; zero stays unflipped.
 
 The gauge-fixed highest-weight block is scattered into `C[·, ·, d3−1, μ]`.
@@ -284,7 +283,7 @@ Reference: `clebschgordan.jl:lower_weight_CGC!`. Port: `cgc.rs:lower_weight_cgc`
   `J⁻₃ |m3⟩ = (J⁻₁ ⊗ 𝟙 + 𝟙 ⊗ J⁻₂) |m1,m2⟩`. The left-hand `eqs[i,j] =
   J⁻₃[m3, m3′]` (over parent states `m3′`, one block per level `l`) and the
   right-hand `rhs` accumulates `J⁻[·]·C[parent]` from the already-solved parents.
-  Lowering matrices are `sun::Irrep::annihilation` (transpose of `creation`,
+  Lowering matrices are `private GT lowering operator` (transpose of `creation`,
   `gtpatterns.jl`).
 - **Solve.** `sols = ldiv!(qr!(eqs), rhs)` — a QR **least-squares** solve of the
   (tall or square, full-column-rank) system. Port: `linalg.rs:lstsq` via
@@ -329,16 +328,16 @@ Port: `cgc.rs:trivial_cgc`.
 ## 9. Generation gates (typed, never silent)
 
 Floating-point stages are verification-gated (`AGENTS.md` acceptance 5). A
-violation is a typed `SunError`, never a silently degraded coefficient.
+violation is a typed `lie::GenerationError`, never a silently degraded coefficient.
 
-- **Multiplicity** (§3): `SunError::NullspaceDimMismatch`.
+- **Multiplicity** (§3): `GenerationError (nullspace dimension mismatch)`.
 - **Orthonormality**: the CGC reshaped as `M[(m1,m2),(m3,μ)]` is an isometry,
   `Σ_{m1,m2} C[··,m3,α] C[··,m3′,β] = δ_{m3 m3′} δ_{αβ}` (contracted over the
   coupling indices per output column, **not** summed over `m3`). Worst residual
-  `> TOL_ORTHO` → `SunError::NotOrthonormal`.
+  `> TOL_ORTHO` → `GenerationError (orthonormality failure)`.
 - **Ladder consistency**: the level-1 lowering intertwiner evaluated at the
   highest-weight parent must reproduce the descended coefficients; residual
-  `> TOL_LADDER` → `SunError::LadderInconsistent`.
+  `> TOL_LADDER` → `GenerationError (ladder inconsistency)`.
 
 `TOL_ORTHO = TOL_LADDER = 1e-9` are **not** reference constants; they are sized
 well above the f64 SVD/QR/descent round-off floor (`~√dim · eps ≈ 1e-14`) and
@@ -347,7 +346,7 @@ them while faithful round-off does not. Tightening them is not a gauge change
 (it cannot alter a returned value), so it is not a breaking release.
 
 Proven-unreachable invariant violations (e.g. a missing raised GT pattern when
-its ladder coefficient is nonzero) `panic` in every build (`sun.rs:creation`),
+its ladder coefficient is nonzero) `panic` in every build (`src/lie/sun.rs::Irrep::creation`),
 per the crate's error discipline — those are not tolerance events.
 
 ---
@@ -359,7 +358,7 @@ using explicit `Par::Seq` and precomputed scratch workspaces. The dependency
 has only `std` enabled, without `rayon`; the caller owns parallelism and the
 seams never set or consult global parallelism.
 
-| Stage | Reference | t4a-faer API (`src/sun/linalg.rs`) |
+| Stage | Reference | t4a-faer API (`src/lie/sun/linalg.rs`) |
 |---|---|---|
 | nullspace | `_nullspace!` (`svd!(A; full=true)`) | `linalg::svd::svd` (full vectors) → trailing V columns |
 | gauge sign | `qrpos!` (`qr!` + `sign(diag R)`) | `qr::no_pivoting::factor::qr_in_place` + sign fix → Q |

@@ -7,10 +7,10 @@
 //! gauge invariant, so these literals are what pins the gauge.
 #![cfg(feature = "cgc-gen")]
 
-use fusion_symbols::sun::{f_symbol, r_symbol, Irrep};
-
+#[path = "common/lie.rs"]
+mod lie_test;
 fn irr(d: &[i64]) -> Irrep {
-    Irrep::from_dynkin(d).unwrap()
+    lie_test::irrep(d).unwrap()
 }
 
 const ONE: &[i64] = &[0, 0];
@@ -94,3 +94,6 @@ fn r_symbols_checked_against_sunrepresentations() {
         assert!((got - want).abs() < 1e-12, "R888 {idx:?}: {got}");
     }
 }
+use fusion_symbols::lie::LieIrrep as Irrep;
+use lie_test::f_symbol;
+use lie_test::r_symbol;

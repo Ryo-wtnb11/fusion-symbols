@@ -1,5 +1,5 @@
 //! Family-generic F- and R-symbol core: the four-CGC contraction and the
-//! pentagon/hexagon/F-unitarity gates, shared by the SU(N) (`crate::sun::fr`)
+//! pentagon/hexagon/F-unitarity gates, shared by the SU(N) (`crate::lie::sun::fr`)
 //! and B/C/D (`crate::bcd::fr`) surfaces.
 //!
 //! # Why one core, two callers
@@ -324,8 +324,8 @@ fn intersect_products<F: Family>(
 /// combinations; without memoization each reference recomputes a four-CGC
 /// contraction, which for OM≥2 families is the difference between seconds and
 /// many minutes. The blocks are tiny, so the memo clones them out cheaply. It is
-/// *not* a process-global cache: gates use the raw zeros-for-`N=0` semantics,
-/// which would pollute a public value tier with blocks `f_symbol` never stores.
+/// local to one gate call. Gates use raw zeros-for-`N=0` semantics, including
+/// for B/C/D, whose public F-symbol API still rejects empty vertices.
 struct BlockMemo<I: Clone + Eq + Hash> {
     f: HashMap<[I; 6], FBlock>,
     r: HashMap<[I; 3], RBlock>,

@@ -49,9 +49,12 @@
 // point is to have none.
 #![allow(clippy::approx_constant)]
 
+#[path = "common/lie.rs"]
+mod lie_test;
 use fusion_symbols::bcd::{f_symbol as bcd_f_symbol, CanonicalCatalog, Irrep as Bcd, Series};
 use fusion_symbols::lie::GroupId;
-use fusion_symbols::sun::{cgc, f_symbol, Irrep as Sun};
+use fusion_symbols::lie::LieIrrep as Sun;
+use lie_test::{cgc, f_symbol};
 
 /// Discrete-event tolerance; see the module docs.
 const TOL: f64 = 1e-12;
@@ -69,7 +72,7 @@ fn close(what: &str, got: f64, want: f64) {
 }
 
 fn sun(d: &[i64]) -> Sun {
-    Sun::from_dynkin(d).unwrap()
+    lie_test::irrep(d).unwrap()
 }
 
 fn bcd(series: Series, d: &[i64]) -> Bcd {
@@ -109,18 +112,15 @@ const SU3_FUNDAMENTAL_ADJOINT: &[SunRow] = &[
     (1, 1, 4, 0, 0.707_106_781_186_547_4),
 ];
 
-fn sun_value(c: &fusion_symbols::sun::Cgc, m1: u32, m2: u32, m3: u32, mu: u32) -> f64 {
-    c.entries()
-        .iter()
-        .find(|e| e.m1 == m1 && e.m2 == m2 && e.m3 == m3 && e.mu == mu)
-        .map_or(0.0, |e| e.value)
+fn sun_value(c: &fusion_symbols::lie::LieCgc, m1: u32, m2: u32, m3: u32, mu: u32) -> f64 {
+    c.at(m1 as usize, m2 as usize, m3 as usize, mu as usize)
 }
 
 #[test]
 fn su3_cgc_matches_the_frozen_gauge() {
     let adj = sun(&[1, 1]);
     let c = cgc(&adj, &adj, &adj).unwrap();
-    assert_eq!(c.multiplicity(), 2, "8 x 8 -> 8 must have OM 2");
+    assert_eq!(c.dims()[3], 2, "8 x 8 -> 8 must have OM 2");
     for &(m1, m2, m3, mu, want) in SU3_ADJOINT_CUBED {
         close(
             &format!("su3 cgc 8x8->8 [{m1},{m2},{m3},{mu}]"),

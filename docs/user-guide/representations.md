@@ -19,7 +19,7 @@ encoding:
 | Family | Type | Label |
 |---|---|---|
 | SU(2) | [`lie::LieIrrep`] | group tag plus an inline `u32`, the **doubled spin** `dj = 2j` |
-| SU(N) | [`sun::Irrep`] | `N-1` Dynkin labels (stored internally as a normalized weight) |
+| SU(N) | [`lie::LieIrrep`] | `N-1` Dynkin labels (stored internally as a normalized weight) |
 | SO(N), Spin(N), Sp(2N) | [`bcd::Irrep`] | `r` Dynkin labels plus the Cartan series `B`/`C`/`D` |
 | CU(1) | `cu1::CU1Irrep` | twice charge `u32` and `s`: `(0,0)`, `(0,1)`, or `(q>0,2)` |
 | Shipped categories | `table::TableObject` | validated one-based index and private catalog tag |
@@ -80,31 +80,28 @@ non-negative integers, in Bourbaki numbering (`a₁` is attached to the first no
 of the `A_{N-1}` chain).
 
 ```rust
-use fusion_symbols::sun::Irrep;
+use fusion_symbols::{category::{FusionCategory}, lie::{GroupId, LieGroup}};
+let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-let three = Irrep::from_dynkin(&[1, 0]).unwrap();   // SU(3) fundamental
-let eight = Irrep::from_dynkin(&[1, 1]).unwrap();   // SU(3) adjoint
-let singlet = Irrep::trivial(3).unwrap();           // == from_dynkin(&[0, 0])
+let three = cat.irrep(&[1, 0]).unwrap();   // SU(3) fundamental
+let eight = cat.irrep(&[1, 1]).unwrap();   // SU(3) adjoint
+let singlet = cat.unit();
+assert_eq!(singlet.dim_exact(), 1.into());
 
-assert_eq!(three.dim(), 3u32.into());
-assert_eq!(eight.dim(), 8u32.into());
-assert_eq!(three.dual().dynkin(), vec![0, 1]);      // 3-bar
-assert_eq!(eight.dual(), eight);                    // the adjoint is self-dual
+assert_eq!(three.dim_exact(), 3u32.into());
+assert_eq!(eight.dim_exact(), 8u32.into());
+assert_eq!(cat.dual(&three).dynkin(), vec![0, 1]);      // 3-bar
+assert_eq!(cat.dual(&eight), eight);                    // the adjoint is self-dual
 ```
 
-`N` is implied by the label length: `&[1, 0]` has two labels, so it is SU(3).
-`Irrep::rank()` returns `N` (not `N-1`).
+The category fixes `N`; `LieGroup::irrep` requires exactly `N-1` nonnegative
+Dynkin labels and checks the global form. `dim_exact()` returns an unbounded
+`BigInt`; `cat.dim(&a)` returns `f64`. `LieIrrep` is `Clone`, not `Copy`.
 
-**Dimensions are exact and unbounded.** `dim()` returns a `BigInt`, computed by
-the Weyl dimension formula in exact integer arithmetic. There is no label cut;
-`3u32.into()` above is just the conversion for the comparison.
-
-**Weights vs Dynkin labels.** Internally an `Irrep` stores the highest weight as
-a non-increasing `N`-tuple `λ` with `λ_N = 0`; the Dynkin labels are
-`aᵢ = λᵢ − λᵢ₊₁`. `Irrep::from_weight` accepts any shift-representative of `λ`
-and normalizes it; `Irrep::weight()` and `Irrep::dynkin()` read the two forms
-back. Use Dynkin labels unless you have a reason not to — they are the form the
-rest of the documentation quotes.
+For a partition `λ`, convert to Dynkin labels with `aᵢ = λᵢ − λᵢ₊₁`
+before constructing the label. `gt_patterns()` returns `Some(Vec<GtPattern>)`
+for A(r), r ≥ 2, in the frozen GT basis order, and `None` for A1.
+Generator matrices and partition storage are private implementation details.
 
 ## SO(N), Sp(2N): Dynkin labels and doubled weights
 
@@ -173,12 +170,9 @@ returns it directly.
 
 ## Caveats
 
-- Dynkin label *length* determines the rank, and the rank determines the group.
-  A three-element slice passed to `sun::Irrep::from_dynkin` is SU(4), not SU(3)
-  with a typo — there is no way for the library to tell.
-- `sun::Irrep::rank()` is `N`, whereas `bcd::Irrep::rank()` is the Cartan rank
-  `r`. Both match their family's conventional meaning; neither is the number of
-  Dynkin labels for SU(N) (that is `N - 1`).
+- `LieGroup` fixes the rank: a wrong-length label is `LieError::InvalidLabel`.
+- Objects from different groups (including different global forms) are distinct;
+  passing a foreign object to a category method panics.
 - Negative Dynkin labels are rejected everywhere. In the `D` series a *negative
   last partition entry* `λ_r` is legal (it is the chirality sign) but that is
   the partition, not the Dynkin label.
@@ -186,14 +180,14 @@ returns it directly.
 ## Related API
 
 - [`lie::LieIrrep`], [`fusion_symbols::category::FusionCategory::frobenius_schur_phase`]
-- [`sun::Irrep`]: `from_dynkin`, `from_dynkin_in`, `from_weight`, `trivial`,
-  `dim`, `dual`, `dynkin`, `weight`, `rank`, `patterns`
+- `LieGroup::irrep`, `LieIrrep::dynkin`, `dim_exact`, `gt_patterns`,
+  `weight_multiplicities`; other queries use `FusionCategory`.
 - [`bcd::Irrep`]: `from_dynkin`, `from_dynkin_in`, `trivial`, `dim`, `dual`,
   `dynkin`, `partition`, `two_partition`, `is_spinor`, `frobenius_schur`,
   `weight_multiplicities`
 
 [`lie::LieIrrep`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieIrrep.html
 [`fusion_symbols::category::FusionCategory::frobenius_schur_phase`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.frobenius_schur_phase
-[`sun::Irrep`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/struct.Irrep.html
+[`lie::LieIrrep`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
 [`bcd::Irrep`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/struct.Irrep.html
 [`bcd::Series`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/enum.Series.html

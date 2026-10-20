@@ -29,7 +29,7 @@ pinned AnyonWiki tables described below.
 | Family | Module | Feature | Labels |
 |---|---|---|---|
 | SU(2), SO(3), Spin(3), Sp(2), PSU(2) | `fusion_symbols::lie::LieGroup` and `lie::su2` | *(default)* | doubled spin `dj = 2j` |
-| SU(N), SU(N)/Z_k, PSU(N) | `fusion_symbols::sun` | `cgc-gen` | `N-1` Dynkin labels |
+| SU(N), SU(N)/Z_k, PSU(N) | `fusion_symbols::lie` | `cgc-gen` | `N-1` Dynkin labels |
 | SO(N), Spin(N) | `fusion_symbols::bcd` (series `B`, `D`) | `cgc-gen` | `r` Dynkin labels |
 | Sp(2r) | `fusion_symbols::bcd` (series `C`) | `cgc-gen` | `r` Dynkin labels |
 | U(1), Z_N (Z2 = `ZN::new(2)`) | `fusion_symbols::abelian` | *(default)* | `U1` / `U1Irrep` (`i32`), `ZN` / `ZNIrrep` (charge, runtime `N`) |
@@ -113,11 +113,14 @@ SU(N) (`cgc-gen`). Irreps are built from Dynkin labels (length `N-1`); this
 decomposes the SU(3) product `8 ⊗ 8`, where the adjoint appears twice:
 
 ```rust
-use fusion_symbols::sun::{directproduct, Irrep};
+use fusion_symbols::{category::{FusionCategory}, lie::{GroupId, LieGroup}};
+let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-let eight = Irrep::from_dynkin(&[1, 1]).unwrap(); // SU(3) adjoint
-assert_eq!(eight.dim(), 8u32.into());
-assert_eq!(directproduct(&eight, &eight).unwrap()[&eight], 2);
+let eight = cat.irrep(&[1, 1]).unwrap(); // SU(3) adjoint
+assert_eq!(eight.dim_exact(), 8u32.into());
+assert_eq!(cat.fusion(&eight, &eight).unwrap()
+    .map(|c| { let n = cat.nsymbol(&eight, &eight, &c); (c, n) })
+    .collect::<std::collections::BTreeMap<_, _>>()[&eight], 2);
 ```
 
 SO(N)/Sp(2N) (`cgc-gen`). Generation runs through a per-(series, rank)
@@ -228,7 +231,7 @@ Feature-complete for its v0 scope; all families are implemented and
 oracle-checked. The base SU(2) surface — authority fingerprint, checked
 representation layer, cache resource contract — is stable; the `cgc-gen`
 generated-provider surface is unstable; the
-rustdoc marker is on `sun_authority_fingerprint`, `bcd_authority_fingerprint`,
+generated-family fingerprint bytes are opaque. The rustdoc marker is on `bcd_authority_fingerprint`,
 `cache::GENERATED_CACHE_MAX_BYTES` and `cache::GeneratedCacheStats`.
 
 | Family | Pipeline | Independent verification |
@@ -245,5 +248,6 @@ gauge drift with no reference toolchain in the loop.
 
 Rank-one A(1), B(1), C(1) groups use one exact SU(2) path and fingerprint.
 Objects keep the caller's `GroupId`; isomorphic groups remain mutually foreign.
-Higher-rank `LieGroup::new` returns `LieError::Unsupported` in this slice;
-the existing generated `sun`/`bcd` APIs remain available with `cgc-gen`.
+A(r), r ≥ 2, requires `cgc-gen`; without it `LieGroup::new` returns
+`LieError::Unsupported { requires: "cgc-gen" }`. B/C/D keeps its
+existing public module in this slice.

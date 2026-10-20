@@ -5,13 +5,16 @@
 //! The cached-CGC cases isolate F recomputation (by trimming only its F cache)
 //! and uncached R contraction from CGC generation.
 
+#[path = "../tests/common/lie.rs"]
+mod lie_test;
 use criterion::{criterion_group, criterion_main, Criterion};
 use fusion_symbols::cache::{self, CoefficientCacheTier};
-use fusion_symbols::sun::{f_symbol, r_symbol, Irrep};
+use fusion_symbols::lie::LieIrrep as Irrep;
+use lie_test::{f_symbol, r_symbol};
 use std::hint::black_box;
 
 fn irr(d: &[i64]) -> Irrep {
-    Irrep::from_dynkin(d).unwrap()
+    lie_test::irrep(d).unwrap()
 }
 
 /// (label, a, b, c, d, e, f) representative admissible sextets spanning N, dim,
