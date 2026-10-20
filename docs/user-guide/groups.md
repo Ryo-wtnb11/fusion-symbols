@@ -7,7 +7,7 @@
 
 ## What is this?
 
-Three different things get called "the group", and `fusion-symbols` keeps them apart:
+For the `lie` family, three different things get called "the group", and `fusion-symbols` keeps them apart:
 
 - the **Lie algebra / root system** (`A_{N-1}`, `B_r`, `C_r`, `D_r`) — fixes the
   weight lattice and all the combinatorics;
@@ -41,8 +41,8 @@ let channels: Vec<i64> = group.fusion(&one, &one).unwrap().map(|s| s.dynkin()[0]
 assert_eq!(channels, vec![0, 2, 4]);
 ```
 
-SU(2) is also reachable as SU(N) with `N = 2` (`fusion_symbols::lie`, `cgc-gen`), and the
-two agree. Prefer the rank-one `LieGroup` path: it is exact and dependency-light.
+`GroupId::su(2)` always selects the exact rank-one path, including with
+`cgc-gen` enabled.
 SO(3), Spin(3), Sp(2), and PSU(2) use the same implementation; SO(3)
 and PSU(2) admit only even doubled spins. Objects retain distinct group tags.
 
@@ -182,8 +182,9 @@ basis, gauge, and cached values.
 
 ## Caveats
 
-- `fusion-symbols` covers **connected compact** groups only. `O(N)` and `Pin(N)` are not
-  central quotients of a simply connected group and are out of scope.
+- `lie` covers connected compact groups with supported simple root systems.
+  CU(1) = O(2) is supported separately in `group`; other O(N), Pin(N), and
+  non-compact groups are unsupported.
 - Choosing a global form never changes a number. If you were hoping `SO(N)`
   coefficients would differ from `Spin(N)` ones on shared irreps: they do not,
   by construction.

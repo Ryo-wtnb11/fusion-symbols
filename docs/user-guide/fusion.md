@@ -109,7 +109,7 @@ braiding; the iterator keeps TensorKitSectors' source order and reports
 `CU1Error::TwiceChargeOutOfRange` if a charge sum exceeds `u32::MAX`.
 
 ```rust
-use fusion_symbols::{category::FusionCategory, cu1::{CU1, CU1Irrep}};
+use fusion_symbols::{category::FusionCategory, group::{CU1, CU1Irrep}};
 
 let a = CU1Irrep::from_twice_charge(1);
 let channels: Vec<_> = CU1.fusion(&a, &a).unwrap().collect();
@@ -135,8 +135,8 @@ with some twist minus one, and `Anyonic` otherwise.
 
 ## Caveats
 
-- SU(N) category methods panic on foreign objects. B/C/D decomposition
-  retains its typed family/rank mismatch errors.
+- All Lie category methods panic on foreign objects, including mismatched
+  families, ranks and global forms.
 - Multiplicity is `u32`. The B/C/D weight-multiplicity accumulation is `i128`
   internally and reports overflow as a typed error rather than wrapping.
 - Fusion respects global forms automatically: if `a` and `b` are admissible for
@@ -145,10 +145,6 @@ with some twist minus one, and `Anyonic` otherwise.
 ## Related API
 
 - [`category::FusionCategory::fusion`], [`lie::LieFusion`]
-- [`FusionCategory::fusion`], [`FusionCategory::fusion`], [`lie::LieFusion`]
 
 [`category::FusionCategory::fusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.fusion
 [`lie::LieFusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieFusion.html
-[`FusionCategory::fusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
-[`FusionCategory::fusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
-[`lie::LieFusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html

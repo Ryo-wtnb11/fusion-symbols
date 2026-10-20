@@ -75,9 +75,9 @@ fn foreign_object_precedes_zero_channel() {
 #[test]
 fn dense_cgc_matches_exact_in_ascending_magnetic_order() {
     let cat = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    for a in 0..=4 {
-        for b in 0..=4 {
-            for c in 0..=4 {
+    for a in 0..=6 {
+        for b in 0..=6 {
+            for c in 0..=6 {
                 let [ia, ib, ic] = [a, b, c].map(|dj| cat.irrep(&[i64::from(dj)]).unwrap());
                 let tensor = cat.cgc(&ia, &ib, &ic).unwrap();
                 let n = cat.nsymbol(&ia, &ib, &ic) as usize;

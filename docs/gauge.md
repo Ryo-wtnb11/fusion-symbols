@@ -358,7 +358,7 @@ using explicit `Par::Seq` and precomputed scratch workspaces. The dependency
 has only `std` enabled, without `rayon`; the caller owns parallelism and the
 seams never set or consult global parallelism.
 
-| Stage | Reference | t4a-faer API (`src/lie/sun/linalg.rs`) |
+| Operation | Reference | t4a-faer API (`src/lie/sun/linalg.rs`) |
 |---|---|---|
 | nullspace | `_nullspace!` (`svd!(A; full=true)`) | `linalg::svd::svd` (full vectors) → trailing V columns |
 | gauge sign | `qrpos!` (`qr!` + `sign(diag R)`) | `qr::no_pivoting::factor::qr_in_place` + sign fix → Q |
@@ -372,7 +372,7 @@ in `cgc.rs` (§4a).
 
 ## 11. Verification (independent oracles)
 
-- **SU(2) embedding** (`tests/su2_embedding.rs`): N = 2 CGC vs the crate's exact
+- **SU(2) embedding** (`src/lie/sun/su2_embedding_tests.rs::su2_randomized_sweep_matches_exact`): N = 2 CGC vs the crate's exact
   `clebsch_gordan` (big-rational Racah sums, rounded once) over a randomized
   sweep — signed, exact up to the single per-channel highest-weight sign.
 - **Gauge continuity** (`tests/sun_cgc_gauge.rs`, `tests/sun_fr_su3_values.rs`):

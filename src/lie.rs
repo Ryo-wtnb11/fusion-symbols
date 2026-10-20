@@ -696,20 +696,18 @@ impl GroupRepresentations for LieGroup {
         ];
         let mut data = Vec::new();
         if dims[3] != 0 {
+            data.resize(dims.iter().product(), 0.0);
             for m1 in 0..=a {
+                let dm1 = 2 * i64::from(m1) - i64::from(a);
                 for m2 in 0..=b {
-                    for m3 in 0..=c {
-                        data.push(
-                            su2::clebsch_gordan(
-                                a,
-                                (2 * i64::from(m1) - i64::from(a)) as i32,
-                                b,
-                                (2 * i64::from(m2) - i64::from(b)) as i32,
-                                c,
-                                (2 * i64::from(m3) - i64::from(c)) as i32,
-                            )
-                            .to_f64(),
-                        );
+                    let dm2 = 2 * i64::from(m2) - i64::from(b);
+                    let dm3 = dm1 + dm2;
+                    // Triangle parity makes (dm3 + c) even; only this projection can be nonzero.
+                    if dm3.abs() <= i64::from(c) {
+                        let m3 = ((dm3 + i64::from(c)) / 2) as usize;
+                        data[(m1 as usize * dims[1] + m2 as usize) * dims[2] + m3] =
+                            su2::clebsch_gordan(a, dm1 as i32, b, dm2 as i32, c, dm3 as i32)
+                                .to_f64();
                     }
                 }
             }

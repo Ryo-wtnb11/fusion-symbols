@@ -295,10 +295,10 @@ on failure.
 [`fusion_symbols::category::FusionCategory::f_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.f_symbol
 [`fusion_symbols::category::FusionCategory::r_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.r_symbol
 [`fusion_symbols::lie::su2::wigner_6j`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/su2/fn.wigner_6j.html
-[`FusionCategory::f_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
-[`FusionCategory::r_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
+[`FusionCategory::f_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.f_symbol
+[`FusionCategory::r_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.r_symbol
 [`category::f_unitarity_residual`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/fn.f_unitarity_residual.html
 [`category::pentagon_residual`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/fn.pentagon_residual.html
 [`category::hexagon_residual`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/fn.hexagon_residual.html
-[`FBlock`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
-[`RBlock`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
+[`FBlock`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.FBlock.html
+[`RBlock`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.RBlock.html

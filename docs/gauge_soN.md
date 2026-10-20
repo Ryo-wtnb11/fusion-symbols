@@ -469,7 +469,7 @@ multiplicity, but each is recorded for any comparison with QSpace:
 `CoeffScalar = f64`. Dense operations reach `t4a-faer`
 (`src/lie/bcd/linalg.rs`, no hand-rolled factorization kernels):
 
-| Stage | Reference (`@ dd2cc7e`) | t4a-faer API |
+| Operation | Reference (`@ dd2cc7e`) | t4a-faer API |
 |---|---|---|
 | column orthonormalization (§4a) | `OrthoNormalizeColsQR` | `qr::no_pivoting::factor::qr_in_place` + sign fix → `Q`, after in-order CGS2 column selection |
 | block CGC contractions & `UᵀU` (§5,6) | `Wb::MatProd` | `linalg::matmul::matmul` |

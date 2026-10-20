@@ -1,11 +1,10 @@
 //! Fusion and recoupling data for symmetric tensors: the compact Lie groups
 //! SU(2), SU(N), SO(N), Spin(N) and Sp(2N) (irreducible representations,
 //! Clebsch–Gordan coefficients, 3j / 6j / F / R), the abelian groups and
-//! fermion parity, CU(1), and tabulated finite fusion categories.
+//! CU(1), fermion parity, and tabulated finite fusion categories.
 //!
 //! `fusion-symbols` is the successor of the `racah` crate (published up to
-//! 0.2.4). The mathematical data remain; #146 reorganizes the Rust API around
-//! category values under `fusion_symbols::`.
+//! 0.2.4). The Rust API uses category values under `fusion_symbols::`.
 //!
 //! Lie-group coefficients for any admissible labels are computed on demand —
 //! there is no precomputed table and no generation-time label cut. Pure
@@ -45,16 +44,17 @@
 //!
 //! | You want | Go to |
 //! |---|---|
-//! | SU(2): 3j, 6j, CG, F, R, Frobenius–Schur — exact, no feature flag | [`lie::su2`] and [`lie::LieGroup`] |
+//! | Shared category contract, styles, scalar storage and identity residuals | [`category`] |
+//! | SU(2): exact 3j, 6j, CG evaluators; category F/R and Frobenius–Schur | [`lie::su2`] and [`lie::LieGroup`] |
 //! | SU(N), SU(N)/Z_k, PSU(N) — Gelfand–Tsetlin construction | [`lie::LieGroup`] (`cgc-gen`) |
 //! | SO(N), Spin(N), Sp(2r) — generator bootstrap, B/C/D series | [`lie::LieGroup`] (`cgc-gen`) |
 //! | Which highest weights a global form admits | [`lie::GroupId`] |
-//! | Cache ceilings, budgets, statistics | [`cache`] |
-//! | Shared category contract, styles and scalar symbol storage | [`category`] |
 //! | U(1), Z_N (including Z2) in closed form | [`abelian::U1`], [`abelian::ZN`] |
+//! | Other compact groups: CU(1) = U(1) ⋊ C = O(2), in closed form | [`group`] |
 //! | Fermion parity in closed form | [`fermion::FermionParity`] |
-//! | CU(1) = U(1) ⋊ C (`O(2)`) in closed form (TensorKitSectors `CU1Irrep`) | [`cu1`] |
-//! | Finite multiplicity-free unitary categories (Fibonacci, Ising, …, rank ≤ 4; rank ≤ 7 with `anyonwiki-unitary`) from pinned AnyonWiki tables (exact symbols, correctly rounded) | [`table`] |
+//! | Finite multiplicity-free unitary categories (Fibonacci, Ising, …, rank ≤ 4; rank ≤ 7 with `anyonwiki-unitary`) from pinned AnyonWiki tables | [`table`] |
+//! | Deligne products | Planned; no public `product` module yet |
+//! | Cache ceilings, budgets, statistics | [`cache`] |
 //!
 //! SU(N) uses the same [`lie::LieGroup`] and [`lie::LieIrrep`] layer as A1.
 //! With `cgc-gen`, higher A-series fusion shares cached product lists, and
@@ -64,10 +64,10 @@
 //!
 //! # Non-Lie families
 //!
-//! Finite fusion categories have finite data, so their modules are closed
-//! forms or pinned, provenance-tracked tables, never a runtime construction,
-//! and need no feature flag for the default catalog. [`abelian`], [`fermion`],
-//! [`cu1`] and [`table`] expose their
+//! These families use closed forms or pinned, provenance-tracked tables
+//! rather than runtime coefficient generation, and need no feature flag for
+//! the default catalog. [`abelian`], [`group`],
+//! [`fermion`] and [`table`] expose their
 //! validated objects through [`category::FusionCategory`]: N = 0 is a value,
 //! F/R return zero for inadmissible vertices, and errors mean genuine failure
 //! or an absent capability. Foreign objects panic. Logical symbol shape comes
@@ -78,7 +78,7 @@
 //! panic on twist. CU(1) fusion reports label overflow.
 //! Index order follows TensorKitSectors.jl (`F^{abc}_d[e, f]` with
 //! `e ∈ a ⊗ b`, `f ∈ b ⊗ c`; `R^{ab}_c`). Symbols in [`abelian`],
-//! [`fermion`] and [`cu1`] are `f64`; [`table`] uses
+//! [`group`] and [`fermion`] are `f64`; [`table`] uses
 //! [`num_complex::Complex64`]. Closed forms use TensorKitSectors' gauge;
 //! [`table`] uses AnyonWiki's (gauge-equivalent, and for Fibonacci identical).
 //! Provenance: [`docs/references_categories.md`].
@@ -86,7 +86,10 @@
 //! # Layers
 //!
 //! - **base** (no feature): exact SU(2) — closed-form 3j/6j/CGC in
-//!   big-rational arithmetic with a single final rounding to floating point.
+//!   big-rational arithmetic with a single final rounding to floating point;
+//!   the shared [`category`] contract, closed-form [`abelian`], [`group`]
+//!   (CU(1)), [`fermion`], rank ≤ 4 [`table`] categories, and [`cache`].
+//! - **`anyonwiki-unitary`**: rank 5–7 [`table`] categories (embedded data only).
 //! - **`cgc-gen`**: runtime coefficient generation for SU(N) (Gelfand–Tsetlin
 //!   construction), and SO(N)/Sp(2N) (defining-representation seeds plus a
 //!   family-generic decomposition loop). Dense factorizations and the CGC
@@ -247,6 +250,6 @@ mod frcore;
 // rustdoc resolve their intra-doc links in the crate-root scope.
 pub mod abelian;
 pub mod category;
-pub mod cu1;
 pub mod fermion;
+pub mod group;
 pub mod table;

@@ -38,7 +38,7 @@ num-traits = "0.2"
 num-complex = "0.4"
 # crates.io semver range; std only (no rayon or global parallelism).
 # Only cgc-gen pulls the dense backend; base builds stay dependency-light.
-t4a-faer = { version = "0.24.6", default-features = false, features = ["std"], optional = true }
+t4a-faer = { version = "0.24.7", default-features = false, features = ["std"], optional = true }
 
 [dev-dependencies]
 rand = "0.8"

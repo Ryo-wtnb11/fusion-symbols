@@ -18,7 +18,8 @@ C[m1, m2, m3, μ]      m1 ∈ basis(a), m2 ∈ basis(b), m3 ∈ basis(c),
 
 The fourth axis exists because `c` can appear in `a ⊗ b` more than once
 ([Fusion](fusion.md#multiplicity-greater-than-one)); `μ` selects the copy. For a
-multiplicity-free family such as SU(2) it always has length 1.
+multiplicity-free family such as SU(2), it has length 1 for an allowed coupling
+and 0 for an absent channel.
 
 ## When do I need it?
 
@@ -128,8 +129,8 @@ Global coefficient caches remain valid across catalog resets.
 - **Generation cost.** CGC generation is the expensive step; F- and R-symbols
   are contractions of already-generated CGC. Results are cached, so repeated
   queries are cheap, but a cold first query on a large irrep is not.
-- **Empty channels.** SU(N) CGC have multiplicity axis zero; F/R blocks
-  also have zero axes. B/C/D keeps its existing zero-sized blocks for empty channels.
+- **Empty channels.** Every Lie CGC has multiplicity axis zero for an absent
+  channel; F/R blocks also have zero axes.
 - **Values are floating point.** Labels, dimensions and multiplicities are
   exact; generated coefficient *values* are verification-gated `f64`. See
   [Resources § exact vs generated](resources.md#exact-vs-generated-values).
@@ -143,8 +144,8 @@ Global coefficient caches remain valid across catalog resets.
 - [`su2::clebsch_gordan`], `clebsch_gordan_checked`, `wigner_3j`, `wigner_6j`
 - [`GroupRepresentations::cgc`], [`lie::LieCgc`], [`LieCgc::at`]
 
-[`SignedSqrtRational`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/struct.SignedSqrtRational.html
+[`SignedSqrtRational`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/su2/struct.SignedSqrtRational.html
 [`su2::clebsch_gordan`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/su2/fn.clebsch_gordan.html
-[`GroupRepresentations::cgc`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
-[`lie::LieCgc`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
-[`LieCgc::at`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
+[`GroupRepresentations::cgc`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.GroupRepresentations.html#tymethod.cgc
+[`lie::LieCgc`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieCgc.html
+[`LieCgc::at`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieCgc.html#method.at

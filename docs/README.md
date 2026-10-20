@@ -1,11 +1,11 @@
-# racah documentation
+# fusion-symbols documentation
 
 > **AI-generated, for agentic coding.** This document was written by an AI agent
 > as reference material for AI agents (and humans) working on this repository.
 > It may contain errors — check it against the code and tests rather than
 > trusting it blindly.
 
-Five layers, five audiences. Pick the one that matches what you are doing.
+Six layers, six audiences. Pick the one that matches what you are doing.
 
 | Layer | Read it when | Where |
 |---|---|---|
@@ -18,6 +18,13 @@ Five layers, five audiences. Pick the one that matches what you are doing.
 
 Provenance — which reference implementation each algorithm is ported from,
 symbol by symbol, plus the bibliography: [`references.md`](references.md).
+
+## Module map
+
+`category` defines the shared contract; families live in `lie`, `abelian`,
+`group` (other compact groups: CU(1)), `fermion` and `table`. `product` is
+planned; `cache` provides resource controls. See the
+[family table](overview.md#supported-groups) for features and label types.
 
 ## Which document answers which question
 

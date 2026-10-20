@@ -1,4 +1,4 @@
-//! The `cu1` module reproduces TensorKitSectors' `CU1Irrep` (`O(2)`).
+//! The `group` module reproduces TensorKitSectors' `CU1Irrep` (`O(2)`).
 //!
 //! Contract: F and R are the recoupling and braiding coefficients of the
 //! TensorKitSectors `CU1Irrep` fusion tensors, so every value follows from a
@@ -9,7 +9,7 @@
 
 use fusion_symbols::{
     category::FusionCategory,
-    cu1::{CU1Irrep, CU1},
+    group::{CU1Irrep, CU1},
 };
 
 const OP: CU1Irrep = CU1Irrep::VACUUM;

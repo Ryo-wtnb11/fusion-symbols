@@ -29,7 +29,8 @@ Linux parses `VmRSS:` from `/proc/self/status` (KiB to bytes), avoiding a fixed 
 
 Five fresh test processes produced the median/MAD table above; their raw values are in [coefficient-cache-audit-timings.jsonl](coefficient-cache-audit-timings.jsonl). The checked-in JSONL is one complete representative trace (metadata, every phase, sequential intermediate, clone, and retention records), not an aggregate.
 
-Public return allocation is measured by monotonic successful allocation requests, not noisy live deltas. The representative 1/9 retained calls request respectively exact SU(2) `48/1008` B, owned `directproduct` `376/3576` B, public CGC `408/4504` B, and public F `344/3544` B; these include public-call overhead, not payload-only attribution. The selected warm CGC is asserted nonempty. The harness also proves the one public shared-product `Arc` survives cache reset: cache reset reduces its strong count by exactly one and the returned channels remain readable. CGC and F public APIs return deep clones, so they cannot externally retain their internal cache `Arc`.
+These measurements describe the recorded revision, before the category API.
+Public return allocation is measured by monotonic successful allocation requests, not noisy live deltas. The representative 1/9 retained calls request respectively exact SU(2) `48/1008` B, owned product decomposition `376/3576` B, public CGC `408/4504` B, and public F `344/3544` B; these include public-call overhead, not payload-only attribution. The selected warm CGC is asserted nonempty. The harness also proves the one public shared-product `Arc` survives cache reset: cache reset reduces its strong count by exactly one and the returned channels remain readable. CGC and F public APIs return deep clones, so they cannot externally retain their internal cache `Arc`.
 
 ## Policy decision
 

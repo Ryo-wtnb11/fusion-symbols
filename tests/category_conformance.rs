@@ -6,8 +6,8 @@
 use fusion_symbols::{
     abelian::{U1Irrep, ZNIrrep, U1, ZN},
     category::{BraidingStyle, FusionCategory, FusionStyle, Promote, Scalar, SymbolBlock},
-    cu1::{CU1Irrep, CU1},
     fermion::{FermionParity, FermionParityIrrep},
+    group::{CU1Irrep, CU1},
     table::TableCategory,
 };
 use num_complex::Complex64;

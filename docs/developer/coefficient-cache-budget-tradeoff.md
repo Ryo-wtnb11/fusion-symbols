@@ -17,7 +17,7 @@ for mode in default constrained disabled; do for sample in 1 2 3 4 5; do COEFFIC
 by the test binary at runtime. The distinct target directory above therefore
 prevents a direct reuse of a release binary compiled with a different revision;
 when changing that variable in an existing target directory, rebuild first
-(for example, `cargo clean -p racah`) rather than invoking an old binary.
+(for example, `cargo clean -p fusion-symbols`) rather than invoking an old binary.
 
 The workload in `src/cache_budget_pressure.rs::workload` evaluates three SU(2)
 3j/6j labels and SU(3) fundamental/adjoint plus SU(4) fundamental products.

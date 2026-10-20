@@ -17,12 +17,17 @@ provenance in one place — what was taken, from which reference at which versio
 *why that machinery is the right (or only) one for the family*, and where
 `fusion-symbols` deviates. The module and item rustdoc keep the load-bearing contracts
 next to the code; this page is the map from `fusion-symbols` symbol to source.
-The non-Lie modules (`abelian`, `cu1`, `table`) have their own provenance
+The non-Lie modules (`abelian`, `group`, `fermion`, `table`) have their own provenance
 page, [`references_categories.md`](references_categories.md).
 
 Citations of the form `file:symbol` name a symbol in the cited project's source
 tree (path relative to that project's root), not a local checkout path. Numbered
 citations `[n]` refer to the [bibliography](#bibliography) at the end.
+
+The implementation paths below include private engines, not public module
+paths. Public group operations use `lie::LieGroup` with
+`category::{FusionCategory, GroupRepresentations}`; only exact SU(2)
+evaluators and Regge utilities are public under `lie::su2`.
 
 ## SU(2) — base, exact closed form
 
@@ -34,7 +39,7 @@ blow-up.
 
 | Implementation area (`file::symbol`) | Reference (project, version, `file:symbol`) | What was taken | Why this reference / algorithm | Deviations |
 |---|---|---|---|---|
-| `lie/su2.rs::wigner_6j`, `racah_6j` engine | WignerSymbols.jl v2.0.0, `src/WignerSymbols.jl:_wigner6j`, `compute6jseries` $[10]$ | Racah single-sum 6j evaluation | Closed-form 6j exists for SU(2); exact rational sum, single final rounding | Keyed by canonical Regge class with a bounded FIFO publication cache |
+| `lie/su2.rs::wigner_6j`, `wigner_6j_uncached` engine | WignerSymbols.jl v2.0.0, `src/WignerSymbols.jl:_wigner6j`, `compute6jseries` $[10]$ | Racah single-sum 6j evaluation | Closed-form 6j exists for SU(2); exact rational sum, single final rounding | Keyed by canonical Regge class with a bounded FIFO publication cache |
 | `lie/su2.rs::wigner_3j` | WignerSymbols.jl v2.0.0, `src/WignerSymbols.jl:_wigner3j` $[10]$ | Racah 3j sum | Same closed-form rationale | Keys on the canonical Regge labels directly, not the `(β,α)` reparametrization the reference uses (`lie/su2.rs`, `canonical_regge_3j` doc) |
 | `lie/su2.rs::canonical_regge_3j`, `ReggePhase` | WignerSymbols.jl v2.0.0, `reorder3j` $[10]$ | Regge canonicalization + net compensation phase | Regge symmetry collapses the 3j orbit to one representative | `fusion-symbols` completes the canonicalization, breaking every tie deterministically |
 | `lie/su2.rs::f_symbol`, `lie/su2.rs::r_symbol` | TensorKitSectors `src/irreps/su2irrep.jl:Fsymbol`/`Rsymbol`; WignerSymbols.jl v2.0.0 `racahW` $[10]$ | F from `sqrtdim·racahW`; R sign rule | SU(2) F/R reduce to the closed-form 6j | — |
@@ -54,8 +59,8 @@ possible, and it is $SU(N)$-specific (see [`docs/theory.tex`](theory.tex) §8).
 
 | Implementation area (`file::symbol`) | Reference (project, version, `file:symbol`) | What was taken | Why this reference / algorithm | Deviations |
 |---|---|---|---|---|
-| `lie/sun.rs::Irrep` (`dim`, `dual`, `patterns`, `creation`) | SUNRepresentations.jl v0.4.0, `src/sunirrep.jl`, `src/gtpatterns.jl` (`GTPatternIterator`, `creation`), `src/sector.jl` $[9]$, algorithm $[1]$ | GT pattern enumeration, Weyl dimension, dual, exact ladder (creation) matrices | GT chain is multiplicity-free → unique labels + closed-form ladder elements | `Irrep::patterns` basis order reproduces `gtpatterns.jl:GTPatternIterator` **index-for-index** and is pinned by an in-test enumeration (`tests/sun_oracle.rs`) — load-bearing, because the Layer-2 gauge depends on it |
-| `lie/sun.rs` product (`directproduct`) | SUNRepresentations.jl v0.4.0, `src/gtpatterns.jl:directproduct` $[9]$ | Littlewood–Richardson fusion multiplicities $N^c_{ab}$ | Exact integer combinatorics | — |
+| `lie/sun.rs::Irrep` (`dim`, `dual`, `patterns`, `creation`) | SUNRepresentations.jl v0.4.0, `src/sunirrep.jl`, `src/gtpatterns.jl` (`GTPatternIterator`, `creation`), `src/sector.jl` $[9]$, algorithm $[1]$ | GT pattern enumeration, Weyl dimension, dual, exact ladder (creation) matrices | GT chain is multiplicity-free → unique labels + closed-form ladder elements | `Irrep::patterns` basis order reproduces `gtpatterns.jl:GTPatternIterator` **index-for-index** and is pinned by an in-test enumeration (`tests/sun_oracle.rs`) — load-bearing, because the frozen gauge depends on it |
+| `lie/sun.rs::directproduct` (private product engine) | SUNRepresentations.jl v0.4.0, `src/gtpatterns.jl:directproduct` $[9]$ | Littlewood–Richardson fusion multiplicities $N^c_{ab}$ | Exact integer combinatorics | — |
 | `lie/sun/cgc.rs::cgc` (`highest_weight_CGC`, `lower_weight_CGC!`, `cref!`, `purge!`, `weightmap`, `weight`) | SUNRepresentations.jl v0.4.0, `src/clebschgordan.jl:_CGC` and helpers $[9]$ | Highest-weight nullspace → gauge canonicalization → weight-ladder descent | The exact ladder elements let the CGC be solved subspace by subspace | Tolerances `TOL_NULLSPACE = 1e-13`, `TOL_GAUGE = 1e-11`, `TOL_PURGE = 1e-14` ported verbatim; gauge specified in [`docs/gauge.md`](gauge.md) |
 | `lie/sun/linalg.rs` | SUNRepresentations.jl v0.4.0, `src/clebschgordan.jl:_nullspace!` (`svd!(A; full=true)`), `qrpos!`, `lower_weight_CGC!` least squares $[9]$ | Nullspace, positive-diagonal QR, least squares | The three dense factorizations the CGC solve needs | Routed through t4a-faer with explicit `Par::Seq` and scratch workspaces; no hand-rolled kernels |
 | `lie/sun/fr.rs::f_symbol`, `r_symbol` | SUNRepresentations.jl v0.4.0, `src/sector.jl:_Fsymbol` (`:58-89`), `_Rsymbol` (`:91-110`); contraction wiring/axis order TensorKitSectors `src/sectors.jl:Fsymbol_from_fusiontensor` $[9]$ | F = four-CGC contraction over magnetic indices; R = braiding matrix | Standard categorical definition of F/R from CGC | No Regge-style canonicalization — no tetrahedral/Regge symmetry is implemented for the GT-basis SU(N) F blocks (`lie/sun/fr.rs`, `cache.rs::cache_f` doc) |
@@ -75,7 +80,7 @@ pinned by [`docs/gauge_soN.md`](gauge_soN.md). See [`docs/theory.tex`](theory.te
 
 | Implementation area (`file::symbol`) | Reference (project, version, `file:symbol`) | What was taken | Why this reference / algorithm | Deviations |
 |---|---|---|---|---|
-| `bcd.rs::Irrep` (`dim`, `dual`, `frobenius_schur`, weight multiplicities, `N^c_ab`) | Fulton–Harris §§18, 24 $[7]$; Humphreys §13.4 (Freudenthal), §24 (character sign rule) $[8]$; QSpace v4 (rev `dd2cc7e`) `Source/clebsch_aux.cc` `wdim_B/C/D` (`:458/486/524`), `findMaxWeight` (`:957–1045`) $[3]$ | Weyl dimension, Freudenthal recursion, Brauer–Klimyk / Racah–Speiser product decomposition, ε↔Dynkin label maps | Textbook root-system data for exact combinatorics; QSpace as the numerical dimension oracle it reproduces | Low ranks `B_1/C_1/D_2` rejected and redirected |
+| `lie/bcd.rs::Irrep` (`dim`, `dual`, `frobenius_schur`, weight multiplicities, `N^c_ab`) | Fulton–Harris §§18, 24 $[7]$; Humphreys §13.4 (Freudenthal), §24 (character sign rule) $[8]$; QSpace v4 (rev `dd2cc7e`) `Source/clebsch_aux.cc` `wdim_B/C/D` (`:458/486/524`), `findMaxWeight` (`:957–1045`) $[3]$ | Weyl dimension, Freudenthal recursion, Brauer–Klimyk / Racah–Speiser product decomposition, ε↔Dynkin label maps | Textbook root-system data for exact combinatorics; QSpace as the numerical dimension oracle it reproduces | Low ranks `B_1/C_1/D_2` rejected and redirected |
 | `lie/bcd/seeds.rs` (`Seed`, `Setup_*`, `check_commutators`) | QSpace v4 (rev `dd2cc7e`), `Source/clebsch.cc:Setup_SpN` (`:7145-7244`), `Setup_SON` (`:7246-7348`), `Setup_SEN` (`:7350-7457`); `initCommRel`/`checkCommRel` (`:5971-5987`) $[3]$ | Per-family defining-rep seed matrices (`Sp` raising ops, `Sz` Cartan diagonals), commutator self-check | Seeds are the only family-specific input the bootstrap needs; explicitly writable per series | Kept in QSpace's (non-Chevalley) integer basis; the `Sz[i]` are integer Frobenius-projected generators, not Chevalley coroots (module docs) |
 | `lie/bcd/sweep.rs` (`getSymmetryStates` port, typed generation error) | QSpace v4 (rev `dd2cc7e`), `Source/clebsch_aux.cc:getSymmetryStates` and error sites (`:76`, `:186/194/214/236/251/274/1036`) $[3]$ | Raising-op seed → Gram–Schmidt sweep → column QR decomposition loop; the error taxonomy | Family-generic numeric decomposition — the machinery that replaces GT for $B/C/D$ | `CG_EPS` tolerance tiers ported; each typed generation error maps a QSpace `wblog(...ERR...)` abort |
 | `lie/bcd/linalg.rs` | QSpace v4 (rev `dd2cc7e`), `OrthoNormalizeColsQR`, `Wb::MatProd` $[3]$ | Positive-diagonal QR, matmul | The two dense primitives the sweep needs | §4a in-order independent-column selection followed by the unique positive-diagonal QR tightens QSpace's unspecified QR sign (documented in [`docs/gauge_soN.md`](gauge_soN.md)); via t4a-faer with explicit `Par::Seq` and scratch workspaces |
@@ -86,12 +91,12 @@ pinned by [`docs/gauge_soN.md`](gauge_soN.md). See [`docs/theory.tex`](theory.te
 
 | Implementation area (`file::symbol`) | Reference (project, version, `file:symbol`) | What was taken | Why this reference / algorithm | Deviations |
 |---|---|---|---|---|
-| `frcore.rs` (F/R contraction) | SUNRepresentations.jl v0.4.0, `src/sector.jl:_Fsymbol`/`_Rsymbol`; TensorKitSectors `src/sectors.jl:Fsymbol_from_fusiontensor` $[9]$ | Shared F/R contraction wiring and axis order for `lie/sun/fr.rs` and `lie/bcd/fr.rs` | One correct contraction, reused across families | Private core; only `FBlock`/`RBlock` re-exported |
-| `frcore.rs` pentagon / hexagon gates | TensorKitSectors `src/sectors.jl:pentagon_equation` (`:786-819`), `hexagon_equation` (`:834-871`), GenericFusion branch $[2]$ background | Pentagon (associativity) and hexagon (braiding) consistency checks | The categorical consistency laws every F/R must satisfy | Shipped as public self-checks / generation gates |
+| `frcore.rs` (F/R contraction) | SUNRepresentations.jl v0.4.0, `src/sector.jl:_Fsymbol`/`_Rsymbol`; TensorKitSectors `src/sectors.jl:Fsymbol_from_fusiontensor` $[9]$ | Shared F/R contraction wiring and axis order for `lie/sun/fr.rs` and `lie/bcd/fr.rs` | One correct contraction, reused across families | Private contractions; public symbol storage in `lie/blocks.rs` |
+| `category/residual.rs::{pentagon_residual,hexagon_residual}` | TensorKitSectors `src/sectors.jl:pentagon_equation` (`:786-819`), `hexagon_equation` (`:834-871`), GenericFusion branch $[2]$ background | Pentagon (associativity) and hexagon (braiding) consistency checks | The categorical consistency laws every F/R must satisfy | Public residuals; caller chooses the tolerance |
 
 ## Global form — fixed conventions
 
-`group.rs` decides which dominant weights are representations of which
+`src/lie/group.rs::GroupId::admits` decides which dominant weights are representations of which
 connected compact group (central character trivial on the quotiented subgroup).
 Two entries below are *choices*, not facts; they are pinned here so they are
 not re-litigated.
@@ -103,7 +108,7 @@ not re-litigated.
 
 Slansky's tables themselves were not machine-readable in the source consulted;
 the §5 congruency paragraph and the table *notes* carry the citation, and both
-conventions are independently derived in the `group` module rustdoc.
+conventions are independently derived in `src/lie/group.rs` (private implementation; public types are in `lie`).
 
 ## Verification oracles
 

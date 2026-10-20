@@ -10,8 +10,9 @@ known difference and the reason recorded for it. Per-symbol provenance is in
 
 - **A standalone provider, not a sector interface.** There is no `Sector`
   trait or tensor engine. `category::FusionCategory` supplies mathematical
-  quantities and `FusionStyle`/`BraidingStyle` for the abelian, fermion, CU(1)
-  and table families; Lie families retain their existing APIs. Tensor-network
+  quantities and `FusionStyle`/`BraidingStyle` for every family: `lie`,
+  `abelian`, `group` (CU(1)), `fermion` and `table`. `product` is planned;
+  `cache` controls resources. Tensor-network
   behaviour built on the symbols belongs to the consumer
   ([`AGENTS.md`](../AGENTS.md) "Boundaries";
   [overview: Out of scope](overview.md#out-of-scope-deliberately)).
@@ -46,8 +47,8 @@ known difference and the reason recorded for it. Per-symbol provenance is in
   residual functions check F unitarity, pentagon and hexagon identities.
   A numeric generation-gate violation is a typed error. Reason: a silently degraded coefficient is not
   acceptable ([`AGENTS.md`](../AGENTS.md) acceptance criterion 5).
-- **Checked and infallible entry points.** SU(2) retains its infallible and
-  `_checked` functions. Abelian, fermion, CU(1) and table families use only
+- **Validation and exact evaluators.** Only the exact 3j/6j/CG evaluators
+  in `lie::su2` retain infallible and `_checked` entry points. Abelian, fermion, CU(1) and table families use only
   `FusionCategory`: N = 0 is a value, and inadmissible F/R return `Ok(0)`.
   U(1) and CU(1) fusion can report label overflow. Object constructors validate
   labels; foreign cyclic or table objects panic. On fusion-only tables,
@@ -74,7 +75,7 @@ known difference and the reason recorded for it. Per-symbol provenance is in
   half-integer charges. Reason: matches symtn; `i32::MIN` has no
   representable dual (`src/abelian.rs` module docs).
 - **CU(1) `j` is stored as `twice_charge: u32`**, not `HalfInt`.
-  `CU1Irrep` constructors validate `s`; `cu1::CU1` supplies the category
+  `CU1Irrep` constructors validate `s`; `group::CU1` supplies the category
   operations, keeping labels separate from their mathematical provider.
   (The full `u32` range, wider than symtn's codec, is recorded as a
   deliberate choice in [`references_categories.md`](references_categories.md),
