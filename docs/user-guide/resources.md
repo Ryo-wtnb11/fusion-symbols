@@ -16,14 +16,14 @@ one you are holding.
 | SU(2) coefficients (3j, 6j, CG, F, R) | **Exact** big-rational, rounded once at the end |
 | SU(N), SO(N), Sp(2N) coefficient values (CGC, F, R) | Verification-gated **floating point** |
 
-Concretely: `Irrep::dim()` returns a `BigInt` and is never approximate;
+Concretely: `LieIrrep::dim_exact()` returns a `BigInt` and is never approximate;
 `GroupRepresentations::cgc(...)` returns `f64` values produced by a nullspace solve and a
 least-squares descent.
 
-"Verification-gated" is the promise attached to those floats: orthogonality,
-unitarity and pentagon/hexagon checks run *at generation time*, and a tolerance
-violation becomes a typed error. You never receive a silently degraded
-coefficient — you receive either a checked value or an error.
+"Verification-gated" means internal CGC orthogonality and generator-consistency
+checks reject generation failures with typed errors. The generic
+`category::{f_unitarity_residual,pentagon_residual,hexagon_residual}` functions
+provide explicit identity checks; the caller chooses the tolerance.
 
 What is **not** promised: bit-identical values across machines or backend
 versions. Round-off at the last few ULP is inside the disclaimed tolerance
@@ -154,8 +154,7 @@ against another implementation or auditing a value, not to learn the API.
 - [`fusion_symbols::cache`]: `configure_cache_budgets`, `cache_budgets`,
   `base_cache_stats`, `generated_cache_stats`, `trim_to`, `reset`,
   `BASE_CACHE_MAX_BYTES`, `GENERATED_CACHE_MAX_BYTES`
-- [`fusion_symbols::category::FusionCategory::authority_fingerprint`], `FusionCategory::authority_fingerprint`,
-  `FusionCategory::authority_fingerprint`
+- [`fusion_symbols::category::FusionCategory::authority_fingerprint`]
 - Measurement evidence behind the defaults: [`../developer/`](../developer/README.md)
 
 [`fusion_symbols::cache`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/cache/index.html

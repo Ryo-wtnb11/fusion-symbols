@@ -12,9 +12,10 @@
 fusion-symbols = "0.4"
 ```
 
-That is the **base** build: exact SU(2) only, three small numeric dependencies,
-no linear-algebra stack. To compute for SU(N), SO(N), Spin(N) or Sp(2N), turn on
-the `cgc-gen` feature:
+That is the **base** build: exact rank-one Lie symbols, closed-form abelian,
+CU(1) and fermion-parity categories, and rank ≤ 4 tables, with small numeric
+dependencies and no linear-algebra stack. For higher-rank SU(N), SO(N),
+Spin(N) or Sp(2N), turn on `cgc-gen`:
 
 ```toml
 [dependencies]
@@ -27,12 +28,13 @@ There is no fixed MSRV; `fusion-symbols` builds and is tested on current stable 
 
 | Feature | Gives you | Cost |
 |---|---|---|
-| *(default)* | SU(2): 3j, 6j, Clebsch–Gordan, F, R, Frobenius–Schur — closed-form, big-rational exact | `num-bigint`, `num-rational`, `num-traits` |
-| `cgc-gen` | SU(N) (`fusion_symbols::lie`), SO(N)/Spin(N)/Sp(2N) (`fusion_symbols::lie`), and the `fusion_symbols::lie` global forms applied to them | pulls the sequential t4a-faer dense-linear-algebra backend |
+| *(default)* | `category`; exact rank-one `lie`; closed-form `abelian`, `group` (CU(1)), `fermion`; rank ≤ 4 `table`; `cache` | `num-bigint`, `num-rational`, `num-traits`, `num-complex` |
+| `anyonwiki-unitary` | `table`: 303 further categories of rank 5–7 | embedded data only |
+| `cgc-gen` | Higher-rank SU(N) (`fusion_symbols::lie`), SO(N)/Spin(N)/Sp(2N) (`fusion_symbols::lie`), and the `fusion_symbols::lie` global forms applied to them | pulls the sequential t4a-faer dense-linear-algebra backend |
 
 The split is mathematical, not organizational: SU(2) has closed-form
-coefficients and needs no matrix computation; every other family must be
-*constructed* numerically. If you only need SU(2), you never pull the backend.
+coefficients and needs no matrix computation; higher-rank Lie coefficients
+are *constructed* numerically. Closed-form and table categories need no dense backend. If you only need SU(2), you never pull the backend.
 
 ## First calculation: SU(2) (no features)
 
@@ -114,9 +116,9 @@ and exposes its underlying reason through `std::error::Error::source`.
 All generated Lie families return zero blocks for absent channels and
 `LieError::Generation` for generation failures.
 
-A verification-gate failure is always an error, never a silently degraded
-number: `fusion-symbols` will not hand you a coefficient that failed its orthogonality,
-unitarity, or pentagon/hexagon check.
+An internal CGC verification-gate failure is a typed generation error.
+For explicit F-unitarity, pentagon and hexagon checks, use the generic
+residual functions in `category` and choose the tolerance.
 
 ## Caveats
 
@@ -134,4 +136,4 @@ unitarity, or pentagon/hexagon check.
   [`fusion_symbols::lie`](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/index.html)
 - [`fusion_symbols::cache`](https://docs.rs/fusion-symbols/latest/fusion_symbols/cache/index.html)
 
-[`SignedSqrtRational`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/struct.SignedSqrtRational.html
+[`SignedSqrtRational`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/su2/struct.SignedSqrtRational.html

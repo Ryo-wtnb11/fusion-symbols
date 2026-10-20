@@ -6,13 +6,10 @@ not do, and how to start; the sections below moved here from it.
 
 ## Families
 
-The first families are the compact Lie groups — Racah–Wigner calculus:
-irreducible representations, Clebsch–Gordan coefficients, and recoupling
-coefficients (3j / 6j / F / R) for SU(2), SU(N), SO(N), and Sp(2N). Non-Lie
-fusion categories sit beside them as their own top-level modules: the
-multiplicity-free unitary categories of rank ≤ 4 (Fibonacci, Ising, …; up to
-rank 7 with the `anyonwiki-unitary` feature) from pinned AnyonWiki tables, the abelian groups Z2,
-Z_N, U(1), fermion parity, and CU(1) = U(1) ⋊ C, now; Deligne products next. The first consumer is
+The shared contract lives in `category`. Families are classified as `lie`
+(Lie-simple groups and their global forms), `abelian`, `group` (other compact
+groups: CU(1) = O(2)), `fermion`, and `table`. `product` is planned;
+`cache` supplies resource controls. The first consumer is
 [symtn](https://github.com/Ryo-wtnb11/symtn-rs).
 
 For the Lie-group families, coefficients for any admissible labels are
@@ -33,19 +30,21 @@ pinned AnyonWiki tables described below.
 | SO(N), Spin(N) | `fusion_symbols::lie::LieGroup` (B/D) | `cgc-gen` | `r` Dynkin labels |
 | Sp(2r) | `fusion_symbols::lie::LieGroup` (C) | `cgc-gen` | `r` Dynkin labels |
 | U(1), Z_N (Z2 = `ZN::new(2)`) | `fusion_symbols::abelian` | *(default)* | `U1` / `U1Irrep` (`i32`), `ZN` / `ZNIrrep` (charge, runtime `N`) |
+| CU(1) = U(1) ⋊ C (`O(2)`) | `fusion_symbols::group` | *(default)* | `CU1` / `CU1Irrep` (twice charge `u32`, TensorKitSectors `s`) |
 | Fermion parity | `fusion_symbols::fermion` | *(default)* | `FermionParity` / `FermionParityIrrep` (bool) |
-| CU(1) = U(1) ⋊ C (`O(2)`) | `fusion_symbols::cu1` | *(default)* | `CU1` / `CU1Irrep` (twice charge `u32`, TensorKitSectors `s`) |
 | Unitary multiplicity-free categories, rank ≤ 4 (AnyonWiki tables: 74 entries incl. Fibonacci, Ising) | `fusion_symbols::table` | *(default)* | `TableCategory` (`by_uuid`, `by_code`, `fibonacci()`, `ising()`); tagged `TableObject` from `object(1..=rank)?` |
 | … rank 5–7 (303 further AnyonWiki entries, about 4.2 MB of embedded tables) | `fusion_symbols::table` | `anyonwiki-unitary` | as above |
 
-`lie::LieGroup` (rank one), `abelian::{U1, ZN}`, `fermion::FermionParity`, `cu1::CU1` and
+`lie::LieGroup`, `abelian::{U1, ZN}`, `group::CU1`, `fermion::FermionParity` and
 `table::TableCategory` implement
 `category::FusionCategory`, the single surface for dimension, dual, FS phase
 and indicator, twist, fusion and N/F/R. Objects are validated at construction;
-foreign cyclic or table objects panic. N = 0 gives exact scalar zero, while U(1) and CU(1) fusion overflow
+foreign Lie, cyclic or table objects panic. N = 0 gives scalar zero or a block
+with a zero axis; U(1), rank-one Lie and CU(1) fusion overflow
 is a typed error. Closed-form symbols are `f64`, table symbols are `Complex64`.
 Category identity includes the modulus or table uuid;
-authority fingerprints describe conventions and remain byte-identical.
+authority fingerprints describe conventions (see the migration guide in
+[CHANGELOG](../CHANGELOG.md#unreleased) for the retired Z2 fingerprint).
 
 Table objects retain one-based source indices through `TableObject::index()`.
 Cloning a table category shares its derived data through `Arc`. Fusion and
@@ -68,7 +67,7 @@ gauge differing by the vertex gauge `u^{σσ}_ψ = −1`. Entries that are non-u
 or above rank 4 without the `anyonwiki-unitary` feature (303 not shipped) are
 refused with a typed `Unsupported` error (`NonUnitary`, `PivotalNotUnitary`,
 `NotShipped`); a
-fusion-only category returns `NoBraiding` for R and twists.
+fusion-only category returns `NoBraiding` for R and panics on twist.
 
 ## What fusion-symbols computes
 
@@ -82,15 +81,14 @@ For any admissible irreps of a supported group:
   on a trailing axis.
 - **Recoupling coefficients** — F-symbols (rank-4 blocks over the four vertex
   multiplicity indices) and R-symbols (braiding).
-- **Self-checks as public API** — F-unitarity and the pentagon/hexagon
-  identities per generated family, so they double as generation gates and as
-  oracle harnesses for your own labels.
+- **Self-checks as public API** — generic F-unitarity, pentagon and hexagon
+  residuals in `category`, for every family; callers choose the tolerance.
 
 ## Feature flags
 
 | Feature | Adds | Pulls in |
 |---|---|---|
-| *(default)* | Exact SU(2): 3j / 6j / Clebsch–Gordan / F / R, closed-form big-rational | `num-bigint`, `num-rational`, `num-traits` only |
+| *(default)* | `category`; exact rank-one `lie`; closed-form `abelian`, `group` (CU(1)), `fermion`; rank ≤ 4 `table`; `cache` | `num-bigint`, `num-rational`, `num-traits`, `num-complex` |
 | `cgc-gen` | Runtime CGC / F / R generation for SU(N) (Gelfand–Tsetlin) and SO(N)/Sp(2N) (generator bootstrap) | `t4a-faer` (sequential, `std` only) (the dense factorization + contraction backend) |
 | `anyonwiki-unitary` | The 303 supported AnyonWiki `table` entries of rank 5–7 (377 in all); without it they are `NotShipped` (feature added in 0.4.1) | nothing (embedded data only, about 4.2 MB) |
 
@@ -193,8 +191,8 @@ references, one per family (full provenance in
   published data and closed forms.
 - **Symbolic algebraic-number coefficients.** See
   [Exactness and gauge](#exactness-and-gauge).
-- **Non-connected and non-compact groups.** `O(N)` and `Pin(N)` are not central
-  quotients of a simply connected group and are out of scope.
+- **Additional disconnected or non-compact groups.** CU(1) = O(2) is
+  supported in `group`; other O(N), Pin(N), and non-compact groups are unsupported.
 
 Why each family gets a different algorithm — and why that choice is forced by
 the group's branching structure rather than chosen for convenience — is argued
@@ -207,10 +205,10 @@ Structural and discrete data are exact; generated coefficient *values* are
 deterministically gauged, verification-gated floating point. In detail:
 combinatorial structure (patterns, multiplicities, weights) and discrete data
 (duals, FS phases, signs, basis ordering) are exact integer/rational arithmetic;
-gauge fixing is a deterministic function of the subspace; and orthogonality,
-unitarity and pentagon/hexagon checks run at generation time, so a tolerance
-violation is a typed error and never a silently degraded coefficient. The user-
-facing summary is in
+gauge fixing is a deterministic function of the subspace. Internal CGC
+orthogonality and generator-consistency gates reject failures with typed errors.
+Generic F-unitarity, pentagon and hexagon residuals are available for explicit
+checks against a caller-selected tolerance. The user-facing summary is in
 [User Guide: exact vs generated](user-guide/resources.md#exact-vs-generated-values).
 
 The conventions that fix each coefficient's basis, sign and ordering are written

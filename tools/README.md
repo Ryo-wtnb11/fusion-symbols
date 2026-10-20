@@ -31,5 +31,5 @@ and no test reads them.
   on it. An unverified "existing X" is not evidence; it is a hypothesis.
 - **Warm-no-resweep rule.** Any coefficient-*generation* API (SU(N)/SO(N)/Sp
   CGC/F/R sweeps and their caches) must ship a test proving a warm second call
-  returns from the cache without re-running the sweep. A strand that only
-  *consumes* an existing decomposition (it calls `directproduct`) is exempt.
+  returns from the cache without re-running the sweep. Code that only
+  *consumes* an existing decomposition (through `FusionCategory::fusion`) is exempt.

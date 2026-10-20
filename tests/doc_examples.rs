@@ -228,7 +228,7 @@ fn fusion_4() {
 fn fusion_5() {
     use fusion_symbols::{
         category::FusionCategory,
-        cu1::{CU1Irrep, CU1},
+        group::{CU1Irrep, CU1},
     };
 
     let a = CU1Irrep::from_twice_charge(1);

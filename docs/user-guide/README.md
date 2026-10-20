@@ -1,4 +1,4 @@
-# racah User Guide
+# fusion-symbols User Guide
 
 > **AI-generated, for agentic coding.** This document was written by an AI agent
 > as reference material for AI agents (and humans) working on this repository.
@@ -32,6 +32,13 @@ conventions of returned values, see [`../gauge.md`](../gauge.md) and
 New here? Read [Getting started](getting-started.md), then the chapter for the
 object you need. Everything else is reference.
 
+## Families
+
+Use `category::FusionCategory` for all families: `lie` for Lie-simple groups
+and their global forms, `abelian` for U(1)/Z_N, `group` for other compact
+groups (CU(1)), `fermion` for parity, and `table` for pinned categories.
+`product` is planned; `cache` controls resources.
+
 ## Worked paths by group
 
 | Group | Start at |
@@ -42,3 +49,4 @@ object you need. Everything else is reference.
 | Spin(N) — spinor irreps | [Choosing a group § Spin(N)](groups.md#spinn-when-you-need-spinors) |
 | Sp(2N) | [Choosing a group § Sp(2N) naming](groups.md#sp2n-naming-rank-and-the-defining-dimension) |
 | PSU(N), SU(N)/Z_k, SO vs Spin | [Choosing a group § Global forms](groups.md#global-forms-and-admissibility) |
+| U(1), Z_N; CU(1); fermion parity; tabulated categories | [Representations](representations.md) → [Fusion](fusion.md) → [Recoupling](recoupling.md) |

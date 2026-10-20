@@ -1,10 +1,12 @@
 # fusion-symbols Agent Policy
 
 The repository and its single crate are `fusion-symbols` (formerly `racah`;
-lib `fusion_symbols`). Each symmetry family is a top-level module: the
-Lie-group families `su2`, `sun`, `bcd` (with `group`, `cache`), and the non-Lie
-families added beside them. The rules below apply to every family; the
-`cgc-gen` and dense-backend sections concern the Lie-group generation path.
+lib `fusion_symbols`). The public modules follow the mathematical classification:
+`category` (shared contract), `lie` (Lie-simple groups and their global forms),
+`abelian`, `group` (other compact groups, currently CU(1)), `fermion`, `table`,
+and `cache` (resource controls). `product` is planned, not implemented.
+The rules below apply to every family; the `cgc-gen` and dense-backend sections
+concern the Lie-group generation path.
 
 Design authority: the architecture, acceptance criteria, and reference-role
 map recorded in the upstream design discussion. Read them before any
@@ -19,11 +21,12 @@ non-trivial change.
   are not, and there is no
   dependency on any tensor-network engine crate. Label types are limited to
   the plain object labels a module's symbols are indexed by (for example
-  `TableObject`, the `abelian` and `cu1` irreps); sector behaviour beyond those
+  `table::TableObject`, `lie::LieIrrep`, and the `abelian`, `group` and
+  `fermion` irreps); sector behaviour beyond those
   symbols belongs to the consumer.
-- Base crate: exact SU(2), closed-form and tabulated categories
-  (`table`, `abelian`, `cu1`); dependencies stay minimal (big-integer
-  arithmetic and `num-complex`).
+- Base crate: `category`, exact rank-one `lie` (with `lie::su2` evaluators),
+  closed-form `abelian`, `group`, `fermion`, tabulated `table`, and `cache`.
+  Dependencies stay minimal (big-integer arithmetic and `num-complex`).
 - `cgc-gen` feature: all runtime generation (SU(N)/SO(N)/Sp(2N)) and every
   dense-kernel dependency live behind this feature. Factorizations
   (nullspace/QR/least-squares) and CGC contractions route through the
@@ -65,8 +68,9 @@ constraints, and unreachable-by-construction assumptions). Every port PR must:
 
 ## t4a-faer dependency (cgc-gen)
 
-The `cgc-gen` feature uses the crates.io semver range `t4a-faer = "0.24.6"`,
-with default features disabled and only `std` enabled. No `rayon`: dense
+The `cgc-gen` feature uses the crates.io semver range `t4a-faer = "0.24.7"`,
+with default features disabled and only `std` enabled. The minimum excludes
+the threaded-SVD defect in 0.24.6 (tensor4all/faer#25). No `rayon`: dense
 operations are sequential, and the caller owns parallelism. Use explicit
 `Par::Seq` for APIs taking `Par`; never set or rely on global parallelism.
 Backend updates are ordinary reviewed changes and must satisfy the gauge

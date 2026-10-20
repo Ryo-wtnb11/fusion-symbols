@@ -1,5 +1,5 @@
-//! `CU(1) = U(1) ⋊ C` (U(1) with charge conjugation, also `O(2)`) in closed
-//! form.
+//! Compact groups that are neither Lie-simple nor abelian
+//! (currently CU(1) = U(1) ⋊ C = O(2)).
 //!
 //! Every value follows TensorKitSectors.jl 0.3.9 (git `67d342a1`)
 //! `src/irreps/cu1irrep.jl` (`CU1Irrep`: constructor, `dual`, `⊗`, `dim`,

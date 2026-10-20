@@ -1,4 +1,4 @@
-# Provenance: non-Lie categories (`abelian`, `fermion`, `cu1`, `table`)
+# Provenance: `abelian`, `group`, `fermion` and `table` categories
 
 ## Abelian groups and fermion parity (`abelian` and `fermion` modules)
 
@@ -22,7 +22,7 @@ phase for self-dual objects and zero otherwise
 (`src/sectors.jl::frobenius_schur_indicator`). Generic identities are checked
 in `tests/category_conformance.rs::category_identities`.
 
-## CU(1) = U(1) ⋊ C (`cu1` module)
+## CU(1) = U(1) ⋊ C (`group` module)
 
 | Field | Value |
 | --- | --- |
@@ -35,7 +35,7 @@ in `tests/category_conformance.rs::category_identities`.
 | TKS values | `tests/cu1_values.rs`: every F and R over `0±`, `2j ≤ 5` equals the dense recoupling of the `fusiontensor` Clebsch–Gordan tensors written in the test, plus literals checked against TKS 0.3.9 (Julia 1.11.6). Deliberate deviation: TKS `Rsymbol` gives `-0.0` on inadmissible `R^{ab}_{0-}` with charged `a` (`-convert(Float64, N)`, `N = 0`), this crate `+0.0` (the crate-wide exact-zero contract, as symtn) |
 | Ported implementation | [symtn](https://github.com/Ryo-wtnb11/symtn-rs) `symtn-sectors/src/cu1.rs` at `2a6c152315bb271dc5e56b5f1f034ca818ef999d`. Deliberate differences: labels span the full `u32` (symtn's codec stops at `u32::MAX - 1`, which symtn validates itself), so fusions summing to exactly `u32::MAX` succeed here; and `N` is exact everywhere (symtn's checked N fails above its bound). Only `CU1::fusion`, which must produce the labels, reports an overflow, above `u32::MAX` |
 
-The `cu1::CU1` category implements `FusionCategory` with real scalar symbols,
+The `group::CU1` category implements `FusionCategory` with real scalar symbols,
 simple fusion and bosonic braiding. Labels retain their validated constructors;
 only fusion may fail on label overflow. The constructor still reports
 `CU1Error::InvalidLabel`. Values and fingerprint bytes are unchanged.

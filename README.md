@@ -22,21 +22,24 @@ Differences in detail are listed in docs/.
 
 ## Status
 
-Supported symmetries:
+The modules follow the mathematical classification:
 
-- SU(2), SO(3), Spin(3), Sp(2), PSU(2) through `lie::LieGroup`, exact (default);
-- SU(N), SU(N)/Z_k, PSU(N) through `lie::LieGroup`, generated (`cgc-gen`);
-- SO(N), Spin(N), Sp(2N) through `lie::LieGroup`, generated (`cgc-gen`);
-- U(1), Z_N (including Z2) and fermion parity via `category::FusionCategory`
-  (`abelian::{U1, ZN}`, `fermion::FermionParity`), closed form (default);
-- CU(1) = U(1) ⋊ C via `cu1::CU1` and `FusionCategory`, closed form (default);
-- the unitary multiplicity-free AnyonWiki categories of rank ≤ 4, Fibonacci
-  and Ising among them via `table::TableCategory` and `FusionCategory`
-  (default; rank 5–7 with `anyonwiki-unitary`).
+| Module | Supported data | Feature |
+|---|---|---|
+| `category` | Shared `FusionCategory` contract, styles, scalar blocks and identity residuals | default |
+| `lie` | SU(2), SO(3), Spin(3), Sp(2), PSU(2) through `LieGroup`; exact evaluators in `lie::su2` | default |
+| `lie` | SU(N), SU(N)/Z_k, PSU(N), SO(N), Spin(N), Sp(2N) and their supported global forms | `cgc-gen` |
+| `abelian` | U(1), Z_N (including Z2) via `U1`, `ZN` | default |
+| `group` | Other compact groups: CU(1) = U(1) ⋊ C = O(2), via `CU1` | default |
+| `fermion` | Fermion parity via `FermionParity`, with `FermionParityIrrep` labels | default |
+| `table` | 74 unitary multiplicity-free AnyonWiki categories of rank ≤ 4, including Fibonacci and Ising | default |
+| `table` | 303 further AnyonWiki categories of rank 5–7 | `anyonwiki-unitary` |
+| `product` | Deligne products (planned; no public module yet) | — |
+| `cache` | Coefficient-cache budgets, statistics, reset and trimming | default; generated tiers with `cgc-gen` |
 
 The exact SU(2) evaluators live under `lie::su2`; category operations use
-`lie::LieGroup` and `category::FusionCategory`. In the `cgc-gen` surface,
-`FusionCategory::authority_fingerprint`,
+`lie::LieGroup` and `category::FusionCategory`. In the `cgc-gen` surface, the
+fingerprint bytes of the generated families (SU(N), SO/Spin/Sp),
 `cache::GENERATED_CACHE_MAX_BYTES` and `cache::GeneratedCacheStats` are marked
 unstable in their rustdoc.
 
