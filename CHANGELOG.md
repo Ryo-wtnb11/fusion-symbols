@@ -7,6 +7,28 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Breaking
+
+- **Category interface (#146):** `category::FusionCategory` replaces
+  abelian per-object `dim`, `dual`, `frobenius_schur`, `twist`, `fusion`
+  methods and all `z2_*`, `zn_*`, `u1_*`, `fermion_parity_*` free functions
+  (including `_checked` and authority fingerprint functions).
+  `Z2Irrep` is removed: use `abelian::ZN::new(2)` and `ZNIrrep`.
+  The Z2 fingerprint (`z2_authority_fingerprint`) is retired; Z2 now reports
+  the unchanged ZN fingerprint. `abelian::FermionParity` is renamed and moved
+  to `fermion::FermionParityIrrep`; `fermion::FermionParity` is the category.
+  U1, ZN and parity fingerprint bytes and coefficient values are unchanged.
+  Foreign cyclic objects now panic; inadmissible F/R are `Ok(0.0)`.
+
+### Added
+
+- `category::{FusionStyle, BraidingStyle, Scalar, Promote, SymbolBlock,
+  FusionCategory, GroupRepresentations}`; sealed real/complex scalars and
+  scalar block storage. `GroupRepresentations` is declared without impls.
+- `abelian::{U1, ZN}`, `fermion::FermionParity` category implementations;
+  non-reducing `ZNIrrep::from_canonical` and `NonCanonicalCharge` error.
+  FS phase and indicator are distinct (indicator is zero unless self-dual).
+
 ## [0.4.1] - 2026-10-17
 
 ### Added

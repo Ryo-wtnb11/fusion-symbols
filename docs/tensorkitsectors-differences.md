@@ -9,8 +9,9 @@ known difference and the reason recorded for it. Per-symbol provenance is in
 ## Design
 
 - **A standalone provider, not a sector interface.** There is no `Sector`
-  trait, no `FusionStyle`/`BraidingStyle` vocabulary and no tensor engine;
-  each family is a module of plain label types and functions. Tensor-network
+  trait or tensor engine. `category::FusionCategory` supplies mathematical
+  quantities and `FusionStyle`/`BraidingStyle` for the abelian and fermion
+  families; Lie, CU(1) and table families retain their existing APIs. Tensor-network
   behaviour built on the symbols belongs to the consumer
   ([`AGENTS.md`](../AGENTS.md) "Boundaries";
   [overview: Out of scope](overview.md#out-of-scope-deliberately)).
@@ -45,13 +46,15 @@ known difference and the reason recorded for it. Per-symbol provenance is in
   unitarity, pentagon and hexagon checks run at generation time and a
   violation is a typed error. Reason: a silently degraded coefficient is not
   acceptable ([`AGENTS.md`](../AGENTS.md) acceptance criterion 5).
-- **Checked and infallible entry points.** `su2`, `abelian` and `cu1` give
+- **Checked and infallible entry points.** `su2` and `cu1` give
   each F-symbol, R-symbol and (in `su2`) Wigner symbol an infallible form that
   returns exact zero on an inadmissible tuple and a `_checked` form that
   returns a typed error (for example `su2_f_symbol` / `su2_f_symbol_checked`,
-  `cu1_r_symbol` / `cu1_r_symbol_checked`). The `abelian` and `cu1`
-  `*_nsymbol` functions have no `_checked` form: they return the fusion
-  multiplicity, `0` when the labels cannot fuse, and that is not an error. The generated families return `Result` only:
+  `cu1_r_symbol` / `cu1_r_symbol_checked`). For `abelian` and `fermion`, `FusionCategory` is the only symbol surface:
+  N returns an exact multiplicity and F/R return `Result`, with zero on
+  inadmissible tuples. U(1) fusion alone can overflow; cyclic and parity
+  operations use `Infallible`. Foreign cyclic objects panic. CU(1)'s N
+  function has no checked form and returns zero for a forbidden channel. The generated families return `Result` only:
   `sun::f_symbol`, `sun::r_symbol`, `bcd::f_symbol` and `bcd::r_symbol`
   return `Result<_, SunError>` / `Result<_, FrError>` (`src/sun/fr.rs`,
   `src/bcd/fr.rs`). In `tables`, the infallible `TableCategory` methods
@@ -70,7 +73,11 @@ known difference and the reason recorded for it. Per-symbol provenance is in
   rules integer arithmetic
   ([User Guide: representations](user-guide/representations.md#su2-doubled-spins)).
 - **Z_N carries its modulus at run time** (`u32` in the label) rather than as
-  a type parameter. Reason: matches symtn, the consumer it was ported from
+  a type parameter. `ZN` also carries the modulus and rejects foreign
+  objects by panic. `ZNIrrep::new` reduces arbitrary integer charges;
+  `ZNIrrep::from_canonical` instead rejects charges outside `0..N` without
+  reduction. Z2 uses `ZN::new(2)` and its fingerprint. Reason: matches symtn,
+  the consumer it was ported from
   ([`references_categories.md`](references_categories.md), abelian).
 - **U(1) charges are integer `i32`**, without `i32::MIN` and without
   half-integer charges. Reason: matches symtn; `i32::MIN` has no
@@ -88,7 +95,7 @@ known difference and the reason recorded for it. Per-symbol provenance is in
 
 ## Values
 
-- **Abelian scalars are `f64`**, where TensorKitSectors declares `Int`.
+- **Abelian and fermion-parity scalars are `f64`**, where TensorKitSectors declares `Int`.
   Reason: `f64` is the scalar type of the symtn providers these were ported
   from, whose values they reproduce bit for bit (`src/abelian.rs` module
   docs).

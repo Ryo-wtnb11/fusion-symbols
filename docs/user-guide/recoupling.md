@@ -33,6 +33,33 @@ non-abelian symmetry, in recoupling algebra, and in fusion-tree manipulations.
 If you need explicit product-basis vectors instead, you want
 [CGC](clebsch-gordan.md).
 
+## Abelian categories and fermion parity
+
+Import `FusionCategory` to query `abelian::{U1, ZN}` or
+`fermion::FermionParity`. Labels retain their validating constructors:
+
+```rust
+use fusion_symbols::abelian::{ZN, ZNIrrep};
+use fusion_symbols::category::{FusionCategory, SymbolBlock};
+
+let category = ZN::new(3).unwrap();
+let one = ZNIrrep::from_canonical(1, 3).unwrap();
+let two = ZNIrrep::from_canonical(2, 3).unwrap();
+assert_eq!(category.fusion(&one, &one).unwrap().next(), Some(two));
+assert_eq!(category.r_symbol(&one, &one, &two), Ok(1.0));
+let zero = category.f_symbol(&one, &one, &one, &one, &one, &one).unwrap();
+assert_eq!(zero, 0.0); // an inadmissible vertex is a value
+assert_eq!(<f64 as SymbolBlock<4>>::dims(&zero), [1; 4]);
+```
+
+Logical F shape is `[N(a,b,e), N(e,c,d), N(b,c,f), N(a,f,d)]`;
+`SymbolBlock::dims` describes storage only. Bare scalars keep all-one axes
+even for zero symbols. A foreign modulus panics on every category operation.
+`ZN` and parity have `Infallible` errors; U(1) fusion reports overflow.
+`frobenius_schur_phase` is +1 for these families, while
+`frobenius_schur_indicator` is zero for non-self-dual objects.
+Odd parity has R(odd, odd, even) = −1 and twist −1.
+
 ## SU(2): exact scalars
 
 ```rust
@@ -244,7 +271,7 @@ as a typed error.
 
 ## Caveats
 
-- **An empty vertex is an error.** If any of the four F-symbol vertices has zero
+- **Generated Lie APIs: an empty vertex is an error.** If any of the four F-symbol vertices has zero
   fusion multiplicity, the call returns a typed error rather than a zero block.
   Check the channels with [`directproduct`](fusion.md) first if in doubt.
 - **Cost.** The first F-symbol on a set of labels generates the underlying CGC;

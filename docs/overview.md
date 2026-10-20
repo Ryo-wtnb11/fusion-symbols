@@ -12,7 +12,7 @@ coefficients (3j / 6j / F / R) for SU(2), SU(N), SO(N), and Sp(2N). Non-Lie
 fusion categories sit beside them as their own top-level modules: the
 multiplicity-free unitary categories of rank ≤ 4 (Fibonacci, Ising, …; up to
 rank 7 with the `anyonwiki-unitary` feature) from pinned AnyonWiki tables, the abelian groups Z2,
-Z_N, U(1) with fermion parity, and CU(1) = U(1) ⋊ C, now; Deligne products next. The first consumer is
+Z_N, U(1), fermion parity, and CU(1) = U(1) ⋊ C, now; Deligne products next. The first consumer is
 [symtn](https://github.com/Ryo-wtnb11/symtn-rs).
 
 For the Lie-group families, coefficients for any admissible labels are
@@ -32,17 +32,23 @@ pinned AnyonWiki tables described below.
 | SU(N), SU(N)/Z_k, PSU(N) | `fusion_symbols::sun` | `cgc-gen` | `N-1` Dynkin labels |
 | SO(N), Spin(N) | `fusion_symbols::bcd` (series `B`, `D`) | `cgc-gen` | `r` Dynkin labels |
 | Sp(2r) | `fusion_symbols::bcd` (series `C`) | `cgc-gen` | `r` Dynkin labels |
-| Z2, Z_N, U(1), fermion parity | `fusion_symbols::abelian` | *(default)* | `Z2Irrep`, `ZNIrrep` (charge, runtime `N`), `U1Irrep` (`i32`), `FermionParity` |
+| U(1), Z_N (Z2 = `ZN::new(2)`) | `fusion_symbols::abelian` | *(default)* | `U1` / `U1Irrep` (`i32`), `ZN` / `ZNIrrep` (charge, runtime `N`) |
+| Fermion parity | `fusion_symbols::fermion` | *(default)* | `FermionParity` / `FermionParityIrrep` (bool) |
 | CU(1) = U(1) ⋊ C (`O(2)`) | `fusion_symbols::cu1` | *(default)* | `CU1Irrep` (twice charge `u32`, TensorKitSectors `s`) |
 | Unitary multiplicity-free categories, rank ≤ 4 (AnyonWiki tables: 74 entries incl. Fibonacci, Ising) | `fusion_symbols::tables` | *(default)* | `TableCategory` (`by_uuid`, `by_code`, `fibonacci()`, `ising()`); one-based `TableObject(1..=rank)` |
 | … rank 5–7 (303 further AnyonWiki entries, about 4.2 MB of embedded tables) | `fusion_symbols::tables` | `anyonwiki-unitary` | as above |
 
-The non-Lie modules follow the `su2` conventions (label methods `dim` / `dual`
-/ `frobenius_schur` / `twist` / `fusion`; `nsymbol` / `f_symbol` /
-`r_symbol` with `_checked` variants; an authority fingerprint) and
-TensorKitSectors index order (and, for the closed forms, gauge); R-symbols and twists are
-`num_complex::Complex64` (`f64` for the real abelian and CU(1) braidings). Their provenance is in
-[`docs/references_categories.md`](references_categories.md).
+`abelian::{U1, ZN}` and `fermion::FermionParity` implement
+`category::FusionCategory`, the single surface for dimension, dual, FS phase
+and indicator, twist, fusion and N/F/R. Objects are validated at construction;
+foreign moduli panic. N = 0 gives exact scalar zero, while U(1) fusion overflow
+is a typed error. Symbols are `f64`. Category identity includes the modulus;
+authority fingerprints describe conventions and remain byte-identical.
+
+`cu1` and `tables` retain their per-family methods and checked variants.
+All families use TensorKitSectors index order; closed forms use its gauge.
+Table braiding uses `num_complex::Complex64`; CU(1) braiding is `f64`.
+Provenance is in [`docs/references_categories.md`](references_categories.md).
 
 The `tables` tables come from the
 [AnyonWiki](https://anyonwiki.org/) database
