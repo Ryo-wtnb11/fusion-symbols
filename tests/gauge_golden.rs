@@ -23,8 +23,8 @@
 //!
 //! `1e-12`, not the last ULP. The spec deliberately promises value agreement
 //! within the oracle tolerance rather than cross-process bit-identity
-//! (`docs/gauge.md` header, §10; `docs/gauge_soN.md` §12): the dense backend's
-//! parallel reductions are not bit-reproducible, so an exact `==` here would be
+//! (`docs/gauge.md` header, §10; `docs/gauge_soN.md` §12): backend kernels and
+//! SIMD dispatch can vary across machines, so an exact `==` here would be
 //! a flake, not a tripwire. `1e-12` sits four orders below the external oracle
 //! budget (`1e-8`) and far above the observed round-off floor, so it catches
 //! every discrete gauge event (a sign flip, a column swap, a pivot change,
@@ -536,5 +536,20 @@ fn print_golden() {
         bcd_f_symbol(&mut cat, &s, &sb, &s, &s, &adj, &adj)
             .unwrap()
             .at(0, 0, 0, 0)
+    );
+}
+
+// Epoch 3 (#150), §4a: a dependent middle descent column left this sign
+// backend-chosen under epoch 2's R-row rule. The rule itself is tested in linalg.
+#[test]
+fn d3_epoch3_independent_column_qr_golden() {
+    let adj = bcd(Series::D, &[0, 1, 1]);
+    let coupled = bcd(Series::D, &[0, 2, 2]);
+    let mut catalog = CanonicalCatalog::new(Series::D, 3).unwrap();
+    let cg = catalog.cgc(&adj, &adj, &coupled).unwrap();
+    close(
+        "D3 epoch 3 (0,2,2), copy 0, entry 7055",
+        cg.copy(0)[7055],
+        1.0,
     );
 }

@@ -61,7 +61,7 @@ Two deliberate racah deviations from QSpace, called out once here and again at
 their sites:
 
 1. **PositiveDiagonal QR gauge** (§4a): the column orthonormalization uses
-   `tenferro-linalg`'s **PositiveDiagonal** QR gauge, a *tightening* of QSpace's
+   the **positive-diagonal** QR gauge, a *tightening* of QSpace's
    unspecified `OrthoNormalizeColsQR` sign, fixing the sign of each retained
    orthonormal direction deterministically.
 2. **Unconditional block sign convention** (§8): racah applies
@@ -200,37 +200,66 @@ complete. The multiplet is then appended to `U`. Bounds `V,Vi,U ≤ D` are guard
 (`SweepError::SpaceOutOfBounds`, `:210,215,235`). The sweep ends when `U` fills
 `D`; failing to fill `D` is `SweepError::IncompleteDecomposition` (`:236`).
 
-### 4a. QR gauge — PositiveDiagonal, rank-revealing by R-row
+### 4a. QR gauge — PositiveDiagonal with in-order column selection
 
-The orthonormalization is `tenferro-linalg`'s QR with
-`QrGauge::PositiveDiagonal` (each retained `R` diagonal made ≥ 0 by folding the
-sign into `Q`) — the **deliberate racah tightening** of QSpace's unspecified
+`src/bcd/linalg.rs::qr_positive_q` walks the input columns in order, maintaining
+an orthonormal selection basis `Q_S`. For each column, subtract
+`Q_S (Q_Sᵀ a_j)` twice (CGS2: one re-orthogonalization pass), using the
+sequential backend matmul. Retain the column exactly when the residual norm
+is strictly greater than the absolute tolerance `CG_EPS1 = 1e-10`, and append
+the normalized residual to `Q_S`. Zero and dependent columns are skipped,
+including leading zero columns and non-trailing dependencies.
+
+The selection basis is used only to choose indices `S`. The output is the
+thin unpivoted QR of the original selected columns `a[:, S]`, with each
+R diagonal made positive by folding its sign into Q. These columns have full
+column rank by construction, so the positive-diagonal QR is unique and
+independent of backend Householder choices. Empty selection returns zero columns.
+This is the deliberate racah tightening of QSpace's unspecified
 `OrthoNormalizeColsQR` sign convention.
 
-Rank is read from `R = QᵀA` by **row norm**, not the diagonal: the backend's QR
-is un-pivoted, so a zero or dependent *leading* column shifts the pivots off the
-diagonal (a rank-2 input can produce an all-zero `R` diagonal). Row `i` of `R`
-is (with the guarantees stated below) the row of `R` that certifies `Q[:,i]`
-participates in representing `A`; the retained columns are exactly
-`{ i : ‖R[i,·]‖ > CG_EPS1 }`, giving an orthonormal basis of the column space.
-(`src/bcd/linalg.rs:qr_positive_q`.)
+*The defect this corrects (`epoch = 2` → `3`, issue #150).* The old rule
+factored all input columns, made the R diagonal nonnegative (leaving exact
+zero unflipped), and retained Q columns whose R-row norm exceeded `CG_EPS1`.
+A dependent middle column can shift an independent direction off the diagonal;
+then a zero or round-off diagonal does not fix that direction's sign. The
+assertion that descent dependencies were always trailing was false.
 
-What the row-norm test guarantees (it is *not* the theorem "row `i` nonzero iff
-`Q[:,i] ∈ col(A)`", which can fail mid-matrix — a Householder reflector with
-`τ = 0` can leave a nonzero `R` row for a `Q` column outside `col(A)`):
+Measured example: the canonical-parent descent for `D_3 (0,2,2)` supplies a
+`100 × 5` input. Its in-order CGS2 residual norms are approximately
+`[1.414214, 0.816497, 1.290994, 9.88e-32, 1.414214]`. The old backend’s
+positive-diagonal R has diagonal
+`[1.414214, 0.816497, 1.290994, 5.78e-33, 0]` and row norms
+`[1.414214, 1.414214, 1.290994, 1.414214, 0]`: it retains Q columns
+`[0,1,2,3]`, but the last direction is fixed by `R[3,4] = -sqrt(2)`,
+not the negligible `R[3,3]`. It chooses `-e_7`; the corrected rule selects
+original columns `[0,1,2,4]` and chooses `+e_7`. This is raw multiplet
+column 23, sorted canonical column 31, and changes the aligned adjoint-product
+CGC copy 0 entry 7055 from `-1` to `+1` (all indices zero-based).
 
-- **No genuine direction is lost.** With `R_k` the retained rows and `Q_k` the
-  retained columns, `A = Q_k R_k` up to `k·CG_EPS1`, so every column of `A` — and
-  thus its whole column space — is reproduced by the retained orthonormal basis.
-- **A spurious retained column is impossible for a trailing dependency** (the
-  case that actually arises in the descent, where the zero/dependent columns are
-  the later lowering images), and if one ever slipped through elsewhere it is
-  caught **loudly** downstream: it would inflate a block beyond its irrep
-  dimension and break the Cartan-diagonality (§6) or the dimension-bookkeeping /
-  `U†U` (§5) gates, never a silent wrong answer. QSpace's `OrthoNormalizeColsQR`
-  R-staircase check is therefore not ported — it would be redundant with those
-  gates (a few lines that duplicate existing loud coverage; skipped per the
-  fewest-moving-parts rule).
+The old/new comparison set comprises the defining self-products for
+`B_2,B_3,B_4,C_2,C_3,C_4,D_3,D_4`, plus the `D_3 (0,1,1)` adjoint
+self-product, all their CGC channels and R blocks, and
+`F(a,a,a;a | 1,1)` for each product. At absolute difference `> 1e-12`,
+**only** `D_3 (0,1,1) ⊗ (0,1,1) → (0,2,2)`, copy 0, changes:
+33 nonzero entries reverse sign, at flattened column-major indices
+`7055, 7956, 7970, 8859, 8871, 8915, 10449, 10491, 11844, 12686, 12770,
+13137, 13151, 13221, 13235, 14052, 14096, 14124, 14136, 15447, 15489,
+16363, 16405, 16814, 16870, 17051, 17277, 17291, 17742, 18208, 18659,
+18673, 18899`. Maximum absolute change is `2`. B and C have zero changed
+entries, as do the D defining products; no compared F/R entry changes.
+Channel sets, multiplicities, shapes and OM indices are unchanged; this
+channel's sign pattern changes. This finite comparison is not a claim that
+other products coupling through corrected canonical frames cannot change.
+
+This ships under [`gauge.md`, "Status"](gauge.md#status-frozen-normative-specification):
+this amendment, the B/C/D `epoch = 3` bump, the new frozen value in
+`tests/gauge_golden.rs::d3_epoch3_independent_column_qr_golden`, and the CHANGELOG
+breaking-change entry belong to one change. SU(2)/SU(N) epochs are unchanged.
+The independent rule check is
+`src/bcd/linalg.rs::tests::d3_epoch3_qr_uses_independent_input_columns`:
+it captures the actual descent input, independently selects columns by CGS2,
+and certifies the returned positive-diagonal thin QR without stored values.
 
 **Round-off-neutrality note (Gram–Schmidt order and the second pass).** Within
 pass 1, `U`, `V`, and the current level `Vi` are mutually orthonormal subspaces,
@@ -437,19 +466,23 @@ multiplicity, but each is recorded for any comparison with QSpace:
 
 ## 12. Numerical seams (backend)
 
-`CoeffScalar = f64`. Two operations reach `tenferro-linalg`
+`CoeffScalar = f64`. Dense operations reach `t4a-faer`
 (`src/bcd/linalg.rs`, no hand-rolled factorization kernels):
 
-| Stage | Reference (`@ dd2cc7e`) | tenferro API |
+| Stage | Reference (`@ dd2cc7e`) | t4a-faer API |
 |---|---|---|
-| column orthonormalization (§4a) | `OrthoNormalizeColsQR` | `qr_with_options(QrGauge::PositiveDiagonal)` → `Q`, rank-revealed by `R`-row |
-| block CGC contractions & `UᵀU` (§5,6) | `Wb::MatProd` | `TracedTensor::matmul` |
+| column orthonormalization (§4a) | `OrthoNormalizeColsQR` | `qr::no_pivoting::factor::qr_in_place` + sign fix → `Q`, after in-order CGS2 column selection |
+| block CGC contractions & `UᵀU` (§5,6) | `Wb::MatProd` | `linalg::matmul::matmul` |
+| intertwiner alignment (§15) | orthogonal Procrustes | `linalg::svd::svd` (thin vectors) |
+
+All paths use explicit `Par::Seq` and scratch workspaces where required. Only
+`std` is enabled, without `rayon`; global parallelism is neither set nor consulted.
 
 The Gram–Schmidt sweep arithmetic (vector scaling, subtraction, norms, and the
 sparse `Sp`/diagonal-`Sz` applications) is the **gauge algorithm itself** — the
 analogue of `sun::cgc`'s `cref`, which `docs/gauge.md` §10 likewise carries in
 plain code rather than routing through a factorization kernel. The
-`tenferro-rs` version requirement is in `Cargo.toml`.
+`t4a-faer` crates.io semver requirement is in `Cargo.toml`.
 
 The contract is *value agreement within the verification tolerances*, and (on a
 single-threaded run) **bitwise reproducibility** across runs — the sweep is
@@ -973,8 +1006,9 @@ describes.
 ### 16.4 Fingerprint
 
 `bcd_authority_fingerprint()` gains **no new tag** for the spinor sector, and
-the spinor sector by itself moves no `epoch` (the `epoch` is `2` since the
-unrelated §14.2 base-case-frame correction of issue #90).
+the spinor sector by itself moves no `epoch` (the current `epoch` is `3`
+after the §4a QR correction of issue #150; epoch `2` corrected the
+§14.2 base-case frame in issue #90).
 
 The tag list is normative and its bytes are contractually stable: the
 fingerprint "changes exactly with a specification correction" (`src/bcd.rs`,

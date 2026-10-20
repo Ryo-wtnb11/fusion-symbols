@@ -28,7 +28,7 @@ There is no fixed MSRV; `fusion-symbols` builds and is tested on current stable 
 | Feature | Gives you | Cost |
 |---|---|---|
 | *(default)* | SU(2): 3j, 6j, Clebsch–Gordan, F, R, Frobenius–Schur — closed-form, big-rational exact | `num-bigint`, `num-rational`, `num-traits` |
-| `cgc-gen` | SU(N) (`fusion_symbols::sun`), SO(N)/Spin(N)/Sp(2N) (`fusion_symbols::bcd`), and the `fusion_symbols::group` global forms applied to them | pulls the Tenferro dense-linear-algebra backend |
+| `cgc-gen` | SU(N) (`fusion_symbols::sun`), SO(N)/Spin(N)/Sp(2N) (`fusion_symbols::bcd`), and the `fusion_symbols::group` global forms applied to them | pulls the sequential t4a-faer dense-linear-algebra backend |
 
 The split is mathematical, not organizational: SU(2) has closed-form
 coefficients and needs no matrix computation; every other family must be

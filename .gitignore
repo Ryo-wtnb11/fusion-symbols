@@ -1,7 +1,7 @@
 /target
 Cargo.lock
 .DS_Store
-# Developer-local tenferro-rs override (see AGENTS.md); never committed.
+# Developer-local Cargo configuration; never committed.
 /.cargo/
 
 # Python bindings dev venv (racah-py); never committed.

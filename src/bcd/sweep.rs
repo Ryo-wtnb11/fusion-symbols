@@ -29,7 +29,7 @@
 //!
 //! `CoeffScalar = f64`. The QR column-orthonormalization (the factorization and
 //! gauge-fixing step) and the block-level CGC contractions route through
-//! `tenferro-linalg` (`super::linalg`); the Gram–Schmidt sweep arithmetic is
+//! `t4a-faer` (`super::linalg`); the Gram–Schmidt sweep arithmetic is
 //! the gauge algorithm itself and, like `sun::cgc`'s `cref`, is carried in
 //! plain `f64`. No hand-rolled factorization kernels.
 
@@ -181,7 +181,7 @@ pub enum SweepError {
         /// Worst commutator residual.
         residual: f64,
     },
-    /// A dense factorization/contraction routed through `tenferro-linalg`
+    /// A dense factorization/contraction routed through `t4a-faer`
     /// failed. Surfaced (not panicked) because the floating-point stages are
     /// verification-gated.
     Linalg(String),

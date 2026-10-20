@@ -1,71 +1,71 @@
-//! Dense factorization seams for the SU(N) CGC pipeline, routed exclusively
-//! through `tenferro-linalg`'s public traced surface (no hand-rolled numeric
-//! kernels).
-//!
-//! Three operations are needed, each mapping the reference's dense linear
-//! algebra to a public tenferro API:
-//!
-//! - **nullspace** (`clebschgordan.jl:_nullspace!`, `svd!(A; full=true)`):
-//!   full-matrices SVD via [`tenferro_linalg::TracedTensorLinalgExt::svd_full`];
-//!   the trailing `n - rank` rows of `Vh` span the right nullspace.
-//! - **positive-diagonal QR** (`clebschgordan.jl:qrpos!`): QR with
-//!   [`tenferro_linalg::QrGauge::PositiveDiagonal`], returning the sign-fixed
-//!   `Q`.
-//! - **least squares** (`clebschgordan.jl:lower_weight_CGC!`,
-//!   `ldiv!(qr!(eqs), rhs)`): [`tenferro_linalg::TracedTensorLinalgExt::lstsq`].
-//!
-//! Matrices are passed as plain column-major `f64` buffers so the rest of the
-//! crate never sees a tenferro type. The active provider is the CPU faer
-//! backend (the only one implementing full-matrices SVD in this tenferro
-//! slice), pinned by the `cgc-gen` feature.
-
-use tenferro_cpu::CpuBackend;
-use tenferro_linalg::{QrGauge, QrOptions, TracedTensorLinalgExt};
-use tenferro_runtime::{GraphCompiler, Runtime, Tensor, TracedTensor};
+//! Dense SU(N) factorizations on t4a-faer, using explicit sequential paths and
+//! scratch workspaces. Plain column-major f64 buffers keep backend types private.
+//! Full SVD supplies the right nullspace; unpivoted QR supplies gauge fixing
+//! and least squares. Zero R diagonals are left unflipped (docs/gauge.md §4b).
 
 use super::SunError;
+use faer::{
+    diag::Diag,
+    dyn_stack::{MemBuffer, MemStack},
+    linalg::{
+        householder,
+        qr::no_pivoting::{factor, solve},
+        svd::{self, ComputeSvdVectors},
+    },
+    Conj, Mat as FaerMat, MatRef, Par,
+};
 
-fn linalg_err(context: &str, e: impl std::fmt::Display) -> SunError {
-    SunError::Linalg(format!("{context}: {e}"))
+/// Unpivoted QR, explicitly sequential. The packed lower triangle stores Q's reflectors.
+fn qr(a: MatRef<'_, f64>) -> (FaerMat<f64>, FaerMat<f64>) {
+    let (m, n) = a.shape();
+    let block = factor::recommended_block_size::<f64>(m, n);
+    let mut packed = a.to_owned();
+    let mut coeff = FaerMat::zeros(block, m.min(n));
+    let mut mem = MemBuffer::new(factor::qr_in_place_scratch::<f64>(
+        m,
+        n,
+        block,
+        Par::Seq,
+        Default::default(),
+    ));
+    factor::qr_in_place(
+        packed.as_mut(),
+        coeff.as_mut(),
+        Par::Seq,
+        MemStack::new(&mut mem),
+        Default::default(),
+    );
+    (packed, coeff)
 }
 
-fn traced(rows: usize, cols: usize, data: Vec<f64>) -> Result<TracedTensor, SunError> {
-    TracedTensor::from_vec_col_major(vec![rows, cols], data)
-        .map_err(|e| linalg_err("build input", e))
-}
-
-/// Compile and execute the traced outputs on a fresh CPU faer backend, in the
-/// order given. Each returned [`Tensor`] is a concrete host tensor.
-fn run(outputs: &[&TracedTensor]) -> Result<Vec<Tensor>, SunError> {
-    let mut compiler = GraphCompiler::new();
-    let program = compiler
-        .compile_many(outputs)
-        .map_err(|e| linalg_err("compile", e))?;
-    let backend = CpuBackend::new();
-    let mut builder = Runtime::builder();
-    builder
-        .register_engine(
-            tenferro_cpu::runtime_engine_registration(&backend)
-                .map_err(|e| linalg_err("register", e))?,
-        )
-        .map_err(|e| linalg_err("register", e))?;
-    let engine_id = tenferro_cpu::runtime_engine_id().map_err(|e| linalg_err("register", e))?;
-    builder
-        .install_extension_module(
-            tenferro_linalg::extension_module::<CpuBackend>(engine_id)
-                .map_err(|e| linalg_err("register", e))?,
-        )
-        .map_err(|e| linalg_err("register", e))?;
-    let runtime = builder.build().map_err(|e| linalg_err("register", e))?;
-    runtime
-        .run_compiled(&program, &[])
-        .map_err(|e| linalg_err("run", e))
-}
-
-fn f64_out(t: &Tensor) -> Result<Vec<f64>, SunError> {
-    Ok(t.as_slice::<f64>()
-        .map_err(|e| linalg_err("read", e))?
-        .to_vec())
+fn positive_q(packed: MatRef<'_, f64>, coeff: MatRef<'_, f64>) -> FaerMat<f64> {
+    let (m, n) = packed.shape();
+    let k = m.min(n);
+    let mut q = FaerMat::identity(m, k);
+    let mut mem = MemBuffer::new(
+        householder::apply_block_householder_sequence_on_the_left_in_place_scratch::<f64>(
+            m,
+            coeff.nrows(),
+            k,
+        ),
+    );
+    householder::apply_block_householder_sequence_on_the_left_in_place_with_conj(
+        packed.subcols(0, k),
+        coeff,
+        Conj::No,
+        q.as_mut(),
+        Par::Seq,
+        MemStack::new(&mut mem),
+    );
+    for j in 0..k {
+        // An exactly zero R diagonal (including -0.0) is left unflipped.
+        if packed[(j, j)] < 0.0 {
+            for i in 0..m {
+                q[(i, j)] = -q[(i, j)];
+            }
+        }
+    }
+    q
 }
 
 /// A column-major dense matrix of shape `rows x cols`.
@@ -95,8 +95,8 @@ impl Mat {
         self.data[i + j * self.rows]
     }
 
-    fn traced(&self) -> Result<TracedTensor, SunError> {
-        traced(self.rows, self.cols, self.data.clone())
+    fn view(&self) -> MatRef<'_, f64> {
+        MatRef::from_column_major_slice(&self.data, self.rows, self.cols)
     }
 }
 
@@ -111,7 +111,7 @@ pub(crate) fn nullspace(a: &Mat, atol: f64) -> Result<Mat, SunError> {
     let n = a.cols;
     // Reference `_nullspace!`: an empty system (no rows or no columns) has the
     // whole space as its nullspace -> the n x n identity. Also avoids handing a
-    // 0-row matrix to svd_full.
+    // 0-row matrix to full SVD.
     if a.rows == 0 || n == 0 {
         let mut id = Mat::zeros(n, n);
         for i in 0..n {
@@ -119,20 +119,36 @@ pub(crate) fn nullspace(a: &Mat, atol: f64) -> Result<Mat, SunError> {
         }
         return Ok(id);
     }
-    let ta = a.traced()?;
-    let (_u, s, vh) = ta.svd_full().map_err(|e| linalg_err("svd_full", e))?;
-    let out = run(&[&s, &vh])?;
-    let sv = f64_out(&out[0])?;
-    let vhd = f64_out(&out[1])?; // column-major n x n
+    let mut u = FaerMat::zeros(a.rows, a.rows);
+    let mut v = FaerMat::zeros(n, n);
+    let mut sv = Diag::zeros(a.rows.min(n));
+    let mut mem = MemBuffer::new(svd::svd_scratch::<f64>(
+        a.rows,
+        n,
+        ComputeSvdVectors::Full,
+        ComputeSvdVectors::Full,
+        Par::Seq,
+        Default::default(),
+    ));
+    svd::svd(
+        a.view(),
+        sv.as_mut(),
+        Some(u.as_mut()),
+        Some(v.as_mut()),
+        Par::Seq,
+        MemStack::new(&mut mem),
+        Default::default(),
+    )
+    .map_err(|e| SunError::Linalg(format!("svd: {e:?}")))?;
+    let sv = sv.column_vector();
     let rank = sv.iter().filter(|&&x| x > atol).count();
     let k = n - rank;
-    // Nullspace vector alpha = row (rank + alpha) of Vh: v[j] = Vh[rank+alpha, j].
-    // Column-major (n x n): Vh[t, j] at index t + j * n.
+    // Nullspace vector alpha is column (rank + alpha) of the full V.
     let mut ns = Mat::zeros(n, k);
     for alpha in 0..k {
         let t = rank + alpha;
         for j in 0..n {
-            ns.data[j + alpha * n] = vhd[t + j * n];
+            ns.data[j + alpha * n] = v[(j, t)];
         }
     }
     Ok(ns)
@@ -144,32 +160,85 @@ pub(crate) fn nullspace(a: &Mat, atol: f64) -> Result<Mat, SunError> {
 /// `R[i,i] >= 0`; the gauge-fixing step keeps only `Q` (`gaugefix! = first ∘
 /// qrpos! ∘ cref!`). `Q` has shape `a.rows x min(a.rows, a.cols)`.
 pub(crate) fn qr_positive_q(a: &Mat) -> Result<Mat, SunError> {
-    let ta = a.traced()?;
-    let (q, _r) = ta
-        .qr_with_options(QrOptions::default().gauge(QrGauge::PositiveDiagonal))
-        .map_err(|e| linalg_err("qr", e))?;
-    let out = run(&[&q])?;
-    let qd = f64_out(&out[0])?;
-    let cols = a.rows.min(a.cols);
+    // Callers supply a nullspace basis transformed by cref, hence full rank.
+    // Verify with the same absolute CGS2 residual test as the B/C/D seam.
+    let mut basis = FaerMat::<f64>::zeros(a.rows, a.cols);
+    for j in 0..a.cols {
+        let mut r = a.view().subcols(j, 1).to_owned();
+        let q = basis.as_ref().subcols(0, j);
+        for _ in 0..2 {
+            let mut weights = FaerMat::<f64>::zeros(j, 1);
+            faer::linalg::matmul::matmul(
+                weights.as_mut(),
+                faer::Accum::Replace,
+                q.transpose(),
+                r.as_ref(),
+                1.0,
+                Par::Seq,
+            );
+            faer::linalg::matmul::matmul(
+                r.as_mut(),
+                faer::Accum::Add,
+                q,
+                weights.as_ref(),
+                -1.0,
+                Par::Seq,
+            );
+        }
+        let norm = r.col(0).iter().map(|x| x * x).sum::<f64>().sqrt();
+        if norm <= 1e-10 || !norm.is_finite() {
+            return Err(SunError::Linalg(
+                "qr_positive_q: input is not full column rank".into(),
+            ));
+        }
+        for i in 0..a.rows {
+            basis[(i, j)] = r[(i, 0)] / norm;
+        }
+    }
+    let (packed, coeff) = qr(a.view());
+    let q = positive_q(packed.as_ref(), coeff.as_ref());
     Ok(Mat {
         rows: a.rows,
-        cols,
-        data: qd,
+        cols: q.ncols(),
+        data: q.col_iter().flat_map(|c| c.iter().copied()).collect(),
     })
 }
 
 /// Least-squares solution `X` of `A X = B` for tall/square full-column-rank
 /// `A` (`ldiv!(qr!(A), B)`). `X` has shape `A.cols x B.cols`.
 pub(crate) fn lstsq(a: &Mat, b: &Mat) -> Result<Mat, SunError> {
-    let ta = a.traced()?;
-    let tb = b.traced()?;
-    let x = ta.lstsq(&tb).map_err(|e| linalg_err("lstsq", e))?;
-    let out = run(&[&x])?;
-    let xd = f64_out(&out[0])?;
+    if a.rows < a.cols || b.rows != a.rows {
+        return Err(SunError::Linalg(
+            "lstsq: expected tall/square A and matching RHS rows".into(),
+        ));
+    }
+    let (packed, coeff) = qr(a.view());
+    if (0..a.cols).any(|i| packed[(i, i)] == 0.0) {
+        return Err(SunError::Linalg("lstsq: singular R diagonal".into()));
+    }
+    let mut x = b.view().to_owned();
+    let mut mem = MemBuffer::new(solve::solve_lstsq_in_place_scratch::<f64>(
+        a.rows,
+        a.cols,
+        coeff.nrows(),
+        b.cols,
+        Par::Seq,
+    ));
+    solve::solve_lstsq_in_place(
+        packed.as_ref(),
+        coeff.as_ref(),
+        packed.as_ref(),
+        x.as_mut(),
+        Par::Seq,
+        MemStack::new(&mut mem),
+    );
     Ok(Mat {
         rows: a.cols,
         cols: b.cols,
-        data: xd,
+        data: x
+            .col_iter()
+            .flat_map(|c| c.iter().take(a.cols).copied())
+            .collect(),
     })
 }
 
@@ -180,7 +249,7 @@ mod tests {
     #[test]
     fn nullspace_of_1x2_recovers_kernel() {
         // A = [1, 1] (1x2). Kernel spanned by (1, -1)/sqrt2. Thin SVD would drop
-        // this; full SVD via svd_full must recover it -- the minimal SU(2)
+        // this; full SVD must recover it -- the minimal SU(2)
         // singlet system.
         let a = Mat {
             rows: 1,
@@ -209,6 +278,18 @@ mod tests {
         let r00 = q.at(0, 0) * a.at(0, 0) + q.at(1, 0) * a.at(1, 0);
         assert!(r00 >= 0.0, "R diagonal not positive: {r00}");
         assert!((q.at(0, 0).powi(2) + q.at(1, 0).powi(2) - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn qr_rejects_dependent_columns() {
+        for (rows, data) in [(3, vec![1., 2., 3., 2., 4., 6.]), (1, vec![1., 2.])] {
+            let a = Mat {
+                rows,
+                cols: 2,
+                data,
+            };
+            assert!(matches!(qr_positive_q(&a), Err(SunError::Linalg(_))));
+        }
     }
 
     #[test]

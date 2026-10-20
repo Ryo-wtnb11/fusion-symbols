@@ -31,16 +31,8 @@ default = []
 # default. Data only, no dependency; about 4.2 MB of embedded tables.
 anyonwiki-unitary = []
 # Runtime coefficient generation for SU(N)/SO(N)/Sp(2N).
-# Pulls dense factorization and contraction kernels (tenferro-linalg + the CPU
-# faer provider that implements full-matrices SVD and least-squares); the base
-# crate stays dependency-light and covers the exact closed-form SU(2) path only.
-cgc-gen = [
-    "dep:tenferro-linalg",
-    "dep:tenferro-cpu",
-    "dep:tenferro-runtime",
-    "tenferro-linalg/cpu-faer",
-    "tenferro-cpu/cpu-faer",
-]
+# Sequential dense factorization and contraction kernels; the caller owns parallelism.
+cgc-gen = ["dep:t4a-faer"]
 
 [dependencies]
 num-bigint = "0.4"
@@ -49,16 +41,9 @@ num-traits = "0.2"
 # R-symbols and twists of braided categories are complex (`table`). Default `std` feature kept: `Complex64::norm` and
 # `from_polar` need it.
 num-complex = "0.4"
-# Dense factorization backend for the SU(N) CGC pipeline (nullspace = full SVD,
-# ladder descent = least-squares, gauge = positive-diagonal QR). Only the
-# `cgc-gen` feature pulls these; base builds stay dependency-light.
-#
-# The generated-coefficient feature uses the published Tenferro 0.7.1 line.
-# Local work against an in-progress checkout can still use the gitignored
-# `.cargo/config.toml` [patch] override described in AGENTS.md.
-tenferro-linalg = { version = "0.7.1", default-features = false, optional = true }
-tenferro-cpu = { version = "0.7.1", default-features = false, optional = true }
-tenferro-runtime = { version = "0.7.1", default-features = false, optional = true }
+# crates.io semver range; std only (no rayon or global parallelism).
+# Only cgc-gen pulls the dense backend; base builds stay dependency-light.
+t4a-faer = { version = "0.24.6", default-features = false, features = ["std"], optional = true }
 
 [dev-dependencies]
 rand = "0.8"

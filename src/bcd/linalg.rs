@@ -1,36 +1,21 @@
-//! Dense factorization / contraction seams for the decomposition sweep,
-//! routed through `tenferro-linalg`'s public traced surface (no hand-rolled
-//! numeric kernels — `AGENTS.md`).
-//!
-//! Two operations reach the backend:
-//!
-//! - **positive-diagonal QR** (QSpace `OrthoNormalizeColsQR`,
-//!   `wbsparray.cc`): column orthonormalization via
-//!   [`tenferro_linalg::QrGauge::PositiveDiagonal`] — the deliberate racah
-//!   tightening of QSpace's unspecified QR sign (documented in
-//!   `docs/gauge_soN.md`). Returns the sign-fixed `Q`.
-//! - **matmul** (QSpace `Wb::MatProd`): plain `A·B` via
-//!   [`tenferro_runtime::TracedTensor::matmul`], used for the block-level CGC
-//!   contractions that build the projected generators and the `U†U` isometry
-//!   check.
-//!
-//! The mirror of `sun::linalg`, at the B/C/D layer and with [`SweepError`]. The
-//! two seams stay separate (different error type, different family).
-//! `ponytail:` shared tenferro-plumbing helper, extract when a third consumer
-//! appears.
-
-use tenferro_cpu::CpuBackend;
-use tenferro_linalg::{QrGauge, QrOptions, TracedTensorLinalgExt};
-use tenferro_runtime::{GraphCompiler, Runtime, Tensor, TracedTensor};
+//! Dense B/C/D factorizations and contractions on t4a-faer, with explicit
+//! Par::Seq and scratch workspaces. Backend types stay inside this seam.
+//! Ordered CGS2 selection precedes full-rank positive-diagonal QR (§4a).
 
 use super::sweep::SweepError;
-
-fn linalg_err(context: &str, e: impl std::fmt::Display) -> SweepError {
-    SweepError::Linalg(format!("{context}: {e}"))
-}
+use faer::{
+    diag::Diag,
+    dyn_stack::{MemBuffer, MemStack},
+    linalg::{
+        householder,
+        qr::no_pivoting::factor,
+        svd::{self, ComputeSvdVectors},
+    },
+    Conj, Mat as FaerMat, MatRef, Par,
+};
 
 /// A column-major dense `rows × cols` matrix of `f64` — the plain buffer the
-/// rest of the sweep manipulates so no tenferro type escapes this module.
+/// rest of the sweep manipulates so no backend type escapes this module.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Dense {
     pub rows: usize,
@@ -103,58 +88,92 @@ impl Dense {
     }
 }
 
-fn traced(m: &Dense) -> Result<TracedTensor, SweepError> {
-    TracedTensor::from_vec_col_major(vec![m.rows, m.cols], m.data.clone())
-        .map_err(|e| linalg_err("build input", e))
+/// Unpivoted QR, explicitly sequential. The packed lower triangle stores Q's reflectors.
+fn qr(a: MatRef<'_, f64>) -> (FaerMat<f64>, FaerMat<f64>) {
+    let (m, n) = a.shape();
+    let block = factor::recommended_block_size::<f64>(m, n);
+    let mut packed = a.to_owned();
+    let mut coeff = FaerMat::zeros(block, m.min(n));
+    let mut mem = MemBuffer::new(factor::qr_in_place_scratch::<f64>(
+        m,
+        n,
+        block,
+        Par::Seq,
+        Default::default(),
+    ));
+    factor::qr_in_place(
+        packed.as_mut(),
+        coeff.as_mut(),
+        Par::Seq,
+        MemStack::new(&mut mem),
+        Default::default(),
+    );
+    (packed, coeff)
 }
 
-fn run(outputs: &[&TracedTensor]) -> Result<Vec<Tensor>, SweepError> {
-    let mut compiler = GraphCompiler::new();
-    let program = compiler
-        .compile_many(outputs)
-        .map_err(|e| linalg_err("compile", e))?;
-    let backend = CpuBackend::new();
-    let mut builder = Runtime::builder();
-    builder
-        .register_engine(
-            tenferro_cpu::runtime_engine_registration(&backend)
-                .map_err(|e| linalg_err("register", e))?,
-        )
-        .map_err(|e| linalg_err("register", e))?;
-    let engine_id = tenferro_cpu::runtime_engine_id().map_err(|e| linalg_err("register", e))?;
-    builder
-        .install_extension_module(
-            tenferro_linalg::extension_module::<CpuBackend>(engine_id)
-                .map_err(|e| linalg_err("register", e))?,
-        )
-        .map_err(|e| linalg_err("register", e))?;
-    let runtime = builder.build().map_err(|e| linalg_err("register", e))?;
-    runtime
-        .run_compiled(&program, &[])
-        .map_err(|e| linalg_err("run", e))
+fn positive_q(packed: MatRef<'_, f64>, coeff: MatRef<'_, f64>) -> FaerMat<f64> {
+    let (m, n) = packed.shape();
+    let k = m.min(n);
+    let mut q = FaerMat::identity(m, k);
+    let mut mem = MemBuffer::new(
+        householder::apply_block_householder_sequence_on_the_left_in_place_scratch::<f64>(
+            m,
+            coeff.nrows(),
+            k,
+        ),
+    );
+    householder::apply_block_householder_sequence_on_the_left_in_place_with_conj(
+        packed.subcols(0, k),
+        coeff,
+        Conj::No,
+        q.as_mut(),
+        Par::Seq,
+        MemStack::new(&mut mem),
+    );
+    for j in 0..k {
+        // An exactly zero R diagonal (including -0.0) is left unflipped.
+        if packed[(j, j)] < 0.0 {
+            for i in 0..m {
+                q[(i, j)] = -q[(i, j)];
+            }
+        }
+    }
+    q
 }
 
-fn f64_out(t: &Tensor) -> Result<Vec<f64>, SweepError> {
-    Ok(t.as_slice::<f64>()
-        .map_err(|e| linalg_err("read", e))?
-        .to_vec())
+fn view(a: &Dense) -> MatRef<'_, f64> {
+    MatRef::from_column_major_slice(&a.data, a.rows, a.cols)
 }
 
-/// `A · B` (plain matmul), routed through the tenferro traced surface.
+fn dense(a: MatRef<'_, f64>) -> Dense {
+    Dense {
+        rows: a.nrows(),
+        cols: a.ncols(),
+        data: a.col_iter().flat_map(|c| c.iter().copied()).collect(),
+    }
+}
+
+/// `A · B` (plain matmul), routed through the t4a-faer sequential kernels.
 pub(crate) fn matmul(a: &Dense, b: &Dense) -> Result<Dense, SweepError> {
     debug_assert_eq!(a.cols, b.rows, "matmul inner-dim mismatch");
     if a.rows == 0 || b.cols == 0 || a.cols == 0 {
         return Ok(Dense::zeros(a.rows, b.cols));
     }
-    let ta = traced(a)?;
-    let tb = traced(b)?;
-    let tc = ta.matmul(&tb).map_err(|e| linalg_err("matmul", e))?;
-    let out = run(&[&tc])?;
-    Ok(Dense {
-        rows: a.rows,
-        cols: b.cols,
-        data: f64_out(&out[0])?,
-    })
+    if a.cols != b.rows {
+        return Err(SweepError::Linalg(
+            "matmul: inner-dimension mismatch".into(),
+        ));
+    }
+    let mut c = FaerMat::zeros(a.rows, b.cols);
+    faer::linalg::matmul::matmul(
+        c.as_mut(),
+        faer::Accum::Replace,
+        view(a),
+        view(b),
+        1.0,
+        Par::Seq,
+    );
+    Ok(dense(c.as_ref()))
 }
 
 /// `Aᵀ · B` (`A†B` for real `A`), the projection contraction. One matmul.
@@ -162,7 +181,7 @@ pub(crate) fn tmatmul(a: &Dense, b: &Dense) -> Result<Dense, SweepError> {
     matmul(&a.transpose(), b)
 }
 
-/// Thin SVD `A = U · diag(s) · Vᵀ`, routed through the tenferro traced surface.
+/// Thin SVD `A = U · diag(s) · Vᵀ`, routed through the t4a-faer sequential kernels.
 ///
 /// Returns `(U, s, Vt)` with `U` (`rows × k`), `s` (length `k`), `Vt` (`k × cols`),
 /// `k = min(rows, cols)`. The only consumer is the small per-weight-space
@@ -174,76 +193,212 @@ pub(crate) fn svd(a: &Dense) -> Result<(Dense, Vec<f64>, Dense), SweepError> {
     if k == 0 {
         return Ok((Dense::zeros(a.rows, 0), Vec::new(), Dense::zeros(0, a.cols)));
     }
-    let ta = traced(a)?;
-    let (u, s, vt) = ta.svd().map_err(|e| linalg_err("svd", e))?;
-    let out = run(&[&u, &s, &vt])?;
-    let u = Dense {
-        rows: a.rows,
-        cols: k,
-        data: f64_out(&out[0])?,
-    };
-    let s = f64_out(&out[1])?;
-    let vt = Dense {
-        rows: k,
-        cols: a.cols,
-        data: f64_out(&out[2])?,
-    };
-    Ok((u, s, vt))
+    let mut u = FaerMat::zeros(a.rows, k);
+    let mut v = FaerMat::zeros(a.cols, k);
+    let mut values = Diag::zeros(k);
+    let mut mem = MemBuffer::new(svd::svd_scratch::<f64>(
+        a.rows,
+        a.cols,
+        ComputeSvdVectors::Thin,
+        ComputeSvdVectors::Thin,
+        Par::Seq,
+        Default::default(),
+    ));
+    svd::svd(
+        view(a),
+        values.as_mut(),
+        Some(u.as_mut()),
+        Some(v.as_mut()),
+        Par::Seq,
+        MemStack::new(&mut mem),
+        Default::default(),
+    )
+    .map_err(|e| SweepError::Linalg(format!("svd: {e:?}")))?;
+    Ok((
+        dense(u.as_ref()),
+        values.column_vector().iter().copied().collect(),
+        dense(v.transpose()),
+    ))
 }
 
-/// Rank-revealing orthonormalization of the columns of `a` (QSpace
-/// `OrthoNormalizeColsQR(FL, tol)`): an orthonormal basis of `a`'s column space,
-/// dropping linearly dependent/zero columns so a rank-deficient input never
-/// contributes a spurious vector. Gauge:
-/// [`tenferro_linalg::QrGauge::PositiveDiagonal`] (the documented racah
-/// tightening).
-///
-/// Rank is read from `R = QᵀA` by **row** norm, not the diagonal: tenferro's QR
-/// is *un-pivoted*, so a zero/dependent leading column shifts the pivots off the
-/// diagonal (e.g. a rank-2 input can yield an all-zero `R` diagonal with the
-/// content on the superdiagonal).
-///
-/// Guarantees (this is *not* the theorem "row `i` nonzero iff `Q[:,i] ∈ col(A)`",
-/// which a `τ = 0` Householder reflector can violate mid-matrix):
-/// - keeping `{ i : ‖R[i,·]‖ > tol }` loses **no genuine direction** —
-///   `A = Q[:,keep]·R[keep,:]` up to `keep.len()·tol`, so the whole column space
-///   is spanned;
-/// - a spurious retained column cannot arise for a **trailing** dependency (the
-///   only case the descent produces — the dependent columns are the later
-///   lowering images); were one ever retained elsewhere, it inflates the block
-///   past its irrep dimension and is caught **loudly** by the caller's Cartan
-///   diagonality / `U†U` / dimension gates, never silently. QSpace's R-staircase
-///   check is therefore not ported (it would duplicate that loud coverage).
+#[cfg(test)]
+std::thread_local! {
+    static QR_INPUTS: std::cell::RefCell<Option<Vec<Dense>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// In-order CGS2 selection, followed by the unique positive-diagonal thin QR
+/// of the selected full-rank columns (docs/gauge_soN.md §4a).
 pub(crate) fn qr_positive_q(a: &Dense, tol: f64) -> Result<Dense, SweepError> {
-    let ta = traced(a)?;
-    let (q, rr) = ta
-        .qr_with_options(QrOptions::default().gauge(QrGauge::PositiveDiagonal))
-        .map_err(|e| linalg_err("qr", e))?;
-    let out = run(&[&q, &rr])?;
-    let qdata = f64_out(&out[0])?;
-    let rdata = f64_out(&out[1])?;
-    let k = a.rows.min(a.cols); // Q is rows × k, R is k × a.cols
-    let q = Dense {
-        rows: a.rows,
-        cols: k,
-        data: qdata,
-    };
-    // R is column-major k × a.cols; row i norm = Σ_c R[i,c]² over c.
-    let keep: Vec<usize> = (0..k)
-        .filter(|&i| {
-            (0..a.cols)
-                .map(|c| rdata[i + c * k].powi(2))
-                .sum::<f64>()
-                .sqrt()
-                > tol
-        })
-        .collect();
-    Ok(q.select_cols(&keep))
+    #[cfg(test)]
+    QR_INPUTS.with_borrow_mut(|inputs| {
+        if let Some(inputs) = inputs {
+            inputs.push(a.clone());
+        }
+    });
+    let mut basis = Dense::zeros(a.rows, 0);
+    let mut keep = Vec::new();
+    for j in 0..a.cols {
+        let mut r = a.select_cols(&[j]);
+        for _ in 0..2 {
+            let projection = matmul(&basis, &tmatmul(&basis, &r)?)?;
+            for (x, p) in r.data.iter_mut().zip(projection.data) {
+                *x -= p;
+            }
+        }
+        let norm = r.norm();
+        if norm > tol {
+            keep.push(j);
+            for x in &mut r.data {
+                *x /= norm;
+            }
+            basis.cat_cols(&r);
+        }
+    }
+    if keep.is_empty() {
+        return Ok(basis);
+    }
+    let selected = a.select_cols(&keep);
+    let (packed, coeff) = qr(view(&selected));
+    Ok(dense(positive_q(packed.as_ref(), coeff.as_ref()).as_ref()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn d3_epoch3_qr_uses_independent_input_columns() {
+        use crate::bcd::{CanonicalCatalog, Irrep, Series};
+        QR_INPUTS.with_borrow_mut(|inputs| *inputs = Some(Vec::new()));
+        let a = Irrep::from_dynkin(Series::D, &[0, 1, 1]).unwrap();
+        let c = Irrep::from_dynkin(Series::D, &[0, 2, 2]).unwrap();
+        let mut catalog = CanonicalCatalog::new(Series::D, 3).unwrap();
+        catalog.cgc(&a, &a, &c).unwrap();
+        let inputs = QR_INPUTS.with_borrow_mut(Option::take).unwrap();
+        // Actual canonical-parent descent input behind coupled column 31 (#150).
+        let input = inputs
+            .iter()
+            .find(|a| a.rows == 100 && a.cols == 5 && a.at(7, 4) > 1.4 && a.at(70, 0) > 1.4)
+            .expect("affected descent block must be exercised");
+
+        // Independent scalar CGS2 oracle selects columns; no frozen coefficients.
+        let mut basis: Vec<Vec<f64>> = Vec::new();
+        let mut keep = Vec::new();
+        for j in 0..input.cols {
+            let mut v = input.col(j).to_vec();
+            for _ in 0..2 {
+                let overlaps: Vec<f64> = basis
+                    .iter()
+                    .map(|b| b.iter().zip(&v).map(|(x, y)| x * y).sum())
+                    .collect();
+                for (i, x) in v.iter_mut().enumerate() {
+                    *x -= basis
+                        .iter()
+                        .zip(&overlaps)
+                        .map(|(b, p)| b[i] * p)
+                        .sum::<f64>();
+                }
+            }
+            let norm = v.iter().map(|x| x * x).sum::<f64>().sqrt();
+            if norm > 1e-10 {
+                keep.push(j);
+                basis.push(v.iter().map(|x| x / norm).collect());
+            }
+        }
+        assert_eq!(keep, [0, 1, 2, 4]);
+        let selected = input.select_cols(&keep);
+        let (packed, coeff) = qr(view(&selected));
+        let expected = dense(positive_q(packed.as_ref(), coeff.as_ref()).as_ref());
+        let actual = qr_positive_q(input, 1e-10).unwrap();
+        assert_eq!((actual.rows, actual.cols), (100, 4));
+        for (x, y) in actual.data.iter().zip(&expected.data) {
+            assert!((x - y).abs() < 1e-12);
+        }
+        // Independently certify positive-diagonal thin QR, including its sign.
+        let r = tmatmul(&actual, &selected).unwrap();
+        let gram = tmatmul(&actual, &actual).unwrap();
+        for i in 0..4 {
+            assert!(r.at(i, i) > 1e-10);
+            for j in 0..4 {
+                assert!((gram.at(i, j) - f64::from(i == j)).abs() < 1e-12);
+                if i > j {
+                    assert!(r.at(i, j).abs() < 1e-12);
+                }
+            }
+        }
+        let reconstructed = matmul(&actual, &r).unwrap();
+        for (x, y) in reconstructed.data.iter().zip(&selected.data) {
+            assert!((x - y).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn ordered_qr_skips_zero_and_nontrailing_dependent_columns() {
+        let independent = Dense {
+            rows: 4,
+            cols: 3,
+            data: vec![1., 2., 0., 0., 0., 1., 2., 0., 1., 0., 0., 3.],
+        };
+        let (packed, coeff) = qr(view(&independent));
+        let expected = dense(positive_q(packed.as_ref(), coeff.as_ref()).as_ref());
+        for columns in [
+            vec![
+                vec![0.; 4],
+                vec![1., 2., 0., 0.],
+                vec![2., 4., 0., 0.],
+                vec![0., 1., 2., 0.],
+                vec![1., 0., 0., 3.],
+            ],
+            vec![
+                vec![1., 2., 0., 0.],
+                vec![0., 1., 2., 0.],
+                vec![1., 3., 2., 0.],
+                vec![1., 0., 0., 3.],
+            ],
+            vec![
+                vec![1., 2., 0., 0.],
+                vec![0., 1., 2., 0.],
+                vec![1., 0., 0., 3.],
+                vec![2., 4., 0., 0.],
+                vec![1., 3., 2., 0.],
+            ],
+        ] {
+            let input = Dense {
+                rows: 4,
+                cols: columns.len(),
+                data: columns.concat(),
+            };
+            let actual = qr_positive_q(&input, 1e-10).unwrap();
+            assert_eq!((actual.rows, actual.cols), (4, 3));
+            for (a, b) in actual.data.iter().zip(&expected.data) {
+                assert!((a - b).abs() < 1e-12);
+            }
+        }
+        let two = independent.select_cols(&[0, 1]);
+        let mut dependent = independent.select_cols(&[0]);
+        let mut copy = dependent.clone();
+        for x in &mut copy.data {
+            *x *= 2.0;
+        }
+        dependent.cat_cols(&copy);
+        dependent.cat_cols(&independent.select_cols(&[1]));
+        let actual = qr_positive_q(&dependent, 1e-10).unwrap();
+        let (packed, coeff) = qr(view(&two));
+        let expected_two = dense(positive_q(packed.as_ref(), coeff.as_ref()).as_ref());
+        assert_eq!(actual.cols, 2);
+        for (a, b) in actual.data.iter().zip(expected_two.data) {
+            assert!((a - b).abs() < 1e-12);
+        }
+        for input in [Dense::zeros(4, 2), Dense::zeros(0, 2), Dense::zeros(4, 0)] {
+            assert_eq!(qr_positive_q(&input, 1e-10).unwrap().cols, 0);
+        }
+        let threshold = Dense {
+            rows: 2,
+            cols: 2,
+            data: vec![1., 0., 0., 1e-10],
+        };
+        assert_eq!(qr_positive_q(&threshold, 1e-10).unwrap().cols, 1);
+    }
 
     #[test]
     fn svd_reconstructs_and_procrustes_recovers_rotation() {

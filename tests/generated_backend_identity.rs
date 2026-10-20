@@ -8,7 +8,7 @@
 //!
 //! ## Single-backend reduction (what this test actually asserts)
 //!
-//! With a single supported backend at the pinned tenferro revision, the
+//! With a single supported backend at the selected t4a-faer version, the
 //! cross-backend gate reduces to asserting that the
 //! discrete layer is a function of the convention ALONE. Concretely, two
 //! independent in-process generation runs — caches reset between them, and a

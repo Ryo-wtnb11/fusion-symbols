@@ -33,11 +33,13 @@ use fusion_symbols::bcd::bcd_authority_fingerprint;
 ///   B/D defining seed is re-framed into the sweep's descending-weight order, so
 ///   every B/D coefficient coupling through the defining rep moves (C values are
 ///   unchanged — `Setup_SpN` was already in that order).
+/// - `epoch=3` — §4a in-order independent-column QR (#150), fixing
+///   underdetermined signs after non-trailing dependent columns.
 #[test]
 fn fingerprint_matches_pinned_compatibility_bytes() {
     assert_eq!(
         bcd_authority_fingerprint(),
-        b"racah:bcd-bootstrap:ref=qspace-v4-dd2cc7e:kron=a-fast:parent=canonical-parent:sweep=gs2-qrpos-posdiag:sort=maxweight-desc:sign=first-significant-positive:align=procrustes-canonical:tol=cg-eps-tier:epoch=2",
+        b"racah:bcd-bootstrap:ref=qspace-v4-dd2cc7e:kron=a-fast:parent=canonical-parent:sweep=gs2-qrpos-posdiag:sort=maxweight-desc:sign=first-significant-positive:align=procrustes-canonical:tol=cg-eps-tier:epoch=3",
     );
 }
 
