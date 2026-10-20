@@ -1,8 +1,3 @@
-# The Python bindings (`racah-py`) are a workspace member; the root
-# crate keeps its own manifest untouched otherwise.
-[workspace]
-members = ["racah-py"]
-
 # `fusion-symbols` is the successor of the `racah` crate (published up to
 # racah 0.2.4, which stays on crates.io): same modules and API under a name that
 # covers every symmetry family this crate provides.

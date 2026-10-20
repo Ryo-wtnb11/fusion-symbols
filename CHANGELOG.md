@@ -7,6 +7,13 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Removed
+
+- **Python bindings (`racah-py/`).** The workspace member, its wheels workflow and
+  `docs/user-guide/python.md` are removed. Published wheels stay on PyPI
+  (`racah-py` 0.1.2, import name `racah`); a revived binding under a new name is
+  tracked in #130.
+
 ### Changed
 
 - **cgc-gen dense backend (#150):** use t4a-faer 0.24.6 (`std` only,

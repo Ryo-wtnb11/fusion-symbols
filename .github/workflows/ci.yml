@@ -51,11 +51,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@cargo-llvm-cov
       # One instrumented test run; both report formats are re-emitted from it.
-      # Excluded from the line count: the Python bindings (tested by pytest in
-      # wheels.yml) and the ignored manual cache-measurement collectors.
+      # Excluded from the line count: the ignored manual cache-measurement collectors.
       - run: cargo llvm-cov --workspace --all-features --no-report
-      - run: cargo llvm-cov report --ignore-filename-regex '(racah-py/|src/cache_(audit|budget_pressure|trim_pressure)\.rs)' --summary-only --json --output-path coverage.json
-      - run: cargo llvm-cov report --ignore-filename-regex '(racah-py/|src/cache_(audit|budget_pressure|trim_pressure)\.rs)' --codecov --output-path codecov.json
+      - run: cargo llvm-cov report --ignore-filename-regex 'src/cache_(audit|budget_pressure|trim_pressure)\.rs' --summary-only --json --output-path coverage.json
+      - run: cargo llvm-cov report --ignore-filename-regex 'src/cache_(audit|budget_pressure|trim_pressure)\.rs' --codecov --output-path codecov.json
       - uses: codecov/codecov-action@v5
         with:
           files: codecov.json

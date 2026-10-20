@@ -26,9 +26,6 @@ symbol by symbol, plus the bibliography: [`references.md`](references.md).
   verification status.
 - *"How does this differ from TensorKitSectors.jl?"* →
   [`tensorkitsectors-differences.md`](tensorkitsectors-differences.md).
-- *"How do I call this from Python?"* →
-  [User Guide: Python bindings](user-guide/python.md); the typed API surface is
-  [`racah-py/racah.pyi`](../racah-py/racah.pyi).
 - *"How do I build an SU(3) irrep and decompose a product?"* →
   [User Guide: representations](user-guide/representations.md),
   [fusion](user-guide/fusion.md).

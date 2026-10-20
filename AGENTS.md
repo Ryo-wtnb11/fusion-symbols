@@ -5,7 +5,6 @@ lib `fusion_symbols`). Each symmetry family is a top-level module: the
 Lie-group families `su2`, `sun`, `bcd` (with `group`, `cache`), and the non-Lie
 families added beside them. The rules below apply to every family; the
 `cgc-gen` and dense-backend sections concern the Lie-group generation path.
-`racah-py` binds the Lie-group families only (import name `racah`).
 
 Design authority: the architecture, acceptance criteria, and reference-role
 map recorded in the upstream design discussion. Read them before any
