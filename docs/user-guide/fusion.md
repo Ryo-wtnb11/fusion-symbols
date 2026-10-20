@@ -27,19 +27,19 @@ retain their existing typed errors for absent channels.
 
 ## SU(2)
 
-The classic triangle rule. `Su2Irrep::fusion` returns an allocation-free
+The classic triangle rule. `LieGroup::fusion` returns an allocation-free
 iterator over the coupled doubled spins `|dj1 − dj2| ..= dj1 + dj2` in steps of
 2, each with multiplicity 1 (SU(2) is multiplicity-free).
 
 ```rust
-use fusion_symbols::su2::Su2Irrep;
-
-let half = Su2Irrep::new(1);
-let channels: Vec<u32> = half.fusion(half).unwrap().map(|s| s.dj()).collect();
-assert_eq!(channels, vec![0, 2]);   // ½ ⊗ ½ = 0 ⊕ 1
+use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieGroup}};
+let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+let half = group.irrep(&[1]).unwrap();
+let channels: Vec<i64> = group.fusion(&half, &half).unwrap().map(|s| s.dynkin()[0]).collect();
+assert_eq!(channels, vec![0, 2]);
 ```
 
-The only failure is `Su2Error::LabelOverflow`, when `dj1 + dj2` exceeds `u32`.
+The only failure is `LieError::LabelOverflow`, when `dj1 + dj2` exceeds `u32`.
 
 ## SU(N)
 
@@ -140,12 +140,12 @@ with some twist minus one, and `Anyonic` otherwise.
 
 ## Related API
 
-- [`su2::Su2Irrep::fusion`], [`su2::Su2Fusion`]
+- [`category::FusionCategory::fusion`], [`lie::LieFusion`]
 - [`sun::directproduct`], [`sun::shared_directproduct`], [`SunProduct`]
 - [`bcd::directproduct`]
 
-[`su2::Su2Irrep::fusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/su2/struct.Su2Irrep.html#method.fusion
-[`su2::Su2Fusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/su2/struct.Su2Fusion.html
+[`category::FusionCategory::fusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.fusion
+[`lie::LieFusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieFusion.html
 [`sun::directproduct`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/fn.directproduct.html
 [`sun::shared_directproduct`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/fn.shared_directproduct.html
 [`SunProduct`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/struct.SunProduct.html

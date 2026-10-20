@@ -38,7 +38,7 @@
 //!
 //! The object is the set of finite-dimensional linear representations of a
 //! **connected compact group** with root system `A_{N-1}`. Which group is named
-//! by a [`GroupId`](crate::group::GroupId), and the only thing the choice
+//! by a [`GroupId`](crate::lie::GroupId), and the only thing the choice
 //! changes is *which highest weights are admissible* — never a coefficient
 //! value.
 //!
@@ -51,7 +51,7 @@
 //!   rejects the fundamental `[1,0]`.
 //!
 //! The `N`-ality rule lives once, in
-//! [`GroupId::admits`](crate::group::GroupId::admits); this module only calls
+//! [`GroupId::admits`](crate::lie::GroupId::admits); this module only calls
 //! it. There is exactly one GT/CGC/F/R engine, and an [`Irrep`](crate::sun::Irrep)
 //! stores no global form: two forms that share a weight share its basis
 //! ordering, phases, normalization, gauge and cache entries.
@@ -82,7 +82,7 @@ use num_bigint::BigInt;
 use num_rational::Ratio;
 use num_traits::{One, Signed, Zero};
 
-use crate::SignedSqrtRational;
+use crate::exact::SignedSqrtRational;
 
 mod cgc;
 mod fr;
@@ -114,11 +114,11 @@ pub enum SunError {
         /// The offending Dynkin label.
         dynkin: Vec<i64>,
     },
-    /// A [`GroupId`](crate::group::GroupId) whose root system is not an `A_r`,
+    /// A [`GroupId`](crate::lie::GroupId) whose root system is not an `A_r`,
     /// passed to [`Irrep::from_dynkin_in`].
     UnsupportedRootSystem {
         /// The offending root system.
-        root_system: crate::group::RootSystem,
+        root_system: crate::lie::RootSystem,
     },
     /// The Dynkin label passed to [`Irrep::from_dynkin_in`] has a different
     /// length than the rank of the group's root system.
@@ -137,11 +137,11 @@ pub enum SunError {
     /// A global-form violation, kept distinct from
     /// [`SunError::NegativeDynkin`] / [`SunError::LabelRankMismatch`] (invalid
     /// labels) and from the generation/verification gates. The rule itself
-    /// lives once, in [`GroupId::admits`](crate::group::GroupId::admits) —
+    /// lives once, in [`GroupId::admits`](crate::lie::GroupId::admits) —
     /// `sun` does not reimplement it.
     NotAdmissible {
         /// The group whose global form rejected the weight.
-        group: crate::group::GroupId,
+        group: crate::lie::GroupId,
         /// The offending Dynkin label.
         dynkin: Vec<i64>,
     },
@@ -459,7 +459,7 @@ impl Irrep {
     ///
     /// ```
     /// use fusion_symbols::sun::Irrep;
-    /// use fusion_symbols::group::GroupId;
+    /// use fusion_symbols::lie::GroupId;
     ///
     /// let psu3 = GroupId::psu(3).unwrap();
     /// // The adjoint (8) has zero 3-ality and is a genuine PSU(3) rep.
@@ -469,9 +469,9 @@ impl Irrep {
     /// // The fundamental (3) is not: PSU(3) has no triality-1 representation.
     /// assert!(Irrep::from_dynkin_in(&psu3, &[1, 0]).is_err());
     /// ```
-    pub fn from_dynkin_in(group: &crate::group::GroupId, dynkin: &[i64]) -> Result<Self, SunError> {
+    pub fn from_dynkin_in(group: &crate::lie::GroupId, dynkin: &[i64]) -> Result<Self, SunError> {
         let r = match group.root_system {
-            crate::group::RootSystem::A(r) => r,
+            crate::lie::RootSystem::A(r) => r,
             other => return Err(SunError::UnsupportedRootSystem { root_system: other }),
         };
         if dynkin.len() != r {
@@ -486,7 +486,7 @@ impl Irrep {
             });
         }
         // The central-character condition, one implementation, in
-        // `crate::group`. `sun` must not restate the N-ality
+        // `crate::lie`. `sun` must not restate the N-ality
         // rule.
         if !group.admits(dynkin) {
             return Err(SunError::NotAdmissible {
@@ -1011,7 +1011,7 @@ fn signedroot(coef: &Ratio<BigInt>) -> SignedSqrtRational {
 /// > prove numerical agreement.
 ///
 /// This is deliberately weaker than the base SU(2) fingerprint
-/// ([`crate::su2_authority_fingerprint`]), whose exact big-rational surface lets
+/// ([`crate::category::FusionCategory::authority_fingerprint`]), whose exact big-rational surface lets
 /// equal bytes mean equal values. The generated SU(N) family is a *two-layer*
 /// contract (`docs/gauge.md` "value agreement within the oracle tolerance, not
 /// cross-process bit-identity"): the gauge/sign/structure is a deterministic

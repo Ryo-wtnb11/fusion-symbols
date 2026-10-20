@@ -35,7 +35,6 @@
 
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::sync::Arc;
 
 /// CGC entries grouped by one magnetic index → `(idx_i, idx_j, mult, value)`.
 type GroupBy4 = HashMap<u32, Vec<(u32, u32, u32, f64)>>;
@@ -112,133 +111,7 @@ pub(crate) trait Family {
 // Dense F/R blocks (family-neutral: just dims + row-major f64 data).
 // ---------------------------------------------------------------------------
 
-/// A dense F-symbol block $F^{abc}_d[e, f]$, a rank-4 array over the outer
-/// multiplicity indices $[\mu, \nu, \kappa, \lambda]$ in **row-major** order.
-///
-/// One axis per vertex of the recoupling move:
-///
-/// | Axis | Index | Vertex | Length |
-/// |---|---|---|---|
-/// | 0 | $\mu$ | $a \otimes b \to e$ | $N^e_{ab}$ |
-/// | 1 | $\nu$ | $e \otimes c \to d$ | $N^d_{ec}$ |
-/// | 2 | $\kappa$ | $b \otimes c \to f$ | $N^f_{bc}$ |
-/// | 3 | $\lambda$ | $a \otimes f \to d$ | $N^d_{af}$ |
-///
-/// The axis order matches the TensorKitSectors `GenericFusion` convention
-/// (`sectors.jl:Fsymbol_from_fusiontensor`), so a block can be handed to a
-/// consumer expecting that layout without a permutation. Axes 0–1 belong to the
-/// left coupling tree and 2–3 to the right one; they are *not* interchangeable.
-/// For a multiplicity-free family (e.g. SU(2)) every axis is length 1, so the
-/// block holds the single scalar at `at(0, 0, 0, 0)`.
-///
-/// Row-major means the flat index of $(\mu,\nu,\kappa,\lambda)$ is
-/// $((\mu \cdot d_1 + \nu) \cdot d_2 + \kappa) \cdot d_3 + \lambda$ for
-/// `dims = [d_0, d_1, d_2, d_3]`.
-///
-/// ```
-/// # #[cfg(feature = "cgc-gen")] {
-/// use fusion_symbols::sun::{f_symbol, Irrep};
-///
-/// let three = Irrep::from_dynkin(&[1, 0]).unwrap();
-/// let eight = Irrep::from_dynkin(&[1, 1]).unwrap();
-/// let block = f_symbol(&three, &three.dual(), &three, &three, &eight, &eight).unwrap();
-///
-/// assert_eq!(block.dims(), [1, 1, 1, 1]);
-/// assert_eq!(block.data().len(), 1);
-/// assert_eq!(block.at(0, 0, 0, 0), block.data()[0]);
-/// # }
-/// ```
-///
-/// Cloning is cheap: the coefficient buffer is shared (`Arc<[f64]>`), so a
-/// cache hit hands out the cached block without copying its data.
-#[derive(Clone, Debug, PartialEq)]
-pub struct FBlock {
-    dims: [usize; 4],
-    /// Row-major over `[μ, ν, κ, λ]`.
-    data: Arc<[f64]>,
-}
-
-impl FBlock {
-    fn zeros(dims: [usize; 4]) -> Self {
-        Self::from_vec(dims, vec![0.0; dims[0] * dims[1] * dims[2] * dims[3]])
-    }
-
-    fn from_vec(dims: [usize; 4], data: Vec<f64>) -> Self {
-        FBlock {
-            dims,
-            data: data.into(),
-        }
-    }
-
-    #[inline]
-    fn flat(dims: [usize; 4], mu: usize, nu: usize, kappa: usize, lambda: usize) -> usize {
-        ((mu * dims[1] + nu) * dims[2] + kappa) * dims[3] + lambda
-    }
-
-    /// The axis lengths $[N^e_{ab}, N^d_{ec}, N^f_{bc}, N^d_{af}]$ ($\mu,\nu,\kappa,\lambda$).
-    pub fn dims(&self) -> [usize; 4] {
-        self.dims
-    }
-
-    /// The row-major `[μ, ν, κ, λ]` coefficient data.
-    pub fn data(&self) -> &[f64] {
-        &self.data
-    }
-
-    /// The coefficient at multiplicity indices `(μ, ν, κ, λ)`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if any index is out of range for [`FBlock::dims`].
-    pub fn at(&self, mu: usize, nu: usize, kappa: usize, lambda: usize) -> f64 {
-        assert!(
-            mu < self.dims[0] && nu < self.dims[1] && kappa < self.dims[2] && lambda < self.dims[3],
-            "FBlock index out of range"
-        );
-        self.data[Self::flat(self.dims, mu, nu, kappa, lambda)]
-    }
-}
-
-/// A dense R-symbol block $R^{ab}_c$, an $N^c_{ab} \times N^c_{ba}$ matrix in
-/// **row-major** order (rows = $\mu$, cols = $\nu$).
-///
-/// $N^c_{ab} = N^c_{ba}$ (fusion multiplicities are symmetric), so the matrix
-/// is square. For a multiplicity-free family it is the single braiding phase.
-#[derive(Clone, Debug, PartialEq)]
-pub struct RBlock {
-    n: usize,
-    /// Row-major `n × n`.
-    data: Vec<f64>,
-}
-
-impl RBlock {
-    fn zeros(n: usize) -> Self {
-        RBlock {
-            n,
-            data: vec![0.0; n * n],
-        }
-    }
-
-    /// The multiplicity `N^c_{ab}` (both the row and column count).
-    pub fn dim(&self) -> usize {
-        self.n
-    }
-
-    /// The row-major coefficient data (`N × N`, rows `μ`, cols `ν`).
-    pub fn data(&self) -> &[f64] {
-        &self.data
-    }
-
-    /// The braiding coefficient at `(μ, ν)`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `mu` or `nu` is `>= dim()`.
-    pub fn at(&self, mu: usize, nu: usize) -> f64 {
-        assert!(mu < self.n && nu < self.n, "RBlock index out of range");
-        self.data[mu * self.n + nu]
-    }
-}
+pub use crate::lie::{FBlock, RBlock};
 
 // ---------------------------------------------------------------------------
 // F-symbol raw contraction (sector.jl:_Fsymbol, :58-89).
@@ -412,7 +285,7 @@ pub(crate) fn r_block_raw<F: Family>(
         }
     }
 
-    let mut block = RBlock::zeros(n1);
+    let mut data = vec![0.0; n1 * n1];
     let mut keys: Vec<_> = a_map.keys().copied().collect();
     keys.sort_unstable();
     for key in keys {
@@ -421,11 +294,11 @@ pub(crate) fn r_block_raw<F: Family>(
         };
         for &(mu, va) in &a_map[&key] {
             for &(nu, vb) in blist {
-                block.data[mu as usize * n1 + nu as usize] += va * vb;
+                data[mu as usize * n1 + nu as usize] += va * vb;
             }
         }
     }
-    Ok(block)
+    Ok(RBlock::from_vec(n1, data))
 }
 
 // ---------------------------------------------------------------------------

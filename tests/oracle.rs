@@ -19,7 +19,7 @@ use num_rational::Ratio;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
-use fusion_symbols::{clebsch_gordan, wigner_3j, wigner_6j, SignedSqrtRational};
+use fusion_symbols::lie::su2::{clebsch_gordan, wigner_3j, wigner_6j, SignedSqrtRational};
 
 fn tri(a: u32, b: u32, c: u32) -> bool {
     (a + b + c).is_multiple_of(2) && c >= a.abs_diff(b) && c <= a + b

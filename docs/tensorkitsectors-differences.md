@@ -35,7 +35,7 @@ known difference and the reason recorded for it. Per-symbol provenance is in
   `table` uses AnyonWiki's source gauge; those conventions are recorded in
   [`references_categories.md`](references_categories.md), not in a gauge
   specification. Every family has an authority fingerprint (for example
-  `su2_authority_fingerprint` and `FusionCategory::authority_fingerprint`)
+  `LieGroup` through `FusionCategory::authority_fingerprint`)
   that changes only with a specification correction. Reason: generated coefficients must be
   deterministic across runs and backends, and consumers persist the
   fingerprint next to anything they derive

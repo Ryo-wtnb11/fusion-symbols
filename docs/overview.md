@@ -28,7 +28,7 @@ pinned AnyonWiki tables described below.
 
 | Family | Module | Feature | Labels |
 |---|---|---|---|
-| SU(2) | `fusion_symbols::su2` | *(default)* | doubled spin `dj = 2j` |
+| SU(2), SO(3), Spin(3), Sp(2), PSU(2) | `fusion_symbols::lie::LieGroup` and `lie::su2` | *(default)* | doubled spin `dj = 2j` |
 | SU(N), SU(N)/Z_k, PSU(N) | `fusion_symbols::sun` | `cgc-gen` | `N-1` Dynkin labels |
 | SO(N), Spin(N) | `fusion_symbols::bcd` (series `B`, `D`) | `cgc-gen` | `r` Dynkin labels |
 | Sp(2r) | `fusion_symbols::bcd` (series `C`) | `cgc-gen` | `r` Dynkin labels |
@@ -38,7 +38,7 @@ pinned AnyonWiki tables described below.
 | Unitary multiplicity-free categories, rank ≤ 4 (AnyonWiki tables: 74 entries incl. Fibonacci, Ising) | `fusion_symbols::table` | *(default)* | `TableCategory` (`by_uuid`, `by_code`, `fibonacci()`, `ising()`); tagged `TableObject` from `object(1..=rank)?` |
 | … rank 5–7 (303 further AnyonWiki entries, about 4.2 MB of embedded tables) | `fusion_symbols::table` | `anyonwiki-unitary` | as above |
 
-`abelian::{U1, ZN}`, `fermion::FermionParity`, `cu1::CU1` and
+`lie::LieGroup` (rank one), `abelian::{U1, ZN}`, `fermion::FermionParity`, `cu1::CU1` and
 `table::TableCategory` implement
 `category::FusionCategory`, the single surface for dimension, dual, FS phase
 and indicator, twist, fusion and N/F/R. Objects are validated at construction;
@@ -141,7 +141,7 @@ Spinor irreps need the simply connected cover, named explicitly:
 
 ```rust
 use fusion_symbols::bcd::Irrep;
-use fusion_symbols::group::GroupId;
+use fusion_symbols::lie::GroupId;
 
 let spin7 = GroupId::spin(7).unwrap();
 let s = Irrep::from_dynkin_in(&spin7, &[0, 0, 1]).unwrap();
@@ -242,3 +242,8 @@ Internal consistency gates run alongside: Regge/tetrahedral symmetries,
 pentagon/hexagon identities, orthogonality, and `tests/gauge_golden.rs`, a
 committed table of coefficient values asserted at `1e-12` that fails on any
 gauge drift with no reference toolchain in the loop.
+
+Rank-one A(1), B(1), C(1) groups use one exact SU(2) path and fingerprint.
+Objects keep the caller's `GroupId`; isomorphic groups remain mutually foreign.
+Higher-rank `LieGroup::new` returns `LieError::Unsupported` in this slice;
+the existing generated `sun`/`bcd` APIs remain available with `cgc-gen`.

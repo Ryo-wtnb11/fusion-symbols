@@ -17,7 +17,7 @@ Lie algebras (A_r, B_r, C_r, D_r, G2, F4, E6, E7, E8) with their Dynkin
 diagrams, derives each family's compact simply connected group and centre and
 the global forms as centre quotients, records which entries of the
 classification `fusion-symbols` actually implements and by which code path — mirroring
-`RootSystem` and `GroupId = RootSystem × GlobalForm` in `src/group.rs` — and
+`RootSystem` and `GroupId = RootSystem × GlobalForm` in `src/lie/group.rs` — and
 then covers the objects the crate computes: highest weights, Gelfand–Tsetlin
 bases and the B/C/D generator bootstrap, Clebsch–Gordan coefficients with their
 orthonormality and completeness relations, gauge freedom and what freezing a

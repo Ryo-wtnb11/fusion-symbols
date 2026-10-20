@@ -50,7 +50,7 @@ fn partition_is_nonincreasing_and_dominant() {
 /// form-aware constructor adds.
 #[test]
 fn from_dynkin_in_rejects_a_foreign_group_and_a_wrong_length_label() {
-    use crate::group::{GlobalForm, GroupId, RootSystem};
+    use crate::lie::{GlobalForm, GroupId, RootSystem};
     let a3 = GroupId {
         root_system: RootSystem::A(3),
         form: GlobalForm::SimplyConnected,
@@ -79,7 +79,7 @@ fn from_dynkin_in_rejects_a_foreign_group_and_a_wrong_length_label() {
 /// quotient is its integer-`j` (resp. `j₁+j₂ ∈ ℤ`) sublattice.
 #[test]
 fn low_rank_redirect_is_form_aware() {
-    use crate::group::GroupId;
+    use crate::lie::GroupId;
     let redirect = |g, d: &[i64]| match Irrep::from_dynkin_in(&g, d) {
         Err(BcdError::ExcludedRank { redirect, .. }) => redirect,
         other => panic!("expected ExcludedRank, got {other:?}"),

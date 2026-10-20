@@ -25,6 +25,16 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyType;
 use racah_core::sun::{self, SunError};
+use racah_core::{
+    category::FusionCategory,
+    lie::{GroupId, LieGroup},
+};
+fn a1() -> LieGroup {
+    LieGroup::new(GroupId::su(2).unwrap()).unwrap()
+}
+fn a1_ir(dj: u32) -> racah_core::lie::LieIrrep {
+    a1().irrep(&[i64::from(dj)]).unwrap()
+}
 
 /// Ill-posed input becomes `ValueError`; a tripped generation/verification gate
 /// (orthonormality, unitarity, pentagon, hexagon, factorization) becomes
@@ -232,7 +242,7 @@ fn sun_authority_fingerprint() -> String {
 /// The SU(2) Frobenius-Schur indicator of the irrep with doubled spin `two_j`.
 #[pyfunction]
 fn su2_frobenius_schur(two_j: u32) -> f64 {
-    racah_core::su2_frobenius_schur(two_j)
+    a1().frobenius_schur_phase(&a1_ir(two_j))
 }
 
 // --- the exact SU(2) surface --------------------------------------------------------
@@ -252,7 +262,7 @@ fn su2_frobenius_schur(two_j: u32) -> f64 {
 /// label set (m-sum, projection bound, or triangle) is exactly `0.0`.
 #[pyfunction]
 fn wigner_3j(dj1: u32, dj2: u32, dj3: u32, dm1: i32, dm2: i32, dm3: i32) -> f64 {
-    racah_core::wigner_3j(dj1, dj2, dj3, dm1, dm2, dm3).to_f64()
+    racah_core::lie::su2::wigner_3j(dj1, dj2, dj3, dm1, dm2, dm3).to_f64()
 }
 
 /// The Wigner 6j symbol `{dj1 dj2 dj3; dj4 dj5 dj6}`, spins doubled.
@@ -261,7 +271,7 @@ fn wigner_3j(dj1: u32, dj2: u32, dj3: u32, dm1: i32, dm2: i32, dm3: i32) -> f64 
 /// violating any of the four triangle conditions is exactly `0.0`.
 #[pyfunction]
 fn wigner_6j(dj1: u32, dj2: u32, dj3: u32, dj4: u32, dj5: u32, dj6: u32) -> f64 {
-    racah_core::wigner_6j(dj1, dj2, dj3, dj4, dj5, dj6).to_f64()
+    racah_core::lie::su2::wigner_6j(dj1, dj2, dj3, dj4, dj5, dj6).to_f64()
 }
 
 /// The SU(2) Clebsch-Gordan coefficient `<dj1 dm1; dj2 dm2 | dj3 dm3>`, doubled labels.
@@ -287,7 +297,7 @@ fn wigner_6j(dj1: u32, dj2: u32, dj3: u32, dj4: u32, dj5: u32, dj6: u32) -> f64 
 /// pinned by a test rather than left to this comment.
 #[pyfunction]
 fn su2_clebsch_gordan(dj1: u32, dm1: i32, dj2: u32, dm2: i32, dj3: u32, dm3: i32) -> f64 {
-    racah_core::clebsch_gordan(dj1, dm1, dj2, dm2, dj3, dm3).to_f64()
+    racah_core::lie::su2::clebsch_gordan(dj1, dm1, dj2, dm2, dj3, dm3).to_f64()
 }
 
 /// The SU(2) F-symbol `F^{dj1 dj2 dj3}_{dj4}[dj5, dj6]`, doubled spins.
@@ -296,7 +306,19 @@ fn su2_clebsch_gordan(dj1: u32, dm1: i32, dj2: u32, dm2: i32, dj3: u32, dm3: i32
 /// [`f_symbol`] block are all length 1 and this returns the single entry directly.
 #[pyfunction]
 fn su2_f_symbol(dj1: u32, dj2: u32, dj3: u32, dj4: u32, dj5: u32, dj6: u32) -> f64 {
-    racah_core::su2_f_symbol(dj1, dj2, dj3, dj4, dj5, dj6)
+    a1().f_symbol(
+        &a1_ir(dj1),
+        &a1_ir(dj2),
+        &a1_ir(dj3),
+        &a1_ir(dj4),
+        &a1_ir(dj5),
+        &a1_ir(dj6),
+    )
+    .unwrap()
+    .data()
+    .first()
+    .copied()
+    .unwrap_or(0.0)
 }
 
 /// The SU(2) R-symbol `R^{dj1 dj2}_{dj3} = (-1)^{(j1 + j2 - j3)}`, doubled spins.
@@ -305,7 +327,12 @@ fn su2_f_symbol(dj1: u32, dj2: u32, dj3: u32, dj4: u32, dj5: u32, dj6: u32) -> f
 /// symmetric, so this is its own inverse.
 #[pyfunction]
 fn su2_r_symbol(dj1: u32, dj2: u32, dj3: u32) -> f64 {
-    racah_core::su2_r_symbol(dj1, dj2, dj3)
+    a1().r_symbol(&a1_ir(dj1), &a1_ir(dj2), &a1_ir(dj3))
+        .unwrap()
+        .data()
+        .first()
+        .copied()
+        .unwrap_or(0.0)
 }
 
 /// The exact-SU(2) gauge/authority fingerprint -- the twin of
@@ -314,7 +341,7 @@ fn su2_r_symbol(dj1: u32, dj2: u32, dj3: u32) -> f64 {
 /// records the SU(N) one; they are different strings on purpose.
 #[pyfunction]
 fn su2_authority_fingerprint() -> String {
-    String::from_utf8(racah_core::su2_authority_fingerprint().to_vec())
+    String::from_utf8(a1().authority_fingerprint().to_vec())
         .expect("the fingerprint is an ASCII literal")
 }
 

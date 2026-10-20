@@ -25,7 +25,7 @@ Differences in detail are listed in docs/.
 
 Supported symmetries:
 
-- SU(2), exact (default);
+- SU(2), SO(3), Spin(3), Sp(2), PSU(2) through `lie::LieGroup`, exact (default);
 - SU(N), SU(N)/Z_k, PSU(N), SO(N), Spin(N), Sp(2N), generated at run time
   (`cgc-gen` feature);
 - U(1), Z_N (including Z2) and fermion parity via `category::FusionCategory`
@@ -35,7 +35,8 @@ Supported symmetries:
   and Ising among them via `table::TableCategory` and `FusionCategory`
   (default; rank 5–7 with `anyonwiki-unitary`).
 
-The base SU(2) surface is stable. In the `cgc-gen` surface,
+The exact SU(2) evaluators live under `lie::su2`; category operations use
+`lie::LieGroup` and `category::FusionCategory`. In the `cgc-gen` surface,
 `sun_authority_fingerprint`, `bcd_authority_fingerprint`,
 `cache::GENERATED_CACHE_MAX_BYTES` and `cache::GeneratedCacheStats` are marked
 unstable in their rustdoc.
@@ -58,7 +59,7 @@ Exact SU(2) 6j (no features). Spins are doubled (`dj = 2j`), so `2` means
 spin 1; `{1 1 1; 1 1 1} = 1/6`:
 
 ```rust
-use fusion_symbols::wigner_6j;
+use fusion_symbols::lie::su2::wigner_6j;
 
 let sixj = wigner_6j(2, 2, 2, 2, 2, 2);
 assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);

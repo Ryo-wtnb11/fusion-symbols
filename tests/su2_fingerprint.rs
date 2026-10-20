@@ -1,12 +1,14 @@
 //! Compatibility-policy and determinism tests for the base SU(2) authority
-//! fingerprint (`fusion_symbols::su2_authority_fingerprint`).
+//! fingerprint (`LieGroup::authority_fingerprint`).
 
-use fusion_symbols::su2_authority_fingerprint;
+#[path = "common/a1.rs"]
+mod a1;
+use a1::fingerprint;
 
 /// Compatibility policy: the fingerprint's exact current bytes.
 ///
 /// This literal is written out by hand — it is deliberately NOT derived from
-/// `su2_authority_fingerprint()`, so that any change to the returned bytes
+/// `fingerprint()`, so that any change to the returned bytes
 /// (including a value-affecting convention change or an epoch bump) breaks this
 /// assertion and forces a review event.
 ///
@@ -18,11 +20,11 @@ use fusion_symbols::su2_authority_fingerprint;
 ///
 /// Do not update it to make a test pass. Update it only as one of the four steps
 /// of `docs/gauge.md`, "Status": the spec edit, the `epoch=N` bump in
-/// `su2_authority_fingerprint`, and the CHANGELOG breaking-change entry.
+/// `src/lie/su2.rs::fingerprint`, and the CHANGELOG breaking-change entry.
 #[test]
 fn fingerprint_matches_pinned_compatibility_bytes() {
     assert_eq!(
-        su2_authority_fingerprint(),
+        fingerprint(),
         b"racah:su2-exact:model=bigrational-round-once:3j=condon-shortley:cg=condon-shortley:6j=racah-single-sum:f=tks-su2irrep:r=tks-su2irrep:fs=tks-su2irrep:epoch=1",
     );
 }
@@ -34,5 +36,5 @@ fn fingerprint_matches_pinned_compatibility_bytes() {
 /// mutable input) would break here.
 #[test]
 fn fingerprint_is_deterministic() {
-    assert_eq!(su2_authority_fingerprint(), su2_authority_fingerprint());
+    assert_eq!(fingerprint(), fingerprint());
 }

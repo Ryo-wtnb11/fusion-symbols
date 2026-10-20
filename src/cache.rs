@@ -22,7 +22,7 @@
 //! ```
 //! use fusion_symbols::cache::{base_cache_stats, BASE_CACHE_MAX_BYTES};
 //!
-//! let _ = fusion_symbols::wigner_6j(2, 2, 2, 2, 2, 2);
+//! let _ = fusion_symbols::lie::su2::wigner_6j(2, 2, 2, 2, 2, 2);
 //! let stats = base_cache_stats();
 //! assert!(stats.total().bytes <= BASE_CACHE_MAX_BYTES);
 //! ```
@@ -83,7 +83,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, OnceLock, RwLock};
 
 use crate::exact::SignedSqrtRational;
-use crate::su2::{FKey, Regge3j, Regge6j};
+use crate::lie::su2::{FKey, Regge3j, Regge6j};
 
 /// Default entry cap per kind (3j and 6j each). Matches the reference order of
 /// magnitude (WignerSymbols.jl uses `10^6`); the retained-charge cap is the real
@@ -1012,11 +1012,11 @@ mod cgc_cache {
 
     /// Canonical cache key: the three irrep labels.
     ///
-    /// **No [`GroupId`](crate::group::GroupId), deliberately.**
+    /// **No [`GroupId`](crate::lie::GroupId), deliberately.**
     /// A global form gates *which* highest weights may be requested; it never
     /// changes a coefficient of a weight that survives. Admissibility is
     /// enforced once, at construction, by
-    /// [`GroupId::admits`](crate::group::GroupId::admits), so every `Irrep` that
+    /// [`GroupId::admits`](crate::lie::GroupId::admits), so every `Irrep` that
     /// reaches this tier is already a genuine representation of whichever form
     /// asked for it — and two forms sharing a weight *must* share the entry,
     /// since they share the basis, ordering, phase and gauge authority. Adding
@@ -1215,11 +1215,11 @@ mod bcd_cgc_cache {
 
     /// Canonical cache key: the three B/C/D irrep labels.
     ///
-    /// **No [`GroupId`](crate::group::GroupId), deliberately.**
+    /// **No [`GroupId`](crate::lie::GroupId), deliberately.**
     /// A global form gates *which* highest weights may be requested; it never
     /// changes a coefficient of a weight that survives. Admissibility is
     /// enforced once, at construction, by
-    /// [`GroupId::admits`](crate::group::GroupId::admits), so every `Irrep` that
+    /// [`GroupId::admits`](crate::lie::GroupId::admits), so every `Irrep` that
     /// reaches this tier is already a genuine representation of whichever form
     /// asked for it — and two forms sharing a weight *must* share the entry,
     /// since they share the basis, ordering, phase and gauge authority. Adding
@@ -1540,7 +1540,7 @@ mod tests {
         // The derived-f64 F-symbol tier's contract: a warm hit returns the
         // stored scalar WITHOUT re-running the miss closure -- which is the sole
         // site of the bigint `sqrt` in SignedSqrtRational::to_f64 on the F path.
-        // So the public su2_f_symbol hot path avoids bigint isqrt on a hit.
+        // So the public LieGroup::f_symbol hot path avoids bigint isqrt on a hit.
         let c: FifoCache<u32, f64> = FifoCache::new(16, 1 << 20);
         let mut rounded = 0;
         let a = c.get_or_compute(9, || {

@@ -29,19 +29,22 @@ that your physical system does not carry. Basics do not require it.
 
 ## SU(2)
 
-Use `fusion_symbols::su2` when your symmetry is spin. Labels are doubled spins, values
+Use `lie::LieGroup` for spin category operations and `lie::su2` for exact
+3j/6j/CG evaluators. Labels are doubled spins, values
 are exact closed forms, and no feature flag is needed.
 
 ```rust
-use fusion_symbols::su2::Su2Irrep;
-
-let one = Su2Irrep::new(2);   // spin 1
-let channels: Vec<u32> = one.fusion(one).unwrap().map(|s| s.dj()).collect();
-assert_eq!(channels, vec![0, 2, 4]); // 1 ⊗ 1 = 0 ⊕ 1 ⊕ 2
+use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieGroup}};
+let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+let one = group.irrep(&[2]).unwrap();
+let channels: Vec<i64> = group.fusion(&one, &one).unwrap().map(|s| s.dynkin()[0]).collect();
+assert_eq!(channels, vec![0, 2, 4]);
 ```
 
 SU(2) is also reachable as SU(N) with `N = 2` (`fusion_symbols::sun`, `cgc-gen`), and the
-two agree. Prefer `su2`: it is exact, dependency-light, and much faster.
+two agree. Prefer the rank-one `LieGroup` path: it is exact and dependency-light.
+SO(3), Spin(3), Sp(2), and PSU(2) use the same implementation; SO(3)
+and PSU(2) admit only even doubled spins. Objects retain distinct group tags.
 
 ## SU(N), N ≥ 3
 
@@ -92,7 +95,7 @@ the cover, not of `SO(N)` itself, which is why asking for a spinor label as an
 
 ```rust
 use fusion_symbols::bcd::Irrep;
-use fusion_symbols::group::GroupId;
+use fusion_symbols::lie::GroupId;
 
 let spin5 = GroupId::spin(5).unwrap();
 let s = Irrep::from_dynkin_in(&spin5, &[0, 1]).unwrap();
@@ -147,7 +150,7 @@ predicate is [`GroupId::admits`], and it is the *whole* content of a global
 form here.
 
 ```rust
-use fusion_symbols::group::GroupId;
+use fusion_symbols::lie::GroupId;
 use fusion_symbols::sun::Irrep;
 
 let psu3 = GroupId::psu(3).unwrap();       // SU(3)/Z₃
@@ -191,17 +194,17 @@ basis, gauge, and cached values.
 
 ## Related API
 
-- [`fusion_symbols::group`]: `GroupId`, `RootSystem`, `GlobalForm`, `CenterSubgroup`,
+- [`fusion_symbols::lie`]: `GroupId`, `RootSystem`, `GlobalForm`, `CenterSubgroup`,
   `GroupId::admits`
 - [`sun::Irrep::from_dynkin_in`], [`bcd::Irrep::from_dynkin_in`]
 - Deeper background: [`../theory.pdf`](../theory.pdf) §3 (the Killing–Cartan
   classification and the Dynkin diagrams), §4 (each family's compact group,
   its centre, and the global forms as centre quotients), §5 (the
   classification-to-code correspondence table), §8 (why each family gets its
-  algorithm), and the `fusion_symbols::group` module docs for the lattice arithmetic.
+  algorithm), and the `fusion_symbols::lie` module docs for the lattice arithmetic.
 
-[`GroupId::admits`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/group/struct.GroupId.html#method.admits
-[`RootSystem`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/group/enum.RootSystem.html
-[`fusion_symbols::group`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/group/index.html
+[`GroupId::admits`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.GroupId.html#method.admits
+[`RootSystem`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/enum.RootSystem.html
+[`fusion_symbols::lie`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/index.html
 [`sun::Irrep::from_dynkin_in`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/struct.Irrep.html#method.from_dynkin_in
 [`bcd::Irrep::from_dynkin_in`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/struct.Irrep.html#method.from_dynkin_in

@@ -22,7 +22,7 @@
 //!
 //! where the central character `χ_λ` depends on `λ` only through its class
 //! `[λ] ∈ P/Q`. So a global form is a **per-irrep boolean predicate at
-//! construction time** — [`GroupId::admits`](crate::group::GroupId::admits). The class map `P⁺ → P/Q` is a
+//! construction time** — [`GroupId::admits`](crate::lie::GroupId::admits). The class map `P⁺ → P/Q` is a
 //! group homomorphism, so `[λ+μ] = [λ]+[μ]`: admissibility is closed under
 //! fusion and duality and never needs re-checking on fusion outputs. That is
 //! why enforcement is construction-only and why cache keys stay form-free
@@ -44,14 +44,14 @@
 //!    imported congruence number. Killing `z_{ω_r}` retains `[ω_r]` when
 //!    `r ≡ 0 (mod 4)` but retains `[ω_{r-1}]` when `r ≡ 2 (mod 4)`, because
 //!    `(ω_r, ω_r) = r/4`; a kill-based name is therefore not stable in `r`.
-//!    See [`CenterSubgroup::DHalfSpinPlus`](crate::group::CenterSubgroup::DHalfSpinPlus) / [`CenterSubgroup::DHalfSpinMinus`](crate::group::CenterSubgroup::DHalfSpinMinus).
+//!    See [`CenterSubgroup::DHalfSpinPlus`](crate::lie::CenterSubgroup::DHalfSpinPlus) / [`CenterSubgroup::DHalfSpinMinus`](crate::lie::CenterSubgroup::DHalfSpinMinus).
 //! 2. **`D_r`, `r` odd — the `Z4` class uses the generator `c := [ω_r]`**, so
 //!    `κ(λ) ≡ a_r − a_{r-1} + 2·Σ_{i odd ≤ r-2} aᵢ (mod 4)`, uniformly in `r`.
 //!    This agrees with [`crate::bcd::Irrep::dual`] (which flips `λ_r ↦ −λ_r`
 //!    for `D_r` odd, i.e. negates `κ`) and with Slansky's SO(10) table note;
 //!    it differs from Slansky's single uniform formula by the `Z4`
 //!    automorphism `x ↦ −x` for `r ≡ 3 (mod 4)`. That is a generator choice,
-//!    not a discrepancy. See [`CenterSubgroup::Z4`](crate::group::CenterSubgroup::Z4).
+//!    not a discrepancy. See [`CenterSubgroup::Z4`](crate::lie::CenterSubgroup::Z4).
 //!
 //! [`docs/gauge_soN.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/gauge_soN.md
 //! [`docs/references.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/references.md
@@ -60,7 +60,7 @@
 //!
 //! Connected compact groups only. `O(N)` and `Pin(N)` are not central
 //! quotients of a simply connected group and are out of scope. The `G2`–`E8`
-//! variants of [`RootSystem`](crate::group::RootSystem) exist so the type is complete, but carry no
+//! variants of [`RootSystem`](crate::lie::RootSystem) exist so the type is complete, but carry no
 //! predicate logic (their centers are `1`, `1`, `Z3`, `Z2`, `1`); only
 //! `SimplyConnected` is answerable for them.
 
@@ -409,7 +409,7 @@ impl GroupId {
     /// calling at construction.
     ///
     /// ```
-    /// use fusion_symbols::group::GroupId;
+    /// use fusion_symbols::lie::GroupId;
     ///
     /// let psu3 = GroupId::psu(3).unwrap();     // SU(3)/Z_3
     /// assert!(psu3.admits(&[1, 1]));           // the adjoint 8: triality 0

@@ -18,7 +18,7 @@ encoding:
 
 | Family | Type | Label |
 |---|---|---|
-| SU(2) | [`su2::Su2Irrep`] | one `u32`, the **doubled spin** `dj = 2j` |
+| SU(2) | [`lie::LieIrrep`] | group tag plus an inline `u32`, the **doubled spin** `dj = 2j` |
 | SU(N) | [`sun::Irrep`] | `N-1` Dynkin labels (stored internally as a normalized weight) |
 | SO(N), Spin(N), Sp(2N) | [`bcd::Irrep`] | `r` Dynkin labels plus the Cartan series `B`/`C`/`D` |
 | CU(1) | `cu1::CU1Irrep` | twice charge `u32` and `s`: `(0,0)`, `(0,1)`, or `(q>0,2)` |
@@ -55,17 +55,18 @@ share parsed and derived data; category equality and hashing use the uuid.
 ## SU(2): doubled spins
 
 ```rust
-use fusion_symbols::su2::{su2_frobenius_schur, Su2Irrep};
-
-let s = Su2Irrep::new(3);        // dj = 3, i.e. spin 3/2
-assert_eq!(s.dj(), 3);
-assert_eq!(s.dim(), 4);          // 2j + 1
-assert_eq!(s.dual(), s);         // every SU(2) irrep is self-dual
-assert_eq!(su2_frobenius_schur(3), -1.0); // half-integer j: symplectic self-duality
+use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieGroup}};
+let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+let s = group.irrep(&[3]).unwrap(); // doubled spin 3, i.e. spin 3/2
+assert_eq!(s.dynkin(), vec![3]);
+assert_eq!(s.dim_exact(), 4.into());
+assert_eq!(group.dual(&s), s);
+assert_eq!(group.frobenius_schur_phase(&s), -1.0);
 ```
 
-Every `u32` is a valid doubled spin, so `Su2Irrep::new` cannot fail and neither
-can `dj`, `dim` or `dual`. Projections are doubled too: `dm = 2m`, an `i32`.
+Dynkin labels are validated by `LieGroup::irrep`: one nonnegative label fitting
+`u32`, admitted by the global form. SO(3) and PSU(2) reject odd labels.
+Projections for the exact evaluators are doubled too: `dm = 2m`, an `i32`.
 
 **Why doubled.** Spin ½ is not an integer, and a float label would make
 admissibility tests approximate. `dj = 2j` keeps every label exact and turns the
@@ -165,7 +166,7 @@ assert_eq!(five.dim(), 5u32.into());
 assert_eq!(five.frobenius_schur(), 1);
 ```
 
-For SU(2), `su2_frobenius_schur(dj)` is `(-1)^dj`: `+1` for integer spin, `−1`
+For SU(2), `FusionCategory::frobenius_schur_phase(dj)` is `(-1)^dj`: `+1` for integer spin, `−1`
 for half-integer. For SU(N) the indicator is derivable from `dual()` (an irrep
 with `a != a.dual()` is complex, indicator `0`); `bcd::Irrep::frobenius_schur()`
 returns it directly.
@@ -184,15 +185,15 @@ returns it directly.
 
 ## Related API
 
-- [`su2::Su2Irrep`], [`fusion_symbols::su2_frobenius_schur`]
+- [`lie::LieIrrep`], [`fusion_symbols::category::FusionCategory::frobenius_schur_phase`]
 - [`sun::Irrep`]: `from_dynkin`, `from_dynkin_in`, `from_weight`, `trivial`,
   `dim`, `dual`, `dynkin`, `weight`, `rank`, `patterns`
 - [`bcd::Irrep`]: `from_dynkin`, `from_dynkin_in`, `trivial`, `dim`, `dual`,
   `dynkin`, `partition`, `two_partition`, `is_spinor`, `frobenius_schur`,
   `weight_multiplicities`
 
-[`su2::Su2Irrep`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/su2/struct.Su2Irrep.html
-[`fusion_symbols::su2_frobenius_schur`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/fn.su2_frobenius_schur.html
+[`lie::LieIrrep`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieIrrep.html
+[`fusion_symbols::category::FusionCategory::frobenius_schur_phase`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.frobenius_schur_phase
 [`sun::Irrep`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/struct.Irrep.html
 [`bcd::Irrep`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/struct.Irrep.html
 [`bcd::Series`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/enum.Series.html

@@ -2,10 +2,12 @@
 //!
 //! Oracles: SUNRepresentations 0.4.0 / TensorKitSectors 0.3.9 values, the sign
 //! of racah's own `F[a, ā, a, a, 1, 1]` (the reference definition,
-//! `sectors.jl:frobenius_schur_phase_from_Fsymbol`), and `su2_frobenius_schur`.
+//! `sectors.jl:frobenius_schur_phase_from_Fsymbol`), and `phase`.
 
 #![cfg(feature = "cgc-gen")]
 
+#[path = "common/a1.rs"]
+mod a1;
 use fusion_symbols::sun::{f_symbol, Irrep};
 
 fn irr(d: &[i64]) -> Irrep {
@@ -76,10 +78,7 @@ fn indicator_is_phase_on_self_dual_irreps_and_zero_otherwise() {
     // SU(2) through the SU(N) path agrees with the SU(2) family.
     for dj in 0..12u32 {
         let a = irr(&[i64::from(dj)]);
-        assert_eq!(
-            a.frobenius_schur_phase(),
-            fusion_symbols::su2_frobenius_schur(dj)
-        );
+        assert_eq!(a.frobenius_schur_phase(), a1::phase(dj));
     }
     // Representation-theoretic anchors: SU(4) 6 = SO(6) vector is real, the
     // SU(6) 20 = Λ³C⁶ is quaternionic, the adjoint is always real.

@@ -4,8 +4,8 @@ use std::hint::black_box;
 use std::time::Instant;
 
 use crate::cache::{self, CoefficientCacheBudgets, CoefficientCacheTier};
+use crate::lie::su2::{wigner_3j, wigner_6j};
 use crate::sun::{directproduct, Irrep};
-use crate::{wigner_3j, wigner_6j};
 
 fn rss_bytes() -> Option<usize> {
     let output = std::process::Command::new("ps")

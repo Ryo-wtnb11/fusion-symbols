@@ -5,7 +5,7 @@
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-use fusion_symbols::{wigner_3j, wigner_6j};
+use fusion_symbols::lie::su2::{wigner_3j, wigner_6j};
 
 /// Admissible 6j label sets (doubled spins, all <= 254): equal-spin sextuples
 /// at a spread of magnitudes so the timing reflects the k-sum length.

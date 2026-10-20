@@ -50,7 +50,7 @@
 #![allow(clippy::approx_constant)]
 
 use fusion_symbols::bcd::{f_symbol as bcd_f_symbol, CanonicalCatalog, Irrep as Bcd, Series};
-use fusion_symbols::group::GroupId;
+use fusion_symbols::lie::GroupId;
 use fusion_symbols::sun::{cgc, f_symbol, Irrep as Sun};
 
 /// Discrete-event tolerance; see the module docs.

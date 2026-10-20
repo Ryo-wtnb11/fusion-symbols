@@ -91,7 +91,7 @@ Both are value-affecting gauge choices and therefore part of this contract.
   `λ`). Weights are carried doubled (`2λ`, integral in both classes,
   the crate's `dj = 2j` convention). A *global form* — which class a caller may
   ask for — is a restriction of the label set applied at construction
-  (`crate::group`); it never changes a coefficient value.
+  (`crate::lie`); it never changes a coefficient value.
 - The CGC of a coupled multiplet is the isometry `V`, a real `d1·d2 × d3`
   column-major matrix; each column is one coupled state.
 

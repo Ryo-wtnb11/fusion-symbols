@@ -112,15 +112,16 @@ the details; what you do need is:
   an explicit specification correction with a fingerprint epoch bump and a
   CHANGELOG breaking-change entry.
 - **You can checkpoint against it.** Each family exposes an opaque **authority
-  fingerprint**: `su2_authority_fingerprint()`, `sun::sun_authority_fingerprint()`,
+  fingerprint**: `FusionCategory::authority_fingerprint()`, `sun::sun_authority_fingerprint()`,
   `bcd::bcd_authority_fingerprint()`. Persist the bytes next to anything you
   derive from these coefficients, and on load compare for equality and reject
   the derived data on mismatch. Compare only — never parse them.
 
 ```rust
-let fingerprint = fusion_symbols::su2_authority_fingerprint();
+use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieGroup}};
+let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+let fingerprint = group.authority_fingerprint();
 assert!(!fingerprint.is_empty());
-// Persist `fingerprint` alongside any table you derive from racah's SU(2) values.
 ```
 
 The SU(2) fingerprint carries the strong contract: equal fingerprint ⇔ equal
@@ -150,9 +151,9 @@ against another implementation or auditing a value, not to learn the API.
 - [`fusion_symbols::cache`]: `configure_cache_budgets`, `cache_budgets`,
   `base_cache_stats`, `generated_cache_stats`, `trim_to`, `reset`,
   `BASE_CACHE_MAX_BYTES`, `GENERATED_CACHE_MAX_BYTES`
-- [`fusion_symbols::su2_authority_fingerprint`], `sun::sun_authority_fingerprint`,
+- [`fusion_symbols::category::FusionCategory::authority_fingerprint`], `sun::sun_authority_fingerprint`,
   `bcd::bcd_authority_fingerprint`
 - Measurement evidence behind the defaults: [`../developer/`](../developer/README.md)
 
 [`fusion_symbols::cache`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/cache/index.html
-[`fusion_symbols::su2_authority_fingerprint`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/fn.su2_authority_fingerprint.html
+[`fusion_symbols::category::FusionCategory::authority_fingerprint`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.authority_fingerprint

@@ -72,8 +72,8 @@
 //! pair of `SU(2)` irreps with `SO(4)` products factoring as independent
 //! `SU(2)` products — is checked here between racah's **two independent
 //! `SU(2)` code paths**: the general Gelfand–Tsetlin engine ([`fusion_symbols::sun`]
-//! at `N = 2`) and the exact closed-form base module ([`fusion_symbols::su2`],
-//! reached through [`fusion_symbols::clebsch_gordan`]). An `SO(4)` label `(p, q)`
+//! at `N = 2`) and the exact closed-form base module ([`fusion_symbols::lie::su2`],
+//! reached through [`fusion_symbols::lie::su2::clebsch_gordan`]). An `SO(4)` label `(p, q)`
 //! carries `SU(2)` spins `(p/2, q/2)` (doubled spins `dj = p, q`), dimension
 //! `(p+1)(q+1)`, and is a tensor irrep iff `p + q` is even.
 
@@ -82,7 +82,7 @@
 use std::collections::BTreeMap;
 
 use fusion_symbols::bcd::{directproduct as bdp, Irrep as Bcd, Series};
-use fusion_symbols::clebsch_gordan;
+use fusion_symbols::lie::su2::clebsch_gordan;
 use fusion_symbols::sun::{directproduct as sdp, Irrep as Sun};
 
 /// `SU(4)` Dynkin `(a_1,a_2,a_3)` → `SO(6)=D_3` Dynkin `(a_2,a_1,a_3)`.
@@ -202,7 +202,7 @@ fn sp4_so5_products_agree() {
 }
 
 /// SU(2) fusion multiplicity of doubled-spin `dj3` in `dj1 ⊗ dj2`, via racah's
-/// exact closed-form base module ([`fusion_symbols::su2`]): the highest-weight Clebsch–
+/// exact closed-form base module ([`fusion_symbols::lie::su2`]): the highest-weight Clebsch–
 /// Gordan coefficient is nonzero iff the coupling is allowed, and SU(2)
 /// multiplicities are 0/1. This is an independent code path from the GT engine.
 fn su2_mult_base(dj1: i32, dj2: i32, dj3: i32) -> u32 {
@@ -278,7 +278,7 @@ fn wrong_so6_map_is_detected() {
 // ---------------------------------------------------------------------------
 
 use fusion_symbols::bcd::BcdError;
-use fusion_symbols::group::GroupId;
+use fusion_symbols::lie::GroupId;
 
 /// `SU(4)` Dynkin `(a_1,a_2,a_3)` → `Spin(6)` Dynkin `(a_2,a_1,a_3)`, defined
 /// on the whole lattice: `a_1 + a_3` odd is the `D_3` spinor class, which is

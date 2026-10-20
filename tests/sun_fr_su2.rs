@@ -1,5 +1,5 @@
 //! SU(2) cross-check of the SU(N) F/R contraction against the crate's exact
-//! closed-form SU(2) recoupling (`su2_f_symbol` / `su2_r_symbol`), which are
+//! closed-form SU(2) recoupling (`exact_f` / `exact_r`), which are
 //! the independent value authority (phase-composed exact 6j; Racah big-rational
 //! sums rounded once).
 //!
@@ -36,15 +36,18 @@
 //! So the F/R **blocks are sign-difference-invariant** (the per-vertex
 //! coboundary cancels) even though 56 of 140 individual SU(2) channels
 //! (`dj ≤ 6`) have `ε = -1`. The comparison reconciles via the exact `ε` rule —
-//! each `ε` computed independently from `fusion_symbols::clebsch_gordan`, and asserted
+//! each `ε` computed independently from `fusion_symbols::lie::su2::clebsch_gordan`, and asserted
 //! equal to `(-1)^(j1+j2−j3)` per channel (strictly stronger than the product
 //! pin) — so a future gauge change that broke either the per-channel law or the
 //! cancellation would surface here.
 
 #![cfg(feature = "cgc-gen")]
 
+#[path = "common/a1.rs"]
+mod a1;
+use a1::{exact_f, exact_r};
+use fusion_symbols::lie::su2::clebsch_gordan;
 use fusion_symbols::sun::{cgc, f_symbol, r_symbol, Irrep};
-use fusion_symbols::{clebsch_gordan, su2_f_symbol, su2_r_symbol};
 
 fn su2(dj: u32) -> Irrep {
     Irrep::from_dynkin(&[dj as i64]).unwrap()
@@ -144,7 +147,7 @@ fn f_from_cgc_matches_su2_closed_form() {
                             if eps < 0.0 {
                                 flipped += 1;
                             }
-                            let want = eps * su2_f_symbol(dja, djb, djc, djd, dje, djf);
+                            let want = eps * exact_f(dja, djb, djc, djd, dje, djf);
                             let err = (got - want).abs();
                             worst = worst.max(err);
                             assert!(
@@ -192,7 +195,7 @@ fn r_from_cgc_matches_su2_closed_form() {
                 if eps < 0.0 {
                     flipped += 1;
                 }
-                let want = eps * su2_r_symbol(dja, djb, djc);
+                let want = eps * exact_r(dja, djb, djc);
                 assert!(
                     (got.at(0, 0) - want).abs() <= TOL,
                     "R mismatch a={dja} b={djb} c={djc}: got={} want={want} ε={eps}",

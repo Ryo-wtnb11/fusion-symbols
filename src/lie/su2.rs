@@ -1,30 +1,13 @@
-//! Exact SU(2) recoupling coefficients: Wigner 3j, 6j, Clebsch-Gordan, F, R,
-//! the Frobenius-Schur indicator, and the canonical Regge key for 6j symbols.
+//! Exact SU(2) Wigner 3j, 6j, Clebsch–Gordan coefficients and Regge keys.
+//! Category symbols and Frobenius–Schur data use [`super::LieGroup`].
 //!
 //! All spins are in the doubled ("twice") convention: `dj = 2j` as `u32`,
 //! `dm = 2m` as `i32`. So `2` is spin 1 and `1` is spin 1/2; every label stays
 //! an exact integer and every admissibility rule is integer arithmetic.
 //!
-//! ```
-//! use fusion_symbols::su2::{clebsch_gordan, wigner_6j, Su2Irrep};
-//!
-//! // <1/2 +1/2, 1/2 -1/2 | 0 0> = 1/sqrt(2), in doubled labels.
-//! let cg = clebsch_gordan(1, 1, 1, -1, 0, 0);
-//! assert!((cg.to_f64() - 0.5f64.sqrt()).abs() < 1e-15);
-//!
-//! // {1 1 1; 1 1 1} = 1/6.
-//! assert!((wigner_6j(2, 2, 2, 2, 2, 2).to_f64() - 1.0 / 6.0).abs() < 1e-14);
-//!
-//! // 1/2 (x) 1/2 = 0 (+) 1.
-//! let half = Su2Irrep::new(1);
-//! let channels: Vec<u32> = half.fusion(half).unwrap().map(|s| s.dj()).collect();
-//! assert_eq!(channels, vec![0, 2]);
-//! ```
-//!
 //! # Two surfaces: infallible and checked
 //!
-//! The infallible functions ([`wigner_3j`], [`wigner_6j`], [`clebsch_gordan`],
-//! [`su2_f_symbol`], [`su2_r_symbol`]) return the exact zero value for a
+//! The infallible functions ([`wigner_3j`], [`wigner_6j`], [`clebsch_gordan`]) return the exact zero value for a
 //! non-admissible label combination — never an error, never a panic — matching
 //! the reference-crate semantics. Values are computed as big-rational Racah
 //! sums and carried as [`SignedSqrtRational`] until a single final rounding to
@@ -43,7 +26,7 @@
 use num_rational::Ratio;
 
 use crate::cache::{cache_3j, cache_6j, cache_f};
-use crate::exact::SignedSqrtRational;
+pub use crate::exact::SignedSqrtRational;
 use crate::primefactor::{factorial as pf_factorial, mul_factorial, sum_series, Pf};
 
 /// Prime-factorized squared triangle coefficient
@@ -69,7 +52,7 @@ fn delta_sq_pf(a: u32, b: u32, c: u32) -> (Pf, Pf) {
 /// (the infallible 3j/6j engines, the Regge canonicalizers, and the checked
 /// surface via [`check_triangle`]) reduces its triangle conditions to this one
 /// function, so the checked and unchecked paths cannot disagree.
-fn triangle_ok(a: u32, b: u32, c: u32) -> bool {
+pub(super) fn triangle_ok(a: u32, b: u32, c: u32) -> bool {
     let (a, b, c) = (a as i64, b as i64, c as i64);
     (a + b + c) % 2 == 0 && c >= (a - b).abs() && c <= a + b
 }
@@ -119,7 +102,7 @@ fn check_6j_admissible(
 /// the single source of truth for the value.
 ///
 /// ```
-/// use fusion_symbols::wigner_6j;
+/// use fusion_symbols::lie::su2::wigner_6j;
 ///
 /// // All spins 1 (dj = 2): {1 1 1; 1 1 1} = 1/6.
 /// assert!((wigner_6j(2, 2, 2, 2, 2, 2).to_f64() - 1.0 / 6.0).abs() < 1e-14);
@@ -334,7 +317,7 @@ fn wigner_3j_uncached(
 /// from an accidental zero.
 ///
 /// ```
-/// use fusion_symbols::clebsch_gordan;
+/// use fusion_symbols::lie::su2::clebsch_gordan;
 ///
 /// // <1/2 +1/2, 1/2 -1/2 | 0 0> = 1/sqrt(2).
 /// let cg = clebsch_gordan(1, 1, 1, -1, 0, 0);
@@ -372,14 +355,7 @@ pub fn clebsch_gordan(
 /// (TensorKitSectors tugbK `src/irreps/su2irrep.jl:Rsymbol`: `Nsymbol(...) ||
 /// return 0; iseven(sa.j+sb.j-sc.j) ? 1 : -1`.)
 ///
-/// ```
-/// use fusion_symbols::su2_r_symbol;
-///
-/// assert_eq!(su2_r_symbol(1, 1, 0), -1.0); // 1/2 (x) 1/2 -> 0
-/// assert_eq!(su2_r_symbol(1, 1, 2), 1.0);  // 1/2 (x) 1/2 -> 1
-/// assert_eq!(su2_r_symbol(1, 1, 4), 0.0);  // forbidden triangle
-/// ```
-pub fn su2_r_symbol(dj1: u32, dj2: u32, dj3: u32) -> f64 {
+pub(super) fn r_symbol(dj1: u32, dj2: u32, dj3: u32) -> f64 {
     if !triangle_ok(dj1, dj2, dj3) {
         return 0.0;
     }
@@ -398,13 +374,7 @@ pub fn su2_r_symbol(dj1: u32, dj2: u32, dj3: u32) -> f64 {
 /// phase is simply the parity of `dj`. (TensorKitSectors self-dual convention;
 /// see the generic `frobeniusschur` and `SU2Irrep` `dual(s) = s`.)
 ///
-/// ```
-/// use fusion_symbols::su2_frobenius_schur;
-///
-/// assert_eq!(su2_frobenius_schur(2), 1.0);  // spin 1: real/orthogonal
-/// assert_eq!(su2_frobenius_schur(1), -1.0); // spin 1/2: pseudo-real/symplectic
-/// ```
-pub fn su2_frobenius_schur(dj: u32) -> f64 {
+pub(super) fn fs_phase(dj: u32) -> f64 {
     if dj.is_multiple_of(2) {
         1.0
     } else {
@@ -423,14 +393,9 @@ pub fn su2_frobenius_schur(dj: u32) -> f64 {
 /// That sum is exactly one, not merely to rounding: $\tau$ acts on the
 /// $c$-isotypic part as $R^{aa}_c \otimes \mathrm{id}_{V_c}$, so
 /// $\sum_c d_c \operatorname{tr} R^{aa}_c = \operatorname{Tr}\tau = d_a$.
-/// With [`su2_r_symbol`] it reads $\sum_c (-1)^{2j-c}(2c+1) = 2j+1$.
+/// With [`r_symbol`] it reads $\sum_c (-1)^{2j-c}(2c+1) = 2j+1$.
 ///
-/// ```
-/// use fusion_symbols::su2_twist;
-///
-/// assert_eq!(su2_twist(1), 1.0); // spin 1/2
-/// ```
-pub fn su2_twist(dj: u32) -> f64 {
+pub(super) fn twist(dj: u32) -> f64 {
     let _ = dj;
     1.0
 }
@@ -491,16 +456,9 @@ fn f_symbol_exact(
 ///
 /// Multiplicity-free: SU(2) has `N^c_ab <= 1`, so the F-symbol is a scalar
 /// rather than the rank-4 block the generated families return. Non-admissible
-/// labels give exact `0.0`; see [`su2_f_symbol_checked`].
+/// labels give exact `0.0`.
 ///
-/// ```
-/// use fusion_symbols::su2_f_symbol;
-///
-/// // F^{1/2 1/2 1/2}_{1/2}[0, 0] — all labels doubled.
-/// let f = su2_f_symbol(1, 1, 1, 1, 0, 0);
-/// assert!((f + 0.5).abs() < 1e-14);
-/// ```
-pub fn su2_f_symbol(dj1: u32, dj2: u32, dj3: u32, dj4: u32, dj5: u32, dj6: u32) -> f64 {
+pub(crate) fn f_symbol(dj1: u32, dj2: u32, dj3: u32, dj4: u32, dj5: u32, dj6: u32) -> f64 {
     // Key on the 6j class actually evaluated, {dj1 dj2 dj5 / dj3 dj4 dj6}, plus
     // the two determinants that class does NOT carry (dimension factor, phase).
     // See FKey for the key-completeness argument.
@@ -585,7 +543,7 @@ impl Regge6j {
     }
 }
 
-/// Key for the derived-f64 F-symbol tier ([`su2_f_symbol`]).
+/// Key for the derived-f64 F-symbol tier ([`f_symbol`]).
 ///
 /// # Why these three components, and why they are complete
 ///
@@ -900,19 +858,19 @@ pub fn canonical_regge_3j(
 /// Fusion of two irreps can overflow the `u32` label space, which is where the
 /// only fallible operation ([`fusion`]) lives.
 ///
-/// [`new`]: Su2Irrep::new
-/// [`fusion`]: Su2Irrep::fusion
+/// [`new`]: A1Irrep::new
+/// [`fusion`]: A1Irrep::fusion
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Su2Irrep(u32);
+pub(super) struct A1Irrep(u32);
 
-impl Su2Irrep {
+impl A1Irrep {
     /// Construct the irrep with doubled spin `dj = 2j`.
     ///
     /// Infallible by construction: SU(2) has one irrep for every nonnegative
     /// half-integer spin, i.e. exactly one for every `u32` doubled spin, so
     /// there is no invalid label to reject.
     pub fn new(dj: u32) -> Self {
-        Su2Irrep(dj)
+        A1Irrep(dj)
     }
 
     /// The doubled spin `dj = 2j`.
@@ -924,6 +882,7 @@ impl Su2Irrep {
     ///
     /// Returned as `u64` so it cannot overflow: the maximum `dj` is
     /// `u32::MAX`, and `u32::MAX as u64 + 1` fits `u64` with room to spare.
+    #[cfg(test)]
     pub fn dim(self) -> u64 {
         self.0 as u64 + 1
     }
@@ -933,7 +892,8 @@ impl Su2Irrep {
     ///
     /// The self-duality carries a Frobenius–Schur phase distinguishing the
     /// orthogonal (integer `j`) from the symplectic (half-integer `j`) case;
-    /// that phase is [`su2_frobenius_schur`], not folded into this identity.
+    /// that phase is [`fs_phase`], not folded into this identity.
+    #[cfg(test)]
     pub fn dual(self) -> Self {
         self
     }
@@ -942,17 +902,10 @@ impl Su2Irrep {
     /// `|dj1 − dj2| ..= dj1 + dj2` in steps of 2 (each with multiplicity one).
     ///
     /// Returns [`Su2Error::LabelOverflow`] when `dj1 + dj2` exceeds `u32`; the
-    /// returned [`Su2Fusion`] is an allocation-free
+    /// returned [`A1Fusion`] is an allocation-free
     /// [`ExactSizeIterator`]/[`DoubleEndedIterator`].
     ///
-    /// ```
-    /// use fusion_symbols::su2::Su2Irrep;
-    ///
-    /// let half = Su2Irrep::new(1); // spin-1/2
-    /// let channels: Vec<u32> = half.fusion(half).unwrap().map(|s| s.dj()).collect();
-    /// assert_eq!(channels, vec![0, 2]); // 1/2 ⊗ 1/2 = 0 ⊕ 1
-    /// ```
-    pub fn fusion(self, other: Self) -> Result<Su2Fusion, Su2Error> {
+    pub fn fusion(self, other: Self) -> Result<A1Fusion, Su2Error> {
         let hi = self.0.checked_add(other.0).ok_or(Su2Error::LabelOverflow {
             left: self.0,
             right: other.0,
@@ -961,7 +914,7 @@ impl Su2Irrep {
         // lo and hi always share parity (both congruent to dj1+dj2 mod 2), so
         // the half-open count is exact and the last step lands on hi.
         let remaining = ((hi - lo) / 2) as usize + 1;
-        Ok(Su2Fusion {
+        Ok(A1Fusion {
             front: lo,
             back: hi,
             remaining,
@@ -970,10 +923,10 @@ impl Su2Irrep {
 }
 
 /// Allocation-free iterator over the fusion channels of two SU(2) irreps
-/// (see [`Su2Irrep::fusion`]): doubled spins from `|dj1 − dj2|` to `dj1 + dj2`
+/// (see [`A1Irrep::fusion`]): doubled spins from `|dj1 − dj2|` to `dj1 + dj2`
 /// in steps of 2.
 #[derive(Clone, Copy, Debug)]
-pub struct Su2Fusion {
+pub(super) struct A1Fusion {
     /// Next doubled spin yielded from the front (ascending).
     front: u32,
     /// Next doubled spin yielded from the back (descending).
@@ -982,10 +935,10 @@ pub struct Su2Fusion {
     remaining: usize,
 }
 
-impl Iterator for Su2Fusion {
-    type Item = Su2Irrep;
+impl Iterator for A1Fusion {
+    type Item = A1Irrep;
 
-    fn next(&mut self) -> Option<Su2Irrep> {
+    fn next(&mut self) -> Option<A1Irrep> {
         if self.remaining == 0 {
             return None;
         }
@@ -996,7 +949,7 @@ impl Iterator for Su2Fusion {
         if self.remaining > 0 {
             self.front += 2;
         }
-        Some(Su2Irrep(dj))
+        Some(A1Irrep(dj))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -1004,8 +957,8 @@ impl Iterator for Su2Fusion {
     }
 }
 
-impl DoubleEndedIterator for Su2Fusion {
-    fn next_back(&mut self) -> Option<Su2Irrep> {
+impl DoubleEndedIterator for A1Fusion {
+    fn next_back(&mut self) -> Option<A1Irrep> {
         if self.remaining == 0 {
             return None;
         }
@@ -1016,11 +969,11 @@ impl DoubleEndedIterator for Su2Fusion {
         if self.remaining > 0 {
             self.back -= 2;
         }
-        Some(Su2Irrep(dj))
+        Some(A1Irrep(dj))
     }
 }
 
-impl ExactSizeIterator for Su2Fusion {}
+impl ExactSizeIterator for A1Fusion {}
 
 /// The specific SU(2) admissibility rule a checked request violated.
 ///
@@ -1085,7 +1038,7 @@ impl std::fmt::Display for AdmissibilityViolation {
 /// rule detail lives in a payload rather than in more variants):
 ///
 /// * [`LabelOverflow`](Su2Error::LabelOverflow) — a doubled-spin label would
-///   exceed the `u32` label space (only [`Su2Irrep::fusion`] can reach it).
+///   exceed the `u32` label space (the private rank-one fusion iterator uses it).
 /// * [`NotAdmissible`](Su2Error::NotAdmissible) — the request is structurally
 ///   forbidden. Distinct from an admissible request whose coefficient is an
 ///   accidental zero, which the checked functions return as `Ok(zero)`.
@@ -1120,7 +1073,7 @@ impl std::error::Error for Su2Error {}
 /// be an accidental zero), else [`Su2Error::NotAdmissible`].
 ///
 /// ```
-/// use fusion_symbols::su2::{wigner_6j_checked, Su2Error};
+/// use fusion_symbols::lie::su2::{wigner_6j_checked, Su2Error};
 ///
 /// assert!(wigner_6j_checked(2, 2, 2, 2, 2, 2).is_ok());
 /// assert!(matches!(
@@ -1177,13 +1130,14 @@ pub fn clebsch_gordan_checked(
     Ok(clebsch_gordan(dj1, dm1, dj2, dm2, dj3, dm3))
 }
 
-/// Checked [`su2_f_symbol`]: `Ok(value)` for an admissible F-symbol, else
+/// Checked [`f_symbol`]: `Ok(value)` for an admissible F-symbol, else
 /// [`Su2Error::NotAdmissible`].
 ///
 /// The F-symbol evaluates the 6j `{dj1 dj2 dj5; dj3 dj4 dj6}`, so its
 /// admissibility is that 6j's four triangles — checked through the shared
 /// `check_6j_admissible` with the F-symbol's argument order.
-pub fn su2_f_symbol_checked(
+#[cfg(test)]
+fn f_symbol_checked(
     dj1: u32,
     dj2: u32,
     dj3: u32,
@@ -1192,18 +1146,19 @@ pub fn su2_f_symbol_checked(
     dj6: u32,
 ) -> Result<f64, Su2Error> {
     check_6j_admissible(dj1, dj2, dj5, dj3, dj4, dj6).map_err(Su2Error::NotAdmissible)?;
-    Ok(su2_f_symbol(dj1, dj2, dj3, dj4, dj5, dj6))
+    Ok(f_symbol(dj1, dj2, dj3, dj4, dj5, dj6))
 }
 
-/// Checked [`su2_r_symbol`]: `Ok(±1.0)` on an admissible fusion triangle, else
+/// Checked [`r_symbol`]: `Ok(±1.0)` on an admissible fusion triangle, else
 /// [`Su2Error::NotAdmissible`]. Shares `check_triangle` with the infallible
 /// path.
 ///
-/// (Frobenius–Schur has no checked counterpart: [`su2_frobenius_schur`] is
+/// (Frobenius–Schur has no checked counterpart: [`fs_phase`] is
 /// total — every `u32` doubled spin is a valid irrep — so it can never fail.)
-pub fn su2_r_symbol_checked(dj1: u32, dj2: u32, dj3: u32) -> Result<f64, Su2Error> {
+#[cfg(test)]
+fn r_symbol_checked(dj1: u32, dj2: u32, dj3: u32) -> Result<f64, Su2Error> {
     check_triangle(dj1, dj2, dj3).map_err(Su2Error::NotAdmissible)?;
-    Ok(su2_r_symbol(dj1, dj2, dj3))
+    Ok(r_symbol(dj1, dj2, dj3))
 }
 
 /// Opaque authority fingerprint of the base SU(2) provider — **the version of
@@ -1284,13 +1239,13 @@ pub fn su2_r_symbol_checked(dj1: u32, dj2: u32, dj3: u32) -> Result<f64, Su2Erro
 ///   `su2irrep.jl:Fsymbol` correspondence, including the exact 6j argument order
 ///   and the $(-1)^{j_1+j_2+j_3+j_4}$ phase. That convention is fixed by the exact F
 ///   evaluation (the private `f_symbol_exact`, see the module's TensorKitSectors
-///   correspondence); [`su2_f_symbol`] is its cached `f64` presentation.
+///   correspondence); [`f_symbol`] is its cached `f64` presentation.
 /// - `r=tks-su2irrep` — the R-symbol convention: TensorKitSectors
 ///   `su2irrep.jl:Rsymbol`, $(-1)^{j_1+j_2-j_3}$ on an admissible triangle
-///   ([`su2_r_symbol`] docs).
+///   ([`r_symbol`] docs).
 /// - `fs=tks-su2irrep` — the Frobenius-Schur convention: $(-1)^{dj}$, the
 ///   TensorKitSectors `su2irrep.jl` self-dual correspondence
-///   ([`su2_frobenius_schur`] docs). Tagged separately from `r` because it is a
+///   ([`fs_phase`] docs). Tagged separately from `r` because it is a
 ///   distinct formula, not the R-symbol convention.
 /// - `epoch=1` — the manual epoch (see above).
 ///
@@ -1299,7 +1254,7 @@ pub fn su2_r_symbol_checked(dj1: u32, dj2: u32, dj3: u32) -> Result<f64, Su2Erro
 /// it would be an API-compatibility matter that leaves every coefficient value
 /// unchanged, so it does not belong in a value fingerprint. The crate version and any source/doc hash are
 /// excluded for the reasons above.
-pub fn su2_authority_fingerprint() -> &'static [u8] {
+pub(super) fn fingerprint() -> &'static [u8] {
     // Spec version. Bump the trailing `epoch=N` (and the literal in
     // tests/su2_fingerprint.rs) only when docs/gauge.md §12 is corrected, under
     // the four-step rule in its "Status" section. A refactor never bumps it.
@@ -1639,12 +1594,12 @@ mod tests {
                                 let want = f_symbol_exact(dj1, dj2, dj3, dj4, dj5, dj6).to_f64();
                                 let ctx = (dj1, dj2, dj3, dj4, dj5, dj6);
                                 assert_eq!(
-                                    su2_f_symbol(dj1, dj2, dj3, dj4, dj5, dj6),
+                                    f_symbol(dj1, dj2, dj3, dj4, dj5, dj6),
                                     want,
                                     "cached != exact at {ctx:?}"
                                 );
                                 assert_eq!(
-                                    su2_f_symbol(dj1, dj2, dj3, dj4, dj5, dj6),
+                                    f_symbol(dj1, dj2, dj3, dj4, dj5, dj6),
                                     want,
                                     "cache-hit != exact at {ctx:?}"
                                 );
@@ -1659,14 +1614,14 @@ mod tests {
     #[test]
     fn f_symbol_all_trivial_is_one() {
         // All six labels trivial: {0 0 0 / 0 0 0} 6j = 1, dims = 1, phase +.
-        assert_eq!(su2_f_symbol(0, 0, 0, 0, 0, 0), 1.0);
+        assert_eq!(f_symbol(0, 0, 0, 0, 0, 0), 1.0);
     }
 
     #[test]
     fn f_symbol_nonadmissible_is_zero() {
         // The evaluated 6j {1/2 1/2 1/2 / 1/2 1/2 1/2} is parity-forbidden, so F
         // is exactly zero and takes the Err (bypass) branch.
-        assert_eq!(su2_f_symbol(1, 1, 1, 1, 1, 1), 0.0);
+        assert_eq!(f_symbol(1, 1, 1, 1, 1, 1), 0.0);
     }
 
     #[test]
@@ -1674,27 +1629,27 @@ mod tests {
         // R^{ab}_c = (-1)^(j1+j2-j3) on an admissible triangle, else 0.
         // (Oracle: TensorKitSectors Rsymbol, exact over the full dj<=12 grid.)
         // {1/2 1/2 1}: (1+1-2)/2 = 0 even -> +1.
-        assert_eq!(su2_r_symbol(1, 1, 2), 1.0);
+        assert_eq!(r_symbol(1, 1, 2), 1.0);
         // {1/2 1/2 0}: (1+1-0)/2 = 1 odd -> -1.
-        assert_eq!(su2_r_symbol(1, 1, 0), -1.0);
+        assert_eq!(r_symbol(1, 1, 0), -1.0);
         // {1 1 1}: doubled (2,2,2), (2+2-2)/2 = 1 odd -> -1.
-        assert_eq!(su2_r_symbol(2, 2, 2), -1.0);
+        assert_eq!(r_symbol(2, 2, 2), -1.0);
         // {1 1 2}: doubled (2,2,4), (2+2-4)/2 = 0 even -> +1.
-        assert_eq!(su2_r_symbol(2, 2, 4), 1.0);
+        assert_eq!(r_symbol(2, 2, 4), 1.0);
         // Non-admissible (parity) -> exact zero, no phase.
-        assert_eq!(su2_r_symbol(1, 1, 1), 0.0);
+        assert_eq!(r_symbol(1, 1, 1), 0.0);
         // Non-admissible (triangle inequality) -> exact zero.
-        assert_eq!(su2_r_symbol(2, 2, 8), 0.0);
+        assert_eq!(r_symbol(2, 2, 8), 0.0);
     }
 
     #[test]
     fn frobenius_schur_is_sign_of_doubled_spin() {
         // (-1)^(2j) as +-1: integer spins +1, half-integer spins -1.
-        assert_eq!(su2_frobenius_schur(0), 1.0); // j=0
-        assert_eq!(su2_frobenius_schur(1), -1.0); // j=1/2
-        assert_eq!(su2_frobenius_schur(2), 1.0); // j=1
-        assert_eq!(su2_frobenius_schur(3), -1.0); // j=3/2
-        assert_eq!(su2_frobenius_schur(4), 1.0); // j=2
+        assert_eq!(fs_phase(0), 1.0); // j=0
+        assert_eq!(fs_phase(1), -1.0); // j=1/2
+        assert_eq!(fs_phase(2), 1.0); // j=1
+        assert_eq!(fs_phase(3), -1.0); // j=3/2
+        assert_eq!(fs_phase(4), 1.0); // j=2
     }
 
     #[test]
@@ -1714,20 +1669,20 @@ mod checked_tests {
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha8Rng;
 
-    // -- Su2Irrep basics ----------------------------------------------------
+    // -- A1Irrep basics ----------------------------------------------------
 
     #[test]
     fn irrep_accessors_and_self_dual() {
-        let s = Su2Irrep::new(3); // spin 3/2
+        let s = A1Irrep::new(3); // spin 3/2
         assert_eq!(s.dj(), 3);
         assert_eq!(s.dim(), 4); // 2j+1
         assert_eq!(s.dual(), s); // SU(2) is self-dual
-        assert_eq!(Su2Irrep::new(0).dim(), 1);
+        assert_eq!(A1Irrep::new(0).dim(), 1);
     }
 
     #[test]
     fn dim_does_not_overflow_at_max_label() {
-        assert_eq!(Su2Irrep::new(u32::MAX).dim(), u32::MAX as u64 + 1);
+        assert_eq!(A1Irrep::new(u32::MAX).dim(), u32::MAX as u64 + 1);
     }
 
     // -- Fusion range / iterator contract -----------------------------------
@@ -1738,8 +1693,8 @@ mod checked_tests {
         // (dj1, dj2, dj3) is an admissible triangle — an independent oracle.
         for dj1 in 0..=8u32 {
             for dj2 in 0..=8u32 {
-                let got: Vec<u32> = Su2Irrep::new(dj1)
-                    .fusion(Su2Irrep::new(dj2))
+                let got: Vec<u32> = A1Irrep::new(dj1)
+                    .fusion(A1Irrep::new(dj2))
                     .unwrap()
                     .map(|s| s.dj())
                     .collect();
@@ -1755,7 +1710,7 @@ mod checked_tests {
     fn fusion_exact_size_and_double_ended() {
         // len() is exact and consistent with the yielded count; iterating from
         // the back reverses the front order.
-        let mut it = Su2Irrep::new(4).fusion(Su2Irrep::new(2)).unwrap(); // 2..=6 step 2
+        let mut it = A1Irrep::new(4).fusion(A1Irrep::new(2)).unwrap(); // 2..=6 step 2
         assert_eq!(it.len(), 3);
         assert_eq!(it.next().map(|s| s.dj()), Some(2));
         assert_eq!(it.next_back().map(|s| s.dj()), Some(6));
@@ -1765,8 +1720,8 @@ mod checked_tests {
         assert!(it.next().is_none());
         assert!(it.next_back().is_none());
 
-        let full: Vec<u32> = Su2Irrep::new(4)
-            .fusion(Su2Irrep::new(2))
+        let full: Vec<u32> = A1Irrep::new(4)
+            .fusion(A1Irrep::new(2))
             .unwrap()
             .rev()
             .map(|s| s.dj())
@@ -1777,16 +1732,16 @@ mod checked_tests {
     #[test]
     fn fusion_overflow_at_u32_boundary() {
         // dj1 + dj2 overflows u32 -> typed LabelOverflow, no wraparound.
-        let a = Su2Irrep::new(u32::MAX);
+        let a = A1Irrep::new(u32::MAX);
         assert!(matches!(
-            a.fusion(Su2Irrep::new(1)),
+            a.fusion(A1Irrep::new(1)),
             Err(Su2Error::LabelOverflow {
                 left: u32::MAX,
                 right: 1,
             })
         ));
         // Exactly on the boundary is fine (sum == u32::MAX).
-        assert!(Su2Irrep::new(u32::MAX - 1).fusion(Su2Irrep::new(1)).is_ok());
+        assert!(A1Irrep::new(u32::MAX - 1).fusion(A1Irrep::new(1)).is_ok());
     }
 
     #[test]
@@ -1794,8 +1749,8 @@ mod checked_tests {
         // Draining from the back down to lo = 0 (dj1 == dj2, the singlet
         // channel) must not advance the cursor past the final element:
         // `back -= 2` at back == 0 would underflow u32 and panic in debug.
-        let got: Vec<u32> = Su2Irrep::new(2)
-            .fusion(Su2Irrep::new(2))
+        let got: Vec<u32> = A1Irrep::new(2)
+            .fusion(A1Irrep::new(2))
             .unwrap()
             .rev()
             .map(|s| s.dj())
@@ -1808,8 +1763,8 @@ mod checked_tests {
         // Draining forward up to hi == u32::MAX must not advance the cursor
         // past the final element: `front += 2` at front == u32::MAX would
         // overflow and panic in debug. lo = MAX-2, hi = MAX (parity-consistent).
-        let got: Vec<u32> = Su2Irrep::new(u32::MAX - 1)
-            .fusion(Su2Irrep::new(1))
+        let got: Vec<u32> = A1Irrep::new(u32::MAX - 1)
+            .fusion(A1Irrep::new(1))
             .unwrap()
             .map(|s| s.dj())
             .collect();
@@ -1820,7 +1775,7 @@ mod checked_tests {
     fn fusion_mixed_drain_to_singlet_without_underflow() {
         // Alternating next/next_back to exhaustion, ending at lo = 0, must not
         // underflow on either cursor. 2 x 2 = {0, 2, 4}.
-        let mut it = Su2Irrep::new(2).fusion(Su2Irrep::new(2)).unwrap();
+        let mut it = A1Irrep::new(2).fusion(A1Irrep::new(2)).unwrap();
         let mut got = vec![
             it.next().unwrap().dj(),      // front: 0
             it.next_back().unwrap().dj(), // back: 4
@@ -1920,7 +1875,7 @@ mod checked_tests {
         // F evaluates 6j {dj1 dj2 dj5 / dj3 dj4 dj6} = {1/2 1/2 1/2 / ...};
         // (1,1,1) parity-forbidden.
         assert!(matches!(
-            su2_f_symbol_checked(1, 1, 1, 1, 1, 1),
+            f_symbol_checked(1, 1, 1, 1, 1, 1),
             Err(Su2Error::NotAdmissible(
                 AdmissibilityViolation::Triangle { .. }
             ))
@@ -1930,14 +1885,14 @@ mod checked_tests {
     #[test]
     fn guard_r_symbol_triangle() {
         assert_eq!(
-            su2_r_symbol_checked(1, 1, 1),
+            r_symbol_checked(1, 1, 1),
             Err(Su2Error::NotAdmissible(AdmissibilityViolation::Triangle {
                 a: 1,
                 b: 1,
                 c: 1,
             }))
         );
-        assert_eq!(su2_r_symbol_checked(1, 1, 2), Ok(1.0));
+        assert_eq!(r_symbol_checked(1, 1, 2), Ok(1.0));
     }
 
     #[test]
