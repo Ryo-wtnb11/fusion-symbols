@@ -19,9 +19,25 @@ value/gauge rule noted below.
   to `fermion::FermionParityIrrep`; `fermion::FermionParity` is the category.
   U1, ZN and parity fingerprint bytes and coefficient values are unchanged.
   Foreign cyclic objects now panic; inadmissible F/R are `Ok(0.0)`.
+  Slice 2 adds `cu1::CU1` and implements `FusionCategory` for it and
+  `table::TableCategory`. The `tables` module is renamed to `table`.
+  CU(1) per-object mathematical methods, all `cu1_*` symbol/fingerprint
+  functions and their `_checked` variants are removed. `CU1Error::NotAdmissible`
+  is removed; `InvalidLabel` remains for the retained constructor, and only
+  fusion can return `TwiceChargeOutOfRange` through the trait.
+  Table mathematical methods move to the trait, with references to validated
+  objects and `Result` for fusion/F/R; all `_checked` methods are removed.
+  `TableObject` fields are private: use `TableCategory::object(index)?` and
+  `TableObject::index()` instead of tuple construction and `label()`.
+  `TableError::NotAdmissible` is removed; `UnknownObject { object: u16 }`
+  now reports an invalid construction index. Foreign table objects panic
+  before capability checks. Fusion-only R returns `NoBraiding`; twist panics.
+  Table clones share data, identity is the uuid, and styles derive from data.
+  All CU(1)/table coefficient values and fingerprint bytes are unchanged.
 
 ### Added
 
+- `table::TableFusion`, a borrowing, allocation-free iterator over table fusion channels.
 - `category::{FusionStyle, BraidingStyle, Scalar, Promote, SymbolBlock,
   FusionCategory, GroupRepresentations}`; sealed real/complex scalars and
   scalar block storage. `GroupRepresentations` is declared without impls.

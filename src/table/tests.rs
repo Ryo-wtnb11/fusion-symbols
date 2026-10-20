@@ -44,6 +44,23 @@ fn index_and_shipped_agree() {
 }
 
 #[test]
+fn fusion_iterator_matches_source_order_for_every_shipped_table() {
+    for uuid in TableCategory::shipped_uuids() {
+        let category = TableCategory::by_uuid(uuid).unwrap();
+        for a in category.objects() {
+            for b in category.objects() {
+                assert!(
+                    category.fusion(&a, &b).unwrap().eq(category
+                        .objects()
+                        .filter(|c| category.nsymbol(&a, &b, c) > 0)),
+                    "{uuid}: {a:?} x {b:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn every_shipped_entry_constructs() {
     // The invariant behind the infallible named constructors.
     assert_eq!(TableCategory::shipped_uuids().len(), SHIPPED_COUNT);
@@ -571,11 +588,15 @@ fn shipped_fibonacci_braiding_is_tensorkits_not_its_mirror() {
     // has the conjugate R-symbols; TensorKitSectors' `FibonacciAnyon`
     // has R^{ττ}_𝟙 = e^{+4πi/5}.
     let fib = TableCategory::fibonacci();
-    let tau = TableObject(2);
-    let r = fib.r_symbol(tau, tau, fib.unit());
+    let tau = fib.object(2).unwrap();
+    let r = fib.r_symbol(&tau, &tau, &fib.unit()).unwrap();
     assert!((r.arg() - 0.8 * std::f64::consts::PI).abs() < 1e-15, "{r}");
     let mirror = TableCategory::by_code([2, 1, 0, 2, 1, 1, 1]).expect("shipped");
-    assert_eq!(mirror.r_symbol(tau, tau, mirror.unit()), r.conj());
+    let tau = mirror.object(2).unwrap();
+    assert_eq!(
+        mirror.r_symbol(&tau, &tau, &mirror.unit()).unwrap(),
+        r.conj()
+    );
 }
 
 #[test]
@@ -616,4 +637,45 @@ fn fingerprint_moves_on_a_source_edit_too_small_to_move_a_coefficient() {
     let fingerprint = |f| fingerprint_bytes(&entry.provenance, entry.n, f, entry.r);
     assert_eq!(fingerprint(entry.f), provider.authority_fingerprint());
     assert_ne!(fingerprint(&edited), provider.authority_fingerprint());
+}
+
+#[test]
+fn category_identity_shared_clone_and_styles() {
+    use std::collections::hash_map::DefaultHasher;
+    let fib = TableCategory::fibonacci();
+    let clone = fib.clone();
+    assert!(Arc::ptr_eq(&fib.data, &clone.data));
+    let same = TableCategory::by_uuid(fib.uuid()).unwrap();
+    assert_eq!(fib, same);
+    assert_eq!(fib.unit(), same.unit());
+    let hash = |cat: &TableCategory| {
+        let mut h = DefaultHasher::new();
+        cat.hash(&mut h);
+        h.finish()
+    };
+    assert_eq!(hash(&fib), hash(&same));
+    assert_ne!(fib, TableCategory::ising());
+    assert_eq!(fib.fusion_style(), FusionStyle::Simple);
+    assert_eq!(fib.braiding_style(), BraidingStyle::Anyonic);
+    // AnyonWiki badbfe2: the two symmetric Z2 braidings, R^{22}_1 = ±1.
+    for (braiding, style) in [(1, BraidingStyle::Bosonic), (2, BraidingStyle::Fermionic)] {
+        let cat = TableCategory::by_code([2, 1, 0, 1, 2, braiding, 1]).unwrap();
+        assert_eq!(cat.fusion_style(), FusionStyle::Unique);
+        assert_eq!(cat.braiding_style(), style);
+    }
+    for uuid in TableCategory::shipped_uuids() {
+        let cat = TableCategory::by_uuid(uuid).unwrap();
+        let unique = cat.objects().all(|a| {
+            cat.objects()
+                .all(|b| cat.fusion(&a, &b).unwrap().count() == 1)
+        });
+        assert_eq!(
+            cat.fusion_style(),
+            if unique {
+                FusionStyle::Unique
+            } else {
+                FusionStyle::Simple
+            }
+        );
+    }
 }

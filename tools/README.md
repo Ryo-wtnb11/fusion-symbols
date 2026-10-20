@@ -2,8 +2,8 @@
 
 ## Data-build tool
 
-`anyonwiki/gen_category_tables.py` builds the shipped `tables` catalog:
-`data/anyonwiki-badbfe2/**` and `src/tables/catalog.rs` (`@generated`). It is
+`anyonwiki/gen_category_tables.py` builds the shipped `table` catalog:
+`data/anyonwiki-badbfe2/**` and `src/table/catalog.rs` (`@generated`). It is
 production-data provenance, not a test oracle. It also writes per-symbol audit
 files to `tests/fixtures/anyonwiki-badbfe2-*check.txt`; those are gitignored
 and no test reads them.

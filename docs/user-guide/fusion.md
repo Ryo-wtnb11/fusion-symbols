@@ -22,7 +22,8 @@ computes it exactly, in integer arithmetic, for every family.
 Before anything else. `N^c_ab` tells you which coupling channels exist at all,
 and it is the length of the multiplicity axis on every CGC, F and R block you
 ask for. If `N^c_ab = 0` there is no coefficient to compute, and the
-coefficient APIs say so with a typed error instead of returning zeros.
+`FusionCategory` APIs return exact zero symbols. The generated Lie APIs
+retain their existing typed errors for absent channels.
 
 ## SU(2)
 
@@ -96,6 +97,27 @@ for (irrep, mult) in &out {
     let _ = irrep.dim();
 }
 ```
+
+## CU(1) and shipped categories
+
+Both use `category::FusionCategory`. CU(1) has simple fusion and bosonic
+braiding; the iterator keeps TensorKitSectors' source order and reports
+`CU1Error::TwiceChargeOutOfRange` if a charge sum exceeds `u32::MAX`.
+
+```rust
+use fusion_symbols::{category::FusionCategory, cu1::{CU1, CU1Irrep}};
+
+let a = CU1Irrep::from_twice_charge(1);
+let channels: Vec<_> = CU1.fusion(&a, &a).unwrap().collect();
+assert_eq!(channels, vec![CU1Irrep::VACUUM, CU1Irrep::PSEUDOSCALAR,
+                         CU1Irrep::from_twice_charge(2)]);
+```
+
+`table::TableCategory` yields tagged objects in ascending one-based index
+order. Its fusion style is `Unique` if every pair has one outcome, otherwise
+`Simple`. Braiding style is `None` for fusion-only tables, `Bosonic` for
+symmetric braiding with all twists one, `Fermionic` for symmetric braiding
+with some twist minus one, and `Anyonic` otherwise.
 
 ## What does the result mean?
 

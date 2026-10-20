@@ -21,7 +21,7 @@ gauged, verification-gated numerical pipeline for the generated families.
 Those families have no precomputed table and no generation-time label cut:
 labels are bounded only by the machine-word ranges of the label types, which
 report a typed overflow error rather than a wrong answer. The abelian and
-CU(1) symbols are closed forms; only the `tables` categories ship data, the
+CU(1) symbols are closed forms; only the `table` categories ship data, the
 pinned AnyonWiki tables described below.
 
 ## Supported groups
@@ -34,23 +34,28 @@ pinned AnyonWiki tables described below.
 | Sp(2r) | `fusion_symbols::bcd` (series `C`) | `cgc-gen` | `r` Dynkin labels |
 | U(1), Z_N (Z2 = `ZN::new(2)`) | `fusion_symbols::abelian` | *(default)* | `U1` / `U1Irrep` (`i32`), `ZN` / `ZNIrrep` (charge, runtime `N`) |
 | Fermion parity | `fusion_symbols::fermion` | *(default)* | `FermionParity` / `FermionParityIrrep` (bool) |
-| CU(1) = U(1) ⋊ C (`O(2)`) | `fusion_symbols::cu1` | *(default)* | `CU1Irrep` (twice charge `u32`, TensorKitSectors `s`) |
-| Unitary multiplicity-free categories, rank ≤ 4 (AnyonWiki tables: 74 entries incl. Fibonacci, Ising) | `fusion_symbols::tables` | *(default)* | `TableCategory` (`by_uuid`, `by_code`, `fibonacci()`, `ising()`); one-based `TableObject(1..=rank)` |
-| … rank 5–7 (303 further AnyonWiki entries, about 4.2 MB of embedded tables) | `fusion_symbols::tables` | `anyonwiki-unitary` | as above |
+| CU(1) = U(1) ⋊ C (`O(2)`) | `fusion_symbols::cu1` | *(default)* | `CU1` / `CU1Irrep` (twice charge `u32`, TensorKitSectors `s`) |
+| Unitary multiplicity-free categories, rank ≤ 4 (AnyonWiki tables: 74 entries incl. Fibonacci, Ising) | `fusion_symbols::table` | *(default)* | `TableCategory` (`by_uuid`, `by_code`, `fibonacci()`, `ising()`); tagged `TableObject` from `object(1..=rank)?` |
+| … rank 5–7 (303 further AnyonWiki entries, about 4.2 MB of embedded tables) | `fusion_symbols::table` | `anyonwiki-unitary` | as above |
 
-`abelian::{U1, ZN}` and `fermion::FermionParity` implement
+`abelian::{U1, ZN}`, `fermion::FermionParity`, `cu1::CU1` and
+`table::TableCategory` implement
 `category::FusionCategory`, the single surface for dimension, dual, FS phase
 and indicator, twist, fusion and N/F/R. Objects are validated at construction;
-foreign moduli panic. N = 0 gives exact scalar zero, while U(1) fusion overflow
-is a typed error. Symbols are `f64`. Category identity includes the modulus;
+foreign cyclic or table objects panic. N = 0 gives exact scalar zero, while U(1) and CU(1) fusion overflow
+is a typed error. Closed-form symbols are `f64`, table symbols are `Complex64`.
+Category identity includes the modulus or table uuid;
 authority fingerprints describe conventions and remain byte-identical.
 
-`cu1` and `tables` retain their per-family methods and checked variants.
+Table objects retain one-based source indices through `TableObject::index()`.
+Cloning a table category shares its derived data through `Arc`. Fusion and
+braiding styles are derived at construction. Fusion-only tables return
+`TableError::NoBraiding` from `r_symbol`; `twist` panics.
 All families use TensorKitSectors index order; closed forms use its gauge.
 Table braiding uses `num_complex::Complex64`; CU(1) braiding is `f64`.
 Provenance is in [`docs/references_categories.md`](references_categories.md).
 
-The `tables` tables come from the
+The `table` tables come from the
 [AnyonWiki](https://anyonwiki.org/) database
 ([`anyonwiki/AnyonWikiDatabase`](https://github.com/anyonwiki/AnyonWikiDatabase),
 MIT, commit `badbfe2`), which stores every symbol exactly as an algebraic
@@ -87,7 +92,7 @@ For any admissible irreps of a supported group:
 |---|---|---|
 | *(default)* | Exact SU(2): 3j / 6j / Clebsch–Gordan / F / R, closed-form big-rational | `num-bigint`, `num-rational`, `num-traits` only |
 | `cgc-gen` | Runtime CGC / F / R generation for SU(N) (Gelfand–Tsetlin) and SO(N)/Sp(2N) (generator bootstrap) | `tenferro-linalg` / `-cpu` / `-runtime` (the dense factorization + contraction backend) |
-| `anyonwiki-unitary` | The 303 supported AnyonWiki `tables` entries of rank 5–7 (377 in all); without it they are `NotShipped` (feature added in 0.4.1) | nothing (embedded data only, about 4.2 MB) |
+| `anyonwiki-unitary` | The 303 supported AnyonWiki `table` entries of rank 5–7 (377 in all); without it they are `NotShipped` (feature added in 0.4.1) | nothing (embedded data only, about 4.2 MB) |
 
 The feature boundary is mathematical, not organizational: SU(2) has closed forms
 and needs no matrix computation, so consumers who need only SU(2) never pull a

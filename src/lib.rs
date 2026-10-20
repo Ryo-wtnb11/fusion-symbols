@@ -39,23 +39,27 @@
 //! | U(1), Z_N (including Z2) in closed form | [`abelian::U1`], [`abelian::ZN`] |
 //! | Fermion parity in closed form | [`fermion::FermionParity`] |
 //! | CU(1) = U(1) ⋊ C (`O(2)`) in closed form (TensorKitSectors `CU1Irrep`) | [`cu1`] |
-//! | Finite multiplicity-free unitary categories (Fibonacci, Ising, …, rank ≤ 4; rank ≤ 7 with `anyonwiki-unitary`) from pinned AnyonWiki tables (exact symbols, correctly rounded) | [`tables`] |
+//! | Finite multiplicity-free unitary categories (Fibonacci, Ising, …, rank ≤ 4; rank ≤ 7 with `anyonwiki-unitary`) from pinned AnyonWiki tables (exact symbols, correctly rounded) | [`table`] |
 //!
 //! # Non-Lie families
 //!
 //! Finite fusion categories have finite data, so their modules are closed
 //! forms or pinned, provenance-tracked tables, never a runtime construction,
-//! and need no feature flag. [`abelian`] and [`fermion`] expose their
+//! and need no feature flag for the default catalog. [`abelian`], [`fermion`],
+//! [`cu1`] and [`table`] expose their
 //! validated objects through [`category::FusionCategory`]: N = 0 is a value,
 //! F/R return zero for inadmissible vertices, and errors mean genuine failure
 //! or an absent capability. Foreign objects panic. Logical symbol shape comes
 //! from N; scalar storage has all-one axes even for a zero symbol.
-//! [`cu1`] and [`tables`] retain their per-family methods and checked APIs.
+//! Table objects are validated by [`table::TableCategory::object`]; their private
+//! catalog tag rejects foreign objects. Table categories share data when cloned
+//! and compare by uuid. Fusion-only tables return a braiding error from R and
+//! panic on twist. CU(1) fusion reports label overflow.
 //! Index order follows TensorKitSectors.jl (`F^{abc}_d[e, f]` with
 //! `e ∈ a ⊗ b`, `f ∈ b ⊗ c`; `R^{ab}_c`). Symbols in [`abelian`],
-//! [`fermion`] and [`cu1`] are `f64`; [`tables`] uses
+//! [`fermion`] and [`cu1`] are `f64`; [`table`] uses
 //! [`num_complex::Complex64`]. Closed forms use TensorKitSectors' gauge;
-//! [`tables`] uses AnyonWiki's (gauge-equivalent, and for Fibonacci identical).
+//! [`table`] uses AnyonWiki's (gauge-equivalent, and for Fibonacci identical).
 //! Provenance: [`docs/references_categories.md`].
 //!
 //! # Layers
@@ -259,7 +263,7 @@ pub mod abelian;
 pub mod category;
 pub mod cu1;
 pub mod fermion;
-pub mod tables;
+pub mod table;
 
 pub use exact::SignedSqrtRational;
 pub use su2::{

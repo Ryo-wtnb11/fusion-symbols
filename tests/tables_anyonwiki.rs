@@ -1,4 +1,4 @@
-//! The shipped `tables` catalog against its AnyonWiki authority.
+//! The shipped `table` catalog against its AnyonWiki authority.
 //!
 //! Contracts:
 //!
@@ -14,7 +14,8 @@
 //! Unitarity, pentagon, hexagon and ribbon over every shipped entry are in
 //! `tests/tables_reference.rs`.
 
-use fusion_symbols::tables::{TableCategory, TableObject};
+use fusion_symbols::category::FusionCategory;
+use fusion_symbols::table::{TableCategory, TableObject};
 #[cfg(feature = "anyonwiki-unitary")]
 use std::f64::consts::FRAC_1_SQRT_2;
 
@@ -48,13 +49,13 @@ fn derived_dimensions_are_the_perron_frobenius_dimensions() {
     for p in shipped() {
         let uuid = p.uuid();
         let objects: Vec<TableObject> = p.objects().collect();
-        assert_eq!(p.dim(p.unit()), 1.0, "{uuid}");
+        assert_eq!(p.dim(&p.unit()), 1.0, "{uuid}");
         for &a in &objects {
-            assert!(p.dim(a) >= 1.0 - FP_BOUND, "{uuid} {a:?}");
-            assert!((p.dim(p.dual(a)) - p.dim(a)).abs() <= FP_BOUND * p.dim(a));
+            assert!(p.dim(&a) >= 1.0 - FP_BOUND, "{uuid} {a:?}");
+            assert!((p.dim(&p.dual(&a)) - p.dim(&a)).abs() <= FP_BOUND * p.dim(&a));
             for &b in &objects {
-                let sum: f64 = p.fusion(a, b).map(|c| p.dim(c)).sum();
-                let want = p.dim(a) * p.dim(b);
+                let sum: f64 = p.fusion(&a, &b).unwrap().map(|c| p.dim(&c)).sum();
+                let want = p.dim(&a) * p.dim(&b);
                 assert!((sum - want).abs() <= FP_BOUND * want, "{uuid} {a:?} {b:?}");
             }
         }
@@ -75,10 +76,13 @@ type Symbol = (char, &'static [u16], &'static [i64], f64, f64);
 fn check_symbols(category: &TableCategory, symbols: &[Symbol]) {
     let uuid = category.uuid();
     for &(kind, labels, poly, re, im) in symbols {
-        let l: Vec<TableObject> = labels.iter().map(|&x| TableObject(x)).collect();
+        let l: Vec<TableObject> = labels
+            .iter()
+            .map(|&x| category.object(x).unwrap())
+            .collect();
         let got = match kind {
-            'F' => category.f_symbol_checked(l[0], l[1], l[2], l[3], l[4], l[5]),
-            _ => category.r_symbol_checked(l[0], l[1], l[2]),
+            'F' => category.f_symbol(&l[0], &l[1], &l[2], &l[3], &l[4], &l[5]),
+            _ => category.r_symbol(&l[0], &l[1], &l[2]),
         }
         .unwrap_or_else(|e| panic!("{uuid} {kind}{labels:?}: {e}"));
         let want = Complex64::new(re, im);
@@ -94,10 +98,10 @@ fn check_symbols(category: &TableCategory, symbols: &[Symbol]) {
 fn check_dims_and_twists(category: &TableCategory, dims: &[f64], twists: &[(f64, f64)]) {
     let uuid = category.uuid();
     for (a, &want) in category.objects().zip(dims) {
-        assert!((category.dim(a) - want).abs() <= FP_BOUND * want, "{uuid}");
+        assert!((category.dim(&a) - want).abs() <= FP_BOUND * want, "{uuid}");
     }
     for (a, &(re, im)) in category.objects().zip(twists) {
-        let got = category.twist(a);
+        let got = category.twist(&a);
         assert!((got - Complex64::new(re, im)).norm() <= FP_BOUND, "{uuid}");
     }
 }

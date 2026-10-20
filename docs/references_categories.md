@@ -1,4 +1,4 @@
-# Provenance: non-Lie categories (`abelian`, `fermion`, `cu1`, `tables`)
+# Provenance: non-Lie categories (`abelian`, `fermion`, `cu1`, `table`)
 
 ## Abelian groups and fermion parity (`abelian` and `fermion` modules)
 
@@ -33,9 +33,14 @@ in `tests/category_conformance.rs::category_identities`.
 | `Nsymbol`, `Fsymbol`, `Rsymbol`, FS phase | `Nsymbol` (l. 115), `Fsymbol` (l. 125), `Rsymbol` (l. 215), `frobenius_schur_phase` (l. 254); `BraidingStyle(::AbstractIrrep) = Bosonic()` (`irreps.jl` l. 17) |
 | Twist | no override; generic `src/sectors.jl:twist_from_Rsymbol` (l. 647), which is `1` for every label |
 | TKS values | `tests/cu1_values.rs`: every F and R over `0±`, `2j ≤ 5` equals the dense recoupling of the `fusiontensor` Clebsch–Gordan tensors written in the test, plus literals checked against TKS 0.3.9 (Julia 1.11.6). Deliberate deviation: TKS `Rsymbol` gives `-0.0` on inadmissible `R^{ab}_{0-}` with charged `a` (`-convert(Float64, N)`, `N = 0`), this crate `+0.0` (the crate-wide exact-zero contract, as symtn) |
-| Ported implementation | [symtn](https://github.com/Ryo-wtnb11/symtn-rs) `symtn-sectors/src/cu1.rs` at `2a6c152315bb271dc5e56b5f1f034ca818ef999d`. Deliberate differences: labels span the full `u32` (symtn's codec stops at `u32::MAX - 1`, which symtn validates itself), so fusions summing to exactly `u32::MAX` succeed here; and `N` is exact everywhere (symtn's checked N fails above its bound). Only `CU1Irrep::fusion`, which must produce the labels, reports an overflow, above `u32::MAX` |
+| Ported implementation | [symtn](https://github.com/Ryo-wtnb11/symtn-rs) `symtn-sectors/src/cu1.rs` at `2a6c152315bb271dc5e56b5f1f034ca818ef999d`. Deliberate differences: labels span the full `u32` (symtn's codec stops at `u32::MAX - 1`, which symtn validates itself), so fusions summing to exactly `u32::MAX` succeed here; and `N` is exact everywhere (symtn's checked N fails above its bound). Only `CU1::fusion`, which must produce the labels, reports an overflow, above `u32::MAX` |
 
-## Pinned tables (`tables` module)
+The `cu1::CU1` category implements `FusionCategory` with real scalar symbols,
+simple fusion and bosonic braiding. Labels retain their validated constructors;
+only fusion may fail on label overflow. The constructor still reports
+`CU1Error::InvalidLabel`. Values and fingerprint bytes are unchanged.
+
+## Pinned tables (`table` module)
 
 Every number the table provider ships is traceable to the rows below. The crate
 performs no derivation of the *source* data: it parses the committed tables and
@@ -61,7 +66,7 @@ imaginary part (database README, "Conventions used").
 ### Selection
 
 All 989 entries are listed in the generated status index
-(`src/tables/catalog.rs`, `INDEX`); a query for any other uuid or code is
+(`src/table/catalog.rs`, `INDEX`); a query for any other uuid or code is
 `TableError::UnknownCategory`.
 
 | Status | Rule | Count |
@@ -102,7 +107,7 @@ digits, and aborts if any value is more than 4 ulp from AnyonWiki's
   bytes; with rank 5–7 (`anyonwiki-unitary`): 60 N, 179 F, 270 R files,
   4,195,511 bytes (F de-duplication halves 210,736 records to 105,543; no two
   R files are equal);
-- `src/tables/catalog.rs`, the supported entries (`include_str!` of their
+- `src/table/catalog.rs`, the supported entries (`include_str!` of their
   files and their `TableProvenance`; rank 5–7 entries under
   `#[cfg(feature = "anyonwiki-unitary")]`) and the status index (rank 5–7
   rows `GATED`: shipped with the feature, `NotShipped` without);
@@ -144,11 +149,11 @@ one: every Fibonacci F, R and N value is bit-identical.
 
 | Field | Value |
 | --- | --- |
-| Object ordering | Fusion-ring element order, one-based, `1` = unit. Frozen; not re-sorted |
+| Object ordering | Validated by `TableCategory::object(index)`, with a private catalog tag; `TableObject::index()` returns the source index. Fusion-ring element order, one-based, `1` = unit. Frozen; not re-sorted |
 | Gauge | Source gauge, loaded verbatim (unitary), named constructors included. No conversion to TensorKitSectors' gauge |
 | Provenance | One generated `TableProvenance` per entry (uuid and fusion-ring uuid in `source_entry`, code in `category_key`) |
-| Fingerprint | Canonical provenance bytes, then the N, F and R texts verbatim (a fusion-only entry has an empty R section). All 74 prehashes and file digests are pinned (`tables::tests::shipped_tables_and_fingerprints_are_pinned`). Fibonacci's file bytes equal 0.3.0's `FibonacciTable`; its fingerprint differs only through the uniform provenance strings |
-| Braiding | `TableCategory::is_braided`; R and twist of a fusion-only entry are `TableError::NoBraiding` (`_checked`) or a panic |
+| Fingerprint | Canonical provenance bytes, then the N, F and R texts verbatim (a fusion-only entry has an empty R section). All 74 prehashes and file digests are pinned (`table::tests::shipped_tables_and_fingerprints_are_pinned`). Fibonacci's file bytes equal 0.3.0's `FibonacciTable`; its fingerprint differs only through the uniform provenance strings |
+| Braiding | `TableCategory::is_braided`; `FusionCategory::r_symbol` returns `TableError::NoBraiding` on fusion-only entries; `twist` panics. Foreign objects panic before either capability check |
 
 ### Named constructors and TensorKitSectors 0.3.9
 

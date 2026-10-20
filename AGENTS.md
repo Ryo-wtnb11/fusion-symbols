@@ -23,7 +23,7 @@ non-trivial change.
   `TableObject`, the `abelian` and `cu1` irreps); sector behaviour beyond those
   symbols belongs to the consumer.
 - Base crate: exact SU(2), closed-form and tabulated categories
-  (`tables`, `abelian`, `cu1`); dependencies stay minimal (big-integer
+  (`table`, `abelian`, `cu1`); dependencies stay minimal (big-integer
   arithmetic and `num-complex`).
 - `cgc-gen` feature: all runtime generation (SU(N)/SO(N)/Sp(2N)) and every
   dense-kernel dependency live behind this feature. Factorizations

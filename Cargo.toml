@@ -27,7 +27,7 @@ rustdoc-args = ["--html-in-header", "doc/katex-header.html"]
 [features]
 default = []
 # Every supported (unitary, unitary-gauge, |1/F| dimensions) AnyonWiki entry of
-# rank 5-7 in `tables`: 303 entries beyond the 74 of rank <= 4 shipped by
+# rank 5-7 in `table`: 303 entries beyond the 74 of rank <= 4 shipped by
 # default. Data only, no dependency; about 4.2 MB of embedded tables.
 anyonwiki-unitary = []
 # Runtime coefficient generation for SU(N)/SO(N)/Sp(2N).
@@ -46,7 +46,7 @@ cgc-gen = [
 num-bigint = "0.4"
 num-rational = "0.4"
 num-traits = "0.2"
-# R-symbols and twists of braided categories are complex (`tables`). Default `std` feature kept: `Complex64::norm` and
+# R-symbols and twists of braided categories are complex (`table`). Default `std` feature kept: `Complex64::norm` and
 # `from_polar` need it.
 num-complex = "0.4"
 # Dense factorization backend for the SU(N) CGC pipeline (nullspace = full SVD,

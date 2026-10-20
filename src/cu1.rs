@@ -5,7 +5,7 @@
 //! `src/irreps/cu1irrep.jl` (`CU1Irrep`: constructor, `dual`, `⊗`, `dim`,
 //! `Nsymbol`, `Fsymbol`, `Rsymbol`, `frobenius_schur_phase`), with the generic
 //! `src/sectors.jl:twist_from_Rsymbol` for the twist, which `CU1Irrep` does
-//! not override. Never "simplify" a sign or branch of [`cu1_f_symbol`]
+//! not override. Never "simplify" a sign or branch of [`CU1::f_symbol`]
 //! without rereading `cu1irrep.jl:Fsymbol`: the gauge is in its branch order.
 //!
 //! The irreps are `0+` (the unit), `0-` (the pseudoscalar, charge
@@ -27,6 +27,8 @@
 //! encoding is narrower (symtn's sector codec stops at `u32::MAX - 1`)
 //! validates that bound itself.
 
+use crate::category::{BraidingStyle, FusionCategory, FusionStyle};
+
 /// An irrep of `CU(1)`, TensorKitSectors' `CU1Irrep(j, s)`, stored as
 /// `twice_charge = 2j` and `s`.
 ///
@@ -39,21 +41,10 @@ pub struct CU1Irrep {
     s: u8,
 }
 
-/// An ill-posed or inadmissible `CU(1)` request.
+/// An invalid label or fusion label overflow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum CU1Error {
-    /// The vertex `left ⊗ right → coupled` has `N = 0`. For an F-symbol this
-    /// is the first failing vertex in the order `(a, b, e)`, `(e, c, d)`,
-    /// `(b, c, f)`, `(a, f, d)`.
-    NotAdmissible {
-        /// First label of the vertex.
-        left: CU1Irrep,
-        /// Second label of the vertex.
-        right: CU1Irrep,
-        /// Coupled label of the vertex.
-        coupled: CU1Irrep,
-    },
     /// `(twice_charge, s)` is not a `CU1Irrep`: `s` must be `0` or `1` for
     /// `twice_charge == 0` and `2` otherwise (`cu1irrep.jl` constructor).
     InvalidLabel {
@@ -62,7 +53,7 @@ pub enum CU1Error {
         /// The requested `s`.
         s: u8,
     },
-    /// A fusion channel `2(j + k)` of [`CU1Irrep::fusion`] above `u32::MAX`.
+    /// A fusion channel `2(j + k)` of [`CU1::fusion`] above `u32::MAX`.
     TwiceChargeOutOfRange {
         /// The exact twice charge.
         twice_charge: u64,
@@ -72,14 +63,6 @@ pub enum CU1Error {
 impl std::fmt::Display for CU1Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CU1Error::NotAdmissible {
-                left,
-                right,
-                coupled,
-            } => write!(
-                f,
-                "inadmissible CU(1) vertex: {left:?} ⊗ {right:?} does not contain {coupled:?}"
-            ),
             CU1Error::InvalidLabel { twice_charge, s } => write!(
                 f,
                 "not a CU(1) irrep: twice_charge {twice_charge}, s {s} (s ∈ {{0, 1}} for charge 0, s = 2 otherwise)"
@@ -146,80 +129,10 @@ impl CU1Irrep {
     pub const fn s(self) -> u8 {
         self.s
     }
-
-    /// Dimension: `1` for `j = 0`, `2` otherwise (`cu1irrep.jl:dim`).
-    pub fn dim(self) -> f64 {
-        if self.twice_charge == 0 {
-            1.0
-        } else {
-            2.0
-        }
-    }
-
-    /// The dual irrep: every irrep is self-dual (`cu1irrep.jl:dual`).
-    pub fn dual(self) -> Self {
-        self
-    }
-
-    /// Frobenius–Schur phase, `1` (`cu1irrep.jl:frobenius_schur_phase`).
-    pub fn frobenius_schur(self) -> f64 {
-        1.0
-    }
-
-    /// Twist, `1`.
-    ///
-    /// No `CU1Irrep` override; the generic `sectors.jl:twist_from_Rsymbol`,
-    /// `θ_a = Σ_{b ∈ a⊗a} d_b/d_a · R^{aa}_b`, is `1` for `0±` and
-    /// `(1 - 1 + 2)/2 = 1` for `j > 0` (`b = 0+, 0-, 2j`).
-    pub fn twist(self) -> f64 {
-        1.0
-    }
-
-    /// Fusion channels of `self ⊗ other`, each with multiplicity one, in
-    /// TensorKitSectors' `CU1IrrepProdIterator` order: `0± ⊗ 0± = 0+` or `0-`
-    /// (s added mod 2); `0± ⊗ j = j`; `j ⊗ j = 0+ ⊕ 0- ⊕ 2j`; otherwise
-    /// `|j - k| ⊕ (j + k)`.
-    ///
-    /// # Errors
-    ///
-    /// [`CU1Error::TwiceChargeOutOfRange`] when `2(j + k)` exceeds
-    /// `u32::MAX`.
-    pub fn fusion(self, other: Self) -> Result<CU1Fusion, CU1Error> {
-        let (a, b) = (self, other);
-        let mut channels = [Self::VACUUM; 3];
-        let len = if a.twice_charge == 0 && b.twice_charge == 0 {
-            channels[0] = Self {
-                twice_charge: 0,
-                s: a.s ^ b.s,
-            };
-            1
-        } else if a.twice_charge == 0 {
-            channels[0] = b;
-            1
-        } else if b.twice_charge == 0 {
-            channels[0] = a;
-            1
-        } else {
-            let sum = Self::from_exact(u64::from(a.twice_charge) + u64::from(b.twice_charge))?;
-            if a == b {
-                channels = [Self::VACUUM, Self::PSEUDOSCALAR, sum];
-                3
-            } else {
-                // `|j - k| > 0` and below `j + k`, so it is a charged label.
-                channels[0] = Self {
-                    twice_charge: a.twice_charge.abs_diff(b.twice_charge),
-                    s: 2,
-                };
-                channels[1] = sum;
-                2
-            }
-        };
-        Ok(CU1Fusion(channels.into_iter().take(len)))
-    }
 }
 
 /// Allocation-free iterator over the fusion channels of two `CU(1)` irreps
-/// (see [`CU1Irrep::fusion`]).
+/// (see [`CU1::fusion`]).
 #[derive(Clone, Debug)]
 pub struct CU1Fusion(std::iter::Take<std::array::IntoIter<CU1Irrep, 3>>);
 
@@ -243,166 +156,223 @@ impl DoubleEndedIterator for CU1Fusion {
 
 impl ExactSizeIterator for CU1Fusion {}
 
-/// Fusion multiplicity `N^{ab}_c ∈ {0, 1}` (`cu1irrep.jl:Nsymbol`), exact for
-/// every label triple: the charge sum is compared in `u64`, so a fusion that
-/// [`CU1Irrep::fusion`] cannot represent still has `N = 0` here.
-pub fn cu1_nsymbol(a: CU1Irrep, b: CU1Irrep, c: CU1Irrep) -> u32 {
-    let admissible = match c.s {
-        // `(a.s == b.s == 2) | (a.s == b.s)` is `a.s == b.s`.
-        0 => a.twice_charge == b.twice_charge && a.s == b.s,
-        1 => a.twice_charge == b.twice_charge && ((a.s == 2 && b.s == 2) || a.s != b.s),
-        _ => {
-            u64::from(c.twice_charge) == u64::from(a.twice_charge) + u64::from(b.twice_charge)
-                || c.twice_charge == a.twice_charge.abs_diff(b.twice_charge)
+/// CU(1) category; every validated CU(1) label belongs to it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct CU1;
+
+impl FusionCategory for CU1 {
+    type Object = CU1Irrep;
+    type Scalar = f64;
+    type FSymbol = f64;
+    type RSymbol = f64;
+    type Fusion<'a> = CU1Fusion;
+    type Error = CU1Error;
+    fn fusion_style(&self) -> FusionStyle {
+        FusionStyle::Simple
+    }
+    fn braiding_style(&self) -> BraidingStyle {
+        BraidingStyle::Bosonic
+    }
+    fn unit(&self) -> CU1Irrep {
+        CU1Irrep::VACUUM
+    }
+    fn dual(&self, a: &CU1Irrep) -> CU1Irrep {
+        *a
+    }
+    fn dim(&self, a: &CU1Irrep) -> f64 {
+        if a.twice_charge == 0 {
+            1.0
+        } else {
+            2.0
         }
-    };
-    u32::from(admissible)
-}
+    }
+    fn frobenius_schur_phase(&self, _a: &CU1Irrep) -> f64 {
+        1.0
+    }
+    fn frobenius_schur_indicator(&self, _a: &CU1Irrep) -> f64 {
+        1.0
+    }
+    fn twist(&self, _a: &CU1Irrep) -> f64 {
+        1.0
+    }
+    /// Fusion channels of `a ⊗ b`, each with multiplicity one, in
+    /// TensorKitSectors' `CU1IrrepProdIterator` order: `0± ⊗ 0± = 0+` or `0-`
+    /// (s added mod 2); `0± ⊗ j = j`; `j ⊗ j = 0+ ⊕ 0- ⊕ 2j`; otherwise
+    /// `|j - k| ⊕ (j + k)`.
+    ///
+    /// # Errors
+    ///
+    /// [`CU1Error::TwiceChargeOutOfRange`] when `2(j + k)` exceeds
+    /// `u32::MAX`.
+    fn fusion(&self, a: &CU1Irrep, b: &CU1Irrep) -> Result<CU1Fusion, CU1Error> {
+        let (a, b) = (*a, *b);
+        let mut channels = [CU1Irrep::VACUUM; 3];
+        let len = if a.twice_charge == 0 && b.twice_charge == 0 {
+            channels[0] = CU1Irrep {
+                twice_charge: 0,
+                s: a.s ^ b.s,
+            };
+            1
+        } else if a.twice_charge == 0 {
+            channels[0] = b;
+            1
+        } else if b.twice_charge == 0 {
+            channels[0] = a;
+            1
+        } else {
+            let sum = CU1Irrep::from_exact(u64::from(a.twice_charge) + u64::from(b.twice_charge))?;
+            if a == b {
+                channels = [CU1Irrep::VACUUM, CU1Irrep::PSEUDOSCALAR, sum];
+                3
+            } else {
+                // `|j - k| > 0` and below `j + k`, so it is a charged label.
+                channels[0] = CU1Irrep {
+                    twice_charge: a.twice_charge.abs_diff(b.twice_charge),
+                    s: 2,
+                };
+                channels[1] = sum;
+                2
+            }
+        };
+        Ok(CU1Fusion(channels.into_iter().take(len)))
+    }
+    /// Fusion multiplicity `N^{ab}_c ∈ {0, 1}` (`cu1irrep.jl:Nsymbol`), exact for
+    /// every label triple: the charge sum is compared in `u64`, so a fusion that
+    /// [`CU1::fusion`] cannot represent still has `N = 0` here.
+    fn nsymbol(&self, a: &CU1Irrep, b: &CU1Irrep, c: &CU1Irrep) -> u32 {
+        let admissible = match c.s {
+            // `(a.s == b.s == 2) | (a.s == b.s)` is `a.s == b.s`.
+            0 => a.twice_charge == b.twice_charge && a.s == b.s,
+            1 => a.twice_charge == b.twice_charge && ((a.s == 2 && b.s == 2) || a.s != b.s),
+            _ => {
+                u64::from(c.twice_charge) == u64::from(a.twice_charge) + u64::from(b.twice_charge)
+                    || c.twice_charge == a.twice_charge.abs_diff(b.twice_charge)
+            }
+        };
+        u32::from(admissible)
+    }
 
-fn check_vertex(left: CU1Irrep, right: CU1Irrep, coupled: CU1Irrep) -> Result<(), CU1Error> {
-    if cu1_nsymbol(left, right, coupled) == 1 {
-        Ok(())
-    } else {
-        Err(CU1Error::NotAdmissible {
-            left,
-            right,
-            coupled,
-        })
-    }
-}
-
-/// F-symbol `F^{abc}_d[e, f]`; exact `0.0` when a vertex is inadmissible.
-///
-/// `cu1irrep.jl:Fsymbol`, branch for branch: `1` when `a`, `b` or `c` is
-/// `0+` or two of them are `0-`; `±1` when one is `0-`; then entries `±1`,
-/// `±1/2`, `±√2/2` or `0` for charged `a`, `b`, `c`.
-pub fn cu1_f_symbol(
-    a: CU1Irrep,
-    b: CU1Irrep,
-    c: CU1Irrep,
-    d: CU1Irrep,
-    e: CU1Irrep,
-    f: CU1Irrep,
-) -> f64 {
-    cu1_f_symbol_checked(a, b, c, d, e, f).unwrap_or(0.0)
-}
-
-/// Checked [`cu1_f_symbol`]: [`CU1Error::NotAdmissible`] for the first
-/// failing vertex instead of a zero.
-pub fn cu1_f_symbol_checked(
-    a: CU1Irrep,
-    b: CU1Irrep,
-    c: CU1Irrep,
-    d: CU1Irrep,
-    e: CU1Irrep,
-    f: CU1Irrep,
-) -> Result<f64, CU1Error> {
-    check_vertex(a, b, e)?;
-    check_vertex(e, c, d)?;
-    check_vertex(b, c, f)?;
-    check_vertex(a, f, d)?;
-    let (op, om) = (CU1Irrep::VACUUM, CU1Irrep::PSEUDOSCALAR);
-    let q = |x: CU1Irrep| i64::from(x.twice_charge);
-    if a == op || b == op || c == op {
-        return Ok(1.0);
-    }
-    // `(a == b == om) || (a == c == om) || (b == c == om)`.
-    if [a, b, c].iter().filter(|&&x| x == om).count() >= 2 {
-        return Ok(1.0);
-    }
-    let sign = |negative: bool| if negative { -1.0 } else { 1.0 };
-    if a == om {
-        return Ok(sign(q(d) != 0 && q(d) == q(c) - q(b)));
-    }
-    if b == om {
-        return Ok(sign(q(d) == (q(a) - q(c)).abs()));
-    }
-    if c == om {
-        return Ok(sign(q(d) == q(a) - q(b)));
-    }
-    // From here on a, b, c are charged. `T(sqrt(2) / 2)` in TensorKitSectors.
-    let s = 2.0_f64.sqrt() / 2.0;
-    if a == b && b == c {
-        return Ok(if d == a {
-            if q(e) == 0 {
-                if q(f) == 0 {
-                    if f.s == 1 {
-                        -0.5
+    /// F-symbol `F^{abc}_d[e, f]`; exact `0.0` when a vertex is inadmissible.
+    ///
+    /// `cu1irrep.jl:Fsymbol`, branch for branch: `1` when `a`, `b` or `c` is
+    /// `0+` or two of them are `0-`; `±1` when one is `0-`; then entries `±1`,
+    /// `±1/2`, `±√2/2` or `0` for charged `a`, `b`, `c`.
+    fn f_symbol(
+        &self,
+        a: &CU1Irrep,
+        b: &CU1Irrep,
+        c: &CU1Irrep,
+        d: &CU1Irrep,
+        e: &CU1Irrep,
+        f: &CU1Irrep,
+    ) -> Result<f64, CU1Error> {
+        if [(a, b, e), (e, c, d), (b, c, f), (a, f, d)]
+            .iter()
+            .any(|&(a, b, c)| self.nsymbol(a, b, c) == 0)
+        {
+            return Ok(0.0);
+        }
+        let (a, b, c, d, e, f) = (*a, *b, *c, *d, *e, *f);
+        let (op, om) = (CU1Irrep::VACUUM, CU1Irrep::PSEUDOSCALAR);
+        let q = |x: CU1Irrep| i64::from(x.twice_charge);
+        if a == op || b == op || c == op {
+            return Ok(1.0);
+        }
+        // `(a == b == om) || (a == c == om) || (b == c == om)`.
+        if [a, b, c].iter().filter(|&&x| x == om).count() >= 2 {
+            return Ok(1.0);
+        }
+        let sign = |negative: bool| if negative { -1.0 } else { 1.0 };
+        if a == om {
+            return Ok(sign(q(d) != 0 && q(d) == q(c) - q(b)));
+        }
+        if b == om {
+            return Ok(sign(q(d) == (q(a) - q(c)).abs()));
+        }
+        if c == om {
+            return Ok(sign(q(d) == q(a) - q(b)));
+        }
+        // From here on a, b, c are charged. `T(sqrt(2) / 2)` in TensorKitSectors.
+        let s = 2.0_f64.sqrt() / 2.0;
+        if a == b && b == c {
+            return Ok(if d == a {
+                if q(e) == 0 {
+                    if q(f) == 0 {
+                        if f.s == 1 {
+                            -0.5
+                        } else {
+                            0.5
+                        }
+                    } else if e.s == 1 {
+                        -s
                     } else {
-                        0.5
+                        s
                     }
-                } else if e.s == 1 {
+                } else if q(f) == 0 {
+                    s
+                } else {
+                    0.0
+                }
+            } else {
+                1.0
+            });
+        }
+        if a == b {
+            return Ok(if d == c {
+                if q(f) == q(b) + q(c) && e.s == 1 {
                     -s
                 } else {
                     s
                 }
-            } else if q(f) == 0 {
-                s
-            } else {
-                0.0
-            }
-        } else {
-            1.0
-        });
-    }
-    if a == b {
-        return Ok(if d == c {
-            if q(f) == q(b) + q(c) && e.s == 1 {
-                -s
-            } else {
-                s
-            }
-        } else {
-            1.0
-        });
-    }
-    if b == c {
-        return Ok(if d == a {
-            if q(e) != q(a) + q(b) && f.s == 1 {
-                -s
-            } else {
-                s
-            }
-        } else {
-            1.0
-        });
-    }
-    if a == c {
-        return Ok(if d == b {
-            if q(e) == q(f) {
-                0.0
             } else {
                 1.0
-            }
-        } else {
-            sign(d.s == 1)
-        });
+            });
+        }
+        if b == c {
+            return Ok(if d == a {
+                if q(e) != q(a) + q(b) && f.s == 1 {
+                    -s
+                } else {
+                    s
+                }
+            } else {
+                1.0
+            });
+        }
+        if a == c {
+            return Ok(if d == b {
+                if q(e) == q(f) {
+                    0.0
+                } else {
+                    1.0
+                }
+            } else {
+                sign(d.s == 1)
+            });
+        }
+        Ok(sign(d == om && q(b) == q(a) + q(c)))
     }
-    Ok(sign(d == om && q(b) == q(a) + q(c)))
-}
 
-/// R-symbol `R^{ab}_c`: `-1.0` when admissible with `c = 0-` and `a`
-/// charged, `1.0` otherwise when admissible, exact `0.0` when not
-/// (`cu1irrep.jl:Rsymbol`).
-pub fn cu1_r_symbol(a: CU1Irrep, b: CU1Irrep, c: CU1Irrep) -> f64 {
-    cu1_r_symbol_checked(a, b, c).unwrap_or(0.0)
-}
+    /// R-symbol `R^{ab}_c`: `-1.0` when admissible with `c = 0-` and `a`
+    /// charged, `1.0` otherwise when admissible, exact `0.0` when not
+    /// (`cu1irrep.jl:Rsymbol`).
+    fn r_symbol(&self, a: &CU1Irrep, b: &CU1Irrep, c: &CU1Irrep) -> Result<f64, CU1Error> {
+        if self.nsymbol(a, b, c) == 0 {
+            return Ok(0.0);
+        }
+        Ok(if c.s == 1 && a.twice_charge > 0 {
+            -1.0
+        } else {
+            1.0
+        })
+    }
 
-/// Checked [`cu1_r_symbol`]: [`CU1Error::NotAdmissible`] instead of a zero.
-pub fn cu1_r_symbol_checked(a: CU1Irrep, b: CU1Irrep, c: CU1Irrep) -> Result<f64, CU1Error> {
-    check_vertex(a, b, c)?;
-    Ok(if c.s == 1 && a.twice_charge > 0 {
-        -1.0
-    } else {
-        1.0
-    })
-}
-
-/// Opaque authority fingerprint of the `CU(1)` provider. Same contract as
-/// [`crate::su2_authority_fingerprint`]: compare by equality only; the epoch
-/// is bumped exactly when a returned value or convention changes.
-pub fn cu1_authority_fingerprint() -> &'static [u8] {
-    b"fusion-symbols:cu1:labels=u32-twice-charge-full:n=tks-cu1irrep-exact:f=tks-cu1irrep:r=tks-cu1irrep:dim=tks-cu1irrep:fs=tks-cu1irrep-one:twist=tks-rsymbol-sum-one:scalar=f64:epoch=1"
+    /// Opaque authority fingerprint of the `CU(1)` provider. Same contract as
+    /// [`crate::su2_authority_fingerprint`]: compare by equality only; the epoch
+    /// is bumped exactly when a returned value or convention changes.
+    fn authority_fingerprint(&self) -> &[u8] {
+        b"fusion-symbols:cu1:labels=u32-twice-charge-full:n=tks-cu1irrep-exact:f=tks-cu1irrep:r=tks-cu1irrep:dim=tks-cu1irrep:fs=tks-cu1irrep-one:twist=tks-rsymbol-sum-one:scalar=f64:epoch=1"
+    }
 }
 
 #[cfg(test)]
@@ -462,9 +432,9 @@ mod tests {
         let half = j(u32::MAX / 2);
         let over = j(u32::MAX / 2 + 1);
         // The largest representable channels are labels.
-        let channels: Vec<_> = half.fusion(over).unwrap().collect();
+        let channels: Vec<_> = CU1.fusion(&half, &over).unwrap().collect();
         assert_eq!(channels, vec![j(1), max]);
-        let channels: Vec<_> = j(1).fusion(j(u32::MAX - 1)).unwrap().collect();
+        let channels: Vec<_> = CU1.fusion(&j(1), &j(u32::MAX - 1)).unwrap().collect();
         assert_eq!(channels, vec![j(u32::MAX - 2), max]);
         // One past u32::MAX is the typed error.
         for (a, b, sum) in [
@@ -473,59 +443,29 @@ mod tests {
             (max, max, 2 * u64::from(u32::MAX)),
         ] {
             assert_eq!(
-                a.fusion(b).map(|_| ()),
+                CU1.fusion(&a, &b).map(|_| ()),
                 Err(CU1Error::TwiceChargeOutOfRange { twice_charge: sum })
             );
         }
         // The difference channels exist although the sum does not.
-        assert_eq!(cu1_nsymbol(max, j(1), j(u32::MAX - 1)), 1);
-        assert_eq!(cu1_nsymbol(max, max, OP), 1);
-        assert_eq!(cu1_nsymbol(max, max, OM), 1);
-        assert_eq!(cu1_nsymbol(max, max, max), 0);
-        assert_eq!(cu1_r_symbol(max, max, OM), -1.0);
+        assert_eq!(CU1.nsymbol(&max, &j(1), &j(u32::MAX - 1)), 1);
+        assert_eq!(CU1.nsymbol(&max, &max, &OP), 1);
+        assert_eq!(CU1.nsymbol(&max, &max, &OM), 1);
+        assert_eq!(CU1.nsymbol(&max, &max, &max), 0);
+        assert_eq!(CU1.r_symbol(&max, &max, &OM).unwrap(), -1.0);
     }
 
     #[test]
     fn nsymbol_agrees_with_fusion() {
         for a in labels() {
             for b in labels() {
-                let channels: Vec<_> = a.fusion(b).unwrap().collect();
-                assert_eq!(a.fusion(b).unwrap().len(), channels.len());
+                let channels: Vec<_> = CU1.fusion(&a, &b).unwrap().collect();
+                assert_eq!(CU1.fusion(&a, &b).unwrap().len(), channels.len());
                 for c in labels() {
-                    assert_eq!(cu1_nsymbol(a, b, c) == 1, channels.contains(&c));
+                    assert_eq!(CU1.nsymbol(&a, &b, &c) == 1, channels.contains(&c));
                 }
-                let dims: f64 = channels.iter().map(|c| c.dim()).sum();
-                assert_eq!(dims, a.dim() * b.dim());
-            }
-        }
-    }
-
-    #[test]
-    fn checked_symbols_name_the_first_failing_vertex() {
-        assert_eq!(
-            cu1_r_symbol_checked(j(1), j(1), j(1)),
-            Err(CU1Error::NotAdmissible {
-                left: j(1),
-                right: j(1),
-                coupled: j(1)
-            })
-        );
-        // (a, b, e) = (1/2, 1/2, 0-) holds; (e, c, d) = (0-, 1/2, 1) does not.
-        assert_eq!(
-            cu1_f_symbol_checked(j(1), j(1), j(1), j(2), OM, j(2)),
-            Err(CU1Error::NotAdmissible {
-                left: OM,
-                right: j(1),
-                coupled: j(2)
-            })
-        );
-        for a in labels() {
-            for b in labels() {
-                for c in labels() {
-                    let checked = cu1_r_symbol_checked(a, b, c);
-                    assert_eq!(checked.is_ok(), cu1_nsymbol(a, b, c) == 1);
-                    assert_eq!(checked.unwrap_or(0.0), cu1_r_symbol(a, b, c));
-                }
+                let dims: f64 = channels.iter().map(|c| CU1.dim(c)).sum();
+                assert_eq!(dims, CU1.dim(&a) * CU1.dim(&b));
             }
         }
     }
@@ -539,15 +479,17 @@ mod tests {
         // Every channel of three labels of `all[..5]` (2j ≤ 3).
         let wide: Vec<_> = [OP, OM].into_iter().chain((1..=9).map(j)).collect();
         for &a in &all {
-            let twist: f64 = a
-                .fusion(a)
+            let twist: f64 = CU1
+                .fusion(&a, &a)
                 .unwrap()
-                .map(|b| b.dim() / a.dim() * cu1_r_symbol(a, a, b))
+                .map(|b| CU1.dim(&b) / CU1.dim(&a) * CU1.r_symbol(&a, &a, &b).unwrap())
                 .sum();
-            assert_eq!(a.twist(), twist);
+            assert_eq!(CU1.twist(&a), twist);
             assert_eq!(
-                a.frobenius_schur(),
-                cu1_f_symbol(a, a.dual(), a, a, OP, OP).signum()
+                CU1.frobenius_schur_phase(&a),
+                CU1.f_symbol(&a, &CU1.dual(&a), &a, &a, &OP, &OP)
+                    .unwrap()
+                    .signum()
             );
         }
         for &a in &all[..5] {
@@ -557,12 +499,12 @@ mod tests {
                         let es: Vec<_> = wide
                             .iter()
                             .copied()
-                            .filter(|&e| cu1_nsymbol(a, b, e) * cu1_nsymbol(e, c, d) == 1)
+                            .filter(|&e| CU1.nsymbol(&a, &b, &e) * CU1.nsymbol(&e, &c, &d) == 1)
                             .collect();
                         let fs: Vec<_> = wide
                             .iter()
                             .copied()
-                            .filter(|&f| cu1_nsymbol(b, c, f) * cu1_nsymbol(a, f, d) == 1)
+                            .filter(|&f| CU1.nsymbol(&b, &c, &f) * CU1.nsymbol(&a, &f, &d) == 1)
                             .collect();
                         assert_eq!(es.len(), fs.len());
                         for &e1 in &es {
@@ -570,8 +512,8 @@ mod tests {
                                 let dot: f64 = fs
                                     .iter()
                                     .map(|&f| {
-                                        cu1_f_symbol(a, b, c, d, e1, f)
-                                            * cu1_f_symbol(a, b, c, d, e2, f)
+                                        CU1.f_symbol(&a, &b, &c, &d, &e1, &f).unwrap()
+                                            * CU1.f_symbol(&a, &b, &c, &d, &e2, &f).unwrap()
                                     })
                                     .sum();
                                 let want = if e1 == e2 { 1.0 } else { 0.0 };
@@ -587,16 +529,16 @@ mod tests {
     #[test]
     fn fingerprint_is_pinned_and_distinct() {
         assert_eq!(
-            cu1_authority_fingerprint(),
+            CU1.authority_fingerprint(),
             &b"fusion-symbols:cu1:labels=u32-twice-charge-full:n=tks-cu1irrep-exact:f=tks-cu1irrep:r=tks-cu1irrep:dim=tks-cu1irrep:fs=tks-cu1irrep-one:twist=tks-rsymbol-sum-one:scalar=f64:epoch=1"[..]
         );
-        let fibonacci = crate::tables::TableCategory::fibonacci();
+        let fibonacci = crate::table::TableCategory::fibonacci();
         for other in [
             crate::abelian::U1_FINGERPRINT,
             crate::abelian::LEGACY_PARITY_FINGERPRINT,
             fibonacci.authority_fingerprint(),
         ] {
-            assert_ne!(cu1_authority_fingerprint(), other);
+            assert_ne!(CU1.authority_fingerprint(), other);
         }
     }
 }
