@@ -13,8 +13,11 @@ non-trivial change.
 
 ## Boundaries
 
-- Pure representation and fusion-category mathematics only. No
-  fusion-category trait vocabulary, no tensor-network concepts, and no
+- Pure representation and fusion-category mathematics only. Category
+  vocabulary (objects, unit, duals, fusion, N/F/R symbols, Frobenius–Schur
+  data, twists, fusion and braiding style) is in scope; tensor-network
+  concepts (legs, fusion trees, tensor maps, sector-id codecs, contraction)
+  are not, and there is no
   dependency on any tensor-network engine crate. Label types are limited to
   the plain object labels a module's symbols are indexed by (for example
   `TableObject`, the `abelian` and `cu1` irreps); sector behaviour beyond those

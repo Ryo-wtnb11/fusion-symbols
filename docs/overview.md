@@ -155,11 +155,11 @@ scope and do not extend to SU(N≥3), SO(N), or Sp(2N), where no closed forms
 exist and the coefficients must be *constructed*.
 
 `fusion-symbols` removes both limits: coefficients are computed on demand, inside the
-process, in pure Rust. It is pure representation mathematics — no
-fusion-category trait vocabulary, no sector-identity types, no tensor-network
-concepts, no dependency on any tensor engine — so consumers translate its
-numbers into their own interfaces. To do this faithfully it consolidates the
-algorithms of three production references, one per family (full provenance in
+process, in pure Rust. It is pure representation and fusion-category
+mathematics — no tensor-network concepts, no dependency on any tensor
+engine — so consumers build their tensor operations on its numbers. To do
+this faithfully it consolidates the algorithms of three production
+references, one per family (full provenance in
 [`docs/references.md`](references.md)):
 
 | Reference | What is taken from it |
@@ -170,9 +170,9 @@ algorithms of three production references, one per family (full provenance in
 
 ### Out of scope, deliberately
 
-- **Fusion-category trait vocabulary.** `fusion-symbols` answers "what are the correct
-  numbers"; a consumer's engine should not be able to tell whether an F-block
-  came from this crate, a closed form, or a checked-in table.
+- **Tensor-network concepts.** Legs, fusion trees, tensor maps, sector-id
+  codecs and contraction belong to the consumer (symtn); `fusion-symbols`
+  answers "what are the correct numbers".
 - **Pentagon solving for finite fusion categories.** Anyon models (Fibonacci,
   Ising, …) have complete exact F/R data published; converting it is a
   consumer's data problem, not a computation problem for this crate. Those

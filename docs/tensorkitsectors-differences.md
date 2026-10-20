@@ -10,11 +10,9 @@ known difference and the reason recorded for it. Per-symbol provenance is in
 
 - **A standalone provider, not a sector interface.** There is no `Sector`
   trait, no `FusionStyle`/`BraidingStyle` vocabulary and no tensor engine;
-  each family is a module of plain label types and functions. Reason: the
-  crate answers "what are the correct numbers"; sector behaviour beyond the
-  symbols, and its trait vocabulary, belong to the consumer, so that a
-  consumer's engine cannot tell whether an F-block came from this crate, a
-  closed form or a table ([`AGENTS.md`](../AGENTS.md) "Boundaries";
+  each family is a module of plain label types and functions. Tensor-network
+  behaviour built on the symbols belongs to the consumer
+  ([`AGENTS.md`](../AGENTS.md) "Boundaries";
   [overview: Out of scope](overview.md#out-of-scope-deliberately)).
 - **Quantities left to the consumer.** A/B symbols and other sector
   operations TensorKitSectors derives generically are not provided. Reason:

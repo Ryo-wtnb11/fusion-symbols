@@ -1,16 +1,17 @@
-//! Racah–Wigner calculus for compact Lie groups: irreducible representations,
-//! Clebsch–Gordan coefficients, and recoupling coefficients (3j / 6j / F / R)
-//! for SU(2), SU(N), SO(N), Spin(N) and Sp(2N).
+//! Fusion and recoupling data for symmetric tensors: the compact Lie groups
+//! SU(2), SU(N), SO(N), Spin(N) and Sp(2N) (irreducible representations,
+//! Clebsch–Gordan coefficients, 3j / 6j / F / R), the abelian groups and
+//! fermion parity, CU(1), and tabulated finite fusion categories.
 //!
 //! `fusion-symbols` is the successor of the `racah` crate (published up to
 //! 0.2.4): the same modules and API, with `racah::` paths now
 //! `fusion_symbols::`.
 //!
-//! Coefficients for any admissible labels are computed on demand — there is no
-//! precomputed table and no generation-time label cut. Pure representation
-//! mathematics: no fusion-category trait vocabulary, no sector identity types,
-//! no tensor-network concepts. Consumers translate the numbers into their own
-//! categorical interfaces.
+//! Lie-group coefficients for any admissible labels are computed on demand —
+//! there is no precomputed table and no generation-time label cut. Pure
+//! representation and fusion-category mathematics: no tensor-network concepts
+//! (legs, fusion trees, tensor maps, contraction). Consumers build those on top
+//! of these numbers.
 //!
 //! # Quick start
 //!
