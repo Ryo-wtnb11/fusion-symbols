@@ -2,13 +2,16 @@
 //! warm cache-hit path. Not a CI gate; run with `cargo bench --features
 //! cgc-gen`.
 
+#[path = "../tests/common/lie.rs"]
+mod lie_test;
 use criterion::{criterion_group, criterion_main, Criterion};
 use fusion_symbols::cache;
-use fusion_symbols::sun::{cgc, Irrep};
+use fusion_symbols::lie::LieIrrep as Irrep;
+use lie_test::cgc;
 use std::hint::black_box;
 
 fn irr(d: &[i64]) -> Irrep {
-    Irrep::from_dynkin(d).unwrap()
+    lie_test::irrep(d).unwrap()
 }
 
 /// (label, s1, s2, s3) representative channels spanning N and dim.

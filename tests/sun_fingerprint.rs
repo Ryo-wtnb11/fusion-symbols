@@ -1,17 +1,19 @@
 //! Compatibility-policy and determinism tests for the generated SU(N) authority
-//! fingerprint (`fusion_symbols::sun::sun_authority_fingerprint`).
+//! fingerprint (`fusion_symbols::category::FusionCategory::authority_fingerprint`).
 //!
 //! Mirrors `tests/su2_fingerprint.rs`, with the generated-family contract: equal
 //! bytes identify the convention / generation pipeline / tolerance policy, not
 //! byte-identical values (`docs/gauge.md`).
 #![cfg(feature = "cgc-gen")]
 
-use fusion_symbols::sun::sun_authority_fingerprint;
+#[path = "common/lie.rs"]
+mod lie_test;
+use lie_test::fingerprint;
 
 /// Compatibility policy: the fingerprint's exact current bytes.
 ///
 /// This literal is written out by hand — deliberately NOT derived from
-/// `sun_authority_fingerprint()`, so that any change to the returned bytes
+/// `fingerprint()`, so that any change to the returned bytes
 /// (a value-affecting convention change or an epoch bump) breaks this assertion
 /// and forces a review event.
 ///
@@ -24,12 +26,12 @@ use fusion_symbols::sun::sun_authority_fingerprint;
 ///
 /// Do not update it to make a test pass. Update it only as one of the four steps
 /// of `docs/gauge.md`, "Status": the spec edit, the `epoch=N` bump in
-/// `sun_authority_fingerprint`, the CHANGELOG breaking-change entry, and the
+/// `LieGroup::authority_fingerprint`, the CHANGELOG breaking-change entry, and the
 /// regenerated `tests/gauge_golden.rs` values — all in the same PR.
 #[test]
 fn fingerprint_matches_pinned_compatibility_bytes() {
     assert_eq!(
-        sun_authority_fingerprint(),
+        fingerprint(),
         b"racah:sun-gt:ref=sunrep-0.4:basis=gt-order:gauge=qrpos-cref:descent=ladder-lstsq:tol=sunrep-tol-tier:epoch=1",
     );
 }
@@ -41,5 +43,5 @@ fn fingerprint_matches_pinned_compatibility_bytes() {
 /// break here.
 #[test]
 fn fingerprint_is_deterministic() {
-    assert_eq!(sun_authority_fingerprint(), sun_authority_fingerprint());
+    assert_eq!(fingerprint(), fingerprint());
 }

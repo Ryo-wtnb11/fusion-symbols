@@ -203,7 +203,7 @@ impl From<SweepError> for CatalogError {
 /// The Clebsch–Gordan isometry coupling `s1 ⊗ s2 → s3`, produced by decomposing
 /// the queried product `s1 ⊗ s2` and selecting the `s3` blocks.
 ///
-/// Layout mirrors the SU(N) surface (`crate::sun::Cgc`) but stays **dense**: the
+/// Layout mirrors the SU(N) surface (`crate::lie::sun::Cgc`) but stays **dense**: the
 /// sweep hands back each coupled multiplet as a dense isometry, so this holds the
 /// concatenation of the outer-multiplicity copies, column-major, in
 /// outer-multiplicity index order. `PartialEq` is bitwise over the coefficient
@@ -268,7 +268,7 @@ impl CatalogCgc {
 
     /// Conservative retained-byte charge for the value cache tier
     /// ([`crate::cache::cache_bcd_cgc`]): the dense coefficient buffer plus a
-    /// fixed shell. Mirrors [`crate::sun::Cgc::storage_bytes`].
+    /// fixed shell. Mirrors [`crate::lie::sun::Cgc::storage_bytes`].
     pub(crate) fn storage_bytes(&self) -> usize {
         self.cols.len() * std::mem::size_of::<f64>() + std::mem::size_of::<Self>()
     }
@@ -404,7 +404,7 @@ impl CanonicalCatalog {
     }
 
     /// The Clebsch–Gordan isometry of `s1 ⊗ s2 → s3` (this crate's B/C/D public
-    /// CGC surface, mirroring `crate::sun::cgc`).
+    /// CGC surface, mirroring `crate::lie::sun::cgc`).
     ///
     /// The coupling is computed from the **queried** product `s1 ⊗ s2` (not from
     /// `s3`'s canonical parent): the CGC is defined relative to the canonical

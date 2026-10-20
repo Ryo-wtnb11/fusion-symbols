@@ -1,7 +1,7 @@
 //! Tensor-product channels and multiplicities across SU(N) and B/C/D, checked
 //! against GroupMath 1.1.3 (`ReduceRepProduct`, arXiv:2011.01764).
 //!
-//! Contract: [`fusion_symbols::sun::directproduct`] /
+//! Contract: [`fusion_symbols::category::FusionCategory::fusion`] /
 //! [`fusion_symbols::bcd::directproduct`] reproduce the rows below exactly
 //! (GroupMath and this crate share the Dynkin node order, so labels compare
 //! with no relabeling), and every decomposition satisfies the dimension sum
@@ -9,12 +9,14 @@
 //! and are not compared.
 #![cfg(feature = "cgc-gen")]
 
+#[path = "common/lie.rs"]
+mod lie_test;
 use std::collections::BTreeMap;
 
 use num_bigint::BigInt;
 
 use fusion_symbols::bcd::{directproduct as bdp, Irrep as Bcd, Series};
-use fusion_symbols::sun::{directproduct as sdp, Irrep as Sun};
+use lie_test::product as sdp;
 
 const FIXTURES: &str = "\
 SU2 | 2 | 2 | 3 3 | 4:1 0:1 2:1\n\
@@ -80,14 +82,14 @@ fn racah_side(group: &str, a: &[i64], b: &[i64]) -> (BigInt, BigInt, Channels) {
     // SU(N): the token is "SU" followed by N.
     assert!(group.starts_with("SU"), "unknown group token {group}");
     let _n: usize = group[2..].parse().unwrap();
-    let ia = Sun::from_dynkin(a).unwrap();
-    let ib = Sun::from_dynkin(b).unwrap();
+    let ia = lie_test::irrep(a).unwrap();
+    let ib = lie_test::irrep(b).unwrap();
     let ch = sdp(&ia, &ib)
         .unwrap()
         .into_iter()
         .map(|(k, v)| (k.dynkin(), v))
         .collect();
-    (ia.dim(), ib.dim(), ch)
+    (ia.dim_exact(), ib.dim_exact(), ch)
 }
 
 struct Row {

@@ -3,9 +3,12 @@
 //! Not a CI gate. Run with
 //! `cargo bench --bench sun_product --features cgc-gen`.
 
+#[path = "../tests/common/lie.rs"]
+mod lie_test;
 use criterion::{criterion_group, criterion_main, Criterion};
 use fusion_symbols::cache;
-use fusion_symbols::sun::{cgc, directproduct, f_symbol, Irrep};
+use fusion_symbols::lie::LieIrrep as Irrep;
+use lie_test::{cgc, f_symbol, product as directproduct};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::hint::black_box;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -43,7 +46,7 @@ unsafe impl GlobalAlloc for CountingAllocator {
 static GLOBAL: CountingAllocator = CountingAllocator;
 
 fn irr(dynkin: &[i64]) -> Irrep {
-    Irrep::from_dynkin(dynkin).unwrap()
+    lie_test::irrep(dynkin).unwrap()
 }
 
 fn representative_families() -> Vec<(&'static str, Vec<Irrep>)> {

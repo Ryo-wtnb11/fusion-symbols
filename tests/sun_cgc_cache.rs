@@ -6,13 +6,16 @@
 
 #![cfg(feature = "cgc-gen")]
 
+#[path = "common/lie.rs"]
+mod lie_test;
 use std::sync::Arc;
 
 use fusion_symbols::cache;
-use fusion_symbols::sun::{cgc, Cgc, Irrep};
+use fusion_symbols::lie::{LieCgc as Cgc, LieIrrep as Irrep};
+use lie_test::cgc;
 
 fn irr(d: &[i64]) -> Irrep {
-    Irrep::from_dynkin(d).unwrap()
+    lie_test::irrep(d).unwrap()
 }
 
 // A spread of SU(3) channels used by both the sequential reference and the
@@ -135,8 +138,15 @@ fn cache_reset_stats_and_concurrency() {
     for (k, (a, b, c)) in chans.iter().enumerate() {
         let fresh = cgc(a, b, c).unwrap();
         let raced = &observed[0][&k];
-        assert_eq!(raced.nnz(), fresh.nnz(), "channel {k}: support differs");
-        for (re, fe) in raced.entries().iter().zip(fresh.entries()) {
+        assert_eq!(
+            lie_test::entries(raced).len(),
+            lie_test::entries(&fresh).len(),
+            "channel {k}: support differs"
+        );
+        for (re, fe) in lie_test::entries(raced)
+            .iter()
+            .zip(lie_test::entries(&fresh))
+        {
             assert_eq!(
                 (re.m1, re.m2, re.m3, re.mu),
                 (fe.m1, fe.m2, fe.m3, fe.mu),

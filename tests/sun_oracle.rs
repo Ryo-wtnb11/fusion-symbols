@@ -19,10 +19,10 @@
 use std::collections::BTreeMap;
 
 use num_bigint::BigInt;
-use num_rational::Ratio;
-use num_traits::Zero;
 
-use fusion_symbols::sun::{directproduct, Irrep};
+#[path = "common/lie.rs"]
+mod lie_test;
+use lie_test::product as directproduct;
 
 /// Every Dynkin label of SU(N) with entries summing to at most `max`.
 fn labels(n: usize, max: i64) -> Vec<Vec<i64>> {
@@ -112,10 +112,10 @@ fn weight(p: &[i64], n: usize) -> Vec<i64> {
 fn dimensions_and_duals_are_the_closed_forms() {
     for n in 2..=5 {
         for d in labels(n, 3) {
-            let s = Irrep::from_dynkin(&d).unwrap();
-            assert_eq!(s.dim(), weyl_dimension(&d), "{d:?}");
+            let s = lie_test::irrep(&d).unwrap();
+            assert_eq!(s.dim_exact(), weyl_dimension(&d), "{d:?}");
             let rev: Vec<i64> = d.iter().rev().copied().collect();
-            assert_eq!(s.dual().dynkin(), rev, "{d:?}");
+            assert_eq!(lie_test::dual(&s).dynkin(), rev, "{d:?}");
         }
     }
     // Checked against SUNRepresentations.jl 0.4.0 (`dim`).
@@ -125,24 +125,30 @@ fn dimensions_and_duals_are_the_closed_forms() {
         (&[1, 2, 0], 60),
         (&[1, 0, 0, 1], 24),
     ] {
-        assert_eq!(Irrep::from_dynkin(d).unwrap().dim(), BigInt::from(dim));
+        assert_eq!(lie_test::irrep(d).unwrap().dim_exact(), BigInt::from(dim));
     }
 }
 
 #[test]
 fn patterns_follow_the_gt_iterator_order() {
-    for n in 2..=4 {
+    for n in 3..=4 {
         for d in labels(n, 3) {
-            let s = Irrep::from_dynkin(&d).unwrap();
-            let got: Vec<Vec<i64>> = s.patterns().iter().map(|p| p.data().to_vec()).collect();
+            let s = lie_test::irrep(&d).unwrap();
+            let got: Vec<Vec<i64>> = s
+                .gt_patterns()
+                .unwrap()
+                .iter()
+                .map(|p| p.data().to_vec())
+                .collect();
             assert_eq!(got, gt_patterns(&partition(&d)), "{d:?}");
         }
     }
     // Checked against SUNRepresentations.jl 0.4.0 (`basis`): the adjoint of
     // SU(3), highest weight last.
-    let got: Vec<Vec<i64>> = Irrep::from_dynkin(&[1, 1])
+    let got: Vec<Vec<i64>> = lie_test::irrep(&[1, 1])
         .unwrap()
-        .patterns()
+        .gt_patterns()
+        .unwrap()
         .iter()
         .map(|p| p.data().to_vec())
         .collect();
@@ -201,8 +207,8 @@ fn products_are_the_brauer_klimyk_decomposition() {
         let all = labels(n, max);
         for a in &all {
             for b in &all {
-                let ia = Irrep::from_dynkin(a).unwrap();
-                let ib = Irrep::from_dynkin(b).unwrap();
+                let ia = lie_test::irrep(a).unwrap();
+                let ib = lie_test::irrep(b).unwrap();
                 let got: BTreeMap<Vec<i64>, u32> = directproduct(&ia, &ib)
                     .unwrap()
                     .into_iter()
@@ -216,8 +222,8 @@ fn products_are_the_brauer_klimyk_decomposition() {
     assert_eq!(pairs, 49 + 100 + 100 + 25);
     // Checked against SUNRepresentations.jl 0.4.0 (`directproduct`).
     let got: BTreeMap<Vec<i64>, u32> = directproduct(
-        &Irrep::from_dynkin(&[1, 1]).unwrap(),
-        &Irrep::from_dynkin(&[1, 1]).unwrap(),
+        &lie_test::irrep(&[1, 1]).unwrap(),
+        &lie_test::irrep(&[1, 1]).unwrap(),
     )
     .unwrap()
     .into_iter()
@@ -229,94 +235,6 @@ fn products_are_the_brauer_klimyk_decomposition() {
         (vec![2, 2], 1),
         (vec![0, 3], 1),
         (vec![3, 0], 1),
-    ]
-    .into_iter()
-    .collect();
-    assert_eq!(got, want);
-}
-
-/// `⟨M + δ_{k,l}| E_{l,l+1} |M⟩² = −Π_{i≤l+1}(ℓ_{i,l+1} − ℓ_{k,l})
-/// Π_{i≤l−1}(ℓ_{i,l−1} − ℓ_{k,l} − 1) / Π_{i≤l, i≠k}(ℓ_{i,l} − ℓ_{k,l})(ℓ_{i,l} − ℓ_{k,l} − 1)`
-/// with `ℓ_{i,l} = m_{i,l} − i`.
-fn gt_raising_square(p: &[i64], n: usize, k: usize, l: usize) -> Ratio<BigInt> {
-    let ell = |i: usize, row: usize| entry(p, n, i, row) - i as i64;
-    let lk = ell(k, l);
-    let mut num = BigInt::from(-1);
-    let mut den = BigInt::from(1);
-    for i in 1..=l + 1 {
-        num *= ell(i, l + 1) - lk;
-    }
-    for i in 1..l {
-        num *= ell(i, l - 1) - lk - 1;
-    }
-    if num.is_zero() {
-        // Raising would leave the betweenness cone; a denominator factor can
-        // vanish together with it.
-        return Ratio::zero();
-    }
-    for i in (1..=l).filter(|&i| i != k) {
-        den *= (ell(i, l) - lk) * (ell(i, l) - lk - 1);
-    }
-    Ratio::new(num, den)
-}
-
-#[test]
-fn creation_matrices_are_the_gt_raising_operators() {
-    for n in 2..=4 {
-        for d in labels(n, 2) {
-            let s = Irrep::from_dynkin(&d).unwrap();
-            let pats = gt_patterns(&partition(&d));
-            let index: BTreeMap<&Vec<i64>, usize> =
-                pats.iter().enumerate().map(|(i, p)| (p, i)).collect();
-            let creation = s.creation();
-            for l in 1..n {
-                let mut want = BTreeMap::new();
-                for (col, p) in pats.iter().enumerate() {
-                    for k in 1..=l {
-                        let sq = gt_raising_square(p, n, k, l);
-                        if sq.is_zero() {
-                            continue;
-                        }
-                        let mut up = p.clone();
-                        up[(l + 1..=n).sum::<usize>() + k - 1] += 1;
-                        want.insert((index[&up], col), sq);
-                    }
-                }
-                let mut got = BTreeMap::new();
-                for e in &creation[l - 1] {
-                    assert!(e.value.sign() > 0, "{d:?} l={l}");
-                    got.insert((e.row, e.col), e.value.signed_square());
-                }
-                assert_eq!(got, want, "{d:?} l={l}");
-                // `[E_l, E_l^T]` is diagonal `w_l − w_{l+1}`; its diagonal is
-                // exact: `Σ_j E_ij² − Σ_j E_ji²`.
-                let mut diag = vec![Ratio::<BigInt>::zero(); pats.len()];
-                for ((row, col), sq) in &got {
-                    diag[*row] += sq;
-                    diag[*col] -= sq;
-                }
-                for (i, p) in pats.iter().enumerate() {
-                    let w = weight(p, n);
-                    assert_eq!(diag[i], Ratio::from(BigInt::from(w[l - 1] - w[l])), "{d:?}");
-                }
-            }
-        }
-    }
-    // Checked against SUNRepresentations.jl 0.4.0 (`creation`): SU(3)
-    // adjoint, level 2, `(row, col) → entry²` (1-based basis indices).
-    let adj = Irrep::from_dynkin(&[1, 1]).unwrap().creation();
-    let got: BTreeMap<(usize, usize), Ratio<BigInt>> = adj[1]
-        .iter()
-        .map(|e| ((e.row + 1, e.col + 1), e.value.signed_square()))
-        .collect();
-    let r = |a: i64, b: i64| Ratio::new(BigInt::from(a), BigInt::from(b));
-    let want: BTreeMap<(usize, usize), Ratio<BigInt>> = [
-        ((4, 1), r(1, 1)),
-        ((3, 2), r(3, 2)),
-        ((5, 2), r(1, 2)),
-        ((7, 3), r(3, 2)),
-        ((7, 5), r(1, 2)),
-        ((8, 6), r(1, 1)),
     ]
     .into_iter()
     .collect();

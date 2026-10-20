@@ -17,7 +17,7 @@ one you are holding.
 | SU(N), SO(N), Sp(2N) coefficient values (CGC, F, R) | Verification-gated **floating point** |
 
 Concretely: `Irrep::dim()` returns a `BigInt` and is never approximate;
-`sun::cgc(...)` returns `f64` values produced by a nullspace solve and a
+`GroupRepresentations::cgc(...)` returns `f64` values produced by a nullspace solve and a
 least-squares descent.
 
 "Verification-gated" is the promise attached to those floats: orthogonality,
@@ -112,7 +112,7 @@ the details; what you do need is:
   an explicit specification correction with a fingerprint epoch bump and a
   CHANGELOG breaking-change entry.
 - **You can checkpoint against it.** Each family exposes an opaque **authority
-  fingerprint**: `FusionCategory::authority_fingerprint()`, `sun::sun_authority_fingerprint()`,
+  fingerprint**: `FusionCategory::authority_fingerprint()`,
   `bcd::bcd_authority_fingerprint()`. Persist the bytes next to anything you
   derive from these coefficients, and on load compare for equality and reject
   the derived data on mismatch. Compare only — never parse them.
@@ -151,7 +151,7 @@ against another implementation or auditing a value, not to learn the API.
 - [`fusion_symbols::cache`]: `configure_cache_budgets`, `cache_budgets`,
   `base_cache_stats`, `generated_cache_stats`, `trim_to`, `reset`,
   `BASE_CACHE_MAX_BYTES`, `GENERATED_CACHE_MAX_BYTES`
-- [`fusion_symbols::category::FusionCategory::authority_fingerprint`], `sun::sun_authority_fingerprint`,
+- [`fusion_symbols::category::FusionCategory::authority_fingerprint`], `FusionCategory::authority_fingerprint`,
   `bcd::bcd_authority_fingerprint`
 - Measurement evidence behind the defaults: [`../developer/`](../developer/README.md)
 

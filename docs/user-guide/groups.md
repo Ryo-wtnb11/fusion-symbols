@@ -41,23 +41,26 @@ let channels: Vec<i64> = group.fusion(&one, &one).unwrap().map(|s| s.dynkin()[0]
 assert_eq!(channels, vec![0, 2, 4]);
 ```
 
-SU(2) is also reachable as SU(N) with `N = 2` (`fusion_symbols::sun`, `cgc-gen`), and the
+SU(2) is also reachable as SU(N) with `N = 2` (`fusion_symbols::lie`, `cgc-gen`), and the
 two agree. Prefer the rank-one `LieGroup` path: it is exact and dependency-light.
 SO(3), Spin(3), Sp(2), and PSU(2) use the same implementation; SO(3)
 and PSU(2) admit only even doubled spins. Objects retain distinct group tags.
 
 ## SU(N), N ≥ 3
 
-Use `fusion_symbols::sun` (`cgc-gen`). Coefficients are built by the Gelfand–Tsetlin
+Use `lie::LieGroup` with `GroupId::su(n)` (`cgc-gen` for n ≥ 3). Coefficients are built by the Gelfand–Tsetlin
 construction: GT patterns label the basis of an irrep uniquely, so ladder
 operators have exact closed-form matrix elements and the CGC follow from a
 highest-weight nullspace solve.
 
 ```rust
-use fusion_symbols::sun::{directproduct, Irrep};
+use fusion_symbols::{category::{FusionCategory}, lie::{GroupId, LieGroup}};
+let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-let eight = Irrep::from_dynkin(&[1, 1]).unwrap();          // SU(3) adjoint
-let decomposition = directproduct(&eight, &eight).unwrap();
+let eight = cat.irrep(&[1, 1]).unwrap();          // SU(3) adjoint
+let decomposition = cat.fusion(&eight, &eight).unwrap()
+    .map(|c| { let n = cat.nsymbol(&eight, &eight, &c); (c, n) })
+    .collect::<std::collections::BTreeMap<_, _>>();
 // 8 ⊗ 8 = 1 ⊕ 8 ⊕ 8 ⊕ 10 ⊕ 10-bar ⊕ 27 — note the 8 appears twice.
 assert_eq!(decomposition[&eight], 2);
 ```
@@ -150,16 +153,14 @@ predicate is [`GroupId::admits`], and it is the *whole* content of a global
 form here.
 
 ```rust
-use fusion_symbols::lie::GroupId;
-use fusion_symbols::sun::Irrep;
-
+use fusion_symbols::{lie::{GroupId, LieGroup}};
 let psu3 = GroupId::psu(3).unwrap();       // SU(3)/Z₃
 
 // The adjoint 8 has zero triality, so it is a genuine PSU(3) representation.
-assert!(Irrep::from_dynkin_in(&psu3, &[1, 1]).is_ok());
+assert!(LieGroup::new(psu3).unwrap().irrep( &[1, 1]).is_ok());
 
 // The fundamental 3 has triality 1: PSU(3) has no such representation.
-assert!(Irrep::from_dynkin_in(&psu3, &[1, 0]).is_err());
+assert!(LieGroup::new(psu3).unwrap().irrep( &[1, 0]).is_err());
 ```
 
 Available forms: `GroupId::su`, `su_quotient(n, k)`, `psu`, `sp`, `psp`, `spin`,
@@ -169,8 +170,8 @@ Available forms: `GroupId::su`, `su_quotient(n, k)`, `psu`, `sp`, `psp`, `spin`,
 called admissibility and they are unrelated:
 
 1. *Global-form admissibility* (this section): is this weight a representation
-   of this group at all? Enforced once, at `Irrep` construction, by
-   `from_dynkin_in`. Failure is `SunError::NotAdmissible` /
+   of this group at all? Enforced once, at `LieGroup::irrep` construction (B/C/D: `from_dynkin_in`).
+   Failure is `LieError::NotAdmissible` /
    `BcdError::NotAdmissible`.
 2. *Coupling admissibility* (SU(2)): does this label tuple satisfy the triangle
    and parity rules of a 3j/6j? Failure is an exact zero, or
@@ -196,7 +197,7 @@ basis, gauge, and cached values.
 
 - [`fusion_symbols::lie`]: `GroupId`, `RootSystem`, `GlobalForm`, `CenterSubgroup`,
   `GroupId::admits`
-- [`sun::Irrep::from_dynkin_in`], [`bcd::Irrep::from_dynkin_in`]
+- [`LieGroup::irrep`], [`bcd::Irrep::from_dynkin_in`]
 - Deeper background: [`../theory.pdf`](../theory.pdf) §3 (the Killing–Cartan
   classification and the Dynkin diagrams), §4 (each family's compact group,
   its centre, and the global forms as centre quotients), §5 (the
@@ -206,5 +207,5 @@ basis, gauge, and cached values.
 [`GroupId::admits`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.GroupId.html#method.admits
 [`RootSystem`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/enum.RootSystem.html
 [`fusion_symbols::lie`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/index.html
-[`sun::Irrep::from_dynkin_in`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/struct.Irrep.html#method.from_dynkin_in
+[`LieGroup::irrep`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
 [`bcd::Irrep::from_dynkin_in`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/struct.Irrep.html#method.from_dynkin_in

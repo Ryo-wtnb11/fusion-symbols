@@ -10,10 +10,17 @@ use std::sync::{Arc, Barrier};
 
 use fusion_symbols::cache::{self, TierStats};
 use fusion_symbols::category::FusionCategory;
-use fusion_symbols::sun::{directproduct, shared_directproduct, Irrep, SunError};
+#[path = "common/lie.rs"]
+mod lie_test;
+use fusion_symbols::lie::LieIrrep as Irrep;
+use lie_test::group;
 
 fn irr(dynkin: &[i64]) -> Irrep {
-    Irrep::from_dynkin(dynkin).unwrap()
+    lie_test::irrep(dynkin).unwrap()
+}
+
+fn outcomes(a: &Irrep, b: &Irrep) -> Vec<Irrep> {
+    group(a).fusion(a, b).unwrap().collect()
 }
 
 #[test]
@@ -24,14 +31,7 @@ fn sun_product_cache_contract() {
     // publish the cache.
     let su3 = irr(&[1, 0]);
     let su4 = irr(&[1, 0, 0]);
-    assert_eq!(
-        directproduct(&su3, &su4),
-        Err(SunError::RankMismatch { a: 3, b: 4 })
-    );
-    assert_eq!(
-        shared_directproduct(&su3, &su4),
-        Err(SunError::RankMismatch { a: 3, b: 4 })
-    );
+    assert!(std::panic::catch_unwind(|| group(&su3).fusion(&su3, &su4)).is_err());
     assert_eq!(
         cache::generated_cache_stats().sun_product,
         TierStats::default()
@@ -41,30 +41,29 @@ fn sun_product_cache_contract() {
     // unordered entry and reconstruct the same owned map without re-sweeping.
     let a = irr(&[2, 1]);
     let b = irr(&[1, 2]);
-    let cold = directproduct(&a, &b).unwrap();
+    let cold = outcomes(&a, &b);
     let after_cold = cache::generated_cache_stats().sun_product;
     assert_eq!(after_cold.hits, 0);
     assert_eq!(after_cold.misses, 1);
     assert_eq!(after_cold.entries, 1);
     assert!(after_cold.bytes > 0);
 
-    let warm_reversed = directproduct(&b, &a).unwrap();
+    let warm_reversed = outcomes(&b, &a);
     assert_eq!(warm_reversed, cold);
     let after_warm = cache::generated_cache_stats().sun_product;
     assert_eq!(after_warm.hits, 1);
     assert_eq!(after_warm.misses, 1, "warm public map must not re-sweep");
     assert_eq!(after_warm.entries, 1);
 
-    let shared = shared_directproduct(&a, &b).unwrap();
-    assert!(shared.iter().eq(cold
-        .iter()
-        .map(|(irrep, &multiplicity)| (irrep, multiplicity))));
-    let channel = cold.keys().next().unwrap();
-    assert_eq!(shared.multiplicity(channel), cold[channel]);
-    assert_eq!(shared.multiplicity(&irr(&[99, 0])), 0);
-    assert_eq!(shared_directproduct(&b, &a).unwrap(), shared);
+    let cat = group(&a);
+    let shared: Vec<_> = cat.fusion(&a, &b).unwrap().collect();
+    assert_eq!(shared, cold);
+    let channel = cold.first().unwrap();
+    assert_eq!(cat.nsymbol(&a, &b, channel), 1);
+    assert_eq!(cat.nsymbol(&a, &b, &irr(&[99, 0])), 0);
+    assert_eq!(cat.fusion(&b, &a).unwrap().collect::<Vec<_>>(), shared);
     let after_shared = cache::generated_cache_stats().sun_product;
-    assert_eq!(after_shared.hits, 3);
+    assert_eq!(after_shared.hits, 5);
     assert_eq!(after_shared.misses, 1);
     assert_eq!(after_shared.entries, 1);
 
@@ -81,7 +80,7 @@ fn sun_product_cache_contract() {
             let barrier = Arc::clone(&barrier);
             std::thread::spawn(move || {
                 barrier.wait();
-                directproduct(&a, &b).unwrap()
+                outcomes(&a, &b)
             })
         })
         .collect::<Vec<_>>();
@@ -96,7 +95,7 @@ fn sun_product_cache_contract() {
 
     let misses = concurrent.misses;
     let hits = concurrent.hits;
-    assert_eq!(directproduct(&a, &b).unwrap(), products[0]);
+    assert_eq!(outcomes(&a, &b), products[0]);
     let warm = cache::generated_cache_stats().sun_product;
     assert_eq!(warm.misses, misses, "warm call must not re-sweep");
     assert_eq!(warm.hits, hits + 1);
@@ -104,9 +103,9 @@ fn sun_product_cache_contract() {
     // Cheap one-channel products isolate the production entry bound: all 256
     // retained entries together remain below the 128 KiB charge backstop.
     cache::reset();
-    let trivial = Irrep::trivial(3).unwrap();
+    let trivial = lie_test::trivial(3).unwrap();
     for label in 1..=257 {
-        let _ = directproduct(&trivial, &irr(&[label, 0])).unwrap();
+        let _ = outcomes(&trivial, &irr(&[label, 0]));
     }
     let entry_bound = cache::generated_cache_stats().sun_product;
     assert_eq!(entry_bound.entries, 256);

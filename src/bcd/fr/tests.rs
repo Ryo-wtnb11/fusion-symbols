@@ -16,6 +16,7 @@ fn irr(s: Series, d: &[i64]) -> Irrep {
 
 #[test]
 fn warm_state_does_not_resweep() {
+    let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
     // The value tier caches EVERY coupled channel from ONE decomposition sweep.
     // C2 vector v=(0,1), v⊗v = 1 ⊕ (2,0) ⊕ (0,2). After a single cgc_entries for
     // channel (2,0), the *other* channel (0,2) must already be in the tier — i.e.
@@ -206,6 +207,7 @@ fn d3_adjoint_f_symbol_closes_or_bricks() {
 
 #[test]
 fn f_symbol_second_call_is_cache_hit() {
+    let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
     crate::cache::reset();
     let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap();
     let triv = Irrep::trivial(Series::C, 2).unwrap();

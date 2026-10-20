@@ -7,14 +7,18 @@
 
 #![cfg(feature = "cgc-gen")]
 
+#[path = "common/lie.rs"]
+mod lie_test;
+use fusion_symbols::lie::LieIrrep as Irrep;
+use lie_test::f_symbol;
+
 use std::sync::Arc;
 use std::thread;
 
 use fusion_symbols::cache;
-use fusion_symbols::sun::{f_symbol, Irrep};
 
 fn irr(d: &[i64]) -> Irrep {
-    Irrep::from_dynkin(d).unwrap()
+    lie_test::irrep(d).unwrap()
 }
 
 /// One test (not two): both phases call the process-global `cache::reset`, so

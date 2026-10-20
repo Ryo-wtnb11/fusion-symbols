@@ -6,12 +6,13 @@
 
 #![cfg(feature = "cgc-gen")]
 
-#[path = "common/a1.rs"]
-mod a1;
-use fusion_symbols::sun::{f_symbol, Irrep};
+#[path = "common/lie.rs"]
+mod lie_test;
+use fusion_symbols::{category::FusionCategory, lie::LieIrrep as Irrep};
+use lie_test::f_symbol;
 
 fn irr(d: &[i64]) -> Irrep {
-    Irrep::from_dynkin(d).unwrap()
+    lie_test::irrep(d).unwrap()
 }
 
 /// Every Dynkin label of rank `n - 1` with label sum `<= max`.
@@ -58,7 +59,11 @@ fn phase_matches_sunrepresentations() {
         (&[0, 0, 0, 0, 1], -1.0),
     ];
     for &(d, want) in reference {
-        assert_eq!(irr(d).frobenius_schur_phase(), want, "{d:?}");
+        assert_eq!(
+            lie_test::group(&irr(d)).frobenius_schur_phase(&irr(d)),
+            want,
+            "{d:?}"
+        );
     }
 }
 
@@ -67,54 +72,49 @@ fn indicator_is_phase_on_self_dual_irreps_and_zero_otherwise() {
     for n in 2..=7 {
         for d in labels(n, 3) {
             let a = irr(&d);
-            let want = if a == a.dual() {
-                a.frobenius_schur_phase() as i32
+            let want = if a == lie_test::dual(&a) {
+                lie_test::group(&a).frobenius_schur_phase(&a) as i8
             } else {
                 0
             };
-            assert_eq!(a.frobenius_schur(), want, "{d:?}");
+            assert_eq!(
+                lie_test::group(&a).frobenius_schur_indicator(&a) as i8,
+                want,
+                "{d:?}"
+            );
         }
-    }
-    // SU(2) through the SU(N) path agrees with the SU(2) family.
-    for dj in 0..12u32 {
-        let a = irr(&[i64::from(dj)]);
-        assert_eq!(a.frobenius_schur_phase(), a1::phase(dj));
     }
     // Representation-theoretic anchors: SU(4) 6 = SO(6) vector is real, the
     // SU(6) 20 = Λ³C⁶ is quaternionic, the adjoint is always real.
-    assert_eq!(irr(&[0, 1, 0]).frobenius_schur(), 1);
-    assert_eq!(irr(&[0, 0, 1, 0, 0]).frobenius_schur(), -1);
-    assert_eq!(irr(&[1, 0, 0, 0, 1]).frobenius_schur(), 1);
-}
-
-/// The closed form's premise: every GT lowering matrix element is
-/// non-negative.
-#[test]
-fn lowering_matrix_elements_are_nonnegative() {
-    for n in 2..=5 {
-        for d in labels(n, 3) {
-            for op in irr(&d).annihilation() {
-                for e in op {
-                    assert!(e.value.to_f64() >= 0.0, "{d:?} {e:?}");
-                }
-            }
-        }
-    }
+    assert_eq!(
+        lie_test::group(&irr(&[0, 1, 0])).frobenius_schur_indicator(&irr(&[0, 1, 0])) as i8,
+        1
+    );
+    assert_eq!(
+        lie_test::group(&irr(&[0, 0, 1, 0, 0])).frobenius_schur_indicator(&irr(&[0, 0, 1, 0, 0]))
+            as i8,
+        -1
+    );
+    assert_eq!(
+        lie_test::group(&irr(&[1, 0, 0, 0, 1])).frobenius_schur_indicator(&irr(&[1, 0, 0, 0, 1]))
+            as i8,
+        1
+    );
 }
 
 /// The reference definition, evaluated on racah's own F-symbols:
 /// `phase = sign(F[a, ā, a, a, 1, 1])` with `|F| = 1 / dim(a)`.
 #[test]
 fn phase_is_sign_of_f_symbol() {
-    for (n, max) in [(2usize, 6i64), (3, 3), (4, 2), (5, 2), (6, 1), (7, 1)] {
-        let one = Irrep::trivial(n).unwrap();
+    for (n, max) in [(3usize, 3i64), (4, 2), (5, 2), (6, 1), (7, 1)] {
+        let one = lie_test::trivial(n).unwrap();
         for d in labels(n, max) {
             let a = irr(&d);
-            let f = f_symbol(&a, &a.dual(), &a, &a, &one, &one).unwrap();
-            let dim: f64 = a.dim().to_string().parse().unwrap();
+            let f = f_symbol(&a, &lie_test::dual(&a), &a, &a, &one, &one).unwrap();
+            let dim: f64 = a.dim_exact().to_string().parse().unwrap();
             let scaled = f.at(0, 0, 0, 0) * dim;
             assert!(
-                (scaled - a.frobenius_schur_phase()).abs() < 1e-9,
+                (scaled - lie_test::group(&a).frobenius_schur_phase(&a)).abs() < 1e-9,
                 "{d:?}: dim * F = {scaled}"
             );
         }

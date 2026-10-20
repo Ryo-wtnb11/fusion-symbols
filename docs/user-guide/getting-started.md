@@ -28,7 +28,7 @@ There is no fixed MSRV; `fusion-symbols` builds and is tested on current stable 
 | Feature | Gives you | Cost |
 |---|---|---|
 | *(default)* | SU(2): 3j, 6j, Clebsch–Gordan, F, R, Frobenius–Schur — closed-form, big-rational exact | `num-bigint`, `num-rational`, `num-traits` |
-| `cgc-gen` | SU(N) (`fusion_symbols::sun`), SO(N)/Spin(N)/Sp(2N) (`fusion_symbols::bcd`), and the `fusion_symbols::lie` global forms applied to them | pulls the sequential t4a-faer dense-linear-algebra backend |
+| `cgc-gen` | SU(N) (`fusion_symbols::lie`), SO(N)/Spin(N)/Sp(2N) (`fusion_symbols::bcd`), and the `fusion_symbols::lie` global forms applied to them | pulls the sequential t4a-faer dense-linear-algebra backend |
 
 The split is mathematical, not organizational: SU(2) has closed-form
 coefficients and needs no matrix computation; every other family must be
@@ -55,11 +55,12 @@ The returned [`SignedSqrtRational`] is an *exact* value of the form
 ## First calculation: SU(3) (`cgc-gen`)
 
 ```rust
-use fusion_symbols::sun::Irrep;
+use fusion_symbols::{category::{FusionCategory}, lie::{GroupId, LieGroup}};
+let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-let fund = Irrep::from_dynkin(&[1, 0]).unwrap();   // the 3 of SU(3)
-assert_eq!(fund.dim(), 3u32.into());
-assert_eq!(fund.dual().dynkin(), vec![0, 1]);      // the 3-bar
+let fund = cat.irrep(&[1, 0]).unwrap();   // the 3 of SU(3)
+assert_eq!(fund.dim_exact(), 3u32.into());
+assert_eq!(cat.dual(&fund).dynkin(), vec![0, 1]);      // the 3-bar
 ```
 
 An SU(N) irrep is named by its `N-1` Dynkin labels. See
@@ -105,15 +106,12 @@ assert!(matches!(
 
 Both paths share one admissibility predicate, so they can never disagree.
 
-**The generated families are fallible throughout.** `fusion_symbols::sun` and
-`fusion_symbols::bcd` return `Result`, because construction can fail for reasons that are
-not "the answer is zero": a label the group does not admit, mismatched ranks, an
-empty fusion channel, an exhausted memory budget, or a violated verification
-gate. The error types name the reason —
-[`SunError`](https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/enum.SunError.html),
-[`BcdError`](https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/enum.BcdError.html),
-[`CatalogError`](https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/enum.CatalogError.html),
-[`FrError`](https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/enum.FrError.html).
+**SU(N) generation is fallible.** `LieGroup::irrep` validates rank,
+non-negativity and global-form admissibility. Foreign objects panic. An absent
+channel returns an empty CGC/F/R block; a genuine generation failure returns
+`LieError::Generation(GenerationError)`. The diagnostic implements `Display`
+and exposes its underlying reason through `std::error::Error::source`.
+B/C/D keeps its existing family errors and absent-channel behavior in this slice.
 
 A verification-gate failure is always an error, never a silently degraded
 number: `fusion-symbols` will not hand you a coefficient that failed its orthogonality,
@@ -131,7 +129,7 @@ unitarity, or pentagon/hexagon check.
 
 - [`fusion_symbols::lie::su2::wigner_6j`](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/su2/fn.wigner_6j.html),
   [`fusion_symbols::lie::su2`](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/su2/index.html)
-- [`fusion_symbols::sun`](https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/index.html),
+- [`fusion_symbols::lie`](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html),
   [`fusion_symbols::bcd`](https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/index.html)
 - [`fusion_symbols::cache`](https://docs.rs/fusion-symbols/latest/fusion_symbols/cache/index.html)
 

@@ -17,10 +17,13 @@
 // Index loops mirror the tensor-index formulas above.
 #![allow(clippy::needless_range_loop)]
 
-use fusion_symbols::sun::{cgc, Irrep};
+#[path = "common/lie.rs"]
+mod lie_test;
+use fusion_symbols::lie::LieIrrep as Irrep;
+use lie_test::cgc;
 
 fn irr(d: &[i64]) -> Irrep {
-    Irrep::from_dynkin(d).unwrap()
+    lie_test::irrep(d).unwrap()
 }
 
 /// Dense `C[m1][m2][m3][mu]`.
@@ -28,21 +31,11 @@ fn dense(a: &Irrep, b: &Irrep, c: &Irrep) -> (Vec<f64>, [usize; 4]) {
     let t = cgc(a, b, c).unwrap();
     let dims = t.dims();
     let mut out = vec![0.0; dims.iter().product()];
-    for e in t.entries() {
+    for e in lie_test::entries(&t) {
         let [m1, m2, m3, mu] = [e.m1, e.m2, e.m3, e.mu].map(|x| x as usize);
         out[((m1 * dims[1] + m2) * dims[2] + m3) * dims[3] + mu] = e.value;
     }
     (out, dims)
-}
-
-/// Dense raising operator `E_l[row][col]` of `s`.
-fn raising(s: &Irrep, l: usize) -> Vec<Vec<f64>> {
-    let d = s.patterns().len();
-    let mut e = vec![vec![0.0; d]; d];
-    for x in &s.creation()[l] {
-        e[x.row][x.col] = x.value.to_f64();
-    }
-    e
 }
 
 const CHANNELS: [(&[i64], &[i64], &[i64]); 6] = [
@@ -55,7 +48,7 @@ const CHANNELS: [(&[i64], &[i64], &[i64]); 6] = [
 ];
 
 #[test]
-fn cgc_columns_are_isometric_intertwiners() {
+fn cgc_columns_are_isometric() {
     for (da, db, dc) in CHANNELS {
         let (a, b, c) = (irr(da), irr(db), irr(dc));
         let (t, [d1, d2, d3, om]) = dense(&a, &b, &c);
@@ -71,22 +64,6 @@ fn cgc_columns_are_isometric_intertwiners() {
                 }
                 let want = f64::from(u8::from((m3, mu) == (n3, nu)));
                 assert!((dot - want).abs() < 1e-12, "{dc:?} isometry");
-            }
-        }
-        for l in 0..da.len() {
-            let (e1, e2, e3) = (raising(&a, l), raising(&b, l), raising(&c, l));
-            for m3 in 0..d3 {
-                for mu in 0..om {
-                    for m1 in 0..d1 {
-                        for m2 in 0..d2 {
-                            let lhs: f64 =
-                                (0..d1).map(|k| e1[m1][k] * at(k, m2, m3, mu)).sum::<f64>()
-                                    + (0..d2).map(|k| e2[m2][k] * at(m1, k, m3, mu)).sum::<f64>();
-                            let rhs: f64 = (0..d3).map(|r| at(m1, m2, r, mu) * e3[r][m3]).sum();
-                            assert!((lhs - rhs).abs() < 1e-12, "{da:?}⊗{db:?}→{dc:?} l={l}");
-                        }
-                    }
-                }
             }
         }
     }

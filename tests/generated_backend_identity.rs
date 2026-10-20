@@ -32,11 +32,14 @@
 //! `N = 2`) and D3 `(0,1,1) ⊗ (0,1,1)` (`docs/gauge_soN.md` §13, `N = 2`).
 #![cfg(feature = "cgc-gen")]
 
+#[path = "common/lie.rs"]
+mod lie_test;
 use fusion_symbols::bcd::{
     directproduct as bcd_directproduct, CanonicalCatalog, CatalogCgc, Irrep as BcdIrrep, Series,
 };
 use fusion_symbols::cache;
-use fusion_symbols::sun::{cgc, directproduct as sun_directproduct, Cgc, Irrep as SunIrrep};
+use fusion_symbols::lie::{LieCgc as Cgc, LieIrrep as SunIrrep};
+use lie_test::{cgc, product as sun_directproduct};
 
 /// The sign of the first significant element, or 0 if the column is all-zero.
 fn sign_of(v: f64) -> i8 {
@@ -72,12 +75,18 @@ struct StructuralSig {
 /// is sorted by `(m1, m2, m3, mu)`, so the first entry seen for a column is its
 /// smallest `(m1, m2)` — a deterministic per-column choice.
 fn sun_sign_pattern(cg: &Cgc) -> Vec<i8> {
-    let [_, _, d3, n] = cg.dims();
+    let [d1, d2, d3, n] = cg.dims();
     let mut signs = vec![0i8; d3 * n];
-    for e in cg.entries() {
-        let col = e.mu as usize * d3 + e.m3 as usize;
-        if signs[col] == 0 {
-            signs[col] = sign_of(e.value);
+    for i in 0..d1 {
+        for j in 0..d2 {
+            for k in 0..d3 {
+                for mu in 0..n {
+                    let col = mu * d3 + k;
+                    if signs[col] == 0 {
+                        signs[col] = sign_of(cg.at(i, j, k, mu));
+                    }
+                }
+            }
         }
     }
     signs
@@ -123,7 +132,7 @@ fn channel_set_bcd(a: &BcdIrrep, b: &BcdIrrep) -> Vec<(Vec<i64>, u32)> {
 /// One SU(3) generation run: the whole `(1,1) ⊗ (1,1)` channel set plus the
 /// structural signature of the `N = 2` `(1,1)` channel.
 fn sun_run() -> StructuralSig {
-    let adj = SunIrrep::from_dynkin(&[1, 1]).unwrap();
+    let adj = lie_test::irrep(&[1, 1]).unwrap();
     let channels = channel_set_sun(&adj, &adj);
     let cg = cgc(&adj, &adj, &adj).unwrap();
     let [_, _, d3, n] = cg.dims();
@@ -131,7 +140,7 @@ fn sun_run() -> StructuralSig {
     StructuralSig {
         channels,
         block_dims: (cg.dims()[0] * cg.dims()[1], d3, n),
-        om_indices: (0..cg.multiplicity()).collect(),
+        om_indices: (0..cg.dims()[3]).collect(),
         sign_pattern: sun_sign_pattern(&cg),
     }
 }

@@ -19,9 +19,12 @@ fn labels_forms_and_rank_one_isomorphisms() {
         su.fusion(&max, &su.irrep(&[1]).unwrap()),
         Err(LieError::LabelOverflow)
     ));
+    #[cfg(not(feature = "cgc-gen"))]
     assert!(matches!(
         LieGroup::new(GroupId::su(3).unwrap()),
-        Err(LieError::Unsupported { .. })
+        Err(LieError::Unsupported {
+            requires: "cgc-gen"
+        })
     ));
     let half = su.irrep(&[1]).unwrap();
     assert_eq!(
@@ -131,4 +134,16 @@ fn dense_cgc_matches_exact_in_ascending_magnetic_order() {
     let r = cat.r_symbol(&half, &zero, &zero).unwrap();
     assert_eq!(r.dims(), [0, 0]);
     assert!(r.as_slice().is_empty());
+}
+
+#[test]
+fn group_must_admit_the_unit() {
+    use fusion_symbols::lie::{CenterSubgroup, GlobalForm, RootSystem};
+    for root_system in [RootSystem::A(1), RootSystem::A(2), RootSystem::B(2)] {
+        let id = GroupId {
+            root_system,
+            form: GlobalForm::Quotient(CenterSubgroup::DVector),
+        };
+        assert_eq!(LieGroup::new(id), Err(LieError::NotAdmissible));
+    }
 }

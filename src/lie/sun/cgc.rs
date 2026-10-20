@@ -67,7 +67,7 @@ pub struct CgcEntry {
 /// m-basis tensor with the outer multiplicity carried on a trailing axis.
 ///
 /// Shape is $[\dim(s_1), \dim(s_2), \dim(s_3), N]$ with $N = N^{s_3}_{s_1 s_2}$ the
-/// exact fusion multiplicity ([`crate::sun::directproduct`]). Only nonzero entries (after
+/// exact fusion multiplicity ([`crate::lie::sun::directproduct`]). Only nonzero entries (after
 /// the `TOL_PURGE` cut) are stored, sorted by `(m1, m2, m3, mu)`.
 ///
 /// Coefficient values realize the SUNRepresentations.jl v0.4.0 gauge (see
@@ -88,18 +88,6 @@ struct CgcData {
 }
 
 impl Cgc {
-    /// The left factor irrep `s1`.
-    pub fn s1(&self) -> &Irrep {
-        &self.0.s1
-    }
-    /// The right factor irrep `s2`.
-    pub fn s2(&self) -> &Irrep {
-        &self.0.s2
-    }
-    /// The coupled irrep `s3`.
-    pub fn s3(&self) -> &Irrep {
-        &self.0.s3
-    }
     /// The outer multiplicity `N^{s3}_{s1 s2}` (length of the trailing axis).
     pub fn multiplicity(&self) -> usize {
         self.0.dims[3]
@@ -113,6 +101,7 @@ impl Cgc {
         &self.0.entries
     }
     /// The number of stored nonzero entries.
+    #[cfg(test)]
     pub fn nnz(&self) -> usize {
         self.0.entries.len()
     }
@@ -204,16 +193,6 @@ fn is_trivial(s: &Irrep) -> bool {
 ///
 /// # Examples
 ///
-/// ```
-/// # #[cfg(feature = "cgc-gen")] {
-/// use fusion_symbols::sun::{cgc, Irrep};
-/// // SU(2) 1/2 ⊗ 1/2 → 0 (the singlet), Dynkin (1) ⊗ (1) → (0).
-/// let half = Irrep::from_dynkin(&[1]).unwrap();
-/// let singlet = Irrep::from_dynkin(&[0]).unwrap();
-/// let c = cgc(&half, &half, &singlet).unwrap();
-/// assert_eq!(c.multiplicity(), 1);
-/// # }
-/// ```
 pub fn cgc(s1: &Irrep, s2: &Irrep, s3: &Irrep) -> Result<Cgc, SunError> {
     // Transparent, byte-accounted cache (WignerSymbols.jl / SUNRepresentations
     // `_get_CGC` model): a warm hit skips the whole SVD/QR/descent pipeline.
@@ -873,14 +852,14 @@ mod tests {
 
     #[test]
     fn private_generate_does_not_reconstruct_public_product_maps() {
-        crate::sun::reset_public_directproduct_reconstructions();
+        crate::lie::sun::reset_public_directproduct_reconstructions();
 
         let trivial = Irrep::trivial(3).unwrap();
         let three = irr(&[1, 0]);
         let c = generate(&trivial, &three, &three, None).unwrap();
 
         assert_eq!(c.multiplicity(), 1);
-        assert_eq!(crate::sun::public_directproduct_reconstructions(), 0);
+        assert_eq!(crate::lie::sun::public_directproduct_reconstructions(), 0);
     }
 
     #[test]

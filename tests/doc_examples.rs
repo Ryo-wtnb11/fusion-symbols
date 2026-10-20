@@ -1,15 +1,7 @@
-//! Compile-and-run guard for the code blocks in the prose documentation.
-//!
-//! Every Rust code block in `README.md` and `docs/user-guide/*.md` appears here
-//! verbatim, one test per block, so a change to the public API breaks the build
-//! instead of silently rotting the guide. Rustdoc examples are covered by
-//! `cargo test --doc`; this file covers the prose that lives outside rustdoc.
-//!
-//! Regenerate by copying the block; there is no codegen step to run.
+//! Runnable copies of the Rust examples in the public guides.
 #![cfg(feature = "cgc-gen")]
-#![allow(unused)]
 
-/// `README.md`, code block 1.
+/// `README.md`, Rust block 1.
 #[test]
 fn readme_1() {
     use fusion_symbols::lie::su2::wigner_6j;
@@ -18,19 +10,32 @@ fn readme_1() {
     assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
 }
 
-/// `README.md`, code block 2.
+/// `docs/overview.md`, Rust block 1.
 #[test]
-fn readme_2() {
-    use fusion_symbols::sun::{directproduct, Irrep};
+fn overview_1() {
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
+    let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-    let eight = Irrep::from_dynkin(&[1, 1]).unwrap(); // SU(3) adjoint
-    assert_eq!(eight.dim(), 8u32.into());
-    assert_eq!(directproduct(&eight, &eight).unwrap()[&eight], 2);
+    let eight = cat.irrep(&[1, 1]).unwrap(); // SU(3) adjoint
+    assert_eq!(eight.dim_exact(), 8u32.into());
+    assert_eq!(
+        cat.fusion(&eight, &eight)
+            .unwrap()
+            .map(|c| {
+                let n = cat.nsymbol(&eight, &eight, &c);
+                (c, n)
+            })
+            .collect::<std::collections::BTreeMap<_, _>>()[&eight],
+        2
+    );
 }
 
-/// `README.md`, code block 3.
+/// `docs/overview.md`, Rust block 2.
 #[test]
-fn readme_3() {
+fn overview_2() {
     use fusion_symbols::bcd::{f_symbol, CanonicalCatalog, Irrep, Series};
 
     let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap(); // Sp(4)
@@ -43,9 +48,9 @@ fn readme_3() {
     assert!((block.at(0, 0, 0, 0) - 1.0).abs() < 1e-9);
 }
 
-/// `README.md`, code block 4.
+/// `docs/overview.md`, Rust block 3.
 #[test]
-fn readme_4() {
+fn overview_3() {
     use fusion_symbols::bcd::Irrep;
     use fusion_symbols::lie::GroupId;
 
@@ -57,7 +62,7 @@ fn readme_4() {
     assert!(Irrep::from_dynkin_in(&GroupId::so(7).unwrap(), &[0, 0, 1]).is_err());
 }
 
-/// `docs/user-guide/clebsch-gordan.md`, code block 1.
+/// `docs/user-guide/clebsch-gordan.md`, Rust block 1.
 #[test]
 fn clebsch_gordan_1() {
     use fusion_symbols::lie::su2::clebsch_gordan;
@@ -67,35 +72,42 @@ fn clebsch_gordan_1() {
     assert!((cg.to_f64() - 0.5f64.sqrt()).abs() < 1e-15);
 }
 
-/// `docs/user-guide/clebsch-gordan.md`, code block 2.
+/// `docs/user-guide/clebsch-gordan.md`, Rust block 2.
 #[test]
 fn clebsch_gordan_2() {
-    use fusion_symbols::sun::{cgc, Irrep};
+    use fusion_symbols::{
+        category::{FusionCategory, GroupRepresentations},
+        lie::{GroupId, LieGroup},
+    };
+    let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-    let three = Irrep::from_dynkin(&[1, 0]).unwrap();
-    let anti = three.dual();
-    let eight = Irrep::from_dynkin(&[1, 1]).unwrap();
+    let three = cat.irrep(&[1, 0]).unwrap();
+    let anti = cat.dual(&three);
+    let eight = cat.irrep(&[1, 1]).unwrap();
 
-    let c = cgc(&three, &anti, &eight).unwrap();
+    let c = cat.cgc(&three, &anti, &eight).unwrap();
     assert_eq!(c.dims(), [3, 3, 8, 1]); // [dim(s1), dim(s2), dim(s3), N^{s3}_{s1 s2}]
-    assert_eq!(c.multiplicity(), 1);
-    // Only nonzero entries are stored, sorted by (m1, m2, m3, mu).
-    assert!(c.entries().iter().all(|e| e.value != 0.0));
+    assert_eq!(c.dims()[3], 1);
+    assert!((c.at(0, 0, 0, 0) - 1.0).abs() < 1e-12);
 }
 
-/// `docs/user-guide/clebsch-gordan.md`, code block 3.
+/// `docs/user-guide/clebsch-gordan.md`, Rust block 3.
 #[test]
 fn clebsch_gordan_3() {
-    use fusion_symbols::sun::{cgc, Irrep};
+    use fusion_symbols::{
+        category::GroupRepresentations,
+        lie::{GroupId, LieGroup},
+    };
+    let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-    let eight = Irrep::from_dynkin(&[1, 1]).unwrap();
-    let c = cgc(&eight, &eight, &eight).unwrap();
-    assert_eq!(c.multiplicity(), 2); // the 8 occurs twice in 8 ⊗ 8
+    let eight = cat.irrep(&[1, 1]).unwrap();
+    let c = cat.cgc(&eight, &eight, &eight).unwrap();
+    assert_eq!(c.dims()[3], 2); // the 8 occurs twice in 8 ⊗ 8
     assert_eq!(c.dims(), [8, 8, 8, 2]);
-    assert!(c.entries().iter().any(|e| e.mu == 1));
+    assert!(c.at(0, 2, 0, 1) < 0.0);
 }
 
-/// `docs/user-guide/clebsch-gordan.md`, code block 4.
+/// `docs/user-guide/clebsch-gordan.md`, Rust block 4.
 #[test]
 fn clebsch_gordan_4() {
     use fusion_symbols::bcd::{CanonicalCatalog, Irrep, Series};
@@ -109,7 +121,7 @@ fn clebsch_gordan_4() {
     assert_eq!(c.copy_shape(), (25, 10)); // (dim(s1)·dim(s2), dim(s3))
 }
 
-/// `docs/user-guide/fusion.md`, code block 1.
+/// `docs/user-guide/fusion.md`, Rust block 1.
 #[test]
 fn fusion_1() {
     use fusion_symbols::{
@@ -126,32 +138,54 @@ fn fusion_1() {
     assert_eq!(channels, vec![0, 2]);
 }
 
-/// `docs/user-guide/fusion.md`, code block 2.
+/// `docs/user-guide/fusion.md`, Rust block 2.
 #[test]
 fn fusion_2() {
-    use fusion_symbols::sun::{directproduct, Irrep};
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
+    let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-    let three = Irrep::from_dynkin(&[1, 0]).unwrap();
-    let anti = three.dual();
-    let out = directproduct(&three, &anti).unwrap();
+    let three = cat.irrep(&[1, 0]).unwrap();
+    let anti = cat.dual(&three);
+    let out = cat
+        .fusion(&three, &anti)
+        .unwrap()
+        .map(|c| {
+            let n = cat.nsymbol(&three, &anti, &c);
+            (c, n)
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
 
     // 3 ⊗ 3-bar = 1 ⊕ 8, each once.
     assert_eq!(out.len(), 2);
-    assert_eq!(out[&Irrep::trivial(3).unwrap()], 1);
-    assert_eq!(out[&Irrep::from_dynkin(&[1, 1]).unwrap()], 1);
+    assert_eq!(out[&cat.unit()], 1);
+    assert_eq!(out[&cat.irrep(&[1, 1]).unwrap()], 1);
 }
 
-/// `docs/user-guide/fusion.md`, code block 3.
+/// `docs/user-guide/fusion.md`, Rust block 3.
 #[test]
 fn fusion_3() {
-    use fusion_symbols::sun::{directproduct, Irrep};
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
+    let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-    let eight = Irrep::from_dynkin(&[1, 1]).unwrap(); // SU(3) adjoint
-    let out = directproduct(&eight, &eight).unwrap();
+    let eight = cat.irrep(&[1, 1]).unwrap(); // SU(3) adjoint
+    let out = cat
+        .fusion(&eight, &eight)
+        .unwrap()
+        .map(|c| {
+            let n = cat.nsymbol(&eight, &eight, &c);
+            (c, n)
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
     assert_eq!(out[&eight], 2); // the 8 appears twice in 8 ⊗ 8
 }
 
-/// `docs/user-guide/fusion.md`, code block 4.
+/// `docs/user-guide/fusion.md`, Rust block 4.
 #[test]
 fn fusion_4() {
     use fusion_symbols::bcd::{directproduct, Irrep, Series};
@@ -166,7 +200,27 @@ fn fusion_4() {
     }
 }
 
-/// `docs/user-guide/getting-started.md`, code block 1.
+/// `docs/user-guide/fusion.md`, Rust block 5.
+#[test]
+fn fusion_5() {
+    use fusion_symbols::{
+        category::FusionCategory,
+        cu1::{CU1Irrep, CU1},
+    };
+
+    let a = CU1Irrep::from_twice_charge(1);
+    let channels: Vec<_> = CU1.fusion(&a, &a).unwrap().collect();
+    assert_eq!(
+        channels,
+        vec![
+            CU1Irrep::VACUUM,
+            CU1Irrep::PSEUDOSCALAR,
+            CU1Irrep::from_twice_charge(2)
+        ]
+    );
+}
+
+/// `docs/user-guide/getting-started.md`, Rust block 1.
 #[test]
 fn getting_started_1() {
     use fusion_symbols::lie::su2::wigner_6j;
@@ -175,17 +229,21 @@ fn getting_started_1() {
     assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
 }
 
-/// `docs/user-guide/getting-started.md`, code block 2.
+/// `docs/user-guide/getting-started.md`, Rust block 2.
 #[test]
 fn getting_started_2() {
-    use fusion_symbols::sun::Irrep;
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
+    let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-    let fund = Irrep::from_dynkin(&[1, 0]).unwrap(); // the 3 of SU(3)
-    assert_eq!(fund.dim(), 3u32.into());
-    assert_eq!(fund.dual().dynkin(), vec![0, 1]); // the 3-bar
+    let fund = cat.irrep(&[1, 0]).unwrap(); // the 3 of SU(3)
+    assert_eq!(fund.dim_exact(), 3u32.into());
+    assert_eq!(cat.dual(&fund).dynkin(), vec![0, 1]); // the 3-bar
 }
 
-/// `docs/user-guide/getting-started.md`, code block 3.
+/// `docs/user-guide/getting-started.md`, Rust block 3.
 #[test]
 fn getting_started_3() {
     use fusion_symbols::lie::su2::{wigner_6j_checked, Su2Error};
@@ -200,7 +258,7 @@ fn getting_started_3() {
     ));
 }
 
-/// `docs/user-guide/groups.md`, code block 1.
+/// `docs/user-guide/groups.md`, Rust block 1.
 #[test]
 fn groups_1() {
     use fusion_symbols::{
@@ -217,18 +275,29 @@ fn groups_1() {
     assert_eq!(channels, vec![0, 2, 4]);
 }
 
-/// `docs/user-guide/groups.md`, code block 2.
+/// `docs/user-guide/groups.md`, Rust block 2.
 #[test]
 fn groups_2() {
-    use fusion_symbols::sun::{directproduct, Irrep};
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
+    let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-    let eight = Irrep::from_dynkin(&[1, 1]).unwrap(); // SU(3) adjoint
-    let decomposition = directproduct(&eight, &eight).unwrap();
+    let eight = cat.irrep(&[1, 1]).unwrap(); // SU(3) adjoint
+    let decomposition = cat
+        .fusion(&eight, &eight)
+        .unwrap()
+        .map(|c| {
+            let n = cat.nsymbol(&eight, &eight, &c);
+            (c, n)
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
     // 8 ⊗ 8 = 1 ⊕ 8 ⊕ 8 ⊕ 10 ⊕ 10-bar ⊕ 27 — note the 8 appears twice.
     assert_eq!(decomposition[&eight], 2);
 }
 
-/// `docs/user-guide/groups.md`, code block 3.
+/// `docs/user-guide/groups.md`, Rust block 3.
 #[test]
 fn groups_3() {
     use fusion_symbols::bcd::{directproduct, Irrep, Series};
@@ -241,7 +310,7 @@ fn groups_3() {
     assert_eq!(dims, vec!["1", "10", "14"]);
 }
 
-/// `docs/user-guide/groups.md`, code block 4.
+/// `docs/user-guide/groups.md`, Rust block 4.
 #[test]
 fn groups_4() {
     use fusion_symbols::bcd::Irrep;
@@ -258,7 +327,7 @@ fn groups_4() {
     assert!(Irrep::from_dynkin_in(&so5, &[0, 1]).is_err());
 }
 
-/// `docs/user-guide/groups.md`, code block 5.
+/// `docs/user-guide/groups.md`, Rust block 5.
 #[test]
 fn groups_5() {
     use fusion_symbols::bcd::{directproduct, Irrep, Series};
@@ -272,24 +341,40 @@ fn groups_5() {
     assert_eq!(dims, vec!["1", "10", "5"]); // string sort
 }
 
-/// `docs/user-guide/groups.md`, code block 6.
+/// `docs/user-guide/groups.md`, Rust block 6.
 #[test]
 fn groups_6() {
-    use fusion_symbols::lie::GroupId;
-    use fusion_symbols::sun::Irrep;
-
+    use fusion_symbols::lie::{GroupId, LieGroup};
     let psu3 = GroupId::psu(3).unwrap(); // SU(3)/Z₃
 
     // The adjoint 8 has zero triality, so it is a genuine PSU(3) representation.
-    assert!(Irrep::from_dynkin_in(&psu3, &[1, 1]).is_ok());
+    assert!(LieGroup::new(psu3).unwrap().irrep(&[1, 1]).is_ok());
 
     // The fundamental 3 has triality 1: PSU(3) has no such representation.
-    assert!(Irrep::from_dynkin_in(&psu3, &[1, 0]).is_err());
+    assert!(LieGroup::new(psu3).unwrap().irrep(&[1, 0]).is_err());
 }
 
-/// `docs/user-guide/recoupling.md`, code block 1.
+/// `docs/user-guide/recoupling.md`, Rust block 1.
 #[test]
 fn recoupling_1() {
+    use fusion_symbols::abelian::{ZNIrrep, ZN};
+    use fusion_symbols::category::{FusionCategory, SymbolBlock};
+
+    let category = ZN::new(3).unwrap();
+    let one = ZNIrrep::from_canonical(1, 3).unwrap();
+    let two = ZNIrrep::from_canonical(2, 3).unwrap();
+    assert_eq!(category.fusion(&one, &one).unwrap().next(), Some(two));
+    assert_eq!(category.r_symbol(&one, &one, &two), Ok(1.0));
+    let zero = category
+        .f_symbol(&one, &one, &one, &one, &one, &one)
+        .unwrap();
+    assert_eq!(zero, 0.0); // an inadmissible vertex is a value
+    assert_eq!(<f64 as SymbolBlock<4>>::dims(&zero), [1; 4]);
+}
+
+/// `docs/user-guide/recoupling.md`, Rust block 2.
+#[test]
+fn recoupling_2() {
     use fusion_symbols::{
         category::FusionCategory,
         lie::{su2::wigner_6j, GroupId, LieGroup},
@@ -306,29 +391,35 @@ fn recoupling_1() {
     assert_eq!(r.at(0, 0), -1.0);
 }
 
-/// `docs/user-guide/recoupling.md`, code block 2.
+/// `docs/user-guide/recoupling.md`, Rust block 3.
 #[test]
-fn recoupling_2() {
-    use fusion_symbols::sun::{f_symbol, r_symbol, Irrep};
+fn recoupling_3() {
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
+    let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-    let three = Irrep::from_dynkin(&[1, 0]).unwrap();
-    let anti = three.dual();
-    let eight = Irrep::from_dynkin(&[1, 1]).unwrap();
+    let three = cat.irrep(&[1, 0]).unwrap();
+    let anti = cat.dual(&three);
+    let eight = cat.irrep(&[1, 1]).unwrap();
 
     // F^{3 3bar 3}_{3}[8, 8]
-    let block = f_symbol(&three, &anti, &three, &three, &eight, &eight).unwrap();
+    let block = cat
+        .f_symbol(&three, &anti, &three, &three, &eight, &eight)
+        .unwrap();
     assert_eq!(block.dims(), [1, 1, 1, 1]);
     assert!((block.at(0, 0, 0, 0) - 1.0 / 3.0).abs() < 1e-12);
 
     // R^{3 3bar}_{8}
-    let r = r_symbol(&three, &anti, &eight).unwrap();
+    let r = cat.r_symbol(&three, &anti, &eight).unwrap();
     assert_eq!(r.dim(), 1);
     assert!((r.at(0, 0).abs() - 1.0).abs() < 1e-12);
 }
 
-/// `docs/user-guide/recoupling.md`, code block 3.
+/// `docs/user-guide/recoupling.md`, Rust block 4.
 #[test]
-fn recoupling_3() {
+fn recoupling_4() {
     use fusion_symbols::bcd::{f_symbol, CanonicalCatalog, Irrep, Series};
 
     let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap(); // Sp(4) = C_2
@@ -341,25 +432,43 @@ fn recoupling_3() {
     assert!((block.at(0, 0, 0, 0) - 1.0).abs() < 1e-9);
 }
 
-/// `docs/user-guide/recoupling.md`, code block 4.
+/// `docs/user-guide/recoupling.md`, Rust block 5.
 #[test]
-fn recoupling_4() {
-    use fusion_symbols::sun::{cgc, directproduct, f_symbol, Irrep};
+fn recoupling_5() {
+    use fusion_symbols::{
+        category::{FusionCategory, GroupRepresentations},
+        lie::{GroupId, LieGroup, LieIrrep},
+    };
+    let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-    let eight = Irrep::from_dynkin(&[1, 1]).unwrap();
+    let eight = cat.irrep(&[1, 1]).unwrap();
     let dim = 8usize;
 
     // N^8_88 = 2, so every multiplicity axis below has length 2.
-    assert_eq!(directproduct(&eight, &eight).unwrap()[&eight], 2);
+    assert_eq!(
+        cat.fusion(&eight, &eight)
+            .unwrap()
+            .map(|c| {
+                let n = cat.nsymbol(&eight, &eight, &c);
+                (c, n)
+            })
+            .collect::<std::collections::BTreeMap<_, _>>()[&eight],
+        2
+    );
 
-    // Densify a sparse CGC into (row-major buffer, dims), indexed [m1][m2][m3][mu].
-    let dense = |s1: &Irrep, s2: &Irrep, s3: &Irrep| {
-        let t = cgc(s1, s2, s3).unwrap();
+    // Materialize a CGC into (row-major buffer, dims), indexed [m1][m2][m3][mu].
+    let dense = |s1: &LieIrrep, s2: &LieIrrep, s3: &LieIrrep| {
+        let t = cat.cgc(s1, s2, s3).unwrap();
         let [d1, d2, d3, n] = t.dims();
         let mut buf = vec![0.0f64; d1 * d2 * d3 * n];
-        for e in t.entries() {
-            let (m1, m2, m3, mu) = (e.m1 as usize, e.m2 as usize, e.m3 as usize, e.mu as usize);
-            buf[((m1 * d2 + m2) * d3 + m3) * n + mu] = e.value;
+        for m1 in 0..d1 {
+            for m2 in 0..d2 {
+                for m3 in 0..d3 {
+                    for mu in 0..n {
+                        buf[((m1 * d2 + m2) * d3 + m3) * n + mu] = t.at(m1, m2, m3, mu);
+                    }
+                }
+            }
         }
         (buf, [d1, d2, d3, n])
     };
@@ -372,12 +481,19 @@ fn recoupling_4() {
 
     // Right tree: for every channel f of 8 x 8, the F block F^{888}_8[e=8, f]
     // (shape [2, 2, N^f_88, N^8_8f]) and the two CGC carrying kappa and lambda.
-    let right: Vec<_> = directproduct(&eight, &eight)
+    let right: Vec<_> = cat
+        .fusion(&eight, &eight)
         .unwrap()
+        .map(|c| {
+            let n = cat.nsymbol(&eight, &eight, &c);
+            (c, n)
+        })
+        .collect::<std::collections::BTreeMap<_, _>>()
         .keys()
         .map(|f| {
             (
-                f_symbol(&eight, &eight, &eight, &eight, &eight, f).unwrap(),
+                cat.f_symbol(&eight, &eight, &eight, &eight, &eight, f)
+                    .unwrap(),
                 dense(&eight, &eight, f), // C^{bc->f}[mb, mc, mf, kappa]
                 dense(&eight, f, &eight), // C^{af->d}[ma, mf, md, lambda]
             )
@@ -423,21 +539,45 @@ fn recoupling_4() {
     assert!(worst < 1e-9, "F-move residual {worst}");
 }
 
-/// `docs/user-guide/recoupling.md`, code block 5.
+/// `docs/user-guide/recoupling.md`, Rust block 6.
 #[test]
-fn recoupling_5() {
-    use fusion_symbols::sun::{check_f_unitarity, check_hexagon, check_pentagon, Irrep};
+fn recoupling_6() {
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
+    let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-    let three = Irrep::from_dynkin(&[1, 0]).unwrap();
-    let anti = three.dual();
-    check_f_unitarity(&three, &anti, &three, &three).unwrap();
-    check_pentagon(&three, &anti, &three, &anti).unwrap();
-    check_hexagon(&three, &anti, &three).unwrap();
+    let three = cat.irrep(&[1, 0]).unwrap();
+    let anti = cat.dual(&three);
+    assert!(
+        fusion_symbols::category::f_unitarity_residual(&cat, &three, &anti, &three, &three)
+            .unwrap()
+            < 1e-10
+    );
+    assert!(
+        fusion_symbols::category::pentagon_residual(&cat, &three, &anti, &three, &anti).unwrap()
+            < 1e-10
+    );
+    assert!(
+        fusion_symbols::category::hexagon_residual(&cat, &three, &anti, &three).unwrap() < 1e-10
+    );
 }
 
-/// `docs/user-guide/representations.md`, code block 1.
+/// `docs/user-guide/representations.md`, Rust block 1.
 #[test]
 fn representations_1() {
+    use fusion_symbols::{category::FusionCategory, table::TableCategory};
+
+    let fib = TableCategory::fibonacci();
+    let tau = fib.object(2).unwrap();
+    assert_eq!(tau.index(), 2);
+    assert_eq!(fib.fusion(&tau, &tau).unwrap().count(), 2);
+}
+
+/// `docs/user-guide/representations.md`, Rust block 2.
+#[test]
+fn representations_2() {
     use fusion_symbols::{
         category::FusionCategory,
         lie::{GroupId, LieGroup},
@@ -450,24 +590,29 @@ fn representations_1() {
     assert_eq!(group.frobenius_schur_phase(&s), -1.0);
 }
 
-/// `docs/user-guide/representations.md`, code block 2.
-#[test]
-fn representations_2() {
-    use fusion_symbols::sun::Irrep;
-
-    let three = Irrep::from_dynkin(&[1, 0]).unwrap(); // SU(3) fundamental
-    let eight = Irrep::from_dynkin(&[1, 1]).unwrap(); // SU(3) adjoint
-    let singlet = Irrep::trivial(3).unwrap(); // == from_dynkin(&[0, 0])
-
-    assert_eq!(three.dim(), 3u32.into());
-    assert_eq!(eight.dim(), 8u32.into());
-    assert_eq!(three.dual().dynkin(), vec![0, 1]); // 3-bar
-    assert_eq!(eight.dual(), eight); // the adjoint is self-dual
-}
-
-/// `docs/user-guide/representations.md`, code block 3.
+/// `docs/user-guide/representations.md`, Rust block 3.
 #[test]
 fn representations_3() {
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
+    let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+
+    let three = cat.irrep(&[1, 0]).unwrap(); // SU(3) fundamental
+    let eight = cat.irrep(&[1, 1]).unwrap(); // SU(3) adjoint
+    let singlet = cat.unit();
+    assert_eq!(singlet.dim_exact(), 1.into());
+
+    assert_eq!(three.dim_exact(), 3u32.into());
+    assert_eq!(eight.dim_exact(), 8u32.into());
+    assert_eq!(cat.dual(&three).dynkin(), vec![0, 1]); // 3-bar
+    assert_eq!(cat.dual(&eight), eight); // the adjoint is self-dual
+}
+
+/// `docs/user-guide/representations.md`, Rust block 4.
+#[test]
+fn representations_4() {
     use fusion_symbols::bcd::{Irrep, Series};
 
     // SO(5) = B_2. Dynkin [1, 0] is the 5-dimensional vector representation.
@@ -478,9 +623,9 @@ fn representations_3() {
     assert_eq!(v.partition(), Some(vec![1, 0])); // λ = (1, 0)
 }
 
-/// `docs/user-guide/representations.md`, code block 4.
+/// `docs/user-guide/representations.md`, Rust block 5.
 #[test]
-fn representations_4() {
+fn representations_5() {
     use fusion_symbols::bcd::{Irrep, Series};
 
     // Sp(4) = C_2. Its defining 4 is pseudo-real; the 5 is real.
@@ -492,7 +637,7 @@ fn representations_4() {
     assert_eq!(five.frobenius_schur(), 1);
 }
 
-/// `docs/user-guide/resources.md`, code block 1.
+/// `docs/user-guide/resources.md`, Rust block 1.
 #[test]
 fn resources_1() {
     use fusion_symbols::cache::{
@@ -504,7 +649,7 @@ fn resources_1() {
     let _ = configure_cache_budgets(budgets);
 }
 
-/// `docs/user-guide/resources.md`, code block 2.
+/// `docs/user-guide/resources.md`, Rust block 2.
 #[test]
 fn resources_2() {
     use fusion_symbols::cache::{base_cache_stats, reset, trim_to, CoefficientCacheTier};
@@ -520,7 +665,7 @@ fn resources_2() {
     reset(); // all tiers: entries, bytes, counters to zero
 }
 
-/// `docs/user-guide/resources.md`, code block 3.
+/// `docs/user-guide/resources.md`, Rust block 3.
 #[test]
 fn resources_3() {
     use fusion_symbols::{

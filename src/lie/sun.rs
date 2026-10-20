@@ -1,13 +1,13 @@
 //! SU(N) irreps and their Clebsch–Gordan / recoupling coefficients, built by
 //! the Gelfand–Tsetlin (GT) construction.
 //!
-//! An [`Irrep`](crate::sun::Irrep) is an SU(N) highest weight; from it this
-//! module gives the Weyl [`dimension`](crate::sun::Irrep::dim), the
-//! [`dual`](crate::sun::Irrep::dual), the GT basis
-//! ([`patterns`](crate::sun::Irrep::patterns)), Littlewood–Richardson products (fusion
+//! An [`Irrep`](crate::lie::sun::Irrep) is an SU(N) highest weight; from it this
+//! module gives the Weyl [`dimension`](crate::lie::sun::Irrep::dim), the
+//! [`dual`](crate::lie::sun::Irrep::dual), the GT basis
+//! ([`patterns`](crate::lie::sun::Irrep::patterns)), Littlewood–Richardson products (fusion
 //! multiplicities), and — the point of the module — the Clebsch–Gordan
-//! coefficients [`cgc`](crate::sun::cgc) and the recoupling
-//! [`f_symbol`](crate::sun::f_symbol) / [`r_symbol`](crate::sun::r_symbol),
+//! coefficients [`cgc`](crate::lie::sun::cgc) and the recoupling
+//! [`f_symbol`](crate::lie::sun::f_symbol) / [`r_symbol`](crate::lie::sun::r_symbol),
 //! with outer-multiplicity indices. Values are exact rationals (labels, dimensions,
 //! GT ladder matrices) up to the CGC nullspace solve, which is
 //! verification-gated floating point.
@@ -26,13 +26,13 @@
 //!
 //! ## Label normalization invariant
 //!
-//! An [`Irrep`](crate::sun::Irrep) stores the SU(N) highest weight as a *normalized* weight
+//! An [`Irrep`](crate::lie::sun::Irrep) stores the SU(N) highest weight as a *normalized* weight
 //! `λ = (λ₁ ≥ λ₂ ≥ … ≥ λ_N)` with `λ_N = 0` and all `λ_i ≥ 0`, of length `N`
 //! (`= rank`). This matches `sunirrep.jl`'s `weight(s)` (`_dynkin_to_weight`
 //! produces a nonincreasing tuple with last component 0). Weight input is
 //! shift-invariant: any representative is accepted and normalized by
 //! subtracting `λ_N`. The Dynkin labels `aᵢ = λᵢ − λᵢ₊₁` (all `≥ 0`) are
-//! derivable via [`Irrep::dynkin`](crate::sun::Irrep::dynkin).
+//! derivable via [`Irrep::dynkin`](crate::lie::sun::Irrep::dynkin).
 //!
 //! # Published object and global form
 //!
@@ -42,38 +42,16 @@
 //! changes is *which highest weights are admissible* — never a coefficient
 //! value.
 //!
-//! - [`Irrep::from_dynkin`](crate::sun::Irrep::from_dynkin) is the simply
-//!   connected form `SU(N)`: every dominant integral weight. Unchanged.
-//! - [`Irrep::from_dynkin_in`](crate::sun::Irrep::from_dynkin_in) takes the
-//!   group explicitly, so the central quotients `SU(N)/Z_k` (`k | N`) and
-//!   `PSU(N) = SU(N)/Z_N` are available: a weight is admitted iff its
-//!   `N`-ality `Σ i·aᵢ ≡ 0 (mod k)`. `PSU(3)` admits the adjoint `[1,1]` and
-//!   rejects the fundamental `[1,0]`.
+//! Public labels are constructed by `LieGroup::irrep`, which validates
+//! `GroupId::admits` before calling this private, form-free generator.
+//! `PSU(3)` admits the adjoint `[1,1]` and rejects the fundamental `[1,0]`.
 //!
 //! The `N`-ality rule lives once, in
-//! [`GroupId::admits`](crate::lie::GroupId::admits); this module only calls
-//! it. There is exactly one GT/CGC/F/R engine, and an [`Irrep`](crate::sun::Irrep)
+//! [`GroupId::admits`](crate::lie::GroupId::admits); the public LieGroup calls
+//! it before entering this module. There is exactly one GT/CGC/F/R engine, and an [`Irrep`](crate::lie::sun::Irrep)
 //! stores no global form: two forms that share a weight share its basis
 //! ordering, phases, normalization, gauge and cache entries.
 //!
-//! # Example
-//!
-//! Irreps are built from Dynkin labels (length `N-1`). This computes an
-//! SU(3) F-symbol block for the sextet `1 ⊗ 3 ⊗ 3 → 6`; with `a` trivial the
-//! move is the `1×1×1×1` identity (value 1):
-//!
-//! ```
-//! use fusion_symbols::sun::{f_symbol, Irrep};
-//!
-//! let triv = Irrep::trivial(3).unwrap(); // SU(3) singlet
-//! let three = Irrep::from_dynkin(&[1, 0]).unwrap(); // fundamental
-//! let six = Irrep::from_dynkin(&[2, 0]).unwrap();
-//!
-//! let block = f_symbol(&triv, &three, &three, &six, &three, &six).unwrap();
-//! assert_eq!(block.dims(), [1, 1, 1, 1]);
-//! assert!((block.at(0, 0, 0, 0) - 1.0).abs() < 1e-12);
-//! ```
-
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::sync::Arc;
@@ -82,16 +60,15 @@ use num_bigint::BigInt;
 use num_rational::Ratio;
 use num_traits::{One, Signed, Zero};
 
+use super::GtPattern;
 use crate::exact::SignedSqrtRational;
 
 mod cgc;
 mod fr;
 mod linalg;
 
-pub use cgc::{cgc, Cgc, CgcEntry};
-pub use fr::{
-    check_f_unitarity, check_hexagon, check_pentagon, f_symbol, r_symbol, FBlock, RBlock,
-};
+pub use cgc::{cgc, Cgc};
+pub use fr::{f_symbol, r_symbol, FBlock};
 
 /// Error for a malformed SU(N) irrep label. The public constructors never
 /// panic; they return this instead.
@@ -99,7 +76,7 @@ pub use fr::{
 /// Not `Eq`: the generation gates ([`SunError::NotOrthonormal`] and friends)
 /// carry an `f64` residual for diagnostics.
 #[derive(Clone, Debug, PartialEq)]
-pub enum SunError {
+pub(crate) enum SunError {
     /// A rank-0 label (empty weight / empty Dynkin for `N = 1` is a single
     /// zero, so a genuinely empty slice is rejected here).
     EmptyLabel,
@@ -111,37 +88,6 @@ pub enum SunError {
     },
     /// A Dynkin label with a negative component.
     NegativeDynkin {
-        /// The offending Dynkin label.
-        dynkin: Vec<i64>,
-    },
-    /// A [`GroupId`](crate::lie::GroupId) whose root system is not an `A_r`,
-    /// passed to [`Irrep::from_dynkin_in`].
-    UnsupportedRootSystem {
-        /// The offending root system.
-        root_system: crate::lie::RootSystem,
-    },
-    /// The Dynkin label passed to [`Irrep::from_dynkin_in`] has a different
-    /// length than the rank of the group's root system.
-    LabelRankMismatch {
-        /// The group's rank `N-1`.
-        expected: usize,
-        /// The label length.
-        got: usize,
-    },
-    /// A valid dominant integral highest weight of `SU(N)` that the requested
-    /// global form does not admit: its central character is non-trivial on the
-    /// quotiented-out subgroup `Γ ⊆ Z_N`. For `SU(N)/Z_k` this is exactly
-    /// `N`-ality `Σ i·aᵢ ≢ 0 (mod k)`; for `PSU(N)` (`k = N`) it is non-zero
-    /// `N`-ality.
-    ///
-    /// A global-form violation, kept distinct from
-    /// [`SunError::NegativeDynkin`] / [`SunError::LabelRankMismatch`] (invalid
-    /// labels) and from the generation/verification gates. The rule itself
-    /// lives once, in [`GroupId::admits`](crate::lie::GroupId::admits) —
-    /// `sun` does not reimplement it.
-    NotAdmissible {
-        /// The group whose global form rejected the weight.
-        group: crate::lie::GroupId,
         /// The offending Dynkin label.
         dynkin: Vec<i64>,
     },
@@ -182,36 +128,24 @@ pub enum SunError {
     /// the backend's message; surfaced rather than panicked because the
     /// floating-point stages are verification-gated, not proven-unreachable.
     Linalg(String),
-    /// An F- or R-symbol was requested for labels where one of the required
-    /// fusion vertices is empty (`N^c_{ab} = 0`). The reference `_Fsymbol` /
-    /// `_Rsymbol` return an all-zero block *by construction* when a channel is
-    /// empty; this crate exposes a query API, so an empty vertex is an
-    /// ill-posed question and becomes a typed error (the reference's
-    /// `Nsymbol(...) == 0 && return zeros` short-circuit).
-    /// Carries the offending vertex `a ⊗ b → c` as Dynkin labels.
-    ZeroFusionChannel {
-        /// Dynkin label of the vertex's left factor.
-        a: Vec<i64>,
-        /// Dynkin label of the vertex's right factor.
-        b: Vec<i64>,
-        /// Dynkin label of the vertex's coupled irrep.
-        c: Vec<i64>,
-    },
     /// The F-move matrix (rows `(e, μ, ν)`, cols `(f, κ, λ)` for fixed outer
     /// labels `a, b, c, d`) failed the unitarity gate. The value is the worst
     /// `|(F Fᵀ - I)_{ij}|`.
+    #[cfg(test)]
     FNotUnitary {
         /// Worst unitarity residual.
         residual: f64,
     },
     /// The pentagon identity spot check exceeded tolerance for the sampled
     /// `(a, b, c, d)` family. The value is the worst two-sided residual.
+    #[cfg(test)]
     PentagonViolation {
         /// Worst pentagon residual.
         residual: f64,
     },
     /// A hexagon identity spot check exceeded tolerance for the sampled
     /// `(a, b, c)` family. The value is the worst two-sided residual.
+    #[cfg(test)]
     HexagonViolation {
         /// Worst hexagon residual.
         residual: f64,
@@ -225,21 +159,6 @@ impl fmt::Display for SunError {
             SunError::NotNonincreasing { weight } => {
                 write!(f, "SU(N) weight is not nonincreasing: {weight:?}")
             }
-            SunError::UnsupportedRootSystem { root_system } => write!(
-                f,
-                "root system {root_system} is not an A_r: SU(N) labels need A(N-1)"
-            ),
-            SunError::LabelRankMismatch { expected, got } => write!(
-                f,
-                "Dynkin label of length {got} for a rank-{expected} group"
-            ),
-            SunError::NotAdmissible { group, dynkin } => write!(
-                f,
-                "Dynkin label {dynkin:?} is a dominant integral weight of SU(N) but not a \
-                 representation of {group:?}: its N-ality is non-trivial on the \
-                 quotiented-out subgroup of the center — construct it through \
-                 Irrep::from_dynkin (the simply connected form)"
-            ),
             SunError::NegativeDynkin { dynkin } => {
                 write!(f, "SU(N) Dynkin label has a negative component: {dynkin:?}")
             }
@@ -260,16 +179,15 @@ impl fmt::Display for SunError {
                 write!(f, "CGC ladder-descent inconsistent (residual {residual:e})")
             }
             SunError::Linalg(msg) => write!(f, "dense factorization failed: {msg}"),
-            SunError::ZeroFusionChannel { a, b, c } => write!(
-                f,
-                "empty fusion vertex {a:?} ⊗ {b:?} → {c:?} (N = 0) in an F/R request"
-            ),
+            #[cfg(test)]
             SunError::FNotUnitary { residual } => {
                 write!(f, "F-move matrix not unitary (residual {residual:e})")
             }
+            #[cfg(test)]
             SunError::PentagonViolation { residual } => {
                 write!(f, "pentagon identity violated (residual {residual:e})")
             }
+            #[cfg(test)]
             SunError::HexagonViolation { residual } => {
                 write!(f, "hexagon identity violated (residual {residual:e})")
             }
@@ -286,20 +204,11 @@ impl std::error::Error for SunError {}
 /// label *length* fixes `N`, so `&[1, 0]` is SU(3). [`Irrep::rank`] returns `N`
 /// (not `N-1`).
 ///
-/// ```
-/// use fusion_symbols::sun::Irrep;
-///
-/// let three = Irrep::from_dynkin(&[1, 0]).unwrap(); // SU(3) fundamental
-/// assert_eq!(three.rank(), 3);
-/// assert_eq!(three.dim(), 3u32.into());
-/// assert_eq!(three.dual().dynkin(), vec![0, 1]);    // the 3-bar
-/// assert_eq!(Irrep::trivial(3).unwrap().dim(), 1u32.into());
-/// ```
 ///
 /// `Ord`/`Hash` are on the normalized weight, so two `Irrep`s are equal iff
 /// they denote the same irrep; the order is deterministic (used as a map key).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Irrep {
+pub(crate) struct Irrep {
     /// Normalized highest weight, length `N`, nonincreasing, last entry `0`.
     weight: Box<[i64]>,
 }
@@ -332,6 +241,10 @@ impl crate::cache::CacheKeyCharge for SunProductKey {
 pub struct SunProduct(Arc<[(Irrep, u32)]>);
 
 impl SunProduct {
+    pub(super) fn channel(&self, index: usize) -> &Irrep {
+        &self.0[index].0
+    }
+
     pub(crate) fn from_map(product: BTreeMap<Irrep, u32>) -> Self {
         Self(product.into_iter().collect())
     }
@@ -440,65 +353,9 @@ impl Irrep {
         })
     }
 
-    /// Construct from the `N-1` Dynkin labels of `group` — the form-aware
-    /// constructor, the `A`-series analogue of
-    /// [`bcd::Irrep::from_dynkin_in`](crate::bcd::Irrep::from_dynkin_in).
-    ///
-    /// `group.root_system` must be `A(N-1)` and `dynkin.len()` must equal its
-    /// rank. A weight the global form does not admit — i.e. one whose central
-    /// character is non-trivial on the quotiented-out `Γ ⊆ Z_N` — is
-    /// [`SunError::NotAdmissible`].
-    ///
-    /// The returned [`Irrep`] carries **no** record of the global form: it is
-    /// representation data, and every coefficient of an admissible weight comes
-    /// from the one SU(N) Gelfand–Tsetlin engine. `SU(N)`, `SU(N)/Z_k` and
-    /// `PSU(N)` share basis, ordering, phases, normalization, gauge and cache
-    /// entries; the form only gates *which* weights may be asked for.
-    /// [`Irrep::from_dynkin`] is exactly this constructor at
-    /// `GroupId::su(dynkin.len() + 1)`.
-    ///
-    /// ```
-    /// use fusion_symbols::sun::Irrep;
-    /// use fusion_symbols::lie::GroupId;
-    ///
-    /// let psu3 = GroupId::psu(3).unwrap();
-    /// // The adjoint (8) has zero 3-ality and is a genuine PSU(3) rep.
-    /// let adjoint = Irrep::from_dynkin_in(&psu3, &[1, 1]).unwrap();
-    /// assert_eq!(adjoint, Irrep::from_dynkin(&[1, 1]).unwrap());
-    ///
-    /// // The fundamental (3) is not: PSU(3) has no triality-1 representation.
-    /// assert!(Irrep::from_dynkin_in(&psu3, &[1, 0]).is_err());
-    /// ```
-    pub fn from_dynkin_in(group: &crate::lie::GroupId, dynkin: &[i64]) -> Result<Self, SunError> {
-        let r = match group.root_system {
-            crate::lie::RootSystem::A(r) => r,
-            other => return Err(SunError::UnsupportedRootSystem { root_system: other }),
-        };
-        if dynkin.len() != r {
-            return Err(SunError::LabelRankMismatch {
-                expected: r,
-                got: dynkin.len(),
-            });
-        }
-        if dynkin.iter().any(|&a| a < 0) {
-            return Err(SunError::NegativeDynkin {
-                dynkin: dynkin.to_vec(),
-            });
-        }
-        // The central-character condition, one implementation, in
-        // `crate::lie`. `sun` must not restate the N-ality
-        // rule.
-        if !group.admits(dynkin) {
-            return Err(SunError::NotAdmissible {
-                group: *group,
-                dynkin: dynkin.to_vec(),
-            });
-        }
-        Self::from_dynkin(dynkin)
-    }
-
     /// The trivial (vacuum) SU(N) irrep — the all-zero weight of length `N`.
     /// `N` must be `≥ 1` ([`SunError::EmptyLabel`] otherwise).
+    #[cfg(test)]
     pub fn trivial(n: usize) -> Result<Self, SunError> {
         if n == 0 {
             return Err(SunError::EmptyLabel);
@@ -514,7 +371,7 @@ impl Irrep {
     }
 
     /// The normalized highest weight (length `N`, nonincreasing, last `0`).
-    pub fn weight(&self) -> &[i64] {
+    fn weight(&self) -> &[i64] {
         &self.weight
     }
 
@@ -600,42 +457,6 @@ impl Irrep {
         }
     }
 
-    /// The Frobenius–Schur indicator: `+1` (real), `-1` (quaternionic), or `0`
-    /// (complex, i.e. not self-dual), as [`crate::bcd::Irrep::frobenius_schur`]
-    /// for B/C/D.
-    ///
-    /// TensorKitSectors 0.3.9 `src/sectors.jl:frobenius_schur_indicator`: the
-    /// [`frobenius_schur_phase`](Self::frobenius_schur_phase) on a self-dual
-    /// irrep, `0` otherwise. On a self-dual irrep $a_i = a_{N-i}$, so only the
-    /// middle label survives the parity: the indicator is `-1` exactly when
-    /// `N ≡ 2 (mod 4)` and $a_{N/2}$ is odd (SU(2) half-integer spins, the
-    /// SU(6) `20`).
-    pub fn frobenius_schur(&self) -> i32 {
-        if *self != self.dual() {
-            0
-        } else if self.frobenius_schur_phase() > 0.0 {
-            1
-        } else {
-            -1
-        }
-    }
-
-    /// The twist $\theta_a$: exactly `1.0` for every irrep.
-    ///
-    /// SUNRepresentations 0.4.0 `src/sector.jl` sets
-    /// `BraidingStyle(::Type{<:SUNIrrep}) = Bosonic()` and does not override
-    /// `twist`, so the value is TensorKitSectors 0.3.9
-    /// `src/sectors.jl:twist_from_Rsymbol`,
-    /// $\theta_a = \sum_{c \in a \otimes a} (d_c / d_a)\, \operatorname{tr} R^{aa}_c$.
-    /// It is exactly one: the group braiding is the tensor flip $\tau$, which
-    /// acts on the $c$-isotypic part of $V_a \otimes V_a$ as
-    /// $R^{aa}_c \otimes \mathrm{id}_{V_c}$, so
-    /// $\sum_c d_c \operatorname{tr} R^{aa}_c = \operatorname{Tr}\tau = d_a$.
-    /// Base-crate API: no R-symbol is generated to answer it.
-    pub fn twist(&self) -> f64 {
-        1.0
-    }
-
     /// All GT patterns of this irrep, in the reference basis order.
     ///
     /// Ported from `gtpatterns.jl:GTPatternIterator` /
@@ -661,7 +482,7 @@ impl Irrep {
     /// [`Irrep::patterns`]. Ported from `gtpatterns.jl:creation`; the entry is
     /// `signedroot(coef)` of the exact GT rational `coef`, carried as a
     /// [`SignedSqrtRational`] (its `signed_square()` equals `coef`).
-    pub fn creation(&self) -> Vec<Vec<LadderEntry>> {
+    fn creation(&self) -> Vec<Vec<LadderEntry>> {
         let n = self.rank();
         let pats = self.patterns();
         // Basis index of each pattern (the reference `table`).
@@ -747,7 +568,7 @@ impl Irrep {
     /// [`Irrep::creation`] (`annihilation(s) = [op' for op in creation(s)]`,
     /// `gtpatterns.jl`). Entries are real, so the transpose just swaps
     /// `row`/`col`.
-    pub fn annihilation(&self) -> Vec<Vec<LadderEntry>> {
+    fn annihilation(&self) -> Vec<Vec<LadderEntry>> {
         self.creation()
             .into_iter()
             .map(|mat| {
@@ -766,59 +587,13 @@ impl Irrep {
 /// A single nonzero entry of a GT ladder matrix: `value` at `(row, col)`, with
 /// `row`/`col` 0-based indices into [`Irrep::patterns`].
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LadderEntry {
+struct LadderEntry {
     /// Row index (0-based basis index of the raised pattern).
     pub row: usize,
     /// Column index (0-based basis index of the source pattern).
     pub col: usize,
     /// The exact matrix element `sign * sqrt(radicand)`.
     pub value: SignedSqrtRational,
-}
-
-/// A Gelfand–Tsetlin pattern of an SU(N) irrep.
-///
-/// Storage mirrors `gtpatterns.jl:GTPattern`: the triangular array flattened
-/// top row first (`l = N`, then `l = N-1`, …, `l = 1`), each row `l` occupying
-/// `l` contiguous entries. Access via [`GtPattern::get`] with 1-based
-/// `(k, l)`, `1 ≤ k ≤ l ≤ N`.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct GtPattern {
-    n: usize,
-    data: Box<[i64]>,
-}
-
-impl GtPattern {
-    /// The flat pattern data, top row (`l = N`) first (the reference
-    /// `m.data` order).
-    pub fn data(&self) -> &[i64] {
-        &self.data
-    }
-
-    /// The rank `N`.
-    pub fn rank(&self) -> usize {
-        self.n
-    }
-
-    /// Entry `m[k, l]`, `1 ≤ k ≤ l ≤ N`. Panics only on an out-of-range index,
-    /// which is an internal invariant of the enumeration/ladder code (never
-    /// reachable from public input).
-    #[inline]
-    pub fn get(&self, k: usize, l: usize) -> i64 {
-        self.data[Self::flat_index(self.n, k, l)]
-    }
-
-    #[inline]
-    fn set(&mut self, k: usize, l: usize, v: i64) {
-        let idx = Self::flat_index(self.n, k, l);
-        self.data[idx] = v;
-    }
-
-    /// 0-based flat index of `m[k, l]`. The reference (1-based) index is
-    /// `k + ((l+1+N)(N-l))>>1`; subtracting 1 gives the 0-based form.
-    #[inline]
-    fn flat_index(n: usize, k: usize, l: usize) -> usize {
-        (k - 1) + (((l + 1 + n) * (n - l)) >> 1)
-    }
 }
 
 /// Enumerate the flat data of every GT pattern with the given top row, in the
@@ -888,20 +663,7 @@ fn subrow_rec(j: usize, m: usize, toprow: &[i64], cur: &mut Vec<i64>, out: &mut 
 /// [`shared_directproduct`] instead when you decompose the same pair
 /// repeatedly and want the cached, cheaply cloneable form.
 ///
-/// ```
-/// use fusion_symbols::sun::{directproduct, Irrep};
-///
-/// let three = Irrep::from_dynkin(&[1, 0]).unwrap();
-/// let eight = Irrep::from_dynkin(&[1, 1]).unwrap();
-///
-/// // 3 (x) 3-bar = 1 (+) 8.
-/// let out = directproduct(&three, &three.dual()).unwrap();
-/// assert_eq!(out.len(), 2);
-/// assert_eq!(out[&eight], 1);
-///
-/// // 8 (x) 8 contains the adjoint twice: N^8_88 = 2.
-/// assert_eq!(directproduct(&eight, &eight).unwrap()[&eight], 2);
-/// ```
+#[cfg(test)]
 pub fn directproduct(a: &Irrep, b: &Irrep) -> Result<BTreeMap<Irrep, u32>, SunError> {
     let product = shared_directproduct(a, b)?;
     #[cfg(test)]
@@ -1071,7 +833,7 @@ fn signedroot(coef: &Ratio<BigInt>) -> SignedSqrtRational {
 /// **Unstable: shape may change.** Cargo features cannot express instability
 /// tiers, so this rustdoc label is the marker.
 #[cfg(feature = "cgc-gen")]
-pub fn sun_authority_fingerprint() -> &'static [u8] {
+pub fn fingerprint() -> &'static [u8] {
     // Spec version. Bump the trailing `epoch=N` (and the literal in
     // tests/sun_fingerprint.rs) only when docs/gauge.md is corrected, under the
     // four-step rule in its "Status" section. A refactor never bumps it.
@@ -1500,3 +1262,19 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "sun/sun_oracle_tests.rs"]
+mod sun_oracle_tests;
+
+#[cfg(test)]
+#[path = "sun/sun_cgc_gauge_tests.rs"]
+mod sun_cgc_gauge_tests;
+
+#[cfg(all(test, feature = "cgc-gen"))]
+#[path = "sun/sun_fr_su2_tests.rs"]
+mod sun_fr_su2_tests;
+
+#[cfg(test)]
+#[path = "sun/su2_embedding_tests.rs"]
+mod su2_embedding_tests;

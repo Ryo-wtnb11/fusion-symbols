@@ -480,7 +480,7 @@ All paths use explicit `Par::Seq` and scratch workspaces where required. Only
 
 The Gram–Schmidt sweep arithmetic (vector scaling, subtraction, norms, and the
 sparse `Sp`/diagonal-`Sz` applications) is the **gauge algorithm itself** — the
-analogue of `sun::cgc`'s `cref`, which `docs/gauge.md` §10 likewise carries in
+analogue of `GroupRepresentations::cgc`'s `cref`, which `docs/gauge.md` §10 likewise carries in
 plain code rather than routing through a factorization kernel. The
 `t4a-faer` crates.io semver requirement is in `Cargo.toml`.
 

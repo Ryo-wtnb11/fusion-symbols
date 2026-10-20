@@ -1,4 +1,4 @@
-//! Multiplicity-free identities from TensorKitSectors 0.3.9 `src/sectors.jl`:
+//! Fusion-category identities from TensorKitSectors 0.3.9 `src/sectors.jl`:
 //! triangle_equation, pentagon_equation, hexagon_equation,
 //! frobenius_schur_phase_from_Fsymbol and twist_from_Rsymbol.
 //! Fusion outcomes are enumerated by the category, including intermediate
@@ -39,20 +39,8 @@ fn f<C: FusionCategory>(cat: &C, [a, b, c, d, e, f]: [&C::Object; 6]) -> C::Scal
     }
 }
 
-fn r<C: FusionCategory>(cat: &C, a: &C::Object, b: &C::Object, c: &C::Object) -> C::Scalar {
-    let block = cat.r_symbol(a, b, c).unwrap();
-    if cat.nsymbol(a, b, c) == 0 {
-        assert!(block.as_slice().iter().all(|&x| x == C::Scalar::zero()));
-        C::Scalar::zero()
-    } else {
-        block.get([0; 2])
-    }
-}
-
-// These slices implement multiplicity-free categories. Higher-multiplicity
-// conformance needs sums over vertex indices when that family is migrated.
 fn conformance<C: FusionCategory>(cat: C, labels: Vec<C::Object>) {
-    assert_ne!(cat.fusion_style(), FusionStyle::Generic);
+    use fusion_symbols::category::{f_unitarity_residual, hexagon_residual, pentagon_residual};
     let one = C::Scalar::one();
     let zero = C::Scalar::zero();
     let unit = cat.unit();
@@ -78,7 +66,11 @@ fn conformance<C: FusionCategory>(cat: C, labels: Vec<C::Object>) {
         if cat.braiding_style() != BraidingStyle::None {
             let mut twist = zero;
             for b in outcomes(&cat, a, a) {
-                twist = twist + C::Scalar::from_f64(cat.dim(&b) / cat.dim(a)) * r(&cat, a, a, &b);
+                let block = cat.r_symbol(a, a, &b).unwrap();
+                for mu in 0..cat.nsymbol(a, a, &b) as usize {
+                    twist =
+                        twist + C::Scalar::from_f64(cat.dim(&b) / cat.dim(a)) * block.get([mu, mu]);
+                }
             }
             close(cat.twist(a), twist);
         }
@@ -89,90 +81,56 @@ fn conformance<C: FusionCategory>(cat: C, labels: Vec<C::Object>) {
                 .sum();
             close(cat.dim(a) * cat.dim(b), dimension_sum);
             for c in outcomes(&cat, a, b) {
-                // Triangle/unit F moves.
-                close(f(&cat, [&unit, a, b, &c, a, &c]), one);
-                close(f(&cat, [a, &unit, b, &c, a, b]), one);
-                close(f(&cat, [a, b, &unit, &c, &c, b]), one);
+                let n = cat.nsymbol(a, b, &c) as usize;
+                let blocks = [
+                    (cat.f_symbol(&unit, a, b, &c, a, &c).unwrap(), 0),
+                    (cat.f_symbol(a, &unit, b, &c, a, b).unwrap(), 1),
+                    (cat.f_symbol(a, b, &unit, &c, &c, b).unwrap(), 2),
+                ];
+                for (block, kind) in blocks {
+                    for mu in 0..n {
+                        for nu in 0..n {
+                            let indices = match kind {
+                                0 => [0, mu, nu, 0],
+                                1 => [0, mu, 0, nu],
+                                _ => [mu, 0, 0, nu],
+                            };
+                            close(block.get(indices), if mu == nu { one } else { zero });
+                        }
+                    }
+                }
             }
             for c in &labels {
                 if matches!(
                     cat.braiding_style(),
                     BraidingStyle::Bosonic | BraidingStyle::Fermionic
                 ) {
-                    assert_eq!(cat.nsymbol(a, b, c), cat.nsymbol(b, a, c));
-                    if cat.nsymbol(a, b, c) != 0 {
-                        close(r(&cat, a, b, c) * r(&cat, b, a, c), one);
+                    let n = cat.nsymbol(a, b, c) as usize;
+                    assert_eq!(n, cat.nsymbol(b, a, c) as usize);
+                    if n != 0 {
+                        let ab = cat.r_symbol(a, b, c).unwrap();
+                        let ba = cat.r_symbol(b, a, c).unwrap();
+                        for mu in 0..n {
+                            for nu in 0..n {
+                                let mut dot = zero;
+                                for k in 0..n {
+                                    dot = dot + ab.get([mu, k]) * ba.get([k, nu]);
+                                }
+                                close(dot, if mu == nu { one } else { zero });
+                            }
+                        }
                     }
                 }
-                // Complete F row orthogonality over all right channels.
-                for e1 in outcomes(&cat, a, b) {
-                    for d in outcomes(&cat, &e1, c) {
-                        for e2 in outcomes(&cat, a, b) {
-                            if cat.nsymbol(&e2, c, &d) == 0 {
-                                continue;
-                            }
-                            let mut dot = zero;
-                            for right in outcomes(&cat, b, c) {
-                                dot = dot
-                                    + f(&cat, [a, b, c, &d, &e1, &right])
-                                        * f(&cat, [a, b, c, &d, &e2, &right]).conj();
-                            }
-                            close(dot, if e1 == e2 { one } else { zero });
-                        }
+                for e in outcomes(&cat, a, b) {
+                    for d in outcomes(&cat, &e, c) {
+                        close(f_unitarity_residual(&cat, a, b, c, &d).unwrap(), 0.0);
                     }
                 }
                 if cat.braiding_style() != BraidingStyle::None {
-                    // Both hexagons, using the reference's axis/argument order.
-                    for e in outcomes(&cat, c, a) {
-                        for right in outcomes(&cat, c, b) {
-                            for d in outcomes(&cat, &e, b) {
-                                if cat.nsymbol(a, &right, &d) == 0 {
-                                    continue;
-                                }
-                                let middle = f(&cat, [a, c, b, &d, &e, &right]);
-                                let lhs = r(&cat, c, a, &e) * middle * r(&cat, c, b, &right);
-                                let lhs_under = r(&cat, a, c, &e).conj()
-                                    * middle
-                                    * r(&cat, b, c, &right).conj();
-                                let (mut rhs, mut rhs_under) = (zero, zero);
-                                for g in outcomes(&cat, a, b) {
-                                    let left = f(&cat, [c, a, b, &d, &e, &g]);
-                                    let right_f = f(&cat, [a, b, c, &d, &g, &right]);
-                                    rhs = rhs + left * r(&cat, c, &g, &d) * right_f;
-                                    rhs_under =
-                                        rhs_under + left * r(&cat, &g, c, &d).conj() * right_f;
-                                }
-                                close(lhs, rhs);
-                                close(lhs_under, rhs_under);
-                            }
-                        }
-                    }
+                    close(hexagon_residual(&cat, a, b, c).unwrap(), 0.0);
                 }
                 for d in &labels {
-                    // Pentagon, including every internal channel.
-                    for left in outcomes(&cat, a, b) {
-                        for h in outcomes(&cat, c, d) {
-                            for g in outcomes(&cat, &left, c) {
-                                for i in outcomes(&cat, b, &h) {
-                                    for e in outcomes(&cat, &g, d) {
-                                        if cat.nsymbol(a, &i, &e) == 0 {
-                                            continue;
-                                        }
-                                        let lhs = f(&cat, [&left, c, d, &e, &g, &h])
-                                            * f(&cat, [a, b, &h, &e, &left, &i]);
-                                        let mut rhs = zero;
-                                        for j in outcomes(&cat, b, c) {
-                                            rhs = rhs
-                                                + f(&cat, [a, b, c, &g, &left, &j])
-                                                    * f(&cat, [a, &j, d, &e, &g, &i])
-                                                    * f(&cat, [b, c, d, &i, &j, &h]);
-                                        }
-                                        close(lhs, rhs);
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    close(pentagon_residual(&cat, a, b, c, d).unwrap(), 0.0);
                 }
             }
         }
@@ -282,5 +240,25 @@ fn so3_identities() {
             .step_by(2)
             .map(|dj| cat.irrep(&[dj]).unwrap())
             .collect(),
+    );
+}
+
+#[cfg(feature = "cgc-gen")]
+#[test]
+fn su3_and_su4_identities() {
+    use fusion_symbols::lie::{GroupId, LieGroup};
+    let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+    conformance(
+        su3,
+        (0..=2)
+            .flat_map(|p| (0..=2 - p).map(move |q| su3.irrep(&[p, q]).unwrap()))
+            .collect(),
+    );
+    let su4 = LieGroup::new(GroupId::su(4).unwrap()).unwrap();
+    conformance(
+        su4,
+        [[0, 0, 0], [1, 0, 0], [0, 0, 1]]
+            .map(|x| su4.irrep(&x).unwrap())
+            .into(),
     );
 }

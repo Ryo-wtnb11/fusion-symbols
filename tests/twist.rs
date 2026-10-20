@@ -8,6 +8,8 @@
 
 #[path = "common/a1.rs"]
 mod a1;
+#[path = "common/lie.rs"]
+mod lie_test;
 use a1::{exact_r, twist};
 use fusion_symbols::category::FusionCategory;
 
@@ -39,7 +41,7 @@ fn to_f64(d: num_bigint::BigInt) -> f64 {
 #[cfg(feature = "cgc-gen")]
 #[test]
 fn sun_twist_matches_r_symbol_formula() {
-    use fusion_symbols::sun::{directproduct, r_symbol, Irrep};
+    use lie_test::{product as directproduct, r_symbol};
 
     // 3, 3̄, 6, 8 (outer multiplicity 2 in 8⊗8→8), 15 = (2,1); SU(4) 4 and 6.
     for d in [
@@ -51,17 +53,17 @@ fn sun_twist_matches_r_symbol_formula() {
         &[1, 0, 0],
         &[0, 1, 0],
     ] {
-        let a = Irrep::from_dynkin(d).unwrap();
+        let a = lie_test::irrep(d).unwrap();
         let mut sum = 0.0;
         for (c, n) in directproduct(&a, &a).unwrap() {
             let r = r_symbol(&a, &a, &c).unwrap();
             assert_eq!(r.dim(), n as usize);
             let tr: f64 = (0..r.dim()).map(|mu| r.at(mu, mu)).sum();
-            sum += to_f64(c.dim()) * tr;
+            sum += to_f64(c.dim_exact()) * tr;
         }
-        let theta = sum / to_f64(a.dim());
+        let theta = sum / to_f64(a.dim_exact());
         assert!((theta - 1.0).abs() < TOL, "{d:?}: θ = {theta}");
-        assert_eq!(a.twist(), 1.0, "{d:?}");
+        assert_eq!(lie_test::group(&a).twist(&a), 1.0, "{d:?}");
     }
 }
 

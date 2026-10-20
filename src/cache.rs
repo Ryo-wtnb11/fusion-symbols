@@ -991,7 +991,7 @@ pub(crate) fn cache_f() -> &'static FifoCache<FKey, f64> {
 ///
 /// CGC tensors are large and expensive (a full SVD/QR/least-squares pipeline),
 /// so unlike the exact 3j/6j tiers this cache is charged by *actual sparse
-/// storage bytes* ([`crate::sun::Cgc`] entry vector + labels) and holds
+/// storage bytes* ([`crate::lie::sun::Cgc`] entry vector + labels) and holds
 /// `Arc<Cgc>` for cheap hit-path cloning. Keyed by the canonical
 /// `(s1, s2, s3)` labels.
 ///
@@ -1007,7 +1007,7 @@ pub(crate) fn cache_f() -> &'static FifoCache<FKey, f64> {
 #[cfg(feature = "cgc-gen")]
 mod cgc_cache {
     use super::{CacheCharge, FifoCache};
-    use crate::sun::{Cgc, Irrep};
+    use crate::lie::sun::{Cgc, Irrep};
     use std::sync::{Arc, LazyLock};
 
     /// Canonical cache key: the three irrep labels.
@@ -1045,8 +1045,8 @@ mod cgc_cache {
 }
 
 #[cfg(feature = "cgc-gen")]
-pub(crate) fn cache_cgc() -> &'static FifoCache<cgc_cache::CgcKey, std::sync::Arc<crate::sun::Cgc>>
-{
+pub(crate) fn cache_cgc(
+) -> &'static FifoCache<cgc_cache::CgcKey, std::sync::Arc<crate::lie::sun::Cgc>> {
     &cgc_cache::CACHE_CGC
 }
 
@@ -1062,7 +1062,7 @@ pub(crate) fn cache_cgc() -> &'static FifoCache<cgc_cache::CgcKey, std::sync::Ar
 #[cfg(feature = "cgc-gen")]
 mod sun_product_cache {
     use super::FifoCache;
-    use crate::sun::{SunProduct, SunProductKey};
+    use crate::lie::sun::{SunProduct, SunProductKey};
     use std::sync::LazyLock;
 
     // The mixed SU(3)+SU(4) structural collector retained 102 unique pairs
@@ -1084,7 +1084,7 @@ mod sun_product_cache {
 
 #[cfg(feature = "cgc-gen")]
 pub(crate) fn cache_sun_product(
-) -> &'static FifoCache<crate::sun::SunProductKey, crate::sun::SunProduct> {
+) -> &'static FifoCache<crate::lie::sun::SunProductKey, crate::lie::sun::SunProduct> {
     &sun_product_cache::CACHE_SUN_PRODUCT
 }
 
@@ -1106,7 +1106,7 @@ pub(crate) fn cache_sun_product(
 #[cfg(feature = "cgc-gen")]
 mod sun_f_cache {
     use super::{CacheCharge, FifoCache};
-    use crate::sun::{FBlock, Irrep};
+    use crate::lie::sun::{FBlock, Irrep};
     use std::sync::{Arc, LazyLock};
 
     /// Canonical cache key: the six irrep labels `(a, b, c, d, e, f)`.
@@ -1131,7 +1131,7 @@ mod sun_f_cache {
 
 #[cfg(feature = "cgc-gen")]
 pub(crate) fn cache_sun_f(
-) -> &'static FifoCache<sun_f_cache::SunFKey, std::sync::Arc<crate::sun::FBlock>> {
+) -> &'static FifoCache<sun_f_cache::SunFKey, std::sync::Arc<crate::lie::sun::FBlock>> {
     &sun_f_cache::CACHE_SUN_F
 }
 
@@ -1399,6 +1399,10 @@ pub fn generated_cache_stats() -> GeneratedCacheStats {
     }
 }
 
+// Serialize unit tests that reset process-global coefficient caches.
+#[cfg(test)]
+pub(crate) static TEST_CACHE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1576,7 +1580,7 @@ mod tests {
         use super::bcd_f_cache::BcdFKey;
         use super::cgc_cache::CgcKey;
         use crate::bcd::{Irrep as BcdIrrep, Series};
-        use crate::sun::Irrep as SunIrrep;
+        use crate::lie::sun::Irrep as SunIrrep;
 
         let sun = SunIrrep::from_dynkin(&[1; 12]).unwrap();
         let sun_key: CgcKey = (sun.clone(), sun.clone(), sun);
@@ -1600,7 +1604,7 @@ mod tests {
     #[test]
     fn sun_product_tier_caps_charge_and_oversize_eviction_are_exact() {
         use super::sun_product_cache::{SUN_PRODUCT_MAX_BYTES, SUN_PRODUCT_MAX_ENTRIES};
-        use crate::sun::{Irrep as SunIrrep, SunProduct, SunProductKey};
+        use crate::lie::sun::{Irrep as SunIrrep, SunProduct, SunProductKey};
         use std::collections::BTreeMap;
 
         assert_eq!(SUN_PRODUCT_MAX_ENTRIES, 256);
@@ -1644,7 +1648,7 @@ mod tests {
     #[cfg(feature = "cgc-gen")]
     #[test]
     fn concurrent_sun_product_misses_return_the_write_recheck_winner() {
-        use crate::sun::{Irrep as SunIrrep, SunProduct, SunProductKey};
+        use crate::lie::sun::{Irrep as SunIrrep, SunProduct, SunProductKey};
         use std::collections::BTreeMap;
         use std::sync::{Arc, Barrier};
 
@@ -1683,7 +1687,7 @@ mod tests {
     #[cfg(feature = "cgc-gen")]
     #[test]
     fn local_trim_releases_one_sun_product_arc_owner() {
-        use crate::sun::{Irrep as SunIrrep, SunProduct, SunProductKey};
+        use crate::lie::sun::{Irrep as SunIrrep, SunProduct, SunProductKey};
         use std::collections::BTreeMap;
 
         let three = SunIrrep::from_dynkin(&[1, 0]).unwrap();
@@ -1711,7 +1715,7 @@ mod tests {
         use super::bcd_f_cache::BcdFKey;
         use super::cgc_cache::CgcKey;
         use crate::bcd::{Irrep as BcdIrrep, Series};
-        use crate::sun::Irrep as SunIrrep;
+        use crate::lie::sun::Irrep as SunIrrep;
 
         let sun = |label| SunIrrep::from_dynkin(&[label; 12]).unwrap();
         let first: CgcKey = (sun(1), sun(1), sun(1));
@@ -1751,7 +1755,7 @@ mod tests {
     #[test]
     fn cgc_tier_charges_storage_bytes_and_evicts_by_bytes() {
         use super::cgc_cache::CgcKey;
-        use crate::sun::{cgc, Cgc, Irrep};
+        use crate::lie::sun::{cgc, Cgc, Irrep};
         use std::sync::Arc;
         let irr = |d: &[i64]| Irrep::from_dynkin(d).unwrap();
         // Two real CGCs of different sizes.
@@ -1784,7 +1788,7 @@ mod tests {
     #[test]
     fn sun_f_tier_charges_block_bytes_and_evicts_by_bytes() {
         use super::sun_f_cache::SunFKey;
-        use crate::sun::{f_symbol, FBlock, Irrep};
+        use crate::lie::sun::{f_symbol, FBlock, Irrep};
         use std::sync::Arc;
         let irr = |d: &[i64]| Irrep::from_dynkin(d).unwrap();
         // A real SU(3) F block (8⊗8→8 family: the 2×2×2×2 OM=2 block).

@@ -1,7 +1,7 @@
 //! B/C/D (SO(2r+1)/Sp(2r)/SO(2r)) F- and R-symbols from catalog-driven CGC.
 //!
 //! The four-CGC contraction and the pentagon/hexagon/F-unitarity gates are the
-//! **family-generic** [`crate::frcore`] core, shared with `crate::sun::fr`; this
+//! **family-generic** [`crate::frcore`] core, shared with `crate::lie::sun::fr`; this
 //! module is the B/C/D binding of that core. The provider is [`BcdFamily`],
 //! wrapping a `&mut CanonicalCatalog`: it materializes canonical generator bases
 //! on demand and adapts each dense [`CatalogCgc`] isometry into the sparse
@@ -232,7 +232,7 @@ fn require_catalog_family(cat: &CanonicalCatalog, labels: &[&Irrep]) -> Result<(
 /// `at(0, 0, 0, 0)`.
 ///
 /// All six labels must belong to `cat`'s `(series, rank)`. Layout is identical
-/// to the SU(N) surface, [`crate::sun::f_symbol`].
+/// to the SU(N) surface, [`crate::category::FusionCategory::f_symbol`].
 ///
 /// ```
 /// use fusion_symbols::bcd::{f_symbol, CanonicalCatalog, Irrep, Series};
@@ -312,7 +312,7 @@ pub fn f_symbol(
 ///
 /// An [`RBlock`], row-major, `N^c_ab × N^c_ba`: [`RBlock::dim`] is `N^c_ab`,
 /// [`RBlock::at`]`(mu, nu)` reads one element. Same layout as
-/// [`crate::sun::r_symbol`]. Uncached — a single sparse join of two CGC.
+/// [`crate::category::FusionCategory::r_symbol`]. Uncached — a single sparse join of two CGC.
 ///
 /// # Errors
 ///

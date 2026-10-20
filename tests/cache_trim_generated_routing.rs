@@ -1,22 +1,25 @@
 //! Isolated process-global generated-tier trim routing contract.
 #![cfg(feature = "cgc-gen")]
 
+#[path = "common/lie.rs"]
+mod lie_test;
 use fusion_symbols::bcd::{self, CanonicalCatalog, Series};
 use fusion_symbols::cache::{self, CoefficientCacheTier};
-use fusion_symbols::sun;
+use fusion_symbols::category::FusionCategory;
 
-fn irrep(d: &[i64]) -> sun::Irrep {
-    sun::Irrep::from_dynkin(d).unwrap()
+fn irrep(d: &[i64]) -> fusion_symbols::lie::LieIrrep {
+    lie_test::irrep(d).unwrap()
 }
 
 #[test]
 fn trim_routes_to_each_populated_generated_tier() {
     cache::reset();
     let (a, b, c) = (irrep(&[1, 0]), irrep(&[0, 1]), irrep(&[1, 1]));
-    let external_product = sun::shared_directproduct(&a, &b).unwrap();
-    let _ = sun::cgc(&a, &b, &c).unwrap();
+    let group = lie_test::group(&a);
+    let external_product = group.fusion(&a, &b).unwrap();
+    let _ = lie_test::cgc(&a, &b, &c).unwrap();
     let e8 = irrep(&[1, 1]);
-    let _ = sun::f_symbol(&e8, &e8, &e8, &e8, &e8, &e8).unwrap();
+    let _ = lie_test::f_symbol(&e8, &e8, &e8, &e8, &e8, &e8).unwrap();
     let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap();
     let triv = bcd::Irrep::trivial(Series::C, 2).unwrap();
     let v = bcd::Irrep::from_dynkin(Series::C, &[0, 1]).unwrap();
@@ -54,7 +57,7 @@ fn trim_routes_to_each_populated_generated_tier() {
         assert_eq!(now.entries, 0);
         if tier == CoefficientCacheTier::SunProduct {
             assert_eq!(
-                external_product.iter().count(),
+                external_product.clone().count(),
                 2,
                 "trim cannot invalidate a caller clone"
             );

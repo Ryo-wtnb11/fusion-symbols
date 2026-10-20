@@ -1,16 +1,17 @@
 //! A warm F/CGC cache hit hands out the cached coefficients without copying
-//! them: `FBlock` and `sun::Cgc` share their buffers, so no
+//! them: `FBlock` and `lie::LieCgc` share their buffers, so no
 //! allocation on a hit is as large as the coefficient buffer. The hit still
 //! allocates the owned cache key (one small buffer per label), independent of
 //! the coefficient count.
 
 #![cfg(feature = "cgc-gen")]
 
+#[path = "common/lie.rs"]
+mod lie_test;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fusion_symbols::bcd::{self, CanonicalCatalog, Series};
-use fusion_symbols::sun;
 
 static CALLS: AtomicUsize = AtomicUsize::new(0);
 static BYTES: AtomicUsize = AtomicUsize::new(0);
@@ -54,8 +55,8 @@ fn measure<T>(f: impl FnOnce() -> T) -> (usize, usize, usize, T) {
 #[test]
 fn warm_hits_do_not_copy_coefficients() {
     // SU(3) 8^6: OM = 2 on every vertex, a 2x2x2x2 block (128 bytes).
-    let e8 = sun::Irrep::from_dynkin(&[1, 1]).unwrap();
-    let f = || sun::f_symbol(&e8, &e8, &e8, &e8, &e8, &e8).unwrap();
+    let e8 = lie_test::irrep(&[1, 1]).unwrap();
+    let f = || lie_test::f_symbol(&e8, &e8, &e8, &e8, &e8, &e8).unwrap();
     let cold = f();
     let (calls, bytes, largest, warm) = measure(f);
     let buffer = std::mem::size_of_val(warm.data());
@@ -66,10 +67,10 @@ fn warm_hits_do_not_copy_coefficients() {
         "sun F hit copied its data ({largest} >= {buffer})"
     );
 
-    let c = || sun::cgc(&e8, &e8, &e8).unwrap();
+    let c = || lie_test::cgc(&e8, &e8, &e8).unwrap();
     let cold = c();
     let (calls, bytes, largest, warm) = measure(c);
-    let buffer = std::mem::size_of_val(warm.entries());
+    let buffer = std::mem::size_of_val(lie_test::entries(&warm).as_slice());
     println!("sun CGC warm hit: {calls} allocs, {bytes} B, largest {largest} B, data {buffer} B");
     assert_eq!(warm, cold);
     assert!(

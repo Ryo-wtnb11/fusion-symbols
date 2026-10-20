@@ -52,46 +52,43 @@ Related exact objects on the same surface: `wigner_3j` (the 3j symbol,
 
 ## SU(N)
 
-`sun::cgc(s1, s2, s3)` generates the whole block at once — all multiplicity
+`GroupRepresentations::cgc(s1, s2, s3)` generates the whole block at once — all multiplicity
 copies together, since they share one nullspace.
 
 ```rust
-use fusion_symbols::sun::{cgc, Irrep};
+use fusion_symbols::{category::{FusionCategory, GroupRepresentations}, lie::{GroupId, LieGroup}};
+let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-let three = Irrep::from_dynkin(&[1, 0]).unwrap();
-let anti = three.dual();
-let eight = Irrep::from_dynkin(&[1, 1]).unwrap();
+let three = cat.irrep(&[1, 0]).unwrap();
+let anti = cat.dual(&three);
+let eight = cat.irrep(&[1, 1]).unwrap();
 
-let c = cgc(&three, &anti, &eight).unwrap();
+let c = cat.cgc(&three, &anti, &eight).unwrap();
 assert_eq!(c.dims(), [3, 3, 8, 1]);   // [dim(s1), dim(s2), dim(s3), N^{s3}_{s1 s2}]
-assert_eq!(c.multiplicity(), 1);
-// Only nonzero entries are stored, sorted by (m1, m2, m3, mu).
-assert!(c.entries().iter().all(|e| e.value != 0.0));
+assert_eq!(c.dims()[3], 1);
+assert!((c.at(0, 0, 0, 0) - 1.0).abs() < 1e-12);
 ```
 
 ### What the result means
 
-- **Sparse storage.** `Cgc::entries()` is a slice of `CgcEntry { m1, m2, m3, mu,
-  value }`, holding the nonzeros only (after a tolerance purge), sorted by
-  `(m1, m2, m3, mu)`. `Cgc::dims()` gives the logical shape
-  `[dim(s1), dim(s2), dim(s3), N^{s3}_{s1 s2}]`; `Cgc::nnz()` the stored count.
-- **What `m1`/`m2`/`m3` index.** 0-based positions in the **Gelfand–Tsetlin
-  basis** of `s1`/`s2`/`s3`, in the order `Irrep::patterns()` returns. That
-  ordering is part of the frozen gauge specification, so it is stable across
-  releases; if you need to interpret an individual index, `patterns()` gives you
-  the GT pattern at that position.
+- `LieCgc::dims()` gives `[dim(a), dim(b), dim(c), N(a,b,c)]`;
+  `at(m1,m2,m3,mu)` reads a coefficient, including zero. Indices outside
+  these axes panic. The private generator retains its sparse cached layout.
+- Higher A-series indices follow `LieIrrep::gt_patterns()` in the frozen
+  GT order. A1 magnetic indices ascend from the lowest weight.
 - **Values are real** `f64`, in the crate's canonical gauge.
 
 ### Multiplicity greater than one
 
 ```rust
-use fusion_symbols::sun::{cgc, Irrep};
+use fusion_symbols::{category::GroupRepresentations, lie::{GroupId, LieGroup}};
+let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-let eight = Irrep::from_dynkin(&[1, 1]).unwrap();
-let c = cgc(&eight, &eight, &eight).unwrap();
-assert_eq!(c.multiplicity(), 2);       // the 8 occurs twice in 8 ⊗ 8
+let eight = cat.irrep(&[1, 1]).unwrap();
+let c = cat.cgc(&eight, &eight, &eight).unwrap();
+assert_eq!(c.dims()[3], 2);       // the 8 occurs twice in 8 ⊗ 8
 assert_eq!(c.dims(), [8, 8, 8, 2]);
-assert!(c.entries().iter().any(|e| e.mu == 1));
+assert!(c.at(0, 2, 0, 1) < 0.0);
 ```
 
 The two copies `μ = 0, 1` are mutually orthonormal and are fixed by the gauge
@@ -139,9 +136,8 @@ the value cache is keyed on the irrep labels, not on the catalog instance.
 - **Generation cost.** CGC generation is the expensive step; F- and R-symbols
   are contractions of already-generated CGC. Results are cached, so repeated
   queries are cheap, but a cold first query on a large irrep is not.
-- **Empty channels are errors, not zeros.** Asking for a CGC with
-  `N^{s3}_{s1 s2} = 0` returns a typed error. Check with
-  [`directproduct`](fusion.md) first if you are unsure.
+- **Empty channels.** SU(N) CGC have multiplicity axis zero; F/R blocks
+  also have zero axes. B/C/D keeps its existing typed errors in this slice.
 - **Values are floating point.** Labels, dimensions and multiplicities are
   exact; generated coefficient *values* are verification-gated `f64`. See
   [Resources § exact vs generated](resources.md#exact-vs-generated-values).
@@ -153,14 +149,14 @@ the value cache is keyed on the irrep labels, not on the catalog instance.
 ## Related API
 
 - [`su2::clebsch_gordan`], `clebsch_gordan_checked`, `wigner_3j`, `wigner_6j`
-- [`sun::cgc`], [`sun::Cgc`], [`sun::CgcEntry`]
+- [`GroupRepresentations::cgc`], [`lie::LieCgc`], [`LieCgc::at`]
 - [`bcd::CanonicalCatalog::cgc`], [`CatalogCgc`]
 
 [`SignedSqrtRational`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/struct.SignedSqrtRational.html
 [`su2::clebsch_gordan`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/su2/fn.clebsch_gordan.html
-[`sun::cgc`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/fn.cgc.html
-[`sun::Cgc`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/struct.Cgc.html
-[`sun::CgcEntry`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/struct.CgcEntry.html
+[`GroupRepresentations::cgc`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
+[`lie::LieCgc`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
+[`LieCgc::at`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
 [`CanonicalCatalog`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/struct.CanonicalCatalog.html
 [`bcd::CanonicalCatalog::cgc`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/struct.CanonicalCatalog.html#method.cgc
 [`CatalogCgc`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/struct.CatalogCgc.html

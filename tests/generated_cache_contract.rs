@@ -16,12 +16,13 @@
 
 #![cfg(feature = "cgc-gen")]
 
+#[path = "common/lie.rs"]
+mod lie_test;
 use fusion_symbols::bcd::{self, CanonicalCatalog, Series};
 use fusion_symbols::cache::{self, GeneratedCacheStats, GENERATED_CACHE_MAX_BYTES};
-use fusion_symbols::sun;
 
-fn sun_irr(d: &[i64]) -> sun::Irrep {
-    sun::Irrep::from_dynkin(d).unwrap()
+fn sun_irr(d: &[i64]) -> fusion_symbols::lie::LieIrrep {
+    lie_test::irrep(d).unwrap()
 }
 
 fn bcd_irr(s: Series, d: &[i64]) -> bcd::Irrep {
@@ -48,9 +49,9 @@ fn generated_cache_resource_contract() {
         "reset must zero every tier"
     );
 
-    // SU(N) CGC tier: `sun::cgc` owns it. Miss then hit on the same channel.
+    // SU(N) CGC tier: `lie_test::cgc` owns it. Miss then hit on the same channel.
     let (s1, s2, s3) = (sun_irr(&[1, 0]), sun_irr(&[0, 1]), sun_irr(&[1, 1])); // 3⊗3̄→8
-    let first = sun::cgc(&s1, &s2, &s3).unwrap();
+    let first = lie_test::cgc(&s1, &s2, &s3).unwrap();
     let g = cache::generated_cache_stats();
     assert!(
         g.sun_product.misses >= 1 && g.sun_product.entries >= 1,
@@ -61,15 +62,15 @@ fn generated_cache_resource_contract() {
         g.sun_cgc.entries >= 1 && g.sun_cgc.bytes > 0,
         "entry retained"
     );
-    let again = sun::cgc(&s1, &s2, &s3).unwrap();
+    let again = lie_test::cgc(&s1, &s2, &s3).unwrap();
     assert_eq!(first, again, "warm hit returns the identical CGC");
     let g = cache::generated_cache_stats();
     assert!(g.sun_cgc.hits >= 1, "second sun cgc call is a hit");
 
-    // SU(N) F tier: `sun::f_symbol` owns it.
+    // SU(N) F tier: `lie_test::f_symbol` owns it.
     let e8 = sun_irr(&[1, 1]);
-    let _ = sun::f_symbol(&e8, &e8, &e8, &e8, &e8, &e8).unwrap(); // miss
-    let _ = sun::f_symbol(&e8, &e8, &e8, &e8, &e8, &e8).unwrap(); // hit
+    let _ = lie_test::f_symbol(&e8, &e8, &e8, &e8, &e8, &e8).unwrap(); // miss
+    let _ = lie_test::f_symbol(&e8, &e8, &e8, &e8, &e8, &e8).unwrap(); // hit
     let g = cache::generated_cache_stats();
     assert!(g.sun_f.misses >= 1 && g.sun_f.hits >= 1, "sun F miss + hit");
 
