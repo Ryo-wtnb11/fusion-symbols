@@ -22,8 +22,8 @@ computes it exactly, in integer arithmetic, for every family.
 Before anything else. `N^c_ab` tells you which coupling channels exist at all,
 and it is the length of the multiplicity axis on every CGC, F and R block you
 ask for. If `N^c_ab = 0` there is no coefficient to compute, and the
-`FusionCategory` APIs return exact zero symbols. SU(N) returns empty blocks for absent channels; B/C/D keeps its existing
-typed errors in this slice.
+`FusionCategory` APIs return zero symbols. Generated Lie groups return
+blocks whose axis lengths are the vertex multiplicities, including zero.
 
 ## SU(2)
 
@@ -84,21 +84,21 @@ a warm second call does not sweep the weights again. Each yielded label is clone
 
 ## SO(N) / Sp(2N) / Spin(N)
 
-`bcd::directproduct` has the same shape and the same exactness. It uses the
-Brauer–Klimyk / Racah–Speiser character rule and needs no
-[`CanonicalCatalog`](clebsch-gordan.md#son-sp2n-you-need-a-catalog) — you can
-decompose products without ever generating a coefficient.
+B/C/D use the same `fusion` iterator and `nsymbol` queries, backed by exact
+Brauer–Klimyk / Racah–Speiser decomposition. These queries do not generate CGC.
+Products are cached independently of each group's retained generators.
 
 ```rust
-use fusion_symbols::bcd::{directproduct, Irrep, Series};
+use fusion_symbols::{category::{FusionCategory},lie::{LieGroup,GroupId}};
 
 // SO(5) = B_2: 5 ⊗ 5 = 1 ⊕ 10 ⊕ 14.
-let v = Irrep::from_dynkin(Series::B, &[1, 0]).unwrap();
-let out = directproduct(&v, &v).unwrap();
+let cat = LieGroup::new(GroupId::so(5).unwrap()).unwrap();
+    let v = cat.irrep(&[1, 0]).unwrap();
+let out = cat.fusion(&v, &v).map(|it| it.map(|c| { let n = cat.nsymbol(&v,&v,&c); (c,n) }).collect::<std::collections::BTreeMap<_,_>>()).unwrap();
 assert_eq!(out.len(), 3);
 for (irrep, mult) in &out {
     assert_eq!(*mult, 1);
-    let _ = irrep.dim();
+    let _ = irrep.dim_exact();
 }
 ```
 
@@ -146,11 +146,9 @@ with some twist minus one, and `Anyonic` otherwise.
 
 - [`category::FusionCategory::fusion`], [`lie::LieFusion`]
 - [`FusionCategory::fusion`], [`FusionCategory::fusion`], [`lie::LieFusion`]
-- [`bcd::directproduct`]
 
 [`category::FusionCategory::fusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.fusion
 [`lie::LieFusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieFusion.html
 [`FusionCategory::fusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
 [`FusionCategory::fusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
 [`lie::LieFusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
-[`bcd::directproduct`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/fn.directproduct.html

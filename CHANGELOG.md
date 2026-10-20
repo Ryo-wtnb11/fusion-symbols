@@ -55,7 +55,19 @@ value/gauge rule noted below.
   `category::{f_unitarity_residual,pentagon_residual,hexagon_residual}` return
   maximum absolute residuals without a library tolerance. SU(N) N=0 returns
   zero blocks. Rust gauge values, fingerprint bytes and cache APIs stay
-  unchanged. B/C/D remains slice 4b.
+  unchanged.
+  B/C/D representations now use the same `LieGroup` surface. The public `bcd`
+  module, `Irrep`, `Series`, family errors, catalog/seed/sweep APIs and
+  `bcd_authority_fingerprint` are removed. `LieGroup` becomes `Clone` (not
+  `Copy`), with equality and hashing by `GroupId`. Its per-value generator
+  catalog is shared by clones; `with_catalog_budget`, `catalog_stats`
+  (`Result<(bytes, budget), LieError>`), and `reset_catalog` control it.
+  Warm F/CGC/R requests avoid the catalog lock; poisoning is a generation
+  error. Exact B/C/D products share the byte-bounded `BcdCgc` cache tier
+  with CGC values, so cache controls and public names stay unchanged.
+  N=0 yields zero blocks, weights use Dynkin coordinates including spinors,
+  and D(2) reports the required SU(2) × SU(2) product. All coefficients,
+  structural signatures and epoch-3 fingerprints are unchanged.
   The existing interface `category::FusionCategory` replaces
   abelian per-object `dim`, `dual`, `frobenius_schur`, `twist`, `fusion`
   methods and all `z2_*`, `zn_*`, `u1_*`, `fermion_parity_*` free functions

@@ -879,3 +879,39 @@ fn products_checked_against_oscar() {
         assert_eq!(got, want, "{series:?} {a:?} ⊗ {b:?}");
     }
 }
+
+#[test]
+fn series_root_system_bridge() {
+    assert_eq!(Series::B.root_system(3), RootSystem::B(3));
+    assert_eq!(Series::C.root_system(3), RootSystem::C(3));
+    assert_eq!(Series::D.root_system(4), RootSystem::D(4));
+    for (series, r) in [(Series::B, 2), (Series::C, 2), (Series::D, 3)] {
+        assert_eq!(series.root_system(r), series.published_group(r).root_system);
+    }
+}
+
+#[test]
+fn cover_and_quotient_share_private_labels() {
+    use crate::lie::GroupId;
+    use std::hash::{Hash, Hasher};
+    for (n, labels) in [
+        (5, vec![vec![1, 0], vec![0, 2]]),
+        (6, vec![vec![1, 0, 0], vec![0, 1, 1]]),
+    ] {
+        let cover = labels
+            .iter()
+            .map(|d| Irrep::from_dynkin_in(&GroupId::spin(n).unwrap(), d).unwrap())
+            .collect::<Vec<_>>();
+        let quotient = labels
+            .iter()
+            .map(|d| Irrep::from_dynkin_in(&GroupId::so(n).unwrap(), d).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(cover, quotient);
+        let hash = |v: &Vec<Irrep>| {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            v.hash(&mut h);
+            h.finish()
+        };
+        assert_eq!(hash(&cover), hash(&quotient));
+    }
+}

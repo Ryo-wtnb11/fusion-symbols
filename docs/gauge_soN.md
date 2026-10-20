@@ -18,8 +18,8 @@ changing code that touches a coefficient value. Documentation map:
 [`docs/README.md`](README.md).
 
 This document specifies the **gauge** of the SO(N)/Sp(2N) Clebsch–Gordan
-isometries and projected generators produced by `fusion_symbols::bcd`'s decomposition
-sweep (`src/bcd/sweep.rs`) — the deterministic rules that fix the
+isometries and projected generators produced by `LieGroup`'s internal B/C/D decomposition
+sweep (`src/lie/bcd/sweep.rs`) — the deterministic rules that fix the
 otherwise-free basis of each coupled multiplet.
 
 ## Status: FROZEN NORMATIVE SPECIFICATION
@@ -33,14 +33,14 @@ sign convention, weight-sort and its tie-break, block sign convention,
 outer-multiplicity assignment, canonical-parent order, intertwiner alignment, and
 the value-fixing tolerance tier) is stated here.
 
-`bcd_authority_fingerprint()`'s `epoch` tag is **the version of this
+`FusionCategory::authority_fingerprint()`'s `epoch` tag is **the version of this
 specification**, not a label for the current build's output: it moves only when
 this document is corrected. Changing a value therefore requires the four-step
 specification-correction rule — spec edit, epoch bump, CHANGELOG breaking-change
 entry, regenerated golden values — declared in
 [`gauge.md`, "Status"](gauge.md#status-frozen-normative-specification), which
 governs all three families. `tests/gauge_golden.rs` pins signed SO(5) and Sp(4)
-coefficients as the in-repo tripwire (`src/bcd/intertwiner_tests.rs` checks the
+coefficients as the in-repo tripwire (`src/lie/bcd/intertwiner_tests.rs` checks the
 generators and the isotypic projectors, which are by construction blind to
 exactly the coupled-side gauge this document fixes).
 
@@ -79,12 +79,12 @@ Both are value-affecting gauge choices and therefore part of this contract.
   is the rank. It carries `r` simple-root **raising** operators `Sp[i]`
   (`i = 0…r-1`) and `r` mutually Frobenius-orthogonal integer **Cartan**
   operators `Sz[j]` (`j = 0…r-1`), in QSpace's basis (not Chevalley) — see
-  `src/bcd/seeds.rs` and its gauge notes.
+  `src/lie/bcd/seeds.rs` and its gauge notes.
 - `Sp[i]†` (conjugate transpose; real here, so plain transpose) is the
   corresponding **lowering** operator.
 - An irrep `c` is labelled by its integer Dynkin label `a = (a_0,…,a_{r-1})`,
-  matching `bcd::Irrep::from_dynkin` (whose label↔partition maps are pinned in
-  `src/bcd.rs`).
+  matching `LieGroup::irrep` (whose label↔partition maps are pinned in
+  `src/lie/bcd.rs`).
 - The bootstrap works in the **cover** `Spin(2r+1)` / `Sp(2r)` / `Spin(2r)`, so
   the label set is the full dominant weight lattice: the **tensor** class
   (integer ε-basis `λ`) and, for `B`/`D`, the **spinor** class (half-integer
@@ -100,7 +100,7 @@ Both are value-affecting gauge choices and therefore part of this contract.
 ## 1. Input and the Kronecker convention (gauge)
 
 The sweep takes the **product generators** of `a ⊗ b`, built by the caller from
-the two irreps' generator sets via `Generators::product` (QSpace
+the two irreps' generator sets via the generator tensor product (QSpace
 `clebsch.cc:6649-6656 @ dd2cc7e`):
 
 ```
@@ -123,7 +123,7 @@ The product `Sz_prod[j]` stays diagonal (a sum of a diagonal ⊗ identity terms)
 its diagonal is `Sz_a[j][m_a] + Sz_b[j][m_b]` at the composite index.
 
 Generator-count guards (QSpace `clebsch_aux.cc:85,90 @ dd2cc7e`): `nz ≠ 0`,
-`np ≤ nz`, and `np = nz = r` — else `SweepError::InvalidGeneratorCounts`.
+`np ≤ nz`, and `np = nz = r` — else `InvalidGeneratorCounts` generation diagnostic.
 
 ---
 
@@ -144,7 +144,7 @@ passes with renormalization (`clebsch_aux.cc:118-123 @ dd2cc7e`):
 
 The seed must be a simultaneous `Sz`-eigenvector (a definite-weight vector); if
 some `Sz[j] v` is not parallel to `v` (and non-negligible), the labels are
-ambiguous — `SweepError::SeedNotWeightVector` (QSpace `sameUptoFac` guard,
+ambiguous — `SeedNotWeightVector` generation diagnostic (QSpace `sameUptoFac` guard,
 `clebsch_aux.cc:126-129 @ dd2cc7e`; QSpace's `sameUptoFac` returns 0 when the
 vectors *are* parallel, so the abort fires when they are **not**).
 
@@ -179,9 +179,9 @@ For each level, loop the lowering operators in **ascending index order**
 2. **Gram–Schmidt pass 1, order self → pass → global** (`:161-196`):
    - project out `Vi` (this level): `vi ← vi − Vi(Viᵀ vi)`;
    - guard: the residual overlap with `V` must be `≤ EPS_SWEEP`
-     (`SweepError::OverlapWithVspace`), then project out `V`;
+     (`OverlapWithVspace` generation diagnostic), then project out `V`;
    - guard: the residual max-overlap with `U` must be `≤ EPS_SWEEP`
-     (`SweepError::OverlapWithUspace`), then project out `U`.
+     (`OverlapWithUspace` generation diagnostic), then project out `U`.
    The `V`/`U` guards are near-zero for a correct sweep (lowering stays within
    the multiplet, orthogonal to higher levels and to complete earlier
    multiplets); a large overlap signals a defective generator set.
@@ -197,12 +197,12 @@ For each level, loop the lowering operators in **ascending index order**
 After the operator loop, if any new states were found, append `Vi` to `V`, set
 the frontier to `Vi`, and continue to the next level; otherwise the multiplet is
 complete. The multiplet is then appended to `U`. Bounds `V,Vi,U ≤ D` are guarded
-(`SweepError::SpaceOutOfBounds`, `:210,215,235`). The sweep ends when `U` fills
-`D`; failing to fill `D` is `SweepError::IncompleteDecomposition` (`:236`).
+(`SpaceOutOfBounds` generation diagnostic, `:210,215,235`). The sweep ends when `U` fills
+`D`; failing to fill `D` is `IncompleteDecomposition` generation diagnostic (`:236`).
 
 ### 4a. QR gauge — PositiveDiagonal with in-order column selection
 
-`src/bcd/linalg.rs::qr_positive_q` walks the input columns in order, maintaining
+`src/lie/bcd/linalg.rs::qr_positive_q` walks the input columns in order, maintaining
 an orthonormal selection basis `Q_S`. For each column, subtract
 `Q_S (Q_Sᵀ a_j)` twice (CGS2: one re-orthogonalization pass), using the
 sequential backend matmul. Retain the column exactly when the residual norm
@@ -257,7 +257,7 @@ this amendment, the B/C/D `epoch = 3` bump, the new frozen value in
 `tests/gauge_golden.rs::d3_epoch3_independent_column_qr_golden`, and the CHANGELOG
 breaking-change entry belong to one change. SU(2)/SU(N) epochs are unchanged.
 The independent rule check is
-`src/bcd/linalg.rs::tests::d3_epoch3_qr_uses_independent_input_columns`:
+`src/lie/bcd/linalg.rs::tests::d3_epoch3_qr_uses_independent_input_columns`:
 it captures the actual descent input, independently selects columns by CGS2,
 and certifies the returned positive-diagonal thin QR without stored values.
 
@@ -280,7 +280,7 @@ procedure is fully specified.
 
 Reference: `clebsch_aux.cc:251-257 @ dd2cc7e`. After the sweep, `UᵀU` must equal
 the identity within `EPS_VERIFY` (QSpace `isIdentityMatrix(eps2)`); else
-`SweepError::NotOrthonormal`.
+`NotOrthonormal` generation diagnostic.
 
 ---
 
@@ -294,11 +294,11 @@ R.Sp[i] = Vᵀ (Sp_prod[i] V),      R.Sz[j] = Vᵀ (Sz_prod[j] V).
 ```
 
 Each `R.Sz[j]` must be **diagonal** within `EPS_VERIFY` (QSpace
-`isDiagMatrix(eps2)`, `:274`) — else `SweepError::NonDiagonalCartan`. Its
+`isDiagMatrix(eps2)`, `:274`) — else `NonDiagonalCartan` generation diagnostic. Its
 diagonal entries are the states' Cartan eigenvalues, and are snapped to the
 nearest point of the carrier's **weight grid** (**FixRational**, QSpace
 `FixRational(...,4)`, `:282`). A value farther than `FIXRATIONAL_TOL` from a
-grid point is `SweepError::NonIntegerWeight`.
+grid point is `NonIntegerWeight` generation diagnostic.
 
 The grid is `1/denom` with `denom = 1` for a carrier built entirely from tensor
 irreps — each column of `V` is then a definite-weight state with an **integer**
@@ -309,11 +309,11 @@ and the maximum of the two factors' for a product. A pure-tensor product
 therefore keeps the strict integer gate unchanged. The `d3 × r` matrix of snapped
 eigenvalues is the block's weight table `Z` (row = state, column = Cartan op).
 
-The projected generators are gated by the commutator relations of the defining seeds (`src/bcd/seeds.rs`), evaluated
+The projected generators are gated by the commutator relations of the defining seeds (`src/lie/bcd/seeds.rs`), evaluated
 in `f64` (the projected `Sp` are generally irrational, so the exact integer
 `check_commutators` does not apply directly): `[Sz_j, Sp_i] = d_{i,j} Sp_i` and
 `[Sp_i, Sp_i†] ∈ span(Sz)`, worst residual `≤ EPS_SWEEP` — else
-`SweepError::CommutatorResidual`.
+`CommutatorResidual` generation diagnostic.
 
 ---
 
@@ -332,13 +332,13 @@ The whole block — `V` columns, `Z` rows, and each `R.Sp`/`R.Sz` — is reorder
 this permutation (`clebsch_aux.cc:295-301 @ dd2cc7e`).
 
 **Max-weight uniqueness (gate).** The top two sorted rows must differ:
-`‖Z[k0,·] − Z[k1,·]‖² > EPS_MW_UNIQUE` — else `SweepError::MaxWeightNotUnique`
+`‖Z[k0,·] − Z[k1,·]‖² > EPS_MW_UNIQUE` — else `MaxWeightNotUnique` generation diagnostic
 (QSpace `recDiff2(0,i) > 1e-8`, `:1035-1039`).
 
 **Dynkin conversion (per series).** The max-weight state's Cartan eigenvalues
 `qm` (in QSpace's `Sz` basis) map to the Dynkin label as follows
 (`clebsch_aux.cc:977-1031 @ dd2cc7e`; each division must yield an integer within
-`FIXRATIONAL_TOL`, else `SweepError::NonIntegerWeight`):
+`FIXRATIONAL_TOL`, else `NonIntegerWeight` generation diagnostic):
 
 - **`C_r` (SpN, `:990-996`):** `a_i = (qm_i − qm_{i-1})/(i+1)` for
   `i = r-1…1`, and `a_0 = qm_0`.
@@ -347,9 +347,9 @@ this permutation (`clebsch_aux.cc:295-301 @ dd2cc7e`).
   `i = 0…⌊(r-1)/2⌋-1`.
 - **`D_r` (SEN, `:1018-1031`):** as `B_r` but with `x = qm_0 + qm_1`.
 
-The resulting Dynkin label constructs `bcd::Irrep::from_dynkin_in` **in the
+The resulting Dynkin label constructs `LieGroup::irrep` **in the
 cover** (`GlobalForm::SimplyConnected`); an invalid label is
-`SweepError::InvalidDiscoveredLabel` (unreachable for a faithful sweep). The
+`InvalidDiscoveredLabel` generation diagnostic (unreachable for a faithful sweep). The
 `B_r` conversion's `x = 2·qm_0` and the `D_r` conversion's `x = qm_0 + qm_1`
 already return an integer `a_{r-1}` from half-integer eigenvalues, which is
 exactly the spinor label; nothing in this section changes for the spinor class,
@@ -357,8 +357,8 @@ and a product of tensor irreps only ever discovers tensor labels.
 
 QSpace's `r > 9` upper-rank guard (`:983,993,1004,1021`) is a fixed-buffer build
 artifact, **not** a mathematical constraint — **N/A** here (same disposition as
-`src/bcd/seeds.rs`). The low-rank `r < 2` (`r ≤ 2` for `D`) redirect is inherited
-from the seed layer (`BcdError::ExcludedRank`), so the sweep never receives such
+`src/lie/bcd/seeds.rs`). The low-rank `r < 2` (`r ≤ 2` for `D`) redirect is inherited
+from the seed layer (`ExcludedRank` generation diagnostic), so the sweep never receives such
 generators.
 
 ---
@@ -402,11 +402,11 @@ multiplicity-free irrep gets `(0, 1)`.
 
 For every discovered irrep `c`, the sweep multiplicity `M^c_sweep` (the number of
 blocks labelled `c`) must equal the exact fusion multiplicity `N^c_ab` from
-`bcd::directproduct`, **and** the discovered support must equal the exact
+the exact B/C/D product decomposition, **and** the discovered support must equal the exact
 support — **both directions**. A missing block (`found = 0 < N`) is as fatal as
 a spurious one (`found > 0 = N`). Any mismatch is
-`SweepError::MultiplicityMismatch`. This gate is on the production path; it is not optional or test-only. `decompose(product, expected)` takes the
-exact decomposition `expected` and enforces it; `decompose_defining_product`
+`MultiplicityMismatch` generation diagnostic. This gate is on the production path; it is not optional or test-only. The internal decomposition operation takes the
+exact decomposition `expected` and enforces it; its defining-product specialization
 computes `expected` from the defining label via `directproduct`.
 
 This is fusion-symbols' addition over QSpace, which has no exact multiplicity gate (it only
@@ -416,7 +416,7 @@ warns on discovered outer multiplicity, `:341`).
 
 ## 11. Tolerance tier (QSpace CG_EPS ladder)
 
-Named constants (`src/bcd/sweep.rs`), with provenance:
+Named constants (`src/lie/bcd/sweep.rs`), with provenance:
 
 | Constant | Value | Source (`@ dd2cc7e`) | Role |
 |---|---|---|---|
@@ -467,7 +467,7 @@ multiplicity, but each is recorded for any comparison with QSpace:
 ## 12. Numerical seams (backend)
 
 `CoeffScalar = f64`. Dense operations reach `t4a-faer`
-(`src/bcd/linalg.rs`, no hand-rolled factorization kernels):
+(`src/lie/bcd/linalg.rs`, no hand-rolled factorization kernels):
 
 | Stage | Reference (`@ dd2cc7e`) | t4a-faer API |
 |---|---|---|
@@ -493,10 +493,10 @@ identity is not promised (the backend's reductions are not bit-reproducible).
 
 ## 13. Verification (independent oracles)
 
-- **Exact decomposition** (`bcd::sweep::tests`): for `defining ⊗ defining` across
+- **Exact decomposition** (`src/lie/bcd/sweep/tests.rs`): for `defining ⊗ defining` across
   `B2/B3/B4/C2/C3/C4/D3/D4`, the discovered labels and multiplicities equal
   the exact `directproduct` (itself checked against an in-test Brauer–Klimyk
-  decomposition and Oscar 1.8.0 rows, `bcd::tests`); block dimensions sum to `d1·d2`; each
+  decomposition and Oscar 1.8.0 rows, `src/lie/bcd/tests.rs`); block dimensions sum to `d1·d2`; each
   CGC is an isometry within tier; and each block's Cartan-eigenvalue rows
   reproduce the irrep's exact weight system (distinct-weight count and total from
   Freudenthal + Weyl orbits).
@@ -513,7 +513,7 @@ definition of this document, a breaking release.
 
 ---
 
-## 14. The canonical-parent rule (`CanonicalCatalog`)
+## 14. The canonical-parent rule (internal generator catalog)
 
 Sections 1–13 fix the gauge of **one** decomposition of **one** product `a ⊗ b`.
 But an irrep `c` appears in *many* products, and its projected generators
@@ -522,12 +522,12 @@ was decomposed. If the catalog stored `c`'s generators from "whichever product
 was decomposed first", the gauge would depend on **query order**. This section
 specifies the rule that removes that dependence: each non-base irrep's generators
 come from **one** canonical parent product, chosen by a deterministic total order
-over the exact decomposition data (`bcd::directproduct`). This rule IS gauge — it is part of the semantic-version
+over the exact decomposition data (the exact B/C/D product decomposition). This rule IS gauge — it is part of the semantic-version
 contract in the same way §§1–13 are.
 
-Implementation: `src/bcd/catalog.rs`. A reader with this section and the exact
+Implementation: `src/lie/bcd/catalog.rs`. A reader with this section and the exact
 `directproduct`
-(§0, `src/bcd.rs`) can re-derive every catalog gauge choice without reading the
+(§0, `src/lie/bcd.rs`) can re-derive every catalog gauge choice without reading the
 Rust.
 
 ### 14.1 The well-order `≺` on irreps
@@ -578,7 +578,7 @@ The **base cases** are the `≺`-minimal irreps of each class of `P/Q` and carry
 generators directly, not from any product:
 
 - the **trivial** rep (dim 1): all generators zero on a 1-dimensional carrier;
-- the **defining** rep `(1,0,…,0)`: the exact defining seed (`src/bcd/seeds.rs`);
+- the **defining** rep `(1,0,…,0)`: the exact defining seed (`src/lie/bcd/seeds.rs`);
 - the **fundamental spinors** (`B`/`D` only): `ω_r` for `B_r`, and `ω_{r-1}`,
   `ω_r` for `D_r` — the Clifford seeds of §16. They are `≺`-minimal in the
   spinor class, and they are base cases of necessity rather than of
@@ -594,7 +594,7 @@ catalog entry, base cases included, is stored in the sweep's **descending-weight
 frame** (§7). The trivial rep is 1-dimensional and its frame is unique. The
 defining seed's native state order is QSpace's `Setup_*` order, which is **not**
 descending-weight, so before it enters the catalog it is passed through one
-§1–§8 sweep pass over its own carrier (`CanonicalCatalog::seed_base`) — exactly
+§1–§8 sweep pass over its own carrier (the internal base-seeding operation) — exactly
 what a spinor seed already does (§16.3). One frame convention holds for the
 whole catalog, and therefore the §15 coherence guard and the intertwiner
 alignment apply to a base case exactly as they do to any other block: **nothing
@@ -603,7 +603,7 @@ is exempt from them.**
 *The defect this corrects (`epoch = 1` → `2`).* Through `epoch = 1` the defining
 seed was stored in the raw `Setup_*` order, while every *rediscovery* of the
 same irrep inside a product was produced in the descending-weight order, and
-`CanonicalCatalog::assemble_cgc` exempted the base cases from both the coherence
+the internal CGC-assembly operation exempted the base cases from both the coherence
 guard and the alignment — so the two frames were silently mixed inside a single
 contraction. It was a *frame mismatch*, not a rotation the guard was blind to:
 with the exemption removed, `epoch = 1` reports it explicitly as
@@ -645,7 +645,7 @@ over all pairs satisfying
 
 1. `a ≺ c` and `b ≺ c`  (both factors strictly smaller in `≺`), and
 2. `N^c_{ab} ≥ 1`, i.e. `c` appears in the exact decomposition `a ⊗ b`
-   (`bcd::directproduct`).
+   (the exact B/C/D product decomposition).
 
 The pair order's `dim(a)` tie-break (second component) makes the winner unique
 and puts it in canonical `a ⪯ b` form: of the two orderings `(a,b)`/`(b,a)` — which
@@ -826,7 +826,7 @@ The sweep gauge (§6–§8) is intrinsic in exact arithmetic but analytically
 between two embeddings of the same irrep. The projected generators then carry the
 correct weight *system* (§6 gates each `R.Sz` to the intrinsic, gauge-independent
 weight multiset) but differ from the stored canonical generators by an orthogonal
-rotation inside each degenerate weight space. `Generators::coherence_residual` (the
+rotation inside each degenerate weight space. the generator coherence residual (the
 restored QSpace `normDiff` guard, `clebsch.cc:6710-6718 @ dd2cc7e`) measures that
 rotation: a well-conditioned embedding agrees to `~1e-15`; a rotated one is O(1)
 (e.g. the D3 `84 = (0,2,2)` at residual 3.65). Because the precondition is analytic
@@ -922,7 +922,7 @@ fixes the remaining input: the generator matrices of the second base case, the
 fundamental spinors, which no product can produce. Every choice below is
 value-affecting and therefore part of the frozen contract; the pinned values are
 in `tests/gauge_golden.rs` (`Spin(5)`, `Spin(6)`, `Spin(7)`, `Spin(10)` CGC and
-a `Spin(6)` F block). Implementation: `src/bcd/seeds.rs::spinor_seeds`.
+a `Spin(6)` F block). Implementation: the Clifford seed construction in `src/lie/bcd/seeds.rs`.
 
 `C_r = Sp(2r)` is simply connected and has no spinor sector; this section is
 about `B_r` and `D_r` only.
@@ -981,7 +981,7 @@ Sp[r] = c†_{r-1} c†_r             (D_r,     root ε_{r-1} + ε_r)
 The Jordan–Wigner sign convention is part of the gauge: it fixes the sign of
 every seed entry, hence of every spinor coefficient downstream.
 
-**The `1/√2`.** `src/bcd/seeds.rs` records that no *defining* seed needs an
+**The `1/√2`.** `src/lie/bcd/seeds.rs` records that no *defining* seed needs an
 irrational entry. The `B_r` spinor seed does, in exactly one generator, and the
 value is forced rather than chosen: QSpace's short-root `Sp[r]` satisfies
 `[Sp_r, Sp_r†] = Sz_1 = ½ α_r^∨` — read off the defining seed, where the
@@ -995,23 +995,23 @@ quadratically. The Cartan scale `½` is carried the same way.
 ### 16.3 Verification gate
 
 A spinor seed is gated by the **same** exact `check_commutators` as a defining
-seed (`BcdError::CommutatorViolation`), and additionally by the fact that the
+seed (`CommutatorViolation` generation diagnostic), and additionally by the fact that the
 structure constants it derives are properties of the algebra, not of the
 representation: `f_{i,k}` and `d_{i,j}` must equal the defining seed's, exactly.
-`tests/spin.rs::spinor_seed_structure_constants_match_the_defining_seed` is that
+`src/lie/bcd/spin_tests.rs::spinor_seed_structure_constants_match_the_defining_seed` is that
 gate. Before entering the catalog, the seed is passed through one §1–§8 sweep
 over its own carrier, which is what puts it in the canonical frame §16.1
 describes.
 
 ### 16.4 Fingerprint
 
-`bcd_authority_fingerprint()` gains **no new tag** for the spinor sector, and
+`FusionCategory::authority_fingerprint()` gains **no new tag** for the spinor sector, and
 the spinor sector by itself moves no `epoch` (the current `epoch` is `3`
 after the §4a QR correction of issue #150; epoch `2` corrected the
 §14.2 base-case frame in issue #90).
 
 The tag list is normative and its bytes are contractually stable: the
-fingerprint "changes exactly with a specification correction" (`src/bcd.rs`,
+fingerprint "changes exactly with a specification correction" (`src/lie/bcd.rs`,
 consumer contract). Adding a `spinor=` tag would change the bytes without a
 specification correction, and would force every consumer holding persisted
 `SO(N)`/`Sp(2N)` coefficients — every one of which is byte-identical across the

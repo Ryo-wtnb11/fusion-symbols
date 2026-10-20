@@ -38,8 +38,11 @@ process-global, bounded, and FIFO.
 
 - **Base tiers** (SU(2): 3j, 6j, derived-F) are bounded by
   `cache::BASE_CACHE_MAX_BYTES` = 192 MiB, a static partition of 3 × 64 MiB.
-- **Generated tiers** (`cgc-gen`: SU(N) product / CGC / F, B/C/D CGC / F) are
+- **Generated tiers** (`cgc-gen`: SU(N) product / CGC / F, B/C/D product+CGC / F) are
   bounded by `cache::GENERATED_CACHE_MAX_BYTES` = 640 MiB + 128 KiB.
+
+The existing `BcdCgc` tier holds both exact B/C/D products and CGC isometries;
+its budget, statistics and trimming cover both.
 
 Those are ceilings on *retained entry charge*, not RSS: they exclude container
 capacity, allocator metadata, transient clones, and values you have taken out
@@ -93,12 +96,13 @@ consistent.
 
 ## The B/C/D catalog is separate
 
-A [`CanonicalCatalog`](clebsch-gordan.md#son-sp2n-you-need-a-catalog) is
-caller-owned state with its own byte budget (`CanonicalCatalog::with_budget`),
-holding discovered generator matrices. It is *not* one of the global cache
-tiers. Dropping a catalog frees the generators but does not invalidate cached
-coefficient values: those are keyed by the complete irrep labels and are valid
-no matter which catalog instance produced them.
+Each B/C/D `LieGroup` owns an internal generator catalog; clones share it.
+`LieGroup::with_catalog_budget(group, max_bytes)` sets its byte budget.
+`catalog_stats()` returns `Result<(usize, usize), LieError>` containing
+`(retained bytes, budget)`, or `(0, 0)` without a catalog. `reset_catalog()`
+re-seeds its base representations and is a no-op for other groups. Both methods
+report a poisoned lock as `LieError::Generation`. Global coefficient caches
+survive resets. Warm F/CGC/R calls consult those caches before locking the catalog.
 
 ## Gauge and reproducibility
 
@@ -112,8 +116,7 @@ the details; what you do need is:
   an explicit specification correction with a fingerprint epoch bump and a
   CHANGELOG breaking-change entry.
 - **You can checkpoint against it.** Each family exposes an opaque **authority
-  fingerprint**: `FusionCategory::authority_fingerprint()`,
-  `bcd::bcd_authority_fingerprint()`. Persist the bytes next to anything you
+  fingerprint**: `FusionCategory::authority_fingerprint()`. Persist the bytes next to anything you
   derive from these coefficients, and on load compare for equality and reject
   the derived data on mismatch. Compare only — never parse them.
 
@@ -152,7 +155,7 @@ against another implementation or auditing a value, not to learn the API.
   `base_cache_stats`, `generated_cache_stats`, `trim_to`, `reset`,
   `BASE_CACHE_MAX_BYTES`, `GENERATED_CACHE_MAX_BYTES`
 - [`fusion_symbols::category::FusionCategory::authority_fingerprint`], `FusionCategory::authority_fingerprint`,
-  `bcd::bcd_authority_fingerprint`
+  `FusionCategory::authority_fingerprint`
 - Measurement evidence behind the defaults: [`../developer/`](../developer/README.md)
 
 [`fusion_symbols::cache`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/cache/index.html

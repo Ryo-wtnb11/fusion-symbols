@@ -36,14 +36,19 @@ fn overview_1() {
 /// `docs/overview.md`, Rust block 2.
 #[test]
 fn overview_2() {
-    use fusion_symbols::bcd::{f_symbol, CanonicalCatalog, Irrep, Series};
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
 
-    let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap(); // Sp(4)
-    let triv = Irrep::trivial(Series::C, 2).unwrap();
-    let five = Irrep::from_dynkin(Series::C, &[0, 1]).unwrap(); // the 5
-    let ten = Irrep::from_dynkin(Series::C, &[2, 0]).unwrap(); // the adjoint 10
+    let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap(); // Sp(4)
+    let triv = cat.unit();
+    let five = cat.irrep(&[0, 1]).unwrap(); // the 5
+    let ten = cat.irrep(&[2, 0]).unwrap(); // the adjoint 10
 
-    let block = f_symbol(&mut cat, &triv, &five, &five, &ten, &five, &ten).unwrap();
+    let block = cat
+        .f_symbol(&triv, &five, &five, &ten, &five, &ten)
+        .unwrap();
     assert_eq!(block.dims(), [1, 1, 1, 1]);
     assert!((block.at(0, 0, 0, 0) - 1.0).abs() < 1e-9);
 }
@@ -51,15 +56,17 @@ fn overview_2() {
 /// `docs/overview.md`, Rust block 3.
 #[test]
 fn overview_3() {
-    use fusion_symbols::bcd::Irrep;
-    use fusion_symbols::lie::GroupId;
+    use fusion_symbols::lie::{GroupId, LieGroup};
 
     let spin7 = GroupId::spin(7).unwrap();
-    let s = Irrep::from_dynkin_in(&spin7, &[0, 0, 1]).unwrap();
-    assert_eq!(s.dim(), 8u32.into());
+    let s = LieGroup::new(spin7).unwrap().irrep(&[0, 0, 1]).unwrap();
+    assert_eq!(s.dim_exact(), 8u32.into());
 
     // The same label is not a representation of SO(7).
-    assert!(Irrep::from_dynkin_in(&GroupId::so(7).unwrap(), &[0, 0, 1]).is_err());
+    assert!(LieGroup::new(GroupId::so(7).unwrap())
+        .unwrap()
+        .irrep(&[0, 0, 1])
+        .is_err());
 }
 
 /// `docs/user-guide/clebsch-gordan.md`, Rust block 1.
@@ -110,15 +117,18 @@ fn clebsch_gordan_3() {
 /// `docs/user-guide/clebsch-gordan.md`, Rust block 4.
 #[test]
 fn clebsch_gordan_4() {
-    use fusion_symbols::bcd::{CanonicalCatalog, Irrep, Series};
+    use fusion_symbols::{
+        category::GroupRepresentations,
+        lie::{GroupId, LieGroup},
+    };
 
-    let mut cat = CanonicalCatalog::new(Series::B, 2).unwrap(); // SO(5) / Spin(5)
-    let v = Irrep::from_dynkin(Series::B, &[1, 0]).unwrap(); // the 5
-    let adj = Irrep::from_dynkin(Series::B, &[0, 2]).unwrap(); // the 10
+    let cat = LieGroup::new(GroupId::so(5).unwrap()).unwrap(); // SO(5) / Spin(5)
+    let v = cat.irrep(&[1, 0]).unwrap(); // the 5
+    let adj = cat.irrep(&[0, 2]).unwrap(); // the 10
 
     let c = cat.cgc(&v, &v, &adj).unwrap();
-    assert_eq!(c.multiplicity(), 1);
-    assert_eq!(c.copy_shape(), (25, 10)); // (dim(s1)·dim(s2), dim(s3))
+    assert_eq!(c.dims()[3], 1);
+    assert_eq!((c.dims()[0] * c.dims()[1], c.dims()[2]), (25, 10)); // (dim(s1)·dim(s2), dim(s3))
 }
 
 /// `docs/user-guide/fusion.md`, Rust block 1.
@@ -188,15 +198,28 @@ fn fusion_3() {
 /// `docs/user-guide/fusion.md`, Rust block 4.
 #[test]
 fn fusion_4() {
-    use fusion_symbols::bcd::{directproduct, Irrep, Series};
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
 
     // SO(5) = B_2: 5 ⊗ 5 = 1 ⊕ 10 ⊕ 14.
-    let v = Irrep::from_dynkin(Series::B, &[1, 0]).unwrap();
-    let out = directproduct(&v, &v).unwrap();
+    let cat = LieGroup::new(GroupId::so(5).unwrap()).unwrap();
+    let v = cat.irrep(&[1, 0]).unwrap();
+    let out = cat
+        .fusion(&v, &v)
+        .map(|it| {
+            it.map(|c| {
+                let n = cat.nsymbol(&v, &v, &c);
+                (c, n)
+            })
+            .collect::<std::collections::BTreeMap<_, _>>()
+        })
+        .unwrap();
     assert_eq!(out.len(), 3);
     for (irrep, mult) in &out {
         assert_eq!(*mult, 1);
-        let _ = irrep.dim();
+        let _ = irrep.dim_exact();
     }
 }
 
@@ -300,12 +323,25 @@ fn groups_2() {
 /// `docs/user-guide/groups.md`, Rust block 3.
 #[test]
 fn groups_3() {
-    use fusion_symbols::bcd::{directproduct, Irrep, Series};
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
 
     // SO(5) = B_2: 5 ⊗ 5 = 1 ⊕ 10 ⊕ 14.
-    let v = Irrep::from_dynkin(Series::B, &[1, 0]).unwrap();
-    let out = directproduct(&v, &v).unwrap();
-    let mut dims: Vec<String> = out.keys().map(|s| s.dim().to_string()).collect();
+    let cat = LieGroup::new(GroupId::so(5).unwrap()).unwrap();
+    let v = cat.irrep(&[1, 0]).unwrap();
+    let out = cat
+        .fusion(&v, &v)
+        .map(|it| {
+            it.map(|c| {
+                let n = cat.nsymbol(&v, &v, &c);
+                (c, n)
+            })
+            .collect::<std::collections::BTreeMap<_, _>>()
+        })
+        .unwrap();
+    let mut dims: Vec<String> = out.keys().map(|s| s.dim_exact().to_string()).collect();
     dims.sort();
     assert_eq!(dims, vec!["1", "10", "14"]);
 }
@@ -313,30 +349,40 @@ fn groups_3() {
 /// `docs/user-guide/groups.md`, Rust block 4.
 #[test]
 fn groups_4() {
-    use fusion_symbols::bcd::Irrep;
-    use fusion_symbols::lie::GroupId;
+    use fusion_symbols::lie::{GroupId, LieGroup};
 
     let spin5 = GroupId::spin(5).unwrap();
-    let s = Irrep::from_dynkin_in(&spin5, &[0, 1]).unwrap();
-    assert_eq!(s.dim(), 4u32.into()); // the Spin(5) Dirac spinor
-    assert!(s.is_spinor());
-    assert_eq!(s.two_partition(), &[1, 1]); // λ = (½, ½)
+    let s = LieGroup::new(spin5).unwrap().irrep(&[0, 1]).unwrap();
+    assert_eq!(s.dim_exact(), 4u32.into()); // the Spin(5) Dirac spinor
 
     // The same label is not a representation of SO(5).
     let so5 = GroupId::so(5).unwrap();
-    assert!(Irrep::from_dynkin_in(&so5, &[0, 1]).is_err());
+    assert!(LieGroup::new(so5).unwrap().irrep(&[0, 1]).is_err());
 }
 
 /// `docs/user-guide/groups.md`, Rust block 5.
 #[test]
 fn groups_5() {
-    use fusion_symbols::bcd::{directproduct, Irrep, Series};
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
 
     // Sp(4) = C_2. The defining 4, and 4 ⊗ 4 = 1 ⊕ 5 ⊕ 10.
-    let four = Irrep::from_dynkin(Series::C, &[1, 0]).unwrap();
-    assert_eq!(four.dim(), 4u32.into());
-    let out = directproduct(&four, &four).unwrap();
-    let mut dims: Vec<String> = out.keys().map(|s| s.dim().to_string()).collect();
+    let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
+    let four = cat.irrep(&[1, 0]).unwrap();
+    assert_eq!(four.dim_exact(), 4u32.into());
+    let out = cat
+        .fusion(&four, &four)
+        .map(|it| {
+            it.map(|c| {
+                let n = cat.nsymbol(&four, &four, &c);
+                (c, n)
+            })
+            .collect::<std::collections::BTreeMap<_, _>>()
+        })
+        .unwrap();
+    let mut dims: Vec<String> = out.keys().map(|s| s.dim_exact().to_string()).collect();
     dims.sort();
     assert_eq!(dims, vec!["1", "10", "5"]); // string sort
 }
@@ -420,14 +466,19 @@ fn recoupling_3() {
 /// `docs/user-guide/recoupling.md`, Rust block 4.
 #[test]
 fn recoupling_4() {
-    use fusion_symbols::bcd::{f_symbol, CanonicalCatalog, Irrep, Series};
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
 
-    let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap(); // Sp(4) = C_2
-    let triv = Irrep::trivial(Series::C, 2).unwrap();
-    let five = Irrep::from_dynkin(Series::C, &[0, 1]).unwrap(); // the 5
-    let ten = Irrep::from_dynkin(Series::C, &[2, 0]).unwrap(); // the adjoint 10
+    let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap(); // Sp(4) = C_2
+    let triv = cat.unit();
+    let five = cat.irrep(&[0, 1]).unwrap(); // the 5
+    let ten = cat.irrep(&[2, 0]).unwrap(); // the adjoint 10
 
-    let block = f_symbol(&mut cat, &triv, &five, &five, &ten, &five, &ten).unwrap();
+    let block = cat
+        .f_symbol(&triv, &five, &five, &ten, &five, &ten)
+        .unwrap();
     assert_eq!(block.dims(), [1, 1, 1, 1]);
     assert!((block.at(0, 0, 0, 0) - 1.0).abs() < 1e-9);
 }
@@ -613,28 +664,35 @@ fn representations_3() {
 /// `docs/user-guide/representations.md`, Rust block 4.
 #[test]
 fn representations_4() {
-    use fusion_symbols::bcd::{Irrep, Series};
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
 
     // SO(5) = B_2. Dynkin [1, 0] is the 5-dimensional vector representation.
-    let v = Irrep::from_dynkin(Series::B, &[1, 0]).unwrap();
-    assert_eq!(v.dim(), 5u32.into());
-    assert_eq!(v.dual(), v);
-    assert_eq!(v.frobenius_schur(), 1); // real (orthogonal) self-duality
-    assert_eq!(v.partition(), Some(vec![1, 0])); // λ = (1, 0)
+    let cat = LieGroup::new(GroupId::so(5).unwrap()).unwrap();
+    let v = cat.irrep(&[1, 0]).unwrap();
+    assert_eq!(v.dim_exact(), 5u32.into());
+    assert_eq!(cat.dual(&v), v);
+    assert_eq!(cat.frobenius_schur_indicator(&v), 1.0); // real (orthogonal) self-duality
 }
 
 /// `docs/user-guide/representations.md`, Rust block 5.
 #[test]
 fn representations_5() {
-    use fusion_symbols::bcd::{Irrep, Series};
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
 
     // Sp(4) = C_2. Its defining 4 is pseudo-real; the 5 is real.
-    let four = Irrep::from_dynkin(Series::C, &[1, 0]).unwrap();
-    let five = Irrep::from_dynkin(Series::C, &[0, 1]).unwrap();
-    assert_eq!(four.dim(), 4u32.into());
-    assert_eq!(four.frobenius_schur(), -1);
-    assert_eq!(five.dim(), 5u32.into());
-    assert_eq!(five.frobenius_schur(), 1);
+    let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
+    let four = cat.irrep(&[1, 0]).unwrap();
+    let five = cat.irrep(&[0, 1]).unwrap();
+    assert_eq!(four.dim_exact(), 4u32.into());
+    assert_eq!(cat.frobenius_schur_indicator(&four), -1.0);
+    assert_eq!(five.dim_exact(), 5u32.into());
+    assert_eq!(cat.frobenius_schur_indicator(&five), 1.0);
 }
 
 /// `docs/user-guide/resources.md`, Rust block 1.

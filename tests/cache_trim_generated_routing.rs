@@ -3,9 +3,13 @@
 
 #[path = "common/lie.rs"]
 mod lie_test;
-use fusion_symbols::bcd::{self, CanonicalCatalog, Series};
-use fusion_symbols::cache::{self, CoefficientCacheTier};
+
+#[path = "common/bcd.rs"]
+mod bcd_test;
+use bcd_test::Series;
 use fusion_symbols::category::FusionCategory;
+
+use fusion_symbols::cache::{self, CoefficientCacheTier};
 
 fn irrep(d: &[i64]) -> fusion_symbols::lie::LieIrrep {
     lie_test::irrep(d).unwrap()
@@ -20,11 +24,11 @@ fn trim_routes_to_each_populated_generated_tier() {
     let _ = lie_test::cgc(&a, &b, &c).unwrap();
     let e8 = irrep(&[1, 1]);
     let _ = lie_test::f_symbol(&e8, &e8, &e8, &e8, &e8, &e8).unwrap();
-    let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap();
-    let triv = bcd::Irrep::trivial(Series::C, 2).unwrap();
-    let v = bcd::Irrep::from_dynkin(Series::C, &[0, 1]).unwrap();
-    let adj = bcd::Irrep::from_dynkin(Series::C, &[2, 0]).unwrap();
-    let _ = bcd::f_symbol(&mut cat, &triv, &v, &v, &adj, &v, &adj).unwrap();
+    let cat = bcd_test::group(Series::C, 2).unwrap();
+    let triv = bcd_test::trivial(Series::C, 2).unwrap();
+    let v = bcd_test::irrep(Series::C, &[0, 1]).unwrap();
+    let adj = bcd_test::irrep(Series::C, &[2, 0]).unwrap();
+    let _ = bcd_test::f_symbol(&cat, &triv, &v, &v, &adj, &v, &adj).unwrap();
     let tiers = [
         CoefficientCacheTier::SunProduct,
         CoefficientCacheTier::SunCgc,

@@ -41,9 +41,10 @@ known difference and the reason recorded for it. Per-symbol provenance is in
   fingerprint next to anything they derive
   ([`AGENTS.md`](../AGENTS.md) acceptance criteria 3–4;
   [overview: Exactness and gauge](overview.md#exactness-and-gauge)).
-- **Verification-gated generation with typed errors.** Orthogonality,
-  unitarity, pentagon and hexagon checks run at generation time and a
-  violation is a typed error. Reason: a silently degraded coefficient is not
+- **Verification-gated generation with typed errors.** Internal orthogonality
+  and generator-consistency checks reject invalid CGC. Generic category
+  residual functions check F unitarity, pentagon and hexagon identities.
+  A numeric generation-gate violation is a typed error. Reason: a silently degraded coefficient is not
   acceptable ([`AGENTS.md`](../AGENTS.md) acceptance criterion 5).
 - **Checked and infallible entry points.** SU(2) retains its infallible and
   `_checked` functions. Abelian, fermion, CU(1) and table families use only
@@ -53,8 +54,8 @@ known difference and the reason recorded for it. Per-symbol provenance is in
   `r_symbol` returns `TableError::NoBraiding` and `twist` panics, both after
   rejecting foreign objects. SU(N) uses `LieGroup` too: absent
   channels return empty blocks and generation failures are opaque
-  `LieError::Generation` diagnostics with an error source. B/C/D (`bcd` module)
-  keeps its `Result`-only functions, where an absent channel is an error. Validation belongs at construction.
+  `LieError::Generation` diagnostics with an error source. The same rules apply
+  to B/C/D, including spinors. Validation belongs at construction.
 
 ## Labels
 

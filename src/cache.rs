@@ -3,7 +3,7 @@
 //!
 //! Coefficient generation is the expensive step, so `fusion-symbols` caches: the base
 //! SU(2) tiers (3j, 6j, derived-F) keyed by canonical Regge classes, and — with
-//! `cgc-gen` — five generated tiers (SU(N) product / CGC / F, B/C/D CGC / F).
+//! `cgc-gen` — five generated tiers (SU(N) product / CGC / F, B/C/D product+CGC / F).
 //! Every tier is process-global, FIFO, and independently bounded.
 //!
 //! # What a consumer needs from this module
@@ -121,7 +121,7 @@ pub struct CoefficientCacheBudgets {
     /// SU(N) F-symbol retained-charge cap.
     sun_f_bytes: usize,
     #[cfg(feature = "cgc-gen")]
-    /// B/C/D CGC retained-charge cap.
+    /// Shared B/C/D exact-product and CGC retained-charge cap.
     bcd_cgc_bytes: usize,
     #[cfg(feature = "cgc-gen")]
     /// B/C/D F-symbol retained-charge cap.
@@ -148,7 +148,7 @@ pub enum CoefficientCacheTier {
     /// SU(N) F-symbol tier.
     SunF,
     #[cfg(feature = "cgc-gen")]
-    /// B/C/D CGC tier.
+    /// B/C/D exact-product and CGC tier.
     BcdCgc,
     #[cfg(feature = "cgc-gen")]
     /// B/C/D F-symbol tier.
@@ -473,7 +473,7 @@ pub const BASE_CACHE_MAX_BYTES: usize = 192 << 20;
 const _: () = assert!(BASE_CACHE_MAX_BYTES == 3 * DEFAULT_MAX_BYTES);
 
 /// Aggregate conservative retained-charge cap for the five generated `cgc-gen` tiers
-/// (SU(N) product, SU(N) CGC, SU(N) F, B/C/D CGC, B/C/D F):
+/// (SU(N) product, SU(N) CGC, SU(N) F, B/C/D product+CGC, B/C/D F):
 /// `640 MiB + 128 KiB` = `128 KiB + 256 MiB + 64 MiB + 256 MiB + 64 MiB`.
 ///
 /// **Unstable: shape may change.** There is no Cargo-feature way to express an
@@ -498,8 +498,8 @@ const _: () = assert!(BASE_CACHE_MAX_BYTES == 3 * DEFAULT_MAX_BYTES);
 /// corollary without global enforcement.
 ///
 /// Per-tier and total statistics are exposed via [`generated_cache_stats`]. The
-/// `CanonicalCatalog` is *not* a value cache (generator state, its own byte
-/// budget, `&mut` caller-owned lifecycle) and is intentionally excluded from
+/// the internal generator catalog is *not* a value cache (generator state, its own byte
+/// budget, per-`LieGroup` lifecycle) and is intentionally excluded from
 /// this budget and from these stats.
 #[cfg(feature = "cgc-gen")]
 pub const GENERATED_CACHE_MAX_BYTES: usize = (640 << 20) + (128 << 10);
@@ -596,7 +596,7 @@ impl BaseCacheStats {
 }
 
 /// Per-tier statistics for the five generated `cgc-gen` tiers (SU(N) product,
-/// SU(N) CGC, SU(N) F, B/C/D CGC, B/C/D F).
+/// SU(N) CGC, SU(N) F, B/C/D product+CGC, B/C/D F).
 ///
 /// **Unstable: shape may change.** The struct is `#[non_exhaustive]` — it is
 /// constructed only inside the crate (by [`generated_cache_stats`]); consumers
@@ -628,7 +628,7 @@ pub struct GeneratedCacheStats {
     pub sun_cgc: TierStats,
     /// The derived-f64 SU(N) F-symbol tier.
     pub sun_f: TierStats,
-    /// The B/C/D CGC value tier.
+    /// The B/C/D exact-product and CGC value tier.
     pub bcd_cgc: TierStats,
     /// The derived-f64 B/C/D F-symbol tier.
     pub bcd_f: TierStats,
@@ -1150,8 +1150,8 @@ pub(crate) fn cache_sun_f(
 #[cfg(feature = "cgc-gen")]
 mod bcd_f_cache {
     use super::FifoCache;
-    use crate::bcd::Irrep;
     use crate::frcore::FBlock;
+    use crate::lie::bcd::Irrep;
     use std::sync::{Arc, LazyLock};
 
     /// Canonical cache key: the six B/C/D irrep labels `(a, b, c, d, e, f)`.
@@ -1173,44 +1173,21 @@ pub(crate) fn cache_bcd_f(
     &bcd_f_cache::CACHE_BCD_F
 }
 
-/// Bounded, byte-accounted B/C/D CGC value tier (`cgc-gen`).
+/// Bounded, byte-accounted B/C/D exact-product and CGC value tier.
 ///
-/// The B/C/D analogue of the SU(N) [`cache_cgc`] tier: a
-/// [`CatalogCgc`](crate::bcd::CatalogCgc) is expensive (a full decomposition
-/// sweep), and the F/R gates request the **same** `s1 ⊗ s2` product decomposed
-/// to many different coupled `s3`. Without this tier every `bcd::f_symbol` /
-/// gate call re-runs the whole sweep in `CanonicalCatalog::cgc`; with it, the
-/// tier holds each channel's isometry so a warm request is a hash lookup, and
-/// (populated all-channels-per-sweep from `CanonicalCatalog::cgc_product`) the
-/// sweep runs once per **product**, not once per **triple**.
+/// Private key/value variants share the existing `BcdCgc` byte budget, FIFO
+/// eviction, statistics, trim and reset controls. Exact products are shared
+/// sorted channel slices on an unordered irrep-pair key. Dense CGC isometries
+/// use ordered triples; one sweep populates all coupled channels.
+/// Keys omit global form: admissibility is checked by `LieGroup::irrep`, while
+/// surviving weights share their canonical coefficients across global forms.
 ///
-/// Keyed by the canonical `(s1, s2, s3)` labels — the complete value key, since
-/// the CGC is a deterministic function of the labels and the canonical gauge
-/// (`docs/gauge_soN.md`), independent of which catalog instance produced it (exactly the
-/// SU(N) `cache_cgc` argument). In-memory only: values are gauge/algorithm-
-/// dependent, so a persisted store would need a version key.
-///
-/// # Catalog lifetime is orthogonal to this tier
-///
-/// The [`CanonicalCatalog`](crate::bcd::CanonicalCatalog) is caller-owned `&mut`
-/// state, not process-global; dropping or rebuilding one does not invalidate the
-/// entries it populated here. Cached values remain valid because catalog
-/// instances implement the same canonical convention and tolerance contract, and
-/// the complete family/rank/irrep labels determine the key. So [`reset`] and
-/// catalog lifetime stay separate axes — no coupling is needed.
-///
-/// # Why a single (s1,s2,s3) tier and not a global tier plus a per-call memo
-///
-/// One process-global value tier serves both roles — it
-/// dedups the sweep across coupled channels (all channels of a product share the
-/// one sweep that first populates any of them) *and* across calls. A separate
-/// call-scoped memo would duplicate ownership of the same CGC across a global
-/// and a local store, which the workspace cache policy warns against; the single
-/// tier keeps ownership singular.
+/// Generator catalogs belong to individual `LieGroup` values and are shared
+/// by clones. Resetting one does not invalidate these global cached values.
 #[cfg(feature = "cgc-gen")]
-mod bcd_cgc_cache {
-    use super::{CacheCharge, FifoCache};
-    use crate::bcd::{CatalogCgc, Irrep};
+pub(crate) mod bcd_cgc_cache {
+    use super::{CacheCharge, CacheKeyCharge, FifoCache};
+    use crate::lie::bcd::{CatalogCgc, Irrep};
     use std::sync::{Arc, LazyLock};
 
     /// Canonical cache key: the three B/C/D irrep labels.
@@ -1226,11 +1203,38 @@ mod bcd_cgc_cache {
     /// the form to the key would only duplicate identical tensors. An
     /// inadmissible weight cannot reach the cache at all: no `Irrep` for it is
     /// ever constructed.
-    pub(crate) type BcdCgcKey = (Irrep, Irrep, Irrep);
-
-    impl CacheCharge for Arc<CatalogCgc> {
+    #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+    pub(crate) enum BcdKey {
+        Product(Irrep, Irrep),
+        Cgc(Irrep, Irrep, Irrep),
+    }
+    impl CacheKeyCharge for BcdKey {
+        fn key_bytes(&self) -> usize {
+            std::mem::size_of::<Self>()
+                + match self {
+                    Self::Product(a, b) => a.key_bytes() + b.key_bytes(),
+                    Self::Cgc(a, b, c) => a.key_bytes() + b.key_bytes() + c.key_bytes(),
+                }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub(crate) enum BcdValue {
+        Product(Arc<[(Irrep, u32)]>),
+        Cgc(Arc<CatalogCgc>),
+    }
+    impl CacheCharge for BcdValue {
         fn value_bytes(&self) -> usize {
-            self.storage_bytes()
+            std::mem::size_of::<Self>()
+                + match self {
+                    Self::Product(channels) => {
+                        std::mem::size_of_val(channels.as_ref())
+                            + channels
+                                .iter()
+                                .map(|(c, _)| c.key_bytes() - std::mem::size_of::<Irrep>())
+                                .sum::<usize>()
+                    }
+                    Self::Cgc(cgc) => cgc.storage_bytes(),
+                }
         }
     }
 
@@ -1242,18 +1246,17 @@ mod bcd_cgc_cache {
     /// `pub(super)` for the [`super::GENERATED_CACHE_MAX_BYTES`] drift assertion.
     pub(super) const BCD_CGC_MAX_BYTES: usize = 256 << 20;
 
-    pub(crate) static CACHE_BCD_CGC: LazyLock<FifoCache<BcdCgcKey, Arc<CatalogCgc>>> =
-        LazyLock::new(|| {
-            FifoCache::new(
-                BCD_CGC_MAX_ENTRIES,
-                super::effective_budgets().bcd_cgc_bytes,
-            )
-        });
+    pub(crate) static CACHE_BCD_CGC: LazyLock<FifoCache<BcdKey, BcdValue>> = LazyLock::new(|| {
+        FifoCache::new(
+            BCD_CGC_MAX_ENTRIES,
+            super::effective_budgets().bcd_cgc_bytes,
+        )
+    });
 }
 
 #[cfg(feature = "cgc-gen")]
-pub(crate) fn cache_bcd_cgc(
-) -> &'static FifoCache<bcd_cgc_cache::BcdCgcKey, std::sync::Arc<crate::bcd::CatalogCgc>> {
+pub(crate) fn cache_bcd_cgc() -> &'static FifoCache<bcd_cgc_cache::BcdKey, bcd_cgc_cache::BcdValue>
+{
     &bcd_cgc_cache::CACHE_BCD_CGC
 }
 
@@ -1379,7 +1382,7 @@ pub fn base_cache_stats() -> BaseCacheStats {
 }
 
 /// Per-tier and total statistics for the five generated `cgc-gen` tiers
-/// (SU(N) product, SU(N) CGC, SU(N) F, B/C/D CGC, B/C/D F).
+/// (SU(N) product, SU(N) CGC, SU(N) F, B/C/D product+CGC, B/C/D F).
 ///
 /// The generated-family analogue of [`base_cache_stats`]: unlike the aggregate
 /// [`stats`] (which sums base *and* generated tiers into one flat
@@ -1579,7 +1582,7 @@ mod tests {
     fn generated_keys_charge_owned_irrep_weights() {
         use super::bcd_f_cache::BcdFKey;
         use super::cgc_cache::CgcKey;
-        use crate::bcd::{Irrep as BcdIrrep, Series};
+        use crate::lie::bcd::{Irrep as BcdIrrep, Series};
         use crate::lie::sun::Irrep as SunIrrep;
 
         let sun = SunIrrep::from_dynkin(&[1; 12]).unwrap();
@@ -1714,7 +1717,7 @@ mod tests {
     fn deep_key_bytes_drive_eviction_oversize_and_reset() {
         use super::bcd_f_cache::BcdFKey;
         use super::cgc_cache::CgcKey;
-        use crate::bcd::{Irrep as BcdIrrep, Series};
+        use crate::lie::bcd::{Irrep as BcdIrrep, Series};
         use crate::lie::sun::Irrep as SunIrrep;
 
         let sun = |label| SunIrrep::from_dynkin(&[label; 12]).unwrap();
@@ -1835,6 +1838,37 @@ mod tests {
             "retained charge exceeded cap: {bytes} > {budget}"
         );
         assert!(c.get(&ka).is_none(), "oldest not evicted");
+    }
+
+    #[cfg(feature = "cgc-gen")]
+    #[test]
+    fn bcd_products_charge_deep_labels_and_respect_the_shared_budget() {
+        use crate::lie::bcd::{Irrep, Series};
+        use bcd_cgc_cache::{BcdKey, BcdValue};
+        let a = Irrep::from_dynkin(Series::C, &[1, 0]).unwrap();
+        let key = BcdKey::Product(a.clone(), a.clone());
+        let product = crate::lie::bcd::directproduct(&a, &a)
+            .unwrap()
+            .into_iter()
+            .collect::<Arc<[_]>>();
+        let value = BcdValue::Product(Arc::clone(&product));
+        let expected = std::mem::size_of::<BcdValue>()
+            + std::mem::size_of_val(product.as_ref())
+            + product
+                .iter()
+                .map(|(c, _)| std::mem::size_of_val(c.two_partition()))
+                .sum::<usize>();
+        assert_eq!(value.value_bytes(), expected);
+        let charge = entry_charge(&key, &value);
+        let local = FifoCache::new(16, charge - 1);
+        let BcdValue::Product(returned) = local.insert(key, value) else {
+            panic!("product value")
+        };
+        assert!(Arc::ptr_eq(&product, &returned));
+        assert_eq!(local.tier_stats().entries, 0);
+        assert_eq!(local.tier_stats().evictions, 1);
+        local.reset();
+        assert_eq!(local.tier_stats(), TierStats::default());
     }
 
     #[test]

@@ -52,7 +52,7 @@ with no signal anywhere. Under this freeze the arrow points the other way:
   have.
 - The **authority fingerprints are the version of this specification**, not a
   label for the current build's output. `FusionCategory::authority_fingerprint()`
-  and `bcd_authority_fingerprint()` change only when the specification they cite is corrected.
+  changes only when the specification it cites is corrected.
 - The fingerprint strings keep their `racah:` prefix **permanently**: they are
   identifiers, not a crate name. The rename to `fusion-symbols` does not change
   them, and no later change should "fix" the prefix.
@@ -68,7 +68,7 @@ correction**, and it requires, in the same change:
    the new rule says.
 2. **A fingerprint bump.** The affected family's `epoch=N` tag incremented in
    `lie/su2.rs::fingerprint` / `lie/sun.rs::fingerprint` /
-   `bcd.rs:bcd_authority_fingerprint`, and the pinned literal in the matching
+   `lie/bcd.rs::bcd_authority_fingerprint`, and the pinned literal in the matching
    `tests/*_fingerprint.rs` updated in the same PR. Epochs are per-family and
    independent: correcting the SU(N) spec never invalidates SU(2)- or
    B/C/D-derived consumer state.
@@ -450,5 +450,5 @@ generator seeds, the Kronecker convention, the decomposition sweep and its
 Gram–Schmidt/QR gauge, the descending-weight sort and its tie-break, the
 first-significant-entry sign convention, the outer-multiplicity assignment, the
 canonical-parent rule, and the intertwiner alignment. That document is normative
-under this same freeze, and `bcd_authority_fingerprint`'s `epoch` is its
+under this same freeze, and `FusionCategory::authority_fingerprint`'s `epoch` is its
 specification version.

@@ -95,41 +95,33 @@ The two copies `μ = 0, 1` are mutually orthonormal and are fixed by the gauge
 specification, not by an arbitrary choice at run time — the same input always
 yields the same two copies, in the same order.
 
-## SO(N) / Sp(2N): you need a catalog
+## SO(N) / Spin(N) / Sp(2N)
 
-The B/C/D generation is a bootstrap: to build a CGC for `s1 ⊗ s2 → s3` it needs
-the explicit generator matrices of the irreps involved, which it discovers and
-retains. That retained state is a [`CanonicalCatalog`], one per `(series,
-rank)`, and you own it.
+B/C/D generation discovers and retains canonical generator matrices inside
+`LieGroup`. Clones share this catalog. CGC use the same `LieCgc` accessors as
+SU(N), with magnetic indices in the frozen bootstrap basis order.
 
 ```rust
-use fusion_symbols::bcd::{CanonicalCatalog, Irrep, Series};
+use fusion_symbols::{category::{GroupRepresentations},lie::{LieGroup,GroupId}};
 
-let mut cat = CanonicalCatalog::new(Series::B, 2).unwrap();   // SO(5) / Spin(5)
-let v = Irrep::from_dynkin(Series::B, &[1, 0]).unwrap();      // the 5
-let adj = Irrep::from_dynkin(Series::B, &[0, 2]).unwrap();    // the 10
+let cat = LieGroup::new(GroupId::so(5).unwrap()).unwrap();   // SO(5) / Spin(5)
+let v = cat.irrep(&[1, 0]).unwrap();      // the 5
+let adj = cat.irrep(&[0, 2]).unwrap();    // the 10
 
 let c = cat.cgc(&v, &v, &adj).unwrap();
-assert_eq!(c.multiplicity(), 1);
-assert_eq!(c.copy_shape(), (25, 10));    // (dim(s1)·dim(s2), dim(s3))
+assert_eq!(c.dims()[3], 1);
+assert_eq!((c.dims()[0]*c.dims()[1],c.dims()[2]), (25, 10));    // (dim(s1)·dim(s2), dim(s3))
 ```
 
 ### What the result means
 
-[`CatalogCgc`] is **dense**, not sparse, and laid out per multiplicity copy:
-
-- `copy_shape()` is `(d1·d2, d3)` — the shape of one copy's isometry.
-- `copy(mu)` is that copy as a flat **column-major** buffer: element
-  `(row, m3)` lives at `copy[m3 * rows + row]`.
-- The product-basis row index is **first factor fast**:
-  `row = m1 + d1·m2`, so `m1 = row % d1` and `m2 = row / d1` with
-  `d1 = dim(s1)`.
-- `data()` is all copies concatenated in `μ` order.
-
-Keep a catalog alive for as long as you are working in one `(series, rank)`:
-rebuilding it discards the discovered generator sets and makes the next query
-re-derive them. Dropping it does **not** invalidate cached coefficient values —
-the value cache is keyed on the irrep labels, not on the catalog instance.
+`LieCgc::dims()` returns `[dim(a), dim(b), dim(c), N(a,b,c)]`;
+`at(m1,m2,m3,mu)` reads one coefficient. The private generator keeps its dense
+first-factor-fast layout; these accessors preserve that gauge without exposing
+storage details. Use `LieGroup::with_catalog_budget` to bound retained generator
+bytes, `catalog_stats()` for `(bytes, budget)`, and `reset_catalog()` to re-seed.
+Catalog control returns `Result`; a poisoned catalog is a generation error.
+Global coefficient caches remain valid across catalog resets.
 
 ## Caveats
 
@@ -137,7 +129,7 @@ the value cache is keyed on the irrep labels, not on the catalog instance.
   are contractions of already-generated CGC. Results are cached, so repeated
   queries are cheap, but a cold first query on a large irrep is not.
 - **Empty channels.** SU(N) CGC have multiplicity axis zero; F/R blocks
-  also have zero axes. B/C/D keeps its existing typed errors in this slice.
+  also have zero axes. B/C/D keeps its existing zero-sized blocks for empty channels.
 - **Values are floating point.** Labels, dimensions and multiplicities are
   exact; generated coefficient *values* are verification-gated `f64`. See
   [Resources § exact vs generated](resources.md#exact-vs-generated-values).
@@ -150,13 +142,9 @@ the value cache is keyed on the irrep labels, not on the catalog instance.
 
 - [`su2::clebsch_gordan`], `clebsch_gordan_checked`, `wigner_3j`, `wigner_6j`
 - [`GroupRepresentations::cgc`], [`lie::LieCgc`], [`LieCgc::at`]
-- [`bcd::CanonicalCatalog::cgc`], [`CatalogCgc`]
 
 [`SignedSqrtRational`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/struct.SignedSqrtRational.html
 [`su2::clebsch_gordan`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/su2/fn.clebsch_gordan.html
 [`GroupRepresentations::cgc`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
 [`lie::LieCgc`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
 [`LieCgc::at`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
-[`CanonicalCatalog`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/struct.CanonicalCatalog.html
-[`bcd::CanonicalCatalog::cgc`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/struct.CanonicalCatalog.html#method.cgc
-[`CatalogCgc`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/struct.CatalogCgc.html

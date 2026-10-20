@@ -25,8 +25,6 @@ use std::sync::Arc;
 use super::{cgc, shared_directproduct, Irrep, SunError};
 use crate::frcore::{f_block_raw, r_block_raw, Family, MEntry};
 
-#[cfg(test)]
-use crate::frcore::{self, f_unitarity_residual, hexagon_residual, pentagon_residual};
 pub use crate::frcore::{FBlock, RBlock};
 
 /// The SU(N) binding of the generic F/R core: a stateless zero-sized provider.
@@ -35,8 +33,7 @@ pub use crate::frcore::{FBlock, RBlock};
 /// functions [`cgc`] / [`shared_directproduct`], which are backed by the
 /// process-global CGC and product caches. The `&mut` is vacuous here — no
 /// provider-local interior mutability — so
-/// the shared core's `&mut`-provider seam (needed by the `&mut CanonicalCatalog`
-/// B/C/D provider) costs SU(N) nothing.
+/// the shared core's `&mut`-provider seam costs SU(N) nothing.
 struct SunFamily;
 
 impl Family for SunFamily {
@@ -58,13 +55,6 @@ impl Family for SunFamily {
                 mu: e.mu,
                 value: e.value,
             })
-            .collect())
-    }
-
-    fn products(&mut self, a: &Irrep, b: &Irrep) -> Result<Vec<Irrep>, SunError> {
-        Ok(shared_directproduct(a, b)?
-            .iter()
-            .map(|(irrep, _)| irrep.clone())
             .collect())
     }
 }
@@ -193,89 +183,37 @@ pub fn r_symbol(a: &Irrep, b: &Irrep, c: &Irrep) -> Result<RBlock, SunError> {
     r_block_raw(&mut SunFamily, a, b, c)
 }
 
-// ---------------------------------------------------------------------------
-// Legacy gates retained as internal comparison oracles.
-// ---------------------------------------------------------------------------
-
-/// Verify that the F-move for fixed outer labels `(a, b, c, d)` is unitary
-/// (`M Mᵀ = I` over the two orthonormal associativity bases). See
-/// the `frcore` unitarity gate for the matrix layout.
-///
-/// # Errors
-///
-/// [`SunError::FNotUnitary`] with the worst `|(M Mᵀ - I)_{ij}|` if the gate
-/// fails; [`SunError::RankMismatch`] on mixed ranks; CGC errors surfaced.
-#[cfg(test)]
-pub fn check_f_unitarity(a: &Irrep, b: &Irrep, c: &Irrep, d: &Irrep) -> Result<(), SunError> {
-    require_same_rank(&[a, b, c, d])?;
-    let worst = f_unitarity_residual(&mut SunFamily, a, b, c, d)?;
-    if worst > frcore::TOL_F_UNITARY {
-        return Err(SunError::FNotUnitary { residual: worst });
-    }
-    Ok(())
-}
-
-/// Verify the pentagon identity for the quadruple `(a, b, c, d)` (see
-/// the `frcore` pentagon gate).
-///
-/// # Errors
-///
-/// [`SunError::PentagonViolation`] (worst residual) on failure;
-/// [`SunError::RankMismatch`] on mixed ranks; CGC errors surfaced.
-#[cfg(test)]
-pub fn check_pentagon(a: &Irrep, b: &Irrep, c: &Irrep, d: &Irrep) -> Result<(), SunError> {
-    require_same_rank(&[a, b, c, d])?;
-    let worst = pentagon_residual(&mut SunFamily, a, b, c, d)?;
-    if worst > frcore::TOL_PENTAGON {
-        return Err(SunError::PentagonViolation { residual: worst });
-    }
-    Ok(())
-}
-
-/// Verify both hexagon identities for the triple `(a, b, c)` (see
-/// the `frcore` hexagon gate).
-///
-/// # Errors
-///
-/// [`SunError::HexagonViolation`] (worst residual) on failure;
-/// [`SunError::RankMismatch`] on mixed ranks; CGC errors surfaced.
-#[cfg(test)]
-pub fn check_hexagon(a: &Irrep, b: &Irrep, c: &Irrep) -> Result<(), SunError> {
-    require_same_rank(&[a, b, c])?;
-    let worst = hexagon_residual(&mut SunFamily, a, b, c)?;
-    if worst > frcore::TOL_HEXAGON {
-        return Err(SunError::HexagonViolation { residual: worst });
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn category_residuals_agree_with_generation_gates() {
-        use crate::{
-            category,
-            lie::{GroupId, LieGroup},
-        };
-        let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
-        for d in [&[1, 0][..], &[1, 1][..]] {
-            let a = irr(d);
-            let label = cat.irrep(d).unwrap();
-            let old = f_unitarity_residual(&mut SunFamily, &a, &a, &a, &a).unwrap();
-            let new = category::f_unitarity_residual(&cat, &label, &label, &label, &label).unwrap();
-            assert!((old - new).abs() < 1e-14);
-            check_f_unitarity(&a, &a, &a, &a).unwrap();
-        }
-        let a = irr(&[1, 0]);
-        let label = cat.irrep(&[1, 0]).unwrap();
-        let old = pentagon_residual(&mut SunFamily, &a, &a, &a, &a).unwrap();
-        let new = category::pentagon_residual(&cat, &label, &label, &label, &label).unwrap();
-        assert!((old - new).abs() < 1e-14);
-        let old = hexagon_residual(&mut SunFamily, &a, &a, &a).unwrap();
-        let new = category::hexagon_residual(&cat, &label, &label, &label).unwrap();
-        assert!((old - new).abs() < 1e-14);
+    fn check_f_unitarity(
+        a: &Irrep,
+        b: &Irrep,
+        c: &Irrep,
+        d: &Irrep,
+    ) -> Result<(), crate::lie::LieError> {
+        let cat = crate::lie::LieGroup::new(crate::lie::GroupId::su(a.rank()).unwrap())?;
+        let [a, b, c, d] = [a, b, c, d].map(|x| cat.irrep(&x.dynkin()).unwrap());
+        assert!(crate::category::f_unitarity_residual(&cat, &a, &b, &c, &d)? < 1e-9);
+        Ok(())
+    }
+    fn check_pentagon(
+        a: &Irrep,
+        b: &Irrep,
+        c: &Irrep,
+        d: &Irrep,
+    ) -> Result<(), crate::lie::LieError> {
+        let cat = crate::lie::LieGroup::new(crate::lie::GroupId::su(a.rank()).unwrap())?;
+        let [a, b, c, d] = [a, b, c, d].map(|x| cat.irrep(&x.dynkin()).unwrap());
+        assert!(crate::category::pentagon_residual(&cat, &a, &b, &c, &d)? < 1e-8);
+        Ok(())
+    }
+    fn check_hexagon(a: &Irrep, b: &Irrep, c: &Irrep) -> Result<(), crate::lie::LieError> {
+        let cat = crate::lie::LieGroup::new(crate::lie::GroupId::su(a.rank()).unwrap())?;
+        let [a, b, c] = [a, b, c].map(|x| cat.irrep(&x.dynkin()).unwrap());
+        assert!(crate::category::hexagon_residual(&cat, &a, &b, &c)? < 1e-8);
+        Ok(())
     }
 
     fn irr(d: &[i64]) -> Irrep {
@@ -291,10 +229,6 @@ mod tests {
         let six = irr(&[2, 0]);
         let mut family = SunFamily;
         assert_eq!(family.mult(&trivial, &three, &three).unwrap(), 1);
-        assert_eq!(
-            family.products(&trivial, &three).unwrap().as_slice(),
-            std::slice::from_ref(&three)
-        );
         let _ = f_symbol(&trivial, &three, &three, &six, &three, &six).unwrap();
         assert_eq!(crate::lie::sun::public_directproduct_reconstructions(), 0);
 
@@ -438,43 +372,22 @@ mod tests {
 
 #[cfg(test)]
 mod residual_tests {
-    use super::*;
     use crate::{
         category,
         lie::{GroupId, LieGroup},
     };
-
     #[test]
-    fn generic_residuals_agree_with_generated_gates() {
+    fn generated_category_identities() {
         let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
         for labels in [
             [[1, 0], [0, 1], [1, 0], [1, 0]],
             [[1, 0], [0, 1], [1, 0], [0, 1]],
             [[1, 1]; 4],
         ] {
-            let [a, b, c, d] = labels.map(|label| cat.irrep(&label).unwrap());
-            let [pa, pb, pc, pd] = [&a, &b, &c, &d].map(|x| x.generated.as_ref().unwrap());
-            let pairs = [
-                (
-                    category::f_unitarity_residual(&cat, &a, &b, &c, &d).unwrap(),
-                    f_unitarity_residual(&mut SunFamily, pa, pb, pc, pd).unwrap(),
-                ),
-                (
-                    category::pentagon_residual(&cat, &a, &b, &c, &d).unwrap(),
-                    pentagon_residual(&mut SunFamily, pa, pb, pc, pd).unwrap(),
-                ),
-                (
-                    category::hexagon_residual(&cat, &a, &b, &c).unwrap(),
-                    hexagon_residual(&mut SunFamily, pa, pb, pc).unwrap(),
-                ),
-            ];
-            for (generic, old) in pairs {
-                assert!((generic - old).abs() < 1e-12, "{generic:e} vs {old:e}");
-                assert!(generic < 1e-10);
-            }
-            check_f_unitarity(pa, pb, pc, pd).unwrap();
-            check_pentagon(pa, pb, pc, pd).unwrap();
-            check_hexagon(pa, pb, pc).unwrap();
+            let [a, b, c, d] = labels.map(|x| cat.irrep(&x).unwrap());
+            assert!(category::f_unitarity_residual(&cat, &a, &b, &c, &d).unwrap() < 1e-10);
+            assert!(category::pentagon_residual(&cat, &a, &b, &c, &d).unwrap() < 1e-10);
+            assert!(category::hexagon_residual(&cat, &a, &b, &c).unwrap() < 1e-10);
         }
     }
 }

@@ -20,7 +20,7 @@ encoding:
 |---|---|---|
 | SU(2) | [`lie::LieIrrep`] | group tag plus an inline `u32`, the **doubled spin** `dj = 2j` |
 | SU(N) | [`lie::LieIrrep`] | `N-1` Dynkin labels (stored internally as a normalized weight) |
-| SO(N), Spin(N), Sp(2N) | [`bcd::Irrep`] | `r` Dynkin labels plus the Cartan series `B`/`C`/`D` |
+| SO(N), Spin(N), Sp(2N) | [`lie::LieIrrep`] | `r` Dynkin labels plus the Cartan series `B`/`C`/`D` |
 | CU(1) | `cu1::CU1Irrep` | twice charge `u32` and `s`: `(0,0)`, `(0,1)`, or `(q>0,2)` |
 | Shipped categories | `table::TableObject` | validated one-based index and private catalog tag |
 
@@ -100,43 +100,32 @@ Dynkin labels and checks the global form. `dim_exact()` returns an unbounded
 
 For a partition `λ`, convert to Dynkin labels with `aᵢ = λᵢ − λᵢ₊₁`
 before constructing the label. `gt_patterns()` returns `Some(Vec<GtPattern>)`
-for A(r), r ≥ 2, in the frozen GT basis order, and `None` for A1.
+for A(r), r ≥ 2, in the frozen GT basis order, and `None` for A1 and B/C/D.
 Generator matrices and partition storage are private implementation details.
 
 ## SO(N), Sp(2N): Dynkin labels and doubled weights
 
-`fusion_symbols::bcd` covers the three orthogonal/symplectic Cartan series in one module,
-selected by [`bcd::Series`]:
-
-| Series | Group (simply connected form) | Historically published form |
-|---|---|---|
-| `Series::B`, rank `r` | `Spin(2r+1)` | `SO(2r+1)` |
-| `Series::C`, rank `r` | `Sp(2r)` | `Sp(2r)` (already simply connected) |
-| `Series::D`, rank `r` | `Spin(2r)` | `SO(2r)` |
-
-The module is called `bcd` rather than `son` because `C = Sp` is not an
-orthogonal series; only the Cartan letters name all three honestly.
+`LieGroup` covers B(r) (`Spin(2r+1)` and its quotients), C(r) (`Sp(2r)`
+and its quotients), and D(r) (`Spin(2r)` and its quotients). Choose the global
+form with `GroupId`, then construct rank-many integer Dynkin labels with `irrep`.
 
 ```rust
-use fusion_symbols::bcd::{Irrep, Series};
+use fusion_symbols::{category::{FusionCategory},lie::{LieGroup,GroupId}};
 
 // SO(5) = B_2. Dynkin [1, 0] is the 5-dimensional vector representation.
-let v = Irrep::from_dynkin(Series::B, &[1, 0]).unwrap();
-assert_eq!(v.dim(), 5u32.into());
-assert_eq!(v.dual(), v);
-assert_eq!(v.frobenius_schur(), 1);       // real (orthogonal) self-duality
-assert_eq!(v.partition(), Some(vec![1, 0])); // λ = (1, 0)
+let cat = LieGroup::new(GroupId::so(5).unwrap()).unwrap();
+    let v = cat.irrep(&[1, 0]).unwrap();
+assert_eq!(v.dim_exact(), 5u32.into());
+assert_eq!(cat.dual(&v), v);
+assert_eq!(cat.frobenius_schur_indicator(&v), 1.0);       // real (orthogonal) self-duality
 ```
 
-**Weights are doubled.** `bcd::Irrep` stores `2λ` in the orthonormal ε-basis, so
-`two_partition()` is always exact and `partition()` returns `Some(λ)` only for a
-tensor irrep (integer `λ`) and `None` for a spinor (half-integer `λ`). Same
-motivation as SU(2)'s `dj = 2j`.
+`weight_multiplicities()` returns all weights in Dynkin coordinates, including
+spinor weights, with exact integer multiplicities. `gt_patterns()` is `None`
+for B/C/D. The internal doubled epsilon weights are private.
 
-**Excluded low ranks.** `B_1`, `C_1` and `D_2` are rejected with
-`BcdError::ExcludedRank`, because they are SU(2) statements in disguise
-(`Spin(3) ≅ SU(2)`, `Sp(2) ≅ SU(2)`, `Spin(4) ≅ SU(2)×SU(2)`). The error names
-the SU(2) redirect for the form you asked about.
+B(1) and C(1) use the exact A1 implementation. D(2) returns
+`LieError::Unsupported`, naming `Spin(4) = SU(2) × SU(2)`.
 
 ## Duals and Frobenius–Schur indicators
 
@@ -152,21 +141,21 @@ self-dual:
 | `0` | not self-dual (complex) |
 
 ```rust
-use fusion_symbols::bcd::{Irrep, Series};
+use fusion_symbols::{category::{FusionCategory},lie::{LieGroup,GroupId}};
 
 // Sp(4) = C_2. Its defining 4 is pseudo-real; the 5 is real.
-let four = Irrep::from_dynkin(Series::C, &[1, 0]).unwrap();
-let five = Irrep::from_dynkin(Series::C, &[0, 1]).unwrap();
-assert_eq!(four.dim(), 4u32.into());
-assert_eq!(four.frobenius_schur(), -1);
-assert_eq!(five.dim(), 5u32.into());
-assert_eq!(five.frobenius_schur(), 1);
+let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
+    let four = cat.irrep(&[1, 0]).unwrap();
+let five = cat.irrep(&[0, 1]).unwrap();
+assert_eq!(four.dim_exact(), 4u32.into());
+assert_eq!(cat.frobenius_schur_indicator(&four), -1.0);
+assert_eq!(five.dim_exact(), 5u32.into());
+assert_eq!(cat.frobenius_schur_indicator(&five), 1.0);
 ```
 
 For SU(2), `FusionCategory::frobenius_schur_phase(dj)` is `(-1)^dj`: `+1` for integer spin, `−1`
-for half-integer. For SU(N) the indicator is derivable from `dual()` (an irrep
-with `a != a.dual()` is complex, indicator `0`); `bcd::Irrep::frobenius_schur()`
-returns it directly.
+for half-integer. For every Lie group, `cat.frobenius_schur_indicator(&a)` is zero when
+`a != cat.dual(&a)` and otherwise equals `cat.frobenius_schur_phase(&a)`.
 
 ## Caveats
 
@@ -179,15 +168,10 @@ returns it directly.
 
 ## Related API
 
-- [`lie::LieIrrep`], [`fusion_symbols::category::FusionCategory::frobenius_schur_phase`]
+- [`lie::LieGroup`], [`lie::LieIrrep`], [`fusion_symbols::category::FusionCategory::frobenius_schur_phase`]
 - `LieGroup::irrep`, `LieIrrep::dynkin`, `dim_exact`, `gt_patterns`,
   `weight_multiplicities`; other queries use `FusionCategory`.
-- [`bcd::Irrep`]: `from_dynkin`, `from_dynkin_in`, `trivial`, `dim`, `dual`,
-  `dynkin`, `partition`, `two_partition`, `is_spinor`, `frobenius_schur`,
-  `weight_multiplicities`
 
 [`lie::LieIrrep`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieIrrep.html
 [`fusion_symbols::category::FusionCategory::frobenius_schur_phase`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.frobenius_schur_phase
-[`lie::LieIrrep`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
-[`bcd::Irrep`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/struct.Irrep.html
-[`bcd::Series`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/enum.Series.html
+[`lie::LieGroup`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html

@@ -1,7 +1,7 @@
 //! Tests for the decomposition sweep.
 //!
 //! Oracles are independent of the code under test: the discovered labels and
-//! multiplicities are gated against the exact [`crate::bcd::directproduct`]
+//! multiplicities are gated against the exact [`crate::lie::bcd::directproduct`]
 //! (a separate implementation, itself checked against an in-test
 //! Brauer–Klimyk decomposition); the per-block weight structure is checked against the irrep's
 //! exact weight system (Freudenthal + Weyl orbits); orthonormality and
@@ -10,7 +10,7 @@
 use std::collections::HashSet;
 
 use super::*;
-use crate::bcd::{defining_seed, directproduct};
+use crate::lie::bcd::{defining_seed, directproduct};
 
 fn defining_irrep(series: Series, r: usize) -> Irrep {
     let mut dynkin = vec![0i64; r];

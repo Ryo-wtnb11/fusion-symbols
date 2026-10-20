@@ -2,7 +2,7 @@
 //! against GroupMath 1.1.3 (`ReduceRepProduct`, arXiv:2011.01764).
 //!
 //! Contract: [`fusion_symbols::category::FusionCategory::fusion`] /
-//! [`fusion_symbols::bcd::directproduct`] reproduce the rows below exactly
+//! [`fusion_symbols::category::FusionCategory::fusion`] reproduce the rows below exactly
 //! (GroupMath and this crate share the Dynkin node order, so labels compare
 //! with no relabeling), and every decomposition satisfies the dimension sum
 //! rule `Σ_c N^c_{ab} dim c = dim a · dim b`. CGC values are a different gauge
@@ -15,7 +15,9 @@ use std::collections::BTreeMap;
 
 use num_bigint::BigInt;
 
-use fusion_symbols::bcd::{directproduct as bdp, Irrep as Bcd, Series};
+#[path = "common/bcd.rs"]
+mod bcd_test;
+use bcd_test::Series;
 use lie_test::product as sdp;
 
 const FIXTURES: &str = "\
@@ -70,14 +72,14 @@ fn racah_side(group: &str, a: &[i64], b: &[i64]) -> (BigInt, BigInt, Channels) {
         _ => None,
     };
     if let Some(series) = bcd_series {
-        let ia = Bcd::from_dynkin(series, a).unwrap();
-        let ib = Bcd::from_dynkin(series, b).unwrap();
-        let ch = bdp(&ia, &ib)
+        let ia = bcd_test::irrep(series, a).unwrap();
+        let ib = bcd_test::irrep(series, b).unwrap();
+        let ch = bcd_test::product(&bcd_test::group(series, a.len()).unwrap(), &ia, &ib)
             .unwrap()
             .into_iter()
             .map(|(k, v)| (k.dynkin(), v))
             .collect();
-        return (ia.dim(), ib.dim(), ch);
+        return (ia.dim_exact(), ib.dim_exact(), ch);
     }
     // SU(N): the token is "SU" followed by N.
     assert!(group.starts_with("SU"), "unknown group token {group}");

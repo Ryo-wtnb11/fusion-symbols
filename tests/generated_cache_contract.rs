@@ -18,15 +18,19 @@
 
 #[path = "common/lie.rs"]
 mod lie_test;
-use fusion_symbols::bcd::{self, CanonicalCatalog, Series};
+
+#[path = "common/bcd.rs"]
+mod bcd_test;
+use bcd_test::Series;
+
 use fusion_symbols::cache::{self, GeneratedCacheStats, GENERATED_CACHE_MAX_BYTES};
 
 fn sun_irr(d: &[i64]) -> fusion_symbols::lie::LieIrrep {
     lie_test::irrep(d).unwrap()
 }
 
-fn bcd_irr(s: Series, d: &[i64]) -> bcd::Irrep {
-    bcd::Irrep::from_dynkin(s, d).unwrap()
+fn bcd_irr(s: Series, d: &[i64]) -> fusion_symbols::lie::LieIrrep {
+    bcd_test::irrep(s, d).unwrap()
 }
 
 #[test]
@@ -74,20 +78,20 @@ fn generated_cache_resource_contract() {
     let g = cache::generated_cache_stats();
     assert!(g.sun_f.misses >= 1 && g.sun_f.hits >= 1, "sun F miss + hit");
 
-    // B/C/D CGC + F tiers: the public `bcd::f_symbol` owns the BCD F tier and
+    // B/C/D CGC + F tiers: the public `bcd_test::f_symbol` owns the BCD F tier and
     // its CGC materialization owns the BCD CGC tier. Sextet from the crate's own
     // doctest (Sp(4), F = 1×1×1×1 identity). Miss then hit.
-    let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap();
-    let triv = bcd::Irrep::trivial(Series::C, 2).unwrap();
+    let cat = bcd_test::group(Series::C, 2).unwrap();
+    let triv = bcd_test::trivial(Series::C, 2).unwrap();
     let v = bcd_irr(Series::C, &[0, 1]);
     let adj = bcd_irr(Series::C, &[2, 0]);
-    let _ = bcd::f_symbol(&mut cat, &triv, &v, &v, &adj, &v, &adj).unwrap(); // miss
+    let _ = bcd_test::f_symbol(&cat, &triv, &v, &v, &adj, &v, &adj).unwrap(); // miss
     let g = cache::generated_cache_stats();
     assert!(
         g.bcd_cgc.entries >= 1 && g.bcd_f.entries >= 1,
         "an F block populates both BCD tiers"
     );
-    let _ = bcd::f_symbol(&mut cat, &triv, &v, &v, &adj, &v, &adj).unwrap(); // hit
+    let _ = bcd_test::f_symbol(&cat, &triv, &v, &v, &adj, &v, &adj).unwrap(); // hit
     let g = cache::generated_cache_stats();
     assert!(g.bcd_f.hits >= 1, "second F block hits the BCD F tier");
 

@@ -30,8 +30,8 @@ pinned AnyonWiki tables described below.
 |---|---|---|---|
 | SU(2), SO(3), Spin(3), Sp(2), PSU(2) | `fusion_symbols::lie::LieGroup` and `lie::su2` | *(default)* | doubled spin `dj = 2j` |
 | SU(N), SU(N)/Z_k, PSU(N) | `fusion_symbols::lie` | `cgc-gen` | `N-1` Dynkin labels |
-| SO(N), Spin(N) | `fusion_symbols::bcd` (series `B`, `D`) | `cgc-gen` | `r` Dynkin labels |
-| Sp(2r) | `fusion_symbols::bcd` (series `C`) | `cgc-gen` | `r` Dynkin labels |
+| SO(N), Spin(N) | `fusion_symbols::lie::LieGroup` (B/D) | `cgc-gen` | `r` Dynkin labels |
+| Sp(2r) | `fusion_symbols::lie::LieGroup` (C) | `cgc-gen` | `r` Dynkin labels |
 | U(1), Z_N (Z2 = `ZN::new(2)`) | `fusion_symbols::abelian` | *(default)* | `U1` / `U1Irrep` (`i32`), `ZN` / `ZNIrrep` (charge, runtime `N`) |
 | Fermion parity | `fusion_symbols::fermion` | *(default)* | `FermionParity` / `FermionParityIrrep` (bool) |
 | CU(1) = U(1) ⋊ C (`O(2)`) | `fusion_symbols::cu1` | *(default)* | `CU1` / `CU1Irrep` (twice charge `u32`, TensorKitSectors `s`) |
@@ -124,18 +124,18 @@ assert_eq!(cat.fusion(&eight, &eight).unwrap()
 ```
 
 SO(N)/Sp(2N) (`cgc-gen`). Generation runs through a per-(series, rank)
-`CanonicalCatalog` that caches the aligned CGC; this is an Sp(4) (`C_2`)
+`LieGroup` that retains canonical generator matrices; this is an Sp(4) (`C_2`)
 F-symbol block:
 
 ```rust
-use fusion_symbols::bcd::{f_symbol, CanonicalCatalog, Irrep, Series};
+use fusion_symbols::{category::{FusionCategory},lie::{LieGroup,GroupId}};
 
-let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap(); // Sp(4)
-let triv = Irrep::trivial(Series::C, 2).unwrap();
-let five = Irrep::from_dynkin(Series::C, &[0, 1]).unwrap(); // the 5
-let ten = Irrep::from_dynkin(Series::C, &[2, 0]).unwrap();  // the adjoint 10
+let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap(); // Sp(4)
+let triv = cat.unit();
+let five = cat.irrep(&[0, 1]).unwrap(); // the 5
+let ten = cat.irrep(&[2, 0]).unwrap();  // the adjoint 10
 
-let block = f_symbol(&mut cat, &triv, &five, &five, &ten, &five, &ten).unwrap();
+let block = cat.f_symbol( &triv, &five, &five, &ten, &five, &ten).unwrap();
 assert_eq!(block.dims(), [1, 1, 1, 1]);
 assert!((block.at(0, 0, 0, 0) - 1.0).abs() < 1e-9);
 ```
@@ -143,15 +143,14 @@ assert!((block.at(0, 0, 0, 0) - 1.0).abs() < 1e-9);
 Spinor irreps need the simply connected cover, named explicitly:
 
 ```rust
-use fusion_symbols::bcd::Irrep;
-use fusion_symbols::lie::GroupId;
+use fusion_symbols::{lie::{LieGroup,GroupId}};
 
 let spin7 = GroupId::spin(7).unwrap();
-let s = Irrep::from_dynkin_in(&spin7, &[0, 0, 1]).unwrap();
-assert_eq!(s.dim(), 8u32.into());
+let s = LieGroup::new(spin7).unwrap().irrep(&[0, 0, 1]).unwrap();
+assert_eq!(s.dim_exact(), 8u32.into());
 
 // The same label is not a representation of SO(7).
-assert!(Irrep::from_dynkin_in(&GroupId::so(7).unwrap(), &[0, 0, 1]).is_err());
+assert!(LieGroup::new(GroupId::so(7).unwrap()).unwrap().irrep(&[0, 0, 1]).is_err());
 ```
 
 ## Why this crate exists
@@ -231,14 +230,14 @@ Feature-complete for its v0 scope; all families are implemented and
 oracle-checked. The base SU(2) surface — authority fingerprint, checked
 representation layer, cache resource contract — is stable; the `cgc-gen`
 generated-provider surface is unstable; the
-generated-family fingerprint bytes are opaque. The rustdoc marker is on `bcd_authority_fingerprint`,
+generated-family fingerprint bytes are opaque. The rustdoc marker is on `FusionCategory::authority_fingerprint`,
 `cache::GENERATED_CACHE_MAX_BYTES` and `cache::GeneratedCacheStats`.
 
 | Family | Pipeline | Independent verification |
 |---|---|---|
 | SU(2) | exact closed-form big-rational | Condon–Shortley closed forms and recursion, Racah's sum rule, exact large-spin orthogonality, textbook values checked against WignerSymbols.jl 2.0.0 |
 | SU(N), SU(N)/Z_k, PSU(N) | Gelfand–Tsetlin | CGC isometry and intertwining plus signed CGC/F/R values checked against SUNRepresentations.jl v0.4.0; in-test Brauer–Klimyk products, rows checked against GroupMath 1.1.3 |
-| SO(N) / Sp(2N) | generator bootstrap (B/C/D) | generators checked as Chevalley–Serre data and the CGC of 33 rank-2/3 channels as isometric intertwiners whose isotypic projectors sum to the identity (`src/bcd/intertwiner_tests.rs`); products against an in-test Brauer–Klimyk decomposition |
+| SO(N) / Sp(2N) | generator bootstrap (B/C/D) | generators checked as Chevalley–Serre data and the CGC of 33 rank-2/3 channels as isometric intertwiners whose isotypic projectors sum to the identity (`src/lie/bcd/intertwiner_tests.rs`); products against an in-test Brauer–Klimyk decomposition |
 | Spin(N) | same bootstrap, Clifford seeds | `Spin(6) ≅ SU(4)` and `Spin(5) ≅ Sp(4)` on the whole weight lattice — dimensions, duals, FS indicators, every ordered product, spinor labels included (`tests/isomorphism.rs`, `tests/spin.rs`) |
 
 Internal consistency gates run alongside: Regge/tetrahedral symmetries,
@@ -248,6 +247,7 @@ gauge drift with no reference toolchain in the loop.
 
 Rank-one A(1), B(1), C(1) groups use one exact SU(2) path and fingerprint.
 Objects keep the caller's `GroupId`; isomorphic groups remain mutually foreign.
-A(r), r ≥ 2, requires `cgc-gen`; without it `LieGroup::new` returns
-`LieError::Unsupported { requires: "cgc-gen" }`. B/C/D keeps its
-existing public module in this slice.
+A(r), B(r), C(r), r ≥ 2, and D(r), r ≥ 3, require `cgc-gen`; without it `LieGroup::new` returns
+`LieError::Unsupported { requires: "cgc-gen" }`. B/C/D use the same `LieGroup`
+surface with a shared per-value generator catalog. D(2) requires the
+`SU(2) × SU(2)` product.

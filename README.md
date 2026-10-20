@@ -26,7 +26,7 @@ Supported symmetries:
 
 - SU(2), SO(3), Spin(3), Sp(2), PSU(2) through `lie::LieGroup`, exact (default);
 - SU(N), SU(N)/Z_k, PSU(N) through `lie::LieGroup`, generated (`cgc-gen`);
-- SO(N), Spin(N), Sp(2N) through `bcd`, generated (`cgc-gen`);
+- SO(N), Spin(N), Sp(2N) through `lie::LieGroup`, generated (`cgc-gen`);
 - U(1), Z_N (including Z2) and fermion parity via `category::FusionCategory`
   (`abelian::{U1, ZN}`, `fermion::FermionParity`), closed form (default);
 - CU(1) = U(1) ⋊ C via `cu1::CU1` and `FusionCategory`, closed form (default);
@@ -36,12 +36,13 @@ Supported symmetries:
 
 The exact SU(2) evaluators live under `lie::su2`; category operations use
 `lie::LieGroup` and `category::FusionCategory`. In the `cgc-gen` surface,
-`FusionCategory::authority_fingerprint`, `bcd_authority_fingerprint`,
+`FusionCategory::authority_fingerprint`,
 `cache::GENERATED_CACHE_MAX_BYTES` and `cache::GeneratedCacheStats` are marked
 unstable in their rustdoc.
 
 This crate succeeds the [`racah`](https://crates.io/crates/racah) crate on
-crates.io (0.2.4), with the same modules and API under `fusion_symbols::`.
+crates.io (0.2.4), preserving its coefficient gauges under `fusion_symbols::`
+with a common category interface.
 There are no Python bindings in this repository; the last release of the
 earlier bindings is `racah-py` 0.1.2 on PyPI (import name `racah`), which is no
 longer developed here (#130).

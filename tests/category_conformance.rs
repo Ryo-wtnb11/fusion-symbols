@@ -227,7 +227,10 @@ fn shipped_table_identities() {
 fn su2_identities_through_dj6() {
     use fusion_symbols::lie::{GroupId, LieGroup};
     let cat = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    conformance(cat, (0..=6).map(|dj| cat.irrep(&[dj]).unwrap()).collect());
+    conformance(
+        cat.clone(),
+        (0..=6).map(|dj| cat.irrep(&[dj]).unwrap()).collect(),
+    );
 }
 
 #[test]
@@ -235,7 +238,7 @@ fn so3_identities() {
     use fusion_symbols::lie::{GroupId, LieGroup};
     let cat = LieGroup::new(GroupId::so(3).unwrap()).unwrap();
     conformance(
-        cat,
+        cat.clone(),
         (0..=6)
             .step_by(2)
             .map(|dj| cat.irrep(&[dj]).unwrap())
@@ -249,16 +252,66 @@ fn su3_and_su4_identities() {
     use fusion_symbols::lie::{GroupId, LieGroup};
     let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
     conformance(
-        su3,
+        su3.clone(),
         (0..=2)
-            .flat_map(|p| (0..=2 - p).map(move |q| su3.irrep(&[p, q]).unwrap()))
+            .flat_map(|p| (0..=2 - p).map(move |q| [p, q]))
+            .map(|x| su3.irrep(&x).unwrap())
             .collect(),
     );
     let su4 = LieGroup::new(GroupId::su(4).unwrap()).unwrap();
     conformance(
-        su4,
+        su4.clone(),
         [[0, 0, 0], [1, 0, 0], [0, 0, 1]]
             .map(|x| su4.irrep(&x).unwrap())
             .into(),
     );
+}
+
+#[cfg(feature = "cgc-gen")]
+mod bcd_conformance {
+    use super::*;
+    use fusion_symbols::lie::{GroupId, LieGroup};
+
+    fn identities(group: GroupId, label: &[i64]) {
+        let cat = LieGroup::new(group).unwrap();
+        conformance(cat.clone(), vec![cat.unit(), cat.irrep(label).unwrap()]);
+    }
+    #[test]
+    fn spin5() {
+        identities(GroupId::spin(5).unwrap(), &[0, 1]);
+    }
+    #[test]
+    fn sp4() {
+        identities(GroupId::sp(4).unwrap(), &[1, 0]);
+    }
+    #[test]
+    fn so5() {
+        identities(GroupId::so(5).unwrap(), &[1, 0]);
+    }
+    #[test]
+    fn spin7() {
+        identities(GroupId::spin(7).unwrap(), &[0, 0, 1]);
+    }
+    #[test]
+    fn multiplicity_two() {
+        // C2: (2,0) ⊗ (1,1) contains (1,1) twice (GroupMath 1.1.3).
+        let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
+        let a = cat.irrep(&[2, 0]).unwrap();
+        let b = cat.irrep(&[1, 1]).unwrap();
+        assert_eq!(cat.nsymbol(&a, &b, &b), 2);
+        // Unit associativity and symmetric braiding on that multiplicity space.
+        let f = cat.f_symbol(&cat.unit(), &a, &b, &b, &a, &b).unwrap();
+        let r = cat.r_symbol(&a, &b, &b).unwrap();
+        let reverse = cat.r_symbol(&b, &a, &b).unwrap();
+        assert_eq!(f.dims(), [1, 2, 2, 1]);
+        for mu in 0..2 {
+            for nu in 0..2 {
+                close(f.at(0, mu, nu, 0), if mu == nu { 1.0 } else { 0.0 });
+                close(
+                    (0..2).map(|k| r.at(mu, k) * reverse.at(k, nu)).sum::<f64>(),
+                    if mu == nu { 1.0 } else { 0.0 },
+                );
+            }
+        }
+    }
 }

@@ -6,12 +6,14 @@
 
 #![cfg(feature = "cgc-gen")]
 
+#[path = "common/bcd.rs"]
+mod bcd_test;
 #[path = "common/lie.rs"]
 mod lie_test;
+use bcd_test::Series;
+
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
-
-use fusion_symbols::bcd::{self, CanonicalCatalog, Series};
 
 static CALLS: AtomicUsize = AtomicUsize::new(0);
 static BYTES: AtomicUsize = AtomicUsize::new(0);
@@ -79,11 +81,11 @@ fn warm_hits_do_not_copy_coefficients() {
     );
 
     // Spin(6) adjoint: OM = 2, a 2x2x2x2 block.
-    let mut cat = CanonicalCatalog::new(Series::D, 3).unwrap();
-    let adj = bcd::Irrep::from_dynkin(Series::D, &[0, 1, 1]).unwrap();
-    let mut f = || bcd::f_symbol(&mut cat, &adj, &adj, &adj, &adj, &adj, &adj).unwrap();
+    let cat = bcd_test::group(Series::D, 3).unwrap();
+    let adj = bcd_test::irrep(Series::D, &[0, 1, 1]).unwrap();
+    let f = || bcd_test::f_symbol(&cat, &adj, &adj, &adj, &adj, &adj, &adj).unwrap();
     let cold = f();
-    let (calls, bytes, largest, warm) = measure(&mut f);
+    let (calls, bytes, largest, warm) = measure(f);
     let buffer = std::mem::size_of_val(warm.data());
     println!("bcd F warm hit: {calls} allocs, {bytes} B, largest {largest} B, data {buffer} B");
     assert_eq!(warm, cold);

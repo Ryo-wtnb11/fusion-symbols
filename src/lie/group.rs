@@ -31,7 +31,7 @@
 //! # Conventions
 //!
 //! Dynkin labels `a = (a₁,…,a_r)`, `aᵢ = ⟨λ, αᵢ^∨⟩`, in Bourbaki numbering —
-//! the numbering [`crate::bcd`]'s partition maps already use (see the `bcd`
+//! the numbering [`crate::lie::bcd`]'s partition maps already use (see the `bcd`
 //! module docs and [`docs/gauge_soN.md`]). External math is pinned to
 //! Slansky, *Group Theory for Unified Model Building*, Phys. Rep. **79**
 //! (1981) 1–128, §5 (congruency classes, p. 37) and the table notes for
@@ -47,7 +47,7 @@
 //!    See [`CenterSubgroup::DHalfSpinPlus`](crate::lie::CenterSubgroup::DHalfSpinPlus) / [`CenterSubgroup::DHalfSpinMinus`](crate::lie::CenterSubgroup::DHalfSpinMinus).
 //! 2. **`D_r`, `r` odd — the `Z4` class uses the generator `c := [ω_r]`**, so
 //!    `κ(λ) ≡ a_r − a_{r-1} + 2·Σ_{i odd ≤ r-2} aᵢ (mod 4)`, uniformly in `r`.
-//!    This agrees with [`crate::bcd::Irrep::dual`] (which flips `λ_r ↦ −λ_r`
+//!    This agrees with [`crate::category::FusionCategory::dual`] (which flips `λ_r ↦ −λ_r`
 //!    for `D_r` odd, i.e. negates `κ`) and with Slansky's SO(10) table note;
 //!    it differs from Slansky's single uniform formula by the `Z4`
 //!    automorphism `x ↦ −x` for `r ≡ 3 (mod 4)`. That is a generator choice,
@@ -68,12 +68,9 @@ use std::fmt;
 
 /// Root system of a simple compact Lie algebra, by Cartan letter and rank.
 ///
-/// The rank is the number of Dynkin labels. This is a **label-lattice** type:
-/// it says which congruences and which weight lattice apply. It is *not* the
-/// same job as [`crate::bcd::Series`], which is the **bootstrap-family** key
-/// (it indexes the QSpace-provenance defining seeds and the canonical
-/// catalog, and exists only where such a seed exists). The bridge is
-/// [`crate::bcd::Series::root_system`].
+/// The rank is the number of Dynkin labels. This fixes the weight lattice
+/// and central-character congruences. `LieGroup` dispatches to the applicable
+/// coefficient generator internally.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum RootSystem {
@@ -161,7 +158,7 @@ pub enum CenterSubgroup {
     /// `10 ↦ 2`. Slansky's uniform `D_n` formula equals `+κ` for
     /// `r ≡ 1 (mod 4)` and `−κ` for `r ≡ 3 (mod 4)`; racah pins `φ(ω_r) = +1`
     /// for `r`-uniformity and for agreement with
-    /// [`crate::bcd::Irrep::dual`]'s `λ_r ↦ −λ_r`.
+    /// [`crate::category::FusionCategory::dual`]'s `λ_r ↦ −λ_r`.
     Z4,
     /// `D_r`, `r` even: the index-2 subgroup whose *retained* sublattice is
     /// `{0, v}` — the tensor classes. This is `SO(2r)`.
@@ -214,7 +211,7 @@ pub enum GlobalForm {
 /// not on a name — a name is not an identity (`Ss(16) ≅ Sc(16)` as abstract
 /// groups; only the retained class distinguishes them). The named
 /// constructors below are the ergonomic public surface; they are fallible,
-/// matching the house style of [`crate::bcd::Irrep::from_dynkin`].
+/// as is [`crate::lie::LieGroup::irrep`].
 ///
 /// # Why the fields stay public
 ///
@@ -224,9 +221,8 @@ pub enum GlobalForm {
 /// [`CenterSubgroup::DVector`], `B_2` with `Zk(2)`, any exceptional with any
 /// quotient). Such a pairing is not silently wrong and does not propagate:
 /// [`admits`](GroupId::admits) returns `false` for **every** weight, and the
-/// two form-aware constructors
-/// ([`crate::bcd::Irrep::from_dynkin_in`], [`crate::lie::LieGroup::irrep`])
-/// therefore reject every label with the ordinary not-admissible error. A
+/// [`crate::lie::LieGroup::new`] therefore rejects the datum and
+/// [`crate::lie::LieGroup::irrep`] rejects every excluded label with the ordinary not-admissible error. A
 /// nonsensical datum has no representations, which is the mathematically
 /// honest answer for a group that does not exist.
 ///

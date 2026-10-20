@@ -27,7 +27,7 @@ indicators — together with the prior-literature results the implementation
 rests on, cited.
 
 **The full note is [`docs/theory.tex`](theory.tex), built to
-[`docs/theory.pdf`](theory.pdf)** (21 pages; GitHub renders the PDF in blob
+[`docs/theory.pdf`](theory.pdf)** (22 pages; GitHub renders the PDF in blob
 view). Rebuild with `pdflatex theory.tex` twice — no bibtex, no external
 packages beyond a standard TeX Live install.
 

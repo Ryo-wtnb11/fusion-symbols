@@ -1,7 +1,7 @@
 //! Tests for the [`CanonicalCatalog`].
 //!
 //! Oracles are independent of the code under test: canonical-parent choices are
-//! checked against the exact [`crate::bcd::directproduct`] (a separate
+//! checked against the exact [`crate::lie::bcd::directproduct`] (a separate
 //! implementation, itself checked against an in-test Brauer–Klimyk decomposition); generator
 //! validity against the seed commutator relations; query-order independence and
 //! reset stability are bitwise self-consistency invariants; every ill-posed

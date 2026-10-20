@@ -62,7 +62,9 @@
 //!   Frobenius inner product used for the Cartan projection).
 
 use num_rational::Ratio;
-use num_traits::{One, Zero};
+use num_traits::One;
+#[cfg(test)]
+use num_traits::Zero;
 
 use crate::lie::GlobalForm;
 
@@ -156,7 +158,7 @@ impl Seed {
 ///
 /// Returns [`BcdError::ExcludedRank`] (with SU(2)/SU(2)×SU(2) redirection) for
 /// the low-rank isomorphisms `B_1 = SO(3)`, `C_1 = Sp(2)`, `D_2 = SO(4)`,
-/// the same rank guard as [`Irrep::from_dynkin`](crate::bcd::Irrep::from_dynkin).
+/// the same rank guard as [`Irrep::from_dynkin`](crate::lie::bcd::Irrep::from_dynkin).
 ///
 /// # Guard inventory (QSpace asserts around the Setups)
 ///
@@ -492,6 +494,7 @@ fn highest_weight_dynkin(seed: &Seed, states: &[usize], r: usize) -> Vec<i64> {
 /// The exact Cartan/root structure constants derived while checking a [`Seed`],
 /// in QSpace's (non-Chevalley) basis — see module docs.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg(test)]
 pub struct CommReport {
     /// `cartan_coeffs[i][k] = f_{i,k}` with `[Sp_i, Sp_i^†] = Σ_k f_{i,k} Sz_k`
     /// (Frobenius projection; QSpace `CR`). `r × r`, exact rationals.
@@ -519,6 +522,7 @@ pub struct CommReport {
 ///    projection, verified by exact residual `= 0`; and `[Sp_i,Sp_i^†] ≠ 0`.
 /// 3. **Root** `[Sz_j, Sp_i] = d_{i,j} Sp_i`, `d` from the ratio of a matching
 ///    entry, verified by exact residual `= 0`.
+#[cfg(test)]
 pub fn check_commutators(seed: &Seed) -> Result<CommReport, BcdError> {
     let d = seed.dim;
     let r = seed.rank;
@@ -620,6 +624,7 @@ pub fn check_commutators(seed: &Seed) -> Result<CommReport, BcdError> {
 // ---- tiny dense i64 matrix helpers (D <= 12; correctness over speed) ------
 
 /// Row-major `D×D` dense matrix from sparse `(row, col, value)` records.
+#[cfg(test)]
 fn dense(recs: &[(usize, usize, i64)], d: usize) -> Vec<i64> {
     let mut m = vec![0i64; d * d];
     for &(row, col, v) in recs {
@@ -629,6 +634,7 @@ fn dense(recs: &[(usize, usize, i64)], d: usize) -> Vec<i64> {
 }
 
 /// Row-major `D×D` dense matrix with the given diagonal.
+#[cfg(test)]
 fn diag(diagonal: &[i64], d: usize) -> Vec<i64> {
     let mut m = vec![0i64; d * d];
     for (p, &v) in diagonal.iter().enumerate() {
@@ -638,6 +644,7 @@ fn diag(diagonal: &[i64], d: usize) -> Vec<i64> {
 }
 
 /// Transpose of a row-major `D×D` matrix (real conjugate-transpose).
+#[cfg(test)]
 fn transpose(a: &[i64], d: usize) -> Vec<i64> {
     let mut t = vec![0i64; d * d];
     for row in 0..d {
@@ -649,6 +656,7 @@ fn transpose(a: &[i64], d: usize) -> Vec<i64> {
 }
 
 /// `A·B` for row-major `D×D` matrices.
+#[cfg(test)]
 fn matmul(a: &[i64], b: &[i64], d: usize) -> Vec<i64> {
     let mut m = vec![0i64; d * d];
     for row in 0..d {
@@ -666,6 +674,7 @@ fn matmul(a: &[i64], b: &[i64], d: usize) -> Vec<i64> {
 }
 
 /// `[A, B] = A·B − B·A`.
+#[cfg(test)]
 fn commutator(a: &[i64], b: &[i64], d: usize) -> Vec<i64> {
     let ab = matmul(a, b, d);
     let ba = matmul(b, a, d);
@@ -674,6 +683,7 @@ fn commutator(a: &[i64], b: &[i64], d: usize) -> Vec<i64> {
 
 /// Frobenius inner product of two diagonals `Σ_k u_k v_k` (both `Sz` are
 /// diagonal, so only diagonals contribute).
+#[cfg(test)]
 fn fro_diag(u: &[i64], v: &[i64]) -> i64 {
     u.iter().zip(v).map(|(&a, &b)| a * b).sum()
 }

@@ -47,7 +47,7 @@
 //! |---|---|
 //! | SU(2): 3j, 6j, CG, F, R, Frobenius–Schur — exact, no feature flag | [`lie::su2`] and [`lie::LieGroup`] |
 //! | SU(N), SU(N)/Z_k, PSU(N) — Gelfand–Tsetlin construction | [`lie::LieGroup`] (`cgc-gen`) |
-//! | SO(N), Spin(N), Sp(2r) — generator bootstrap, B/C/D series | [`bcd`] (`cgc-gen`) |
+//! | SO(N), Spin(N), Sp(2r) — generator bootstrap, B/C/D series | [`lie::LieGroup`] (`cgc-gen`) |
 //! | Which highest weights a global form admits | [`lie::GroupId`] |
 //! | Cache ceilings, budgets, statistics | [`cache`] |
 //! | Shared category contract, styles and scalar symbol storage | [`category`] |
@@ -104,16 +104,16 @@
 //! deterministic function of the subspace; floating-point stages are
 //! verification-gated and versioned. Concretely: labels, dimensions, duals,
 //! Frobenius–Schur indicators and fusion multiplicities are exact integer or
-//! rational arithmetic, while generated CGC / F / R *values* are `f64` that
-//! passed orthogonality, unitarity and pentagon/hexagon gates at generation
-//! time. A gate violation is a typed error, never a silently degraded number.
+//! rational arithmetic. Generated CGC / F / R *values* are `f64`; numeric
+//! generation gates reject invalid isometries with typed errors. Generic
+//! category residual functions verify F unitarity, pentagon and hexagon
+//! identities, including outer multiplicities.
 //!
 //! # Provider contract
 //!
 //! Each family publishes an opaque **authority fingerprint** naming the
 //! convention set its coefficients are computed in
-//! ([`category::FusionCategory::authority_fingerprint`],
-//! [`bcd::bcd_authority_fingerprint`]). Persist the bytes next to anything you
+//! ([`category::FusionCategory::authority_fingerprint`]). Persist the bytes next to anything you
 //! derive from these coefficients and compare by equality on load; never parse
 //! them. The base SU(2) provider adds a checked representation surface
 //! ([`lie::LieIrrep`] and [`lie::LieGroup`]) and a cache
@@ -239,18 +239,7 @@ mod cache_budget_pressure;
 #[cfg(all(test, feature = "cgc-gen"))]
 mod cache_trim_pressure;
 
-/// SO(N), Spin(N) and Sp(2r) — the B, C, D Cartan series: irreps from Dynkin
-/// labels, exact Weyl dimensions, duals, Frobenius–Schur indicators,
-/// Freudenthal weight multiplicities, the exact Brauer–Klimyk/Racah–Speiser
-/// tensor-product decomposition $N^c_{ab}$, and the Clebsch–Gordan / F / R
-/// coefficients built by the generator bootstrap. Compilation-gated behind
-/// `cgc-gen`.
-#[cfg(feature = "cgc-gen")]
-pub mod bcd;
-
-// Family-generic F/R contraction + gates core, shared by the private SU(N) implementation and
-// `bcd::fr`. Private: the public F/R surfaces stay
-// per-family; only the block types (`FBlock`/`RBlock`) are re-exported.
+// Family-neutral contractions for generated Lie coefficients.
 #[cfg(feature = "cgc-gen")]
 mod frcore;
 
