@@ -7,7 +7,25 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Changed
+
+- **cgc-gen dense backend (#150):** use t4a-faer 0.24.6 (`std` only,
+  sequential) for dense factorizations and contractions. Plain column-major
+  buffers and verification gates are retained; the B/C/D gauge correction below
+  versions the required value change.
+
 ### Breaking
+
+- **B/C/D gauge correction (#150), epoch 3:** §4a of `docs/gauge_soN.md`
+  now selects in-order independent columns by CGS2 before positive-diagonal
+  thin QR. The old R-row rule left signs backend-chosen when a dependent
+  middle column shifted the independent direction off the diagonal. In the
+  B2–B4/C2–C4/D3–D4 defining-self-product and D3 adjoint-self-product comparison,
+  only D3 `(0,1,1) ⊗ (0,1,1) → (0,2,2)`, copy 0, moves: 33 CGC entries
+  reverse sign (including entry 7055, `-1 → +1`; max absolute change `2`).
+  All compared B/C entries and F/R blocks are unchanged. Other products
+  coupling through corrected frames may also move; invalidate persisted B/C/D
+  coefficients using the new fingerprint. SU(2)/SU(N) epochs are unchanged.
 
 - **Category interface (#146):** `category::FusionCategory` replaces
   abelian per-object `dim`, `dual`, `frobenius_schur`, `twist`, `fusion`

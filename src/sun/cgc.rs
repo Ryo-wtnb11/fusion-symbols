@@ -15,7 +15,7 @@
 //! 3. `purge!` — drop coefficients below `TOL_PURGE`.
 //!
 //! Numerical seams (full SVD, positive-diagonal QR, least squares) route
-//! through [`super::linalg`] (tenferro-linalg public APIs only).
+//! through [`super::linalg`] (t4a-faer public APIs only).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 

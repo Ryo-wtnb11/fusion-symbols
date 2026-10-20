@@ -91,7 +91,7 @@ For any admissible irreps of a supported group:
 | Feature | Adds | Pulls in |
 |---|---|---|
 | *(default)* | Exact SU(2): 3j / 6j / Clebsch–Gordan / F / R, closed-form big-rational | `num-bigint`, `num-rational`, `num-traits` only |
-| `cgc-gen` | Runtime CGC / F / R generation for SU(N) (Gelfand–Tsetlin) and SO(N)/Sp(2N) (generator bootstrap) | `tenferro-linalg` / `-cpu` / `-runtime` (the dense factorization + contraction backend) |
+| `cgc-gen` | Runtime CGC / F / R generation for SU(N) (Gelfand–Tsetlin) and SO(N)/Sp(2N) (generator bootstrap) | `t4a-faer` (sequential, `std` only) (the dense factorization + contraction backend) |
 | `anyonwiki-unitary` | The 303 supported AnyonWiki `table` entries of rank 5–7 (377 in all); without it they are `NotShipped` (feature added in 0.4.1) | nothing (embedded data only, about 4.2 MB) |
 
 The feature boundary is mathematical, not organizational: SU(2) has closed forms

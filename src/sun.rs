@@ -178,7 +178,7 @@ pub enum SunError {
         /// Worst ladder residual.
         residual: f64,
     },
-    /// A dense factorization routed through `tenferro-linalg` failed. Carries
+    /// A dense factorization routed through `t4a-faer` failed. Carries
     /// the backend's message; surfaced rather than panicked because the
     /// floating-point stages are verification-gated, not proven-unreachable.
     Linalg(String),

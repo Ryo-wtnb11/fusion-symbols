@@ -95,7 +95,7 @@ version may differ by a few ULPs; that is not a spec deviation.
 ---
 
 The contract is *value agreement within the oracle tolerance*, not cross-process
-bit-identity: the dense backend's parallel reductions are not bit-reproducible,
+bit-identity: backend kernels and SIMD dispatch can vary across machines,
 so two independent generations of the same coupling can differ by a few ULPs
 (within a single process the cache serializes all readers to one winner value).
 
@@ -206,7 +206,7 @@ nullspace = copy(SVD.Vt[indstart:end, :]')  # trailing right-singular vectors
   wide (`m < n`, e.g. the minimal SU(2) singlet ½⊗½→0, a 1×2 system).
 - Empty system (`m = 0` or `n = 0`): the whole space is the nullspace — return
   the `n×n` identity (`_nullspace!`'s `(m==0 || n==0)` guard).
-- Port: `linalg.rs:nullspace` via `tenferro_linalg::svd_full` (§10).
+- Port: `linalg.rs:nullspace` via full `faer::linalg::svd::svd` (§10).
 
 **Multiplicity gate.** `#{nullspace vectors} == directproduct(s1, s2)[s3]` must
 hold (`clebschgordan.jl` `@assert N123 == directproduct(s1, s2)[s3]`); a
@@ -263,9 +263,8 @@ Q = q * Diagonal(d);  R = Diagonal(d) \ r     # so every R[i,i] ≥ 0
 
 `gaugefix!` keeps **`Q`** (`first(...)`), the orthonormal basis with the sign
 convention "each `R` diagonal entry is non-negative; an exactly-zero diagonal is
-left unflipped." Port: `linalg.rs:qr_positive_q` via
-`tenferro_linalg::QrGauge::PositiveDiagonal`, whose contract ("make each `R`
-diagonal entry positive-real, compensating `Q`") is exactly `qrpos!`.
+left unflipped." Port: `src/sun/linalg.rs::qr_positive_q` uses unpivoted
+QR and folds each negative R-diagonal sign into Q; zero stays unflipped.
 
 The gauge-fixed highest-weight block is scattered into `C[·, ·, d3−1, μ]`.
 
@@ -289,7 +288,7 @@ Reference: `clebschgordan.jl:lower_weight_CGC!`. Port: `cgc.rs:lower_weight_cgc`
   `gtpatterns.jl`).
 - **Solve.** `sols = ldiv!(qr!(eqs), rhs)` — a QR **least-squares** solve of the
   (tall or square, full-column-rank) system. Port: `linalg.rs:lstsq` via
-  `tenferro_linalg::lstsq` (§10). Contributions accumulate into
+  QR least squares in `linalg.rs::lstsq` (§10). Contributions accumulate into
   `C[·, ·, m3, α]`.
 
 ---
@@ -355,17 +354,18 @@ per the crate's error discipline — those are not tolerance events.
 
 ## 10. Numerical seams (backend)
 
-All dense factorizations route through **tenferro-linalg public APIs only** (no
-hand-rolled kernels); the CPU **faer** provider is the one that implements
-full-matrices SVD and is pinned by the `cgc-gen` feature.
+All dense factorizations route through **t4a-faer** (no hand-rolled kernels),
+using explicit `Par::Seq` and precomputed scratch workspaces. The dependency
+has only `std` enabled, without `rayon`; the caller owns parallelism and the
+seams never set or consult global parallelism.
 
-| Stage | Reference | tenferro-linalg API (`linalg.rs`) |
+| Stage | Reference | t4a-faer API (`src/sun/linalg.rs`) |
 |---|---|---|
-| nullspace | `_nullspace!` (`svd!(A; full=true)`) | `svd_full` → trailing `Vh` rows |
-| gauge sign | `qrpos!` (`qr!` + `sign(diag R)`) | `qr_with_options(QrGauge::PositiveDiagonal)` → `Q` |
-| descent | `ldiv!(qr!(eqs), rhs)` | `lstsq(eqs, rhs)` |
+| nullspace | `_nullspace!` (`svd!(A; full=true)`) | `linalg::svd::svd` (full vectors) → trailing V columns |
+| gauge sign | `qrpos!` (`qr!` + `sign(diag R)`) | `qr::no_pivoting::factor::qr_in_place` + sign fix → Q |
+| descent | `ldiv!(qr!(eqs), rhs)` | `qr::no_pivoting::solve::solve_lstsq_in_place` |
 
-The tenferro-rs version requirement is in `Cargo.toml`. `cref!` is **not** a
+The crates.io semver requirement is in `Cargo.toml`. `cref!` is **not** a
 factorization kernel — it is the gauge algorithm itself and is ported directly
 in `cgc.rs` (§4a).
 

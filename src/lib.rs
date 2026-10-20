@@ -69,8 +69,8 @@
 //! - **`cgc-gen`**: runtime coefficient generation for SU(N) (Gelfand–Tsetlin
 //!   construction), and SO(N)/Sp(2N) (defining-representation seeds plus a
 //!   family-generic decomposition loop). Dense factorizations and the CGC
-//!   contractions producing F/R route through the Tenferro traced surface at a
-//!   single seam, executed on the CPU faer backend; no hand-rolled kernels,
+//!   contractions producing F/R route through t4a-faer with explicit `Par::Seq`
+//!   and scratch workspaces; no hand-rolled kernels,
 //!   and backend selection is not public API.
 //!
 //! The boundary is mathematical, not organizational: SU(2) has closed forms and

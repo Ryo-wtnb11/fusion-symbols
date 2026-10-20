@@ -43,10 +43,10 @@ The collectors that produce these are `src/cache_audit.rs`,
 
 **Kernel routing.** All dense numerical work behind `cgc-gen` — the
 nullspace/QR/least-squares factorizations and the CGC contractions producing
-F/R — routes through the Tenferro traced surface at a single seam
-(`src/sun/linalg.rs`, `src/bcd/linalg.rs`). `fusion-symbols` contains no hand-rolled
-numeric kernels. That seam is executed on the CPU faer backend,
-constructed internally; selecting a backend is **not public API**. An
+F/R — routes through t4a-faer with explicit `Par::Seq` and scratch workspaces
+(`src/sun/linalg.rs`, `src/bcd/linalg.rs`). Only `std` is enabled, without
+`rayon`; global parallelism is neither set nor consulted. `fusion-symbols`
+contains no hand-rolled numeric kernels; selecting a backend is **not public API**. An
 extended-precision tier (the QSpace model: compute in ~128-bit precision,
 tighten tolerances, store `f64`) is not supported; it would be a
 dense-backend capability, not a private arithmetic stack inside this crate.
