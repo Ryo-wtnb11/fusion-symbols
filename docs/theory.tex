@@ -387,18 +387,16 @@ isomorphisms are exhibited on the defining representations).
 \label{rem:lowrank}
 \code{racah} takes the coincidences seriously in the $B/C/D$ bootstrap but
 does \emph{not} adopt Bourbaki's irredundant bounds verbatim, because a
-constructor is named after a \emph{group}, not a diagram. The bootstrap family
-key \code{bcd::Series} enforces $r\ge 2$ for $B$ and $C$ and $r\ge 3$ for $D$:
-the genuinely duplicated low ranks $B_1$, $C_1$, $D_2$ are rejected with a
-per-global-form redirect ($Spin(3)\cong SU(2)$, $Sp(2)\cong SU(2)$,
-$Spin(4)\cong SU(2)\times SU(2)$, and for the quotients $SO(3)$/$PSp(2)$ =
-integer $j$ only, $SO(4)$ = $j_1+j_2$ integer), while $C_2$ and $D_3$ are
+constructor is named after a \emph{group}, not a diagram. The internal bootstrap accepts $r\ge 2$ for $B$ and $C$ and $r\ge 3$ for $D$.
+The public category routes $B_1$ and $C_1$ through the exact $A_1$ implementation,
+respecting the chosen global form. $D_2$ returns an unsupported-capability error
+naming $Spin(4)\cong SU(2)\times SU(2)$, while $C_2$ and $D_3$ are
 \emph{kept} --- $Sp(4)$ and $SO(6)$ are groups a caller legitimately asks for
 by name, and the bootstrap builds them directly rather than routing the caller
 through $Spin(5)$ or $SU(4)$. Nothing downstream depends on the redundancy
 being removed: the two presentations of the same group give the same
 coefficients up to the relabelling, and only the label conventions differ.
-API: \code{bcd::Series::min\_rank}, \code{bcd::Series::low\_rank\_redirect}.
+Public construction uses \code{LieGroup::new} and \code{LieGroup::irrep}.
 \end{remark}
 
 \begin{remark}[Rank versus matrix dimension]
@@ -551,7 +549,7 @@ generator $c=[\omega_r]$, so that
   \pmod 4 .
 \end{equation}
 This choice makes conjugation \emph{be} negation of the class, matching
-$\code{bcd::Irrep::dual}$ ($\lambda_r\mapsto-\lambda_r$). Slansky's uniform
+$\code{FusionCategory::dual}$ ($\lambda_r\mapsto-\lambda_r$). Slansky's uniform
 formula $[12]$ \S5 equals $+\kappa$ for $r\equiv 1 \pmod 4$ and $-\kappa$ for
 $r\equiv 3\pmod 4$; the difference is the $\ZZ_4$ automorphism $x\mapsto -x$,
 i.e. a generator choice, not a discrepancy.
@@ -601,12 +599,10 @@ must share the cache entry.
 \end{proposition}
 
 \begin{sloppypar}
-API: \code{fusion\_symbols::group} --- \code{RootSystem}, \code{GlobalForm},
+API: \code{fusion\_symbols::lie} --- \code{RootSystem}, \code{GlobalForm},
 \code{CenterSubgroup}, \code{GroupId}, and the predicate
-\code{GroupId::admits}; the form-aware constructors
-\code{LieGroup::irrep} and \code{bcd::Irrep::from\_dynkin\_in}
-(the plain \code{from\_dynkin} constructors keep their historically published
-groups).
+\code{GroupId::admits}; construct the category with \code{LieGroup::new}
+and its objects with \code{LieGroup::irrep}.
 \end{sloppypar}
 
 \begin{remark}[Scope]
@@ -641,13 +637,13 @@ $A_{N-1}$ & $SU(N)$, $SU(N)/\ZZ_k$, $PSU(N)$ &
   \code{sun}; gauge \gaugemd{} \\
 $B_r$ & $Spin(2r+1)$, $SO(2r+1)$ &
   generator bootstrap (Section~\ref{sec:bcd}) &
-  \code{bcd}, \code{Series::B}; gauge \gaugeson{} \\
+  \code{LieGroup}; gauge \gaugeson{} \\
 $C_r$ & $Sp(2r)$, $PSp(2r)$ &
   generator bootstrap &
-  \code{bcd}, \code{Series::C}; gauge \gaugeson{} \\
+  \code{LieGroup}; gauge \gaugeson{} \\
 $D_r$ & $Spin(2r)$, $SO(2r)$, $PSO(2r)$, half-spin &
   generator bootstrap &
-  \code{bcd}, \code{Series::D}; gauge \gaugeson{} \\
+  \code{LieGroup}; gauge \gaugeson{} \\
 $G_2$, $F_4$, $E_6$, $E_7$, $E_8$ & --- &
   none &
   \code{RootSystem} variants only \\
@@ -659,12 +655,11 @@ $G_2$, $F_4$, $E_6$, $E_7$, $E_8$ & --- &
 \emph{label-lattice} type: it carries all nine families of
 Theorem~\ref{thm:kc}, it fixes the rank (hence the length of the Dynkin tuple)
 and the lattice $P/Q$ (hence the congruences of
-Section~\ref{sec:global}). \code{bcd::Series} is the \emph{bootstrap-family}
+Section~\ref{sec:global}). The internal B/C/D family tag is the \emph{bootstrap-family}
 key: it exists only where a defining-representation seed and a canonical
 catalogue exist, so it has exactly three variants $B$, $C$, $D$. The single
-bridge is \code{bcd::Series::root\_system}; neither type is an alias of the
-other. $A$-series labels are not a \code{Series} at all --- they go through
-\code{lie::LieIrrep} (and $A_1$ through \code{su2}).
+bridge is the internal family-to-root-system map; neither type is an alias of the
+other. All public Lie labels use \code{lie::LieIrrep}; these construction tags are private.
 
 \paragraph{A group is a root system plus a global form.} The whole of
 \code{GroupId} is
@@ -702,13 +697,10 @@ Constructor & Group & Root datum \\
 \begin{sloppypar}
 \paragraph{Which form the coefficient engines publish.} A construction engine
 works in the \emph{cover} --- the bootstrap needs the spinor seeds, so its
-internal catalogue is over $Spin(2r+1)$, $Sp(2r)$, $Spin(2r)$ --- while the
-labels a query \emph{publishes} are cut down to a chosen default form:
-$SO(2r+1)$ for $B$, $Sp(2r)$ for $C$, $SO(2r)$ for $D$. The form-aware
-constructors \code{LieGroup::irrep} and
-\code{bcd::Irrep::from\_dynkin\_in} take a \code{GroupId} explicitly; the plain
-\code{from\_dynkin} constructors keep those historically published defaults.
-API: \code{bcd::Series::cover\_group}, \code{bcd::Series::published\_group}.
+internal catalogue is over $Spin(2r+1)$, $Sp(2r)$, $Spin(2r)$.
+The caller chooses the published global form explicitly through \code{GroupId}.
+\code{LieGroup::irrep} validates that form before entering the private engine;
+there is one coefficient implementation per root system.
 \end{sloppypar}
 
 \paragraph{The exceptionals are placeholders, and provably inert.}
@@ -815,8 +807,7 @@ the short simple root is $\alpha_r$ and $a_r$ is the spinor label). Internally
 the combinatorics use the $\varepsilon$-basis components
 $\lambda=(\lambda_1\ge\lambda_2\ge\cdots)$; the two are related by the
 series-specific linear map, and both directions are exact integer (or
-half-integer, for spinors) arithmetic. API: \code{LieGroup::irrep},
-\code{bcd::Irrep::from\_dynkin}.
+half-integer, for spinors) arithmetic. API: \code{LieGroup::irrep}.
 \end{convention}
 
 \begin{fact}[Weyl dimension formula]\label{fact:weyldim}
@@ -1061,10 +1052,9 @@ For $G$ connected compact simply connected and $\lambda$ self-dual,
 consequences it relies on: for $SU(2)$, $\varkappa = (-1)^{2j}$ ($+1$ for
 integer spin, $-1$ for half-integer); every tensor irrep of $B_r$ and $D_r$ is
 orthogonal ($+1$); and for $C_r$, $\varkappa = (-1)^{\sum_i \lambda_i}$.
-API: \code{su2\_frobenius\_schur}, \code{bcd::Irrep::frobenius\_schur},
-\code{\{sun,bcd\}::Irrep::dual} (for $SU(N)$ the dual reverses the Dynkin
-tuple, so self-duality is the palindrome condition and no separate indicator
-surface is exposed).
+API: the category methods for the Frobenius--Schur phase and indicator,
+and \code{FusionCategory::dual}. For $SU(N)$, the dual reverses the Dynkin
+tuple, so self-duality is the palindrome condition.
 
 %======================================================================
 \section{Tensor products, fusion multiplicities, outer multiplicity}
@@ -1323,8 +1313,8 @@ index $m_d$ --- \code{racah} takes the first, $m_d=1$. Fixing rather than
 summing is not an approximation: by Fact~\ref{fact:schur} the result is
 independent of which $d$-state is used, which is itself a usable self-check.
 If any of the four vertex multiplicities vanishes the block is empty; the
-public wrappers report that as a typed \emph{zero fusion channel} error rather
-than returning a zero block.
+public category returns a zero block with axis lengths given by the four
+vertex multiplicities.
 
 \begin{center}
 \begin{tikzpicture}[diagram, baseline={(0,0.4)}]
@@ -1435,7 +1425,7 @@ and columns by $\nu$. In the multiplicity-free case it is a single phase, and
 for $SU(2)$ it is $(-1)^{j_a+j_b-j_c}$ on an admissible triangle and exactly
 $0$ otherwise (the zero mirrors $N^c_{ab}=0$ and stops a caller multiplying a
 spurious sign into a forbidden channel). API:
-\code{FusionCategory::\{f\_symbol, r\_symbol\}}, \code{bcd::\{f\_symbol, r\_symbol\}}.
+\code{FusionCategory::\{f\_symbol, r\_symbol\}}.
 
 \begin{remark}[No $6j$ outside $SU(2)$]
 The recoupling surface for the generated families is $F$ and $R$ only. There is
@@ -1617,8 +1607,9 @@ three $R$ blocks.
 
 \begin{remark}[Status in the implementation]
 \eqref{eq:pentagon} and \eqref{eq:hexagon} are shipped as \emph{public
-self-checks} and additionally run as \emph{generation gates}: a violation
-beyond tolerance is a typed error, never a silently returned coefficient. They
+residual functions} in \code{category}; the caller chooses the tolerance.
+Internal numeric generation gates separately reject invalid CGC isometries
+with typed generation errors. They
 are the strongest available consistency statement about numerically constructed
 CGC, because they constrain the whole coefficient set jointly rather than one
 block at a time. The equations, index conventions and the generic-multiplicity
@@ -1647,7 +1638,7 @@ the implementation's contract follows that split.
 \paragraph{Exact / combinatorial.} Irrep labels and dominance; the Weyl
 dimension \eqref{eq:weyldim}; duals; Frobenius--Schur indicators
 \eqref{eq:fs}; fusion multiplicities \eqref{eq:fusion}; weight systems
-\eqref{eq:freudenthal}; GT pattern enumeration and basis ordering; and, for
+\eqref{eq:freudenthal}; GT basis enumeration and ordering; and, for
 $SU(2)$ only, the full $3j$/$6j$/CGC/$F$/$R$ values, carried as signed
 square-rooted rationals with a single final rounding.
 
@@ -1655,9 +1646,9 @@ square-rooted rationals with a single final rounding.
 --- and the $F$, $R$ contracted from them by \eqref{eq:Fdef},
 \eqref{eq:Rdef} --- come from a nullspace solve and are floating point. Their
 \emph{values} are finite precision, but the \emph{gauge} fixing them is a
-deterministic function of exact combinatorial data, and every generation runs
-the orthonormality \eqref{eq:ortho}, unitarity \eqref{eq:funitary}, pentagon
-\eqref{eq:pentagon} and hexagon \eqref{eq:hexagon} checks before returning.
+deterministic function of exact combinatorial data. Generation verifies CGC orthonormality and generator
+consistency; the category residual functions and tests verify F unitarity,
+pentagon and hexagon identities.
 
 So ``exact'' in this project is a claim about \textbf{structure, gauge
 determinism, and verification}, not about symbolic algebraic-number

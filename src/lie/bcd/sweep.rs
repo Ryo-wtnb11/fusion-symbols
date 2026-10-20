@@ -19,7 +19,7 @@
 //! # Production gate
 //!
 //! For every discovered irrep `c` the sweep multiplicity `M^c_sweep` must equal
-//! the exact fusion multiplicity `N^c_ab` from [`crate::bcd::directproduct`],
+//! the exact fusion multiplicity `N^c_ab` from [`crate::lie::bcd::directproduct`],
 //! and the discovered support must equal the exact support — **both
 //! directions** (a missing block is as fatal as a spurious one). This is not
 //! optional or test-only; [`decompose`] takes the exact decomposition and gates
@@ -40,9 +40,11 @@ use std::collections::HashMap;
 use num_rational::Ratio;
 use num_traits::One;
 
+#[cfg(test)]
+use super::directproduct;
 use super::linalg::{matmul, qr_positive_q, svd, tmatmul, Dense};
 use super::seeds::Seed;
-use super::{directproduct, Irrep, Series};
+use super::{Irrep, Series};
 
 // ---- tolerance tier (QSpace CG_EPS ladder; provenance in gauge_soN.md) -----
 
@@ -161,19 +163,19 @@ pub enum SweepError {
     },
     /// **Production gate.** The multiset of discovered irreps does not
     /// equal the exact tensor-product decomposition
-    /// ([`crate::bcd::directproduct`]): for some `c`, `M^c_sweep ≠ N^c_ab`.
+    /// ([`crate::lie::bcd::directproduct`]): for some `c`, `M^c_sweep ≠ N^c_ab`.
     /// Both directions are fatal (a missing block has `found = 0`, a spurious
     /// block has `expected = 0`).
     MultiplicityMismatch {
         /// The irrep `c` whose multiplicity disagreed, as a Dynkin label.
         dynkin: Vec<i64>,
-        /// Exact `N^c_ab` from [`crate::bcd::directproduct`].
+        /// Exact `N^c_ab` from [`crate::lie::bcd::directproduct`].
         expected: u32,
         /// `M^c_sweep` found by the sweep.
         found: u32,
     },
     /// A projected generator set failed the commutator relations (the seed
-    /// check [`crate::bcd::check_commutators`], in `f64` — the projected `Sp` are generally non-integer). The worst
+    /// check [`crate::lie::bcd::check_commutators`], in `f64` — the projected `Sp` are generally non-integer). The worst
     /// residual is carried.
     CommutatorResidual {
         /// The block index.
@@ -285,6 +287,7 @@ pub struct Generators {
 
 impl Generators {
     /// The series (`B`, `C` or `D`).
+    #[cfg(test)]
     pub fn series(&self) -> Series {
         self.series
     }
@@ -567,6 +570,7 @@ impl Decomposition {
         &self.blocks
     }
     /// The multiset of discovered irreps with their sweep multiplicities.
+    #[cfg(test)]
     pub fn multiplicities(&self) -> BTreeMap<Irrep, u32> {
         let mut m = BTreeMap::new();
         for b in &self.blocks {
@@ -583,7 +587,8 @@ impl Decomposition {
 ///
 /// Convenience wrapper over [`decompose`]: composes the product generators,
 /// derives the two irrep labels from the seeds' defining label, and computes the
-/// exact `N^c_ab` gate via [`crate::bcd::directproduct`].
+/// exact `N^c_ab` gate via [`crate::lie::bcd::directproduct`].
+#[cfg(test)]
 pub fn decompose_defining_product(a: &Seed, b: &Seed) -> Result<Decomposition, SweepError> {
     let ga = Generators::from_seed(a);
     let gb = Generators::from_seed(b);
@@ -601,7 +606,7 @@ pub fn decompose_defining_product(a: &Seed, b: &Seed) -> Result<Decomposition, S
 }
 
 /// Decompose `product` into irreducible multiplets, gated against the exact
-/// decomposition `expected` (`N^c_ab` from [`crate::bcd::directproduct`]).
+/// decomposition `expected` (`N^c_ab` from [`crate::lie::bcd::directproduct`]).
 ///
 /// Runs the sweep (`get_symmetry_states`), assigns Dynkin labels and
 /// outer-multiplicity indices, and enforces every production gate:

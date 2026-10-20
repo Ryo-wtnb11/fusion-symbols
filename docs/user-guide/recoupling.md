@@ -106,18 +106,17 @@ The argument order is `f_symbol(a, b, c, d, e, f)` for `F^{abc}_d[e, f]` and
 
 ## SO(N) / Sp(2N)
 
-Identical, with a [`CanonicalCatalog`](clebsch-gordan.md#son-sp2n-you-need-a-catalog)
-threaded through as the first argument:
+The same category methods apply. `LieGroup` holds the generator catalog:
 
 ```rust
-use fusion_symbols::bcd::{f_symbol, CanonicalCatalog, Irrep, Series};
+use fusion_symbols::{category::{FusionCategory},lie::{LieGroup,GroupId}};
 
-let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap();   // Sp(4) = C_2
-let triv = Irrep::trivial(Series::C, 2).unwrap();
-let five = Irrep::from_dynkin(Series::C, &[0, 1]).unwrap();   // the 5
-let ten = Irrep::from_dynkin(Series::C, &[2, 0]).unwrap();    // the adjoint 10
+let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();   // Sp(4) = C_2
+let triv = cat.unit();
+let five = cat.irrep(&[0, 1]).unwrap();   // the 5
+let ten = cat.irrep(&[2, 0]).unwrap();    // the adjoint 10
 
-let block = f_symbol(&mut cat, &triv, &five, &five, &ten, &five, &ten).unwrap();
+let block = cat.f_symbol( &triv, &five, &five, &ten, &five, &ten).unwrap();
 assert_eq!(block.dims(), [1, 1, 1, 1]);
 assert!((block.at(0, 0, 0, 0) - 1.0).abs() < 1e-9);
 ```
@@ -269,16 +268,14 @@ assert!(fusion_symbols::category::pentagon_residual(&cat, &three, &anti, &three,
 assert!(fusion_symbols::category::hexagon_residual(&cat, &three, &anti, &three).unwrap() < 1e-10);
 ```
 
-`fusion_symbols::bcd` retains its generation checks (taking
-`&mut CanonicalCatalog` first), plus `check_commutators` for the seed algebra. CGC orthonormality and R-orthogonality
-run as generation gates only — they are not callable, and a violation surfaces
-as a typed error.
+The same residual functions work for B/C/D, including spinors and outer
+multiplicities. Internal CGC generation checks return `LieError::Generation`
+on failure.
 
 ## Caveats
 
-- **B/C/D (`bcd` module): an empty vertex is an error.** If any of the four F-symbol vertices has zero
-  fusion multiplicity, the call returns a typed error rather than a zero block.
-  `LieGroup` returns a zero block for an empty vertex.
+- **Empty channels.** Every Lie group returns zero blocks for N = 0,
+  with axis lengths determined by the vertex multiplicities.
 - **Cost.** The first F-symbol on a set of labels generates the underlying CGC;
   after that both the CGC and the F block are cached. R is a single sparse join
   of two CGC and is not separately cached.
@@ -293,7 +290,6 @@ as a typed error.
 - [`fusion_symbols::category::FusionCategory::f_symbol`], [`fusion_symbols::category::FusionCategory::r_symbol`], [`fusion_symbols::lie::su2::wigner_6j`]
 - [`FusionCategory::f_symbol`], [`FusionCategory::r_symbol`], [`category::f_unitarity_residual`],
   [`category::pentagon_residual`], [`category::hexagon_residual`]
-- [`bcd::f_symbol`], [`bcd::r_symbol`]
 - [`FBlock`], [`RBlock`]
 
 [`fusion_symbols::category::FusionCategory::f_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.f_symbol
@@ -304,7 +300,5 @@ as a typed error.
 [`category::f_unitarity_residual`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/fn.f_unitarity_residual.html
 [`category::pentagon_residual`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/fn.pentagon_residual.html
 [`category::hexagon_residual`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/fn.hexagon_residual.html
-[`bcd::f_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/fn.f_symbol
-[`bcd::r_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/fn.r_symbol
 [`FBlock`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
 [`RBlock`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html

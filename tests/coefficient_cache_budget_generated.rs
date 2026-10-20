@@ -39,4 +39,13 @@ fn disabled_policy_preserves_sun_product_value_without_retention() {
     assert_eq!(stats.entries, 0);
     assert_eq!(stats.bytes, 0);
     assert_eq!(stats.evictions, 1);
+    // Exact B/C/D products share the existing BcdCgc byte policy.
+    let bcd =
+        fusion_symbols::lie::LieGroup::new(fusion_symbols::lie::GroupId::sp(4).unwrap()).unwrap();
+    let v = bcd.irrep(&[1, 0]).unwrap();
+    assert_eq!(bcd.fusion(&v, &v).unwrap().len(), 3);
+    let stats = generated_cache_stats().bcd_cgc;
+    assert_eq!(stats.entries, 0);
+    assert_eq!(stats.bytes, 0);
+    assert_eq!(stats.evictions, 1);
 }

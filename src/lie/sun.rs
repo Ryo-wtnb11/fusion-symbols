@@ -128,28 +128,6 @@ pub(crate) enum SunError {
     /// the backend's message; surfaced rather than panicked because the
     /// floating-point stages are verification-gated, not proven-unreachable.
     Linalg(String),
-    /// The F-move matrix (rows `(e, μ, ν)`, cols `(f, κ, λ)` for fixed outer
-    /// labels `a, b, c, d`) failed the unitarity gate. The value is the worst
-    /// `|(F Fᵀ - I)_{ij}|`.
-    #[cfg(test)]
-    FNotUnitary {
-        /// Worst unitarity residual.
-        residual: f64,
-    },
-    /// The pentagon identity spot check exceeded tolerance for the sampled
-    /// `(a, b, c, d)` family. The value is the worst two-sided residual.
-    #[cfg(test)]
-    PentagonViolation {
-        /// Worst pentagon residual.
-        residual: f64,
-    },
-    /// A hexagon identity spot check exceeded tolerance for the sampled
-    /// `(a, b, c)` family. The value is the worst two-sided residual.
-    #[cfg(test)]
-    HexagonViolation {
-        /// Worst hexagon residual.
-        residual: f64,
-    },
 }
 
 impl fmt::Display for SunError {
@@ -179,18 +157,6 @@ impl fmt::Display for SunError {
                 write!(f, "CGC ladder-descent inconsistent (residual {residual:e})")
             }
             SunError::Linalg(msg) => write!(f, "dense factorization failed: {msg}"),
-            #[cfg(test)]
-            SunError::FNotUnitary { residual } => {
-                write!(f, "F-move matrix not unitary (residual {residual:e})")
-            }
-            #[cfg(test)]
-            SunError::PentagonViolation { residual } => {
-                write!(f, "pentagon identity violated (residual {residual:e})")
-            }
-            #[cfg(test)]
-            SunError::HexagonViolation { residual } => {
-                write!(f, "hexagon identity violated (residual {residual:e})")
-            }
         }
     }
 }

@@ -1,5 +1,7 @@
-//! Lie-group representations: exact rank-one symbols and generated A-series data.
+//! Lie-group representations: exact rank-one symbols and generated A/B/C/D data.
 
+#[cfg(feature = "cgc-gen")]
+pub(crate) mod bcd;
 mod gt;
 #[cfg(feature = "cgc-gen")]
 pub(crate) mod sun;
@@ -16,15 +18,38 @@ use std::collections::BTreeMap;
 
 /// A Lie group with its global form. A(1), B(1), and C(1) share the exact
 /// SU(2) gauge and fingerprint; their single Dynkin label is doubled spin.
-/// With `cgc-gen`, A(r) for r >= 2 uses the generated GT gauge. In every
-/// case admissibility uses the caller's global form.
+/// With `cgc-gen`, higher A-series groups use the GT gauge and B/C/D groups
+/// use the canonical generator bootstrap. Clones share retained generators.
+/// Admissibility uses the caller's global form.
 /// Objects retain the full `GroupId` tag, including for isomorphic groups.
 ///
 /// # Panics
 /// Every object-taking category method panics on an object from another group.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone)]
 pub struct LieGroup {
     group: GroupId,
+    #[cfg(feature = "cgc-gen")]
+    catalog: Option<std::sync::Arc<std::sync::Mutex<bcd::CanonicalCatalog>>>,
+}
+
+impl std::fmt::Debug for LieGroup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LieGroup")
+            .field("group", &self.group)
+            .finish()
+    }
+}
+
+impl PartialEq for LieGroup {
+    fn eq(&self, other: &Self) -> bool {
+        self.group == other.group
+    }
+}
+impl Eq for LieGroup {}
+impl std::hash::Hash for LieGroup {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.group.hash(state);
+    }
 }
 
 /// A validated representation, including its group's identity. Rank-one
@@ -35,6 +60,8 @@ pub struct LieIrrep {
     dj: u32,
     #[cfg(feature = "cgc-gen")]
     generated: Option<sun::Irrep>,
+    #[cfg(feature = "cgc-gen")]
+    bcd: Option<bcd::Irrep>,
 }
 
 /// Invalid labels, excluded representations, arithmetic failure, or absent capability.
@@ -46,7 +73,7 @@ pub enum LieError {
     InvalidLabel,
     /// The group's global form excludes this weight.
     NotAdmissible,
-    /// A label cannot be represented by `u32`.
+    /// A label or its internal weight encoding exceeds the integer range.
     LabelOverflow,
     /// The named capability is unavailable.
     Unsupported {
@@ -78,13 +105,34 @@ impl From<sun::SunError> for LieError {
         Self::Generation(GenerationError(std::sync::Arc::new(error)))
     }
 }
+#[cfg(feature = "cgc-gen")]
+impl From<bcd::BcdError> for LieError {
+    fn from(error: bcd::BcdError) -> Self {
+        if error == bcd::BcdError::LabelOverflow {
+            return Self::LabelOverflow;
+        }
+        Self::Generation(GenerationError(std::sync::Arc::new(error)))
+    }
+}
+#[cfg(feature = "cgc-gen")]
+impl From<bcd::CatalogError> for LieError {
+    fn from(error: bcd::CatalogError) -> Self {
+        Self::Generation(GenerationError(std::sync::Arc::new(error)))
+    }
+}
+#[cfg(feature = "cgc-gen")]
+fn poisoned_catalog() -> LieError {
+    LieError::Generation(GenerationError(std::sync::Arc::new(std::io::Error::other(
+        "poisoned Lie catalog",
+    ))))
+}
 impl std::fmt::Display for LieError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Generation(error) => error.fmt(f),
             Self::InvalidLabel => f.write_str("expected rank-many nonnegative Dynkin labels"),
             Self::NotAdmissible => f.write_str("weight is not admitted by this global form"),
-            Self::LabelOverflow => f.write_str("Dynkin label exceeds u32"),
+            Self::LabelOverflow => f.write_str("label or weight exceeds the integer range"),
             Self::Unsupported { requires } => write!(f, "unsupported capability: {requires}"),
         }
     }
@@ -99,14 +147,39 @@ impl std::error::Error for LieError {
 }
 
 impl LieGroup {
-    /// Construct a rank-one group or, with `cgc-gen`, an A-series group.
+    /// Construct a supported compact Lie group.
     pub fn new(group: GroupId) -> Result<Self, LieError> {
         if !group.admits(&vec![0; group.root_system.rank()]) {
             return Err(LieError::NotAdmissible);
         }
+        if group.root_system == RootSystem::D(2) {
+            return Err(LieError::Unsupported {
+                requires: "Spin(4) = SU(2) × SU(2) product",
+            });
+        }
+        if matches!(group.root_system, RootSystem::B(r) | RootSystem::C(r) | RootSystem::D(r) if r >= 2)
+        {
+            #[cfg(feature = "cgc-gen")]
+            {
+                let series = bcd_series(group.root_system).expect("B/C/D root system");
+                return Ok(Self {
+                    group,
+                    catalog: Some(std::sync::Arc::new(std::sync::Mutex::new(
+                        bcd::CanonicalCatalog::new(series, group.root_system.rank())?,
+                    ))),
+                });
+            }
+            #[cfg(not(feature = "cgc-gen"))]
+            return Err(LieError::Unsupported {
+                requires: "cgc-gen",
+            });
+        }
         if matches!(group.root_system, RootSystem::A(r) if r >= 2) {
             #[cfg(feature = "cgc-gen")]
-            return Ok(Self { group });
+            return Ok(Self {
+                group,
+                catalog: None,
+            });
             #[cfg(not(feature = "cgc-gen"))]
             return Err(LieError::Unsupported {
                 requires: "cgc-gen",
@@ -120,7 +193,54 @@ impl LieGroup {
                 requires: "higher-rank Lie representations",
             });
         }
-        Ok(Self { group })
+        Ok(Self {
+            group,
+            #[cfg(feature = "cgc-gen")]
+            catalog: None,
+        })
+    }
+    /// Construct a B/C/D group with a byte budget for retained generators.
+    pub fn with_catalog_budget(group: GroupId, max_bytes: usize) -> Result<Self, LieError> {
+        if !group.admits(&vec![0; group.root_system.rank()]) {
+            return Err(LieError::NotAdmissible);
+        }
+        #[cfg(feature = "cgc-gen")]
+        if let Some(series) = bcd_series(group.root_system) {
+            if group.root_system != RootSystem::D(2) && group.root_system.rank() >= 2 {
+                return Ok(Self {
+                    group,
+                    catalog: Some(std::sync::Arc::new(std::sync::Mutex::new(
+                        bcd::CanonicalCatalog::with_budget(
+                            series,
+                            group.root_system.rank(),
+                            max_bytes,
+                        )?,
+                    ))),
+                });
+            }
+        }
+        let _ = max_bytes;
+        Self::new(group)?;
+        Err(LieError::Unsupported {
+            requires: "B/C/D catalog",
+        })
+    }
+    /// Retained generator bytes and byte budget, or `(0, 0)` without a catalog.
+    pub fn catalog_stats(&self) -> Result<(usize, usize), LieError> {
+        #[cfg(feature = "cgc-gen")]
+        if let Some(cat) = &self.catalog {
+            let cat = cat.lock().map_err(|_| poisoned_catalog())?;
+            return Ok((cat.bytes(), cat.budget()));
+        }
+        Ok((0, 0))
+    }
+    /// Reset retained generators to the base seeds; no-op without a catalog.
+    pub fn reset_catalog(&self) -> Result<(), LieError> {
+        #[cfg(feature = "cgc-gen")]
+        if let Some(cat) = &self.catalog {
+            cat.lock().map_err(|_| poisoned_catalog())?.reset();
+        }
+        Ok(())
     }
     /// Validate Dynkin labels and the group's global-form admissibility.
     pub fn irrep(&self, dynkin: &[i64]) -> Result<LieIrrep, LieError> {
@@ -143,6 +263,16 @@ impl LieGroup {
                 group: self.group,
                 dj: 0,
                 generated: Some(sun::Irrep::from_dynkin(dynkin)?),
+                bcd: None,
+            });
+        }
+        #[cfg(feature = "cgc-gen")]
+        if self.catalog.is_some() {
+            return Ok(LieIrrep {
+                group: self.group,
+                dj: 0,
+                generated: None,
+                bcd: Some(bcd::Irrep::from_dynkin_in(&self.group, dynkin)?),
             });
         }
         let [dj] = dynkin else {
@@ -154,6 +284,8 @@ impl LieGroup {
             dj,
             #[cfg(feature = "cgc-gen")]
             generated: None,
+            #[cfg(feature = "cgc-gen")]
+            bcd: None,
         })
     }
     fn label(&self, a: &LieIrrep) -> u32 {
@@ -162,7 +294,7 @@ impl LieGroup {
     }
 }
 impl LieIrrep {
-    /// GT basis in the frozen gauge order; absent for rank-one groups.
+    /// GT basis in the frozen gauge order; absent for rank-one and B/C/D groups.
     pub fn gt_patterns(&self) -> Option<Vec<GtPattern>> {
         #[cfg(feature = "cgc-gen")]
         if let Some(a) = &self.generated {
@@ -174,6 +306,10 @@ impl LieIrrep {
     /// Highest weight in Dynkin coordinates.
     pub fn dynkin(&self) -> Vec<i64> {
         #[cfg(feature = "cgc-gen")]
+        if let Some(a) = &self.bcd {
+            return a.dynkin();
+        }
+        #[cfg(feature = "cgc-gen")]
         if let Some(a) = &self.generated {
             return a.dynkin();
         }
@@ -182,6 +318,10 @@ impl LieIrrep {
     /// Exact dimension.
     pub fn dim_exact(&self) -> BigInt {
         #[cfg(feature = "cgc-gen")]
+        if let Some(a) = &self.bcd {
+            return a.dim();
+        }
+        #[cfg(feature = "cgc-gen")]
         if let Some(a) = &self.generated {
             return a.dim();
         }
@@ -189,6 +329,10 @@ impl LieIrrep {
     }
     /// Weight multiplicities in Dynkin coordinates, in ascending coordinate order.
     pub fn weight_multiplicities(&self) -> BTreeMap<Vec<i64>, u64> {
+        #[cfg(feature = "cgc-gen")]
+        if let Some(a) = &self.bcd {
+            return a.dynkin_weight_multiplicities();
+        }
         #[cfg(feature = "cgc-gen")]
         if let Some(a) = &self.generated {
             let mut weights = BTreeMap::new();
@@ -210,7 +354,8 @@ impl LieIrrep {
 /// Clebsch–Gordan data with axes `[dim(a), dim(b), dim(c), N(a,b,c)]`.
 /// A1 magnetic index zero is the lowest weight, followed by raising in steps
 /// of two; higher A-series magnetic indices follow the frozen GT basis order.
-/// Materialization uses the cached exact CG evaluator. Projection labels larger
+/// B/C/D indices follow the canonical bootstrap gauge in `docs/gauge_soN.md`.
+/// A1 materialization uses the cached exact CG evaluator. Projection labels larger
 /// than `i32::MAX` are an unsupported capability of that evaluator.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LieCgc {
@@ -218,6 +363,8 @@ pub struct LieCgc {
     data: Vec<f64>,
     #[cfg(feature = "cgc-gen")]
     generated: Option<sun::Cgc>,
+    #[cfg(feature = "cgc-gen")]
+    bcd: Option<std::sync::Arc<bcd::CatalogCgc>>,
 }
 impl LieCgc {
     /// Axis lengths, with multiplicity last (zero for an absent channel).
@@ -233,6 +380,15 @@ impl LieCgc {
     /// # Panics
     /// Panics if any index is outside its axis.
     pub fn at(&self, m1: usize, m2: usize, m3: usize, mu: usize) -> f64 {
+        #[cfg(feature = "cgc-gen")]
+        if let Some(c) = &self.bcd {
+            let dims = self.dims();
+            assert!(
+                [m1, m2, m3, mu].iter().zip(dims).all(|(&i, n)| i < n),
+                "CGC index out of range"
+            );
+            return c.copy(mu)[m3 * c.copy_shape().0 + m1 + dims[0] * m2];
+        }
         #[cfg(feature = "cgc-gen")]
         if let Some(c) = &self.generated {
             assert!(
@@ -262,7 +418,7 @@ impl FusionCategory for LieGroup {
     type Fusion<'a> = LieFusion;
     type Error = LieError;
     fn fusion_style(&self) -> FusionStyle {
-        if matches!(self.group.root_system, RootSystem::A(r) if r >= 2) {
+        if self.group.root_system.rank() >= 2 {
             FusionStyle::Generic
         } else {
             FusionStyle::Simple
@@ -273,7 +429,7 @@ impl FusionCategory for LieGroup {
     }
     fn unit(&self) -> LieIrrep {
         #[cfg(feature = "cgc-gen")]
-        if matches!(self.group.root_system, RootSystem::A(r) if r >= 2) {
+        if self.group.root_system.rank() >= 2 {
             return self
                 .irrep(&vec![0; self.group.root_system.rank()])
                 .expect("unit is admissible");
@@ -283,22 +439,39 @@ impl FusionCategory for LieGroup {
             dj: 0,
             #[cfg(feature = "cgc-gen")]
             generated: None,
+            #[cfg(feature = "cgc-gen")]
+            bcd: None,
         }
     }
     fn dual(&self, a: &LieIrrep) -> LieIrrep {
         self.label(a);
+        #[cfg(feature = "cgc-gen")]
+        if let Some(x) = &a.bcd {
+            return LieIrrep {
+                group: self.group,
+                dj: 0,
+                generated: None,
+                bcd: Some(x.dual()),
+            };
+        }
         #[cfg(feature = "cgc-gen")]
         if let Some(x) = &a.generated {
             return LieIrrep {
                 group: self.group,
                 dj: 0,
                 generated: Some(x.dual()),
+                bcd: None,
             };
         }
         a.clone()
     }
     fn dim(&self, a: &LieIrrep) -> f64 {
         self.label(a);
+        #[cfg(feature = "cgc-gen")]
+        if let Some(x) = &a.bcd {
+            use num_traits::ToPrimitive;
+            return x.dim().to_f64().unwrap_or(f64::INFINITY);
+        }
         #[cfg(feature = "cgc-gen")]
         if let Some(x) = &a.generated {
             use num_traits::ToPrimitive;
@@ -309,6 +482,10 @@ impl FusionCategory for LieGroup {
     fn frobenius_schur_phase(&self, a: &LieIrrep) -> f64 {
         self.label(a);
         #[cfg(feature = "cgc-gen")]
+        if let Some(x) = &a.bcd {
+            return x.frobenius_schur_phase();
+        }
+        #[cfg(feature = "cgc-gen")]
         if let Some(x) = &a.generated {
             return x.frobenius_schur_phase();
         }
@@ -316,6 +493,10 @@ impl FusionCategory for LieGroup {
     }
     fn frobenius_schur_indicator(&self, a: &LieIrrep) -> f64 {
         self.label(a);
+        #[cfg(feature = "cgc-gen")]
+        if let Some(x) = &a.bcd {
+            return f64::from(x.frobenius_schur());
+        }
         if *a == self.dual(a) {
             self.frobenius_schur_phase(a)
         } else {
@@ -324,6 +505,10 @@ impl FusionCategory for LieGroup {
     }
     fn twist(&self, a: &LieIrrep) -> f64 {
         self.label(a);
+        #[cfg(feature = "cgc-gen")]
+        if let Some(x) = &a.bcd {
+            return x.twist();
+        }
         su2::twist(a.dj)
     }
     fn fusion<'a>(&'a self, a: &LieIrrep, b: &LieIrrep) -> Result<Self::Fusion<'a>, LieError> {
@@ -336,6 +521,19 @@ impl FusionCategory for LieGroup {
             return Ok(LieFusion {
                 group: self.group,
                 inner: FusionInner::Generated {
+                    product,
+                    front: 0,
+                    back,
+                },
+            });
+        }
+        #[cfg(feature = "cgc-gen")]
+        if let (Some(a), Some(b)) = (&a.bcd, &b.bcd) {
+            let product = bcd::shared_directproduct(a, b)?;
+            let back = product.len();
+            return Ok(LieFusion {
+                group: self.group,
+                inner: FusionInner::Bcd {
                     product,
                     front: 0,
                     back,
@@ -361,6 +559,14 @@ impl FusionCategory for LieGroup {
                 .expect("validated product labels")
                 .multiplicity(c);
         }
+        #[cfg(feature = "cgc-gen")]
+        if let (Some(a), Some(b), Some(c)) = (&a.bcd, &b.bcd, &c.bcd) {
+            return bcd::shared_directproduct(a, b)
+                .expect("validated product labels")
+                .iter()
+                .find(|(x, _)| x == c)
+                .map_or(0, |(_, n)| *n);
+        }
         let (a, b, c) = (a.dj, b.dj, c.dj);
         u32::from(su2::triangle_ok(a, b, c))
     }
@@ -382,6 +588,20 @@ impl FusionCategory for LieGroup {
         {
             return Ok(sun::f_symbol(a, b, c, d, e, f)?);
         }
+        #[cfg(feature = "cgc-gen")]
+        if let [Some(a), Some(b), Some(c), Some(d), Some(e), Some(f)] =
+            [a, b, c, d, e, f].map(|x| x.bcd.as_ref())
+        {
+            return bcd::f_symbol(
+                self.catalog.as_ref().expect("BCD catalog"),
+                a,
+                b,
+                c,
+                d,
+                e,
+                f,
+            );
+        }
         let [a, b, c, d, e, f] = [a, b, c, d, e, f].map(|x| self.label(x));
         let dims = [(a, b, e), (e, c, d), (b, c, f), (a, f, d)]
             .map(|(a, b, c)| usize::from(su2::triangle_ok(a, b, c)));
@@ -399,6 +619,10 @@ impl FusionCategory for LieGroup {
         if let (Some(a), Some(b), Some(c)) = (&a.generated, &b.generated, &c.generated) {
             return Ok(sun::r_symbol(a, b, c)?);
         }
+        #[cfg(feature = "cgc-gen")]
+        if let (Some(a), Some(b), Some(c)) = (&a.bcd, &b.bcd, &c.bcd) {
+            return bcd::r_symbol(self.catalog.as_ref().expect("BCD catalog"), a, b, c);
+        }
         let (a, b, c) = (self.label(a), self.label(b), self.label(c));
         Ok(if su2::triangle_ok(a, b, c) {
             RBlock::one(su2::r_symbol(a, b, c))
@@ -407,6 +631,10 @@ impl FusionCategory for LieGroup {
         })
     }
     fn authority_fingerprint(&self) -> &[u8] {
+        #[cfg(feature = "cgc-gen")]
+        if self.catalog.is_some() {
+            return bcd::bcd_authority_fingerprint();
+        }
         #[cfg(feature = "cgc-gen")]
         if matches!(self.group.root_system, RootSystem::A(r) if r >= 2) {
             return sun::fingerprint();
@@ -426,6 +654,31 @@ impl GroupRepresentations for LieGroup {
                 dims: [0; 4],
                 data: Vec::new(),
                 generated: Some(sun::cgc(a, b, c)?),
+                bcd: None,
+            });
+        }
+        #[cfg(feature = "cgc-gen")]
+        if let (Some(a), Some(b), Some(c)) = (&a.bcd, &b.bcd, &c.bcd) {
+            let dims = [
+                usize::try_from(a.dim()).expect("tractable dimension"),
+                usize::try_from(b.dim()).expect("tractable dimension"),
+                usize::try_from(c.dim()).expect("tractable dimension"),
+                bcd::fr::mult(a, b, c)?,
+            ];
+            return Ok(LieCgc {
+                dims,
+                data: Vec::new(),
+                generated: None,
+                bcd: if dims[3] == 0 {
+                    None
+                } else {
+                    Some(bcd::fr::cached_cgc(
+                        self.catalog.as_ref().expect("BCD catalog"),
+                        a,
+                        b,
+                        c,
+                    )?)
+                },
             });
         }
         let (a, b, c) = (self.label(a), self.label(b), self.label(c));
@@ -466,6 +719,8 @@ impl GroupRepresentations for LieGroup {
             data,
             #[cfg(feature = "cgc-gen")]
             generated: None,
+            #[cfg(feature = "cgc-gen")]
+            bcd: None,
         })
     }
 }
@@ -478,6 +733,12 @@ pub struct LieFusion {
 }
 #[derive(Clone, Debug)]
 enum FusionInner {
+    #[cfg(feature = "cgc-gen")]
+    Bcd {
+        product: std::sync::Arc<[(bcd::Irrep, u32)]>,
+        front: usize,
+        back: usize,
+    },
     A1(su2::A1Fusion),
     #[cfg(feature = "cgc-gen")]
     Generated {
@@ -489,6 +750,30 @@ enum FusionInner {
 impl LieFusion {
     fn next_label(&mut self, reverse: bool) -> Option<LieIrrep> {
         match &mut self.inner {
+            #[cfg(feature = "cgc-gen")]
+            FusionInner::Bcd {
+                product,
+                front,
+                back,
+            } => {
+                if *front == *back {
+                    return None;
+                }
+                let i = if reverse {
+                    *back -= 1;
+                    *back
+                } else {
+                    let i = *front;
+                    *front += 1;
+                    i
+                };
+                Some(LieIrrep {
+                    group: self.group,
+                    dj: 0,
+                    generated: None,
+                    bcd: Some(product[i].0.clone()),
+                })
+            }
             FusionInner::A1(inner) => (if reverse {
                 inner.next_back()
             } else {
@@ -499,6 +784,8 @@ impl LieFusion {
                 dj: a.dj(),
                 #[cfg(feature = "cgc-gen")]
                 generated: None,
+                #[cfg(feature = "cgc-gen")]
+                bcd: None,
             }),
             #[cfg(feature = "cgc-gen")]
             FusionInner::Generated {
@@ -521,6 +808,7 @@ impl LieFusion {
                     group: self.group,
                     dj: 0,
                     generated: Some(product.channel(index).clone()),
+                    bcd: None,
                 })
             }
         }
@@ -535,7 +823,9 @@ impl Iterator for LieFusion {
         let n = match &self.inner {
             FusionInner::A1(inner) => inner.len(),
             #[cfg(feature = "cgc-gen")]
-            FusionInner::Generated { front, back, .. } => back - front,
+            FusionInner::Generated { front, back, .. } | FusionInner::Bcd { front, back, .. } => {
+                back - front
+            }
         };
         (n, Some(n))
     }
@@ -563,5 +853,15 @@ mod tests {
             error.source().unwrap().source().unwrap().to_string(),
             error.to_string()
         );
+    }
+}
+
+#[cfg(feature = "cgc-gen")]
+fn bcd_series(root: RootSystem) -> Option<bcd::Series> {
+    match root {
+        RootSystem::B(_) => Some(bcd::Series::B),
+        RootSystem::C(_) => Some(bcd::Series::C),
+        RootSystem::D(_) => Some(bcd::Series::D),
+        _ => None,
     }
 }

@@ -13,13 +13,13 @@
 
 #![cfg(feature = "cgc-gen")]
 
-use fusion_symbols::bcd::{
-    check_f_unitarity, check_hexagon, check_pentagon, directproduct, f_symbol, CanonicalCatalog,
-    CatalogError, FrError, Irrep, Series,
-};
+#[path = "common/bcd.rs"]
+mod bcd_test;
+use bcd_test::{check_f_unitarity, check_hexagon, check_pentagon, f_symbol, Series};
+use fusion_symbols::lie::{LieError, LieIrrep as Irrep};
 
 fn irr(s: Series, d: &[i64]) -> Irrep {
-    Irrep::from_dynkin(s, d).unwrap()
+    bcd_test::irrep(s, d).unwrap()
 }
 
 // ---------------------------------------------------------------------------
@@ -42,7 +42,7 @@ fn irr(s: Series, d: &[i64]) -> Irrep {
 /// The gate CLOSES. A `BasisIncoherent` here means alignment failed to recover
 /// a coherent frame — a regression.
 #[track_caller]
-fn assert_closes(r: Result<(), FrError>) {
+fn assert_closes(r: Result<(), LieError>) {
     match r {
         Ok(()) => {}
         other => panic!(
@@ -55,10 +55,10 @@ fn assert_closes(r: Result<(), FrError>) {
 #[test]
 fn c2_vector_f_move_closes() {
     // C2 = Sp(4), vector (0,1) dim 5.
-    let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap();
+    let cat = bcd_test::group(Series::C, 2).unwrap();
     let v = irr(Series::C, &[0, 1]);
     let adj = irr(Series::C, &[2, 0]);
-    assert_closes(check_f_unitarity(&mut cat, &v, &v, &v, &adj));
+    assert_closes(check_f_unitarity(&cat, &v, &v, &v, &adj));
 }
 
 #[test]
@@ -67,19 +67,19 @@ fn b2_vector_f_move_closes() {
     // frame is ill-conditioned (residual √6 ≈ 2.449 on dev macOS ARM without
     // alignment). Alignment rotates it onto the canonical frame and the F-move
     // closes on every platform.
-    let mut cat = CanonicalCatalog::new(Series::B, 2).unwrap();
+    let cat = bcd_test::group(Series::B, 2).unwrap();
     let v = irr(Series::B, &[1, 0]);
     let adj = irr(Series::B, &[0, 2]);
-    assert_closes(check_f_unitarity(&mut cat, &v, &v, &v, &adj));
+    assert_closes(check_f_unitarity(&cat, &v, &v, &v, &adj));
 }
 
 #[test]
 fn d3_vector_f_move_closes() {
     // D3 = SO(6), vector (1,0,0) dim 6; vector^2 -> 1 + adjoint + (2,0,0).
-    let mut cat = CanonicalCatalog::new(Series::D, 3).unwrap();
+    let cat = bcd_test::group(Series::D, 3).unwrap();
     let v = irr(Series::D, &[1, 0, 0]);
     let d = irr(Series::D, &[2, 0, 0]);
-    assert_closes(check_f_unitarity(&mut cat, &v, &v, &v, &d));
+    assert_closes(check_f_unitarity(&cat, &v, &v, &v, &d));
 }
 
 // ---------------------------------------------------------------------------
@@ -128,8 +128,8 @@ fn gf2_add(rows: &mut Gf2Rows, mut vars: std::collections::BTreeSet<usize>, mut 
 
 #[test]
 fn sp4_so5_vector_f_coboundary_fit_signed() {
-    let mut cb = CanonicalCatalog::new(Series::B, 2).unwrap();
-    let mut cc = CanonicalCatalog::new(Series::C, 2).unwrap();
+    let cb = bcd_test::group(Series::B, 2).unwrap();
+    let cc = bcd_test::group(Series::C, 2).unwrap();
     let vb = irr(Series::B, &[1, 0]);
     let vc = irr(Series::C, &[0, 1]);
     // B2 label (a1,a2) -> C2 label (a2,a1).
@@ -151,13 +151,13 @@ fn sp4_so5_vector_f_coboundary_fit_signed() {
     };
 
     let mut rows: Gf2Rows = Vec::new();
-    let vv = directproduct(&vb, &vb).unwrap(); // {1, (0,2), (2,0)}
+    let vv = bcd_test::product(&cb, &vb, &vb).unwrap(); // {1, (0,2), (2,0)}
     let mut compared = 0usize;
     let mut worst_mag = 0.0f64;
     for e in vv.keys() {
         for f in vv.keys() {
-            let ev = directproduct(e, &vb).unwrap();
-            let vf = directproduct(&vb, f).unwrap();
+            let ev = bcd_test::product(&cb, e, &vb).unwrap();
+            let vf = bcd_test::product(&cb, &vb, f).unwrap();
             for d in ev.keys() {
                 if !vf.contains_key(d) {
                     continue; // d must lie in both e⊗v and v⊗f
@@ -165,17 +165,17 @@ fn sp4_so5_vector_f_coboundary_fit_signed() {
                 // Skip sextets that pull an incoherent channel (the guard's
                 // typed error) — the signed comparison is over coherence-verified
                 // sextets only. Any other error is a real failure.
-                let fb = match f_symbol(&mut cb, &vb, &vb, &vb, d, e, f) {
+                let fb = match f_symbol(&cb, &vb, &vb, &vb, d, e, f) {
                     Ok(x) => x,
-                    Err(FrError::Catalog(CatalogError::BasisIncoherent { .. })) => continue,
+                    Err(e) if e.to_string().contains("could not be aligned") => continue,
                     Err(e) => panic!("unexpected B2 error: {e:?}"),
                 };
                 if fb.dims() != [1, 1, 1, 1] {
                     continue; // coboundary sign is per-vertex only for mult-free
                 }
-                let fc = match f_symbol(&mut cc, &vc, &vc, &vc, &swap(d), &swap(e), &swap(f)) {
+                let fc = match f_symbol(&cc, &vc, &vc, &vc, &swap(d), &swap(e), &swap(f)) {
                     Ok(x) => x,
-                    Err(FrError::Catalog(CatalogError::BasisIncoherent { .. })) => continue,
+                    Err(e) if e.to_string().contains("could not be aligned") => continue,
                     Err(e) => panic!("unexpected C2 error: {e:?}"),
                 };
                 let (b, c) = (fb.at(0, 0, 0, 0), fc.at(0, 0, 0, 0));
@@ -228,25 +228,25 @@ fn sp4_so5_vector_f_coboundary_fit_signed() {
 #[test]
 #[ignore = "heavy: materializes many CGC; run with --release --ignored"]
 fn c2_vector_hexagon_closes() {
-    let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap();
+    let cat = bcd_test::group(Series::C, 2).unwrap();
     let v = irr(Series::C, &[0, 1]);
-    assert_closes(check_hexagon(&mut cat, &v, &v, &v));
+    assert_closes(check_hexagon(&cat, &v, &v, &v));
 }
 
 #[test]
 #[ignore = "heavy: materializes many CGC; run with --release --ignored"]
 fn c2_vector_pentagon_closes() {
-    let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap();
+    let cat = bcd_test::group(Series::C, 2).unwrap();
     let v = irr(Series::C, &[0, 1]);
-    assert_closes(check_pentagon(&mut cat, &v, &v, &v, &v));
+    assert_closes(check_pentagon(&cat, &v, &v, &v, &v));
 }
 
 #[test]
 #[ignore = "heavy: materializes many CGC; run with --release --ignored"]
 fn b2_vector_hexagon_closes() {
-    let mut cat = CanonicalCatalog::new(Series::B, 2).unwrap();
+    let cat = bcd_test::group(Series::B, 2).unwrap();
     let v = irr(Series::B, &[1, 0]);
-    assert_closes(check_hexagon(&mut cat, &v, &v, &v));
+    assert_closes(check_hexagon(&cat, &v, &v, &v));
 }
 
 /// The B2 vector pentagon. It detects a base-case frame mismatch that the
@@ -257,9 +257,9 @@ fn b2_vector_hexagon_closes() {
 #[test]
 #[ignore = "heavy: materializes many CGC; run with --release --ignored"]
 fn b2_vector_pentagon_closes() {
-    let mut cat = CanonicalCatalog::new(Series::B, 2).unwrap();
+    let cat = bcd_test::group(Series::B, 2).unwrap();
     let v = irr(Series::B, &[1, 0]);
-    assert_closes(check_pentagon(&mut cat, &v, &v, &v, &v));
+    assert_closes(check_pentagon(&cat, &v, &v, &v, &v));
 }
 
 /// The D3 vector pentagon — the D-series counterpart of the B2 gate above (a
@@ -267,9 +267,9 @@ fn b2_vector_pentagon_closes() {
 #[test]
 #[ignore = "heavy: materializes many CGC; run with --release --ignored"]
 fn d3_vector_pentagon_closes() {
-    let mut cat = CanonicalCatalog::new(Series::D, 3).unwrap();
+    let cat = bcd_test::group(Series::D, 3).unwrap();
     let v = irr(Series::D, &[1, 0, 0]);
-    assert_closes(check_pentagon(&mut cat, &v, &v, &v, &v));
+    assert_closes(check_pentagon(&cat, &v, &v, &v, &v));
 }
 
 /// OM ≥ 2 on the D3 adjoint g = (0,1,1): `g⊗g → g` has multiplicity 2 (exact
@@ -286,11 +286,15 @@ fn d3_vector_pentagon_closes() {
 #[ignore = "heavy OM>=2 family (minutes in debug SVD): run with --release --ignored"]
 fn d3_adjoint_om2_hexagon_closes() {
     let g = irr(Series::D, &[0, 1, 1]);
+    let cat = bcd_test::group(Series::D, 3).unwrap();
     assert_eq!(
-        directproduct(&g, &g).unwrap().get(&g).copied().unwrap(),
+        bcd_test::product(&cat, &g, &g)
+            .unwrap()
+            .get(&g)
+            .copied()
+            .unwrap(),
         2,
         "exact layer must predict OM=2 for the D3 adjoint square"
     );
-    let mut cat = CanonicalCatalog::new(Series::D, 3).unwrap();
-    assert_closes(check_hexagon(&mut cat, &g, &g, &g));
+    assert_closes(check_hexagon(&cat, &g, &g, &g));
 }

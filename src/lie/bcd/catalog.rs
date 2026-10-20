@@ -226,14 +226,6 @@ pub struct CatalogCgc {
 }
 
 impl CatalogCgc {
-    /// The left factor irrep `s1`.
-    pub fn s1(&self) -> &Irrep {
-        &self.s1
-    }
-    /// The right factor irrep `s2`.
-    pub fn s2(&self) -> &Irrep {
-        &self.s2
-    }
     /// The coupled irrep `s3`.
     pub fn s3(&self) -> &Irrep {
         &self.s3
@@ -260,10 +252,6 @@ impl CatalogCgc {
     pub fn copy(&self, mu: usize) -> &[f64] {
         let stride = self.rows * self.d3;
         &self.cols[mu * stride..(mu + 1) * stride]
-    }
-    /// The whole concatenated coefficient buffer (all copies, in order).
-    pub fn data(&self) -> &[f64] {
-        &self.cols
     }
 
     /// Conservative retained-byte charge for the value cache tier
@@ -319,10 +307,12 @@ impl CanonicalCatalog {
     }
 
     /// The family series.
+    #[cfg(test)]
     pub fn series(&self) -> Series {
         self.series
     }
     /// The family rank.
+    #[cfg(test)]
     pub fn rank(&self) -> usize {
         self.rank
     }
@@ -335,16 +325,10 @@ impl CanonicalCatalog {
         self.max_bytes
     }
     /// Number of generator sets currently held (including the two base cases).
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.store.len()
     }
-    /// Whether the catalog holds no generator sets. Always `false` after a
-    /// successful construction (the base cases are seeded), but kept for the
-    /// `clippy::len_without_is_empty` contract.
-    pub fn is_empty(&self) -> bool {
-        self.store.is_empty()
-    }
-
     /// Seed the two base cases: the trivial rep (a 1-dimensional carrier, all
     /// generators zero) and the defining rep (from the exact defining seed). Both
     /// are `≺`-minimal (§14), so every canonical-parent chain bottoms out here.
@@ -397,6 +381,7 @@ impl CanonicalCatalog {
     /// - [`CatalogError::BudgetExceeded`] if materialization would exceed the
     ///   budget (no partial state is committed).
     /// - [`CatalogError::Sweep`] if a sweep in the chain fails a production gate.
+    #[cfg(test)]
     pub fn generators(&mut self, c: &Irrep) -> Result<&Generators, CatalogError> {
         self.check_group(c)?;
         self.ensure(c)?;

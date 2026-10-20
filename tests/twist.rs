@@ -70,8 +70,11 @@ fn sun_twist_matches_r_symbol_formula() {
 #[cfg(feature = "cgc-gen")]
 #[test]
 fn bcd_twist_matches_r_symbol_formula() {
-    use fusion_symbols::bcd::{directproduct, r_symbol, CanonicalCatalog, Irrep, Series};
+    #[path = "common/bcd.rs"]
+    mod bcd_test;
+    use bcd_test::Series;
     use fusion_symbols::lie::GroupId;
+    use fusion_symbols::lie::LieGroup;
 
     // Spin(5): vector 5 and spinor 4 (quaternionic); Sp(4): defining 4
     // (quaternionic) and 5; Spin(6): vector 6 and the non-self-dual spinor 4.
@@ -83,24 +86,32 @@ fn bcd_twist_matches_r_symbol_formula() {
         (Series::D, 3, 6, &[1, 0, 0], 6, false),
         (Series::D, 3, 6, &[0, 1, 0], 4, true),
     ] {
-        let mut cat = CanonicalCatalog::new(series, rank).unwrap();
-        let a = match series {
-            Series::C => Irrep::from_dynkin(series, d).unwrap(),
-            _ => Irrep::from_dynkin_in(&GroupId::spin(n).unwrap(), d).unwrap(),
+        let id = if n == 0 {
+            GroupId::sp(4).unwrap()
+        } else {
+            GroupId::spin(n).unwrap()
         };
-        assert_eq!((to_f64(a.dim()), a.is_spinor()), (dim as f64, spinor));
+        let cat = LieGroup::new(id).unwrap();
+        let a = cat.irrep(d).unwrap();
+        assert_eq!(
+            (
+                to_f64(a.dim_exact()),
+                n != 0 && !GroupId::so(n).unwrap().admits(d)
+            ),
+            (dim as f64, spinor)
+        );
         let mut sum = 0.0;
-        for (c, n) in directproduct(&a, &a).unwrap() {
-            let r = r_symbol(&mut cat, &a, &a, &c).unwrap();
+        for (c, n) in bcd_test::product(&cat, &a, &a).unwrap() {
+            let r = cat.r_symbol(&a, &a, &c).unwrap();
             assert_eq!(r.dim(), n as usize);
             let tr: f64 = (0..r.dim()).map(|mu| r.at(mu, mu)).sum();
-            sum += to_f64(c.dim()) * tr;
+            sum += to_f64(c.dim_exact()) * tr;
         }
-        let theta = sum / to_f64(a.dim());
+        let theta = sum / to_f64(a.dim_exact());
         assert!(
             (theta - 1.0).abs() < TOL,
             "{series:?}{rank} {d:?}: θ = {theta}"
         );
-        assert_eq!(a.twist(), 1.0, "{series:?}{rank} {d:?}");
+        assert_eq!(cat.twist(&a), 1.0, "{series:?}{rank} {d:?}");
     }
 }

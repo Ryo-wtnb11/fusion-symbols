@@ -17,7 +17,7 @@
 //! assignment, §16 spinor seeds); no external implementation shares that
 //! gauge, so they are this crate's frozen values, and gauge-invariant content
 //! (isotypic projectors) is checked independently in
-//! `src/bcd/intertwiner_tests.rs`.
+//! `src/lie/bcd/intertwiner_tests.rs`.
 //!
 //! # Tolerance
 //!
@@ -51,7 +51,12 @@
 
 #[path = "common/lie.rs"]
 mod lie_test;
-use fusion_symbols::bcd::{f_symbol as bcd_f_symbol, CanonicalCatalog, Irrep as Bcd, Series};
+
+#[path = "common/bcd.rs"]
+mod bcd_test;
+use bcd_test::Series;
+use fusion_symbols::category::GroupRepresentations;
+
 use fusion_symbols::lie::GroupId;
 use fusion_symbols::lie::LieIrrep as Sun;
 use lie_test::{cgc, f_symbol};
@@ -75,8 +80,8 @@ fn sun(d: &[i64]) -> Sun {
     lie_test::irrep(d).unwrap()
 }
 
-fn bcd(series: Series, d: &[i64]) -> Bcd {
-    Bcd::from_dynkin(series, d).unwrap()
+fn bcd(series: Series, d: &[i64]) -> fusion_symbols::lie::LieIrrep {
+    bcd_test::irrep(series, d).unwrap()
 }
 
 // ---------------------------------------------------------------------------
@@ -163,7 +168,7 @@ fn su3_f_symbol_matches_the_frozen_gauge() {
 // SO(N)/Sp(2N): signed CGC entries (nothing else pins their sign).
 // ---------------------------------------------------------------------------
 
-/// `(mu, row, col, value)` into `CatalogCgc::copy(mu)`, a column-major
+/// `(mu, row, col, value)` into `fusion_symbols::lie::LieCgc::copy(mu)`, a column-major
 /// `d1·d2 × d3` isometry; the product row index is `i1 + d1·i2`
 /// (`docs/gauge_soN.md` §1).
 type BcdRow = (usize, usize, usize, f64);
@@ -190,14 +195,14 @@ const SP4_V_V_ADJ: &[BcdRow] = &[
     (0, 2, 3, 0.707_106_781_186_547_6),
 ];
 
-fn bcd_value(c: &fusion_symbols::bcd::CatalogCgc, mu: usize, row: usize, col: usize) -> f64 {
-    let (rows, _) = c.copy_shape();
-    c.copy(mu)[col * rows + row]
+fn bcd_value(c: &fusion_symbols::lie::LieCgc, mu: usize, row: usize, col: usize) -> f64 {
+    let (rows, _) = (c.dims()[0] * c.dims()[1], c.dims()[2]);
+    bcd_test::copy(c, mu)[col * rows + row]
 }
 
 #[test]
 fn so5_and_sp4_cgc_match_the_frozen_gauge() {
-    let mut cat = CanonicalCatalog::new(Series::B, 2).unwrap();
+    let cat = bcd_test::group(Series::B, 2).unwrap();
     let c = cat
         .cgc(
             &bcd(Series::B, &[1, 0]),
@@ -213,7 +218,7 @@ fn so5_and_sp4_cgc_match_the_frozen_gauge() {
         );
     }
 
-    let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap();
+    let cat = bcd_test::group(Series::C, 2).unwrap();
     let c = cat
         .cgc(
             &bcd(Series::C, &[1, 0]),
@@ -237,11 +242,11 @@ const SP4_F: f64 = 0.790_569_415_042_094_8;
 
 #[test]
 fn sp4_f_symbol_matches_the_frozen_gauge() {
-    let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap();
+    let cat = bcd_test::group(Series::C, 2).unwrap();
     let v = bcd(Series::C, &[1, 0]);
     let one = bcd(Series::C, &[0, 0]);
     let adj = bcd(Series::C, &[2, 0]);
-    let block = bcd_f_symbol(&mut cat, &v, &v, &v, &v, &one, &adj).unwrap();
+    let block = bcd_test::f_symbol(&cat, &v, &v, &v, &v, &one, &adj).unwrap();
     close("sp4 F [1,0]^3", block.at(0, 0, 0, 0), SP4_F);
 }
 
@@ -254,8 +259,8 @@ fn sp4_f_symbol_matches_the_frozen_gauge() {
 // are the tripwire for every one of them.
 // ---------------------------------------------------------------------------
 
-fn spin(n: usize, d: &[i64]) -> Bcd {
-    Bcd::from_dynkin_in(&GroupId::spin(n).unwrap(), d).unwrap()
+fn spin(n: usize, d: &[i64]) -> fusion_symbols::lie::LieIrrep {
+    bcd_test::irrep_in(&GroupId::spin(n).unwrap(), d).unwrap()
 }
 
 /// `Spin(5)`: `4 ⊗ 4 → 10` (spinor² → adjoint).
@@ -293,7 +298,7 @@ const SPIN10_S_SBAR_ADJ: &[BcdRow] = &[
 
 #[test]
 fn spinor_cgc_matches_the_frozen_gauge() {
-    let mut cat = CanonicalCatalog::new(Series::B, 2).unwrap();
+    let cat = fusion_symbols::lie::LieGroup::new(GroupId::spin(5).unwrap()).unwrap();
     let c = cat
         .cgc(&spin(5, &[0, 1]), &spin(5, &[0, 1]), &spin(5, &[0, 2]))
         .unwrap();
@@ -305,7 +310,7 @@ fn spinor_cgc_matches_the_frozen_gauge() {
         );
     }
 
-    let mut cat = CanonicalCatalog::new(Series::D, 3).unwrap();
+    let cat = fusion_symbols::lie::LieGroup::new(GroupId::spin(6).unwrap()).unwrap();
     let c = cat
         .cgc(
             &spin(6, &[0, 0, 1]),
@@ -321,7 +326,7 @@ fn spinor_cgc_matches_the_frozen_gauge() {
         );
     }
 
-    let mut cat = CanonicalCatalog::new(Series::B, 3).unwrap();
+    let cat = fusion_symbols::lie::LieGroup::new(GroupId::spin(7).unwrap()).unwrap();
     let c = cat
         .cgc(
             &spin(7, &[0, 0, 1]),
@@ -337,7 +342,7 @@ fn spinor_cgc_matches_the_frozen_gauge() {
         );
     }
 
-    let mut cat = CanonicalCatalog::new(Series::D, 5).unwrap();
+    let cat = fusion_symbols::lie::LieGroup::new(GroupId::spin(10).unwrap()).unwrap();
     let c = cat
         .cgc(
             &spin(10, &[0, 0, 0, 0, 1]),
@@ -365,20 +370,20 @@ const SPIN6_F_ADJOINT_INTERNAL: f64 = 0.250_000_000_000_000_06;
 
 #[test]
 fn spinor_f_symbol_matches_the_frozen_gauge() {
-    let mut cat = CanonicalCatalog::new(Series::D, 3).unwrap();
+    let cat = fusion_symbols::lie::LieGroup::new(GroupId::spin(6).unwrap()).unwrap();
     let s = spin(6, &[0, 0, 1]);
     let sb = spin(6, &[0, 1, 0]);
     let one = spin(6, &[0, 0, 0]);
     let adj = spin(6, &[0, 1, 1]);
 
-    let block = bcd_f_symbol(&mut cat, &s, &sb, &s, &s, &one, &adj).unwrap();
+    let block = bcd_test::f_symbol(&cat, &s, &sb, &s, &s, &one, &adj).unwrap();
     close(
         "spin6 F 4,4bar,4->4 (e=1)",
         block.at(0, 0, 0, 0),
         SPIN6_F_TRIVIAL_INTERNAL,
     );
 
-    let block = bcd_f_symbol(&mut cat, &s, &sb, &s, &s, &adj, &adj).unwrap();
+    let block = bcd_test::f_symbol(&cat, &s, &sb, &s, &s, &adj, &adj).unwrap();
     close(
         "spin6 F 4,4bar,4->4 (e=15)",
         block.at(0, 0, 0, 0),
@@ -395,12 +400,12 @@ fn spinor_f_symbol_matches_the_frozen_gauge() {
 /// re-framed factor basis permutes the product rows (it can move every SO(5)
 /// row off its coordinates) — so the regeneration path dumps the
 /// whole block and the pins are re-picked from it.
-fn print_nonzeros(c: &fusion_symbols::bcd::CatalogCgc) {
-    let (rows, cols) = c.copy_shape();
-    for mu in 0..c.multiplicity() {
+fn print_nonzeros(c: &fusion_symbols::lie::LieCgc) {
+    let (rows, cols) = (c.dims()[0] * c.dims()[1], c.dims()[2]);
+    for mu in 0..c.dims()[3] {
         for col in 0..cols {
             for row in 0..rows {
-                let v = c.copy(mu)[col * rows + row];
+                let v = bcd_test::copy(c, mu)[col * rows + row];
                 if v.abs() > 1e-9 {
                     println!("    ({mu}, {row}, {col}, {v:?}),");
                 }
@@ -440,7 +445,7 @@ fn print_golden() {
     .unwrap();
     println!("SU3_F_333_1 = {:?};", block.at(0, 0, 0, 0));
 
-    let mut cat = CanonicalCatalog::new(Series::B, 2).unwrap();
+    let cat = bcd_test::group(Series::B, 2).unwrap();
     let c = cat
         .cgc(
             &bcd(Series::B, &[1, 0]),
@@ -448,10 +453,13 @@ fn print_golden() {
             &bcd(Series::B, &[0, 2]),
         )
         .unwrap();
-    println!("SO5_V_V_ADJ: shape {:?}", c.copy_shape());
+    println!(
+        "SO5_V_V_ADJ: shape {:?}",
+        (c.dims()[0] * c.dims()[1], c.dims()[2])
+    );
     print_nonzeros(&c);
 
-    let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap();
+    let cat = bcd_test::group(Series::C, 2).unwrap();
     let c = cat
         .cgc(
             &bcd(Series::C, &[1, 0]),
@@ -459,11 +467,14 @@ fn print_golden() {
             &bcd(Series::C, &[2, 0]),
         )
         .unwrap();
-    println!("SP4_V_V_ADJ: shape {:?}", c.copy_shape());
+    println!(
+        "SP4_V_V_ADJ: shape {:?}",
+        (c.dims()[0] * c.dims()[1], c.dims()[2])
+    );
     print_nonzeros(&c);
     let v = bcd(Series::C, &[1, 0]);
-    let block = bcd_f_symbol(
-        &mut cat,
+    let block = bcd_test::f_symbol(
+        &cat,
         &v,
         &v,
         &v,
@@ -507,8 +518,8 @@ fn print_golden() {
             "SPIN10_S_SBAR_ADJ",
         ),
     ];
-    for (series, r, n, labels, tag) in spinor_blocks {
-        let mut cat = CanonicalCatalog::new(*series, *r).unwrap();
+    for (_, _, n, labels, tag) in spinor_blocks {
+        let cat = fusion_symbols::lie::LieGroup::new(GroupId::spin(*n).unwrap()).unwrap();
         let c = cat
             .cgc(
                 &spin(*n, labels[0]),
@@ -516,24 +527,27 @@ fn print_golden() {
                 &spin(*n, labels[2]),
             )
             .unwrap();
-        println!("{tag}: shape {:?}", c.copy_shape());
+        println!(
+            "{tag}: shape {:?}",
+            (c.dims()[0] * c.dims()[1], c.dims()[2])
+        );
         print_nonzeros(&c);
     }
 
-    let mut cat = CanonicalCatalog::new(Series::D, 3).unwrap();
+    let cat = fusion_symbols::lie::LieGroup::new(GroupId::spin(6).unwrap()).unwrap();
     let s = spin(6, &[0, 0, 1]);
     let sb = spin(6, &[0, 1, 0]);
     let one = spin(6, &[0, 0, 0]);
     let adj = spin(6, &[0, 1, 1]);
     println!(
         "SPIN6_F_TRIVIAL_INTERNAL = {:?};",
-        bcd_f_symbol(&mut cat, &s, &sb, &s, &s, &one, &adj)
+        bcd_test::f_symbol(&cat, &s, &sb, &s, &s, &one, &adj)
             .unwrap()
             .at(0, 0, 0, 0)
     );
     println!(
         "SPIN6_F_ADJOINT_INTERNAL = {:?};",
-        bcd_f_symbol(&mut cat, &s, &sb, &s, &s, &adj, &adj)
+        bcd_test::f_symbol(&cat, &s, &sb, &s, &s, &adj, &adj)
             .unwrap()
             .at(0, 0, 0, 0)
     );
@@ -545,11 +559,11 @@ fn print_golden() {
 fn d3_epoch3_independent_column_qr_golden() {
     let adj = bcd(Series::D, &[0, 1, 1]);
     let coupled = bcd(Series::D, &[0, 2, 2]);
-    let mut catalog = CanonicalCatalog::new(Series::D, 3).unwrap();
+    let catalog = bcd_test::group(Series::D, 3).unwrap();
     let cg = catalog.cgc(&adj, &adj, &coupled).unwrap();
     close(
         "D3 epoch 3 (0,2,2), copy 0, entry 7055",
-        cg.copy(0)[7055],
+        bcd_test::copy(&cg, 0)[7055],
         1.0,
     );
 }

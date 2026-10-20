@@ -6,13 +6,13 @@
 //! isomorphism must produce the **same** integer data (dimensions, product
 //! decompositions, and the fusion multiplicities `N^c_{ab}` — the "N-symbols")
 //! exactly. No external tool is involved: the oracle is racah's own SU(N)
-//! pipeline ([`fusion_symbols::lie`]) checking racah's B/C/D pipeline ([`fusion_symbols::bcd`]),
+//! pipeline ([`fusion_symbols::lie`]) checking racah's B/C/D pipeline ([`fusion_symbols::lie`]),
 //! and racah's two independent SU(2) implementations checking each other.
 //!
 //! This strand verifies only the *tensor* (linear, non-spinor) image of each
-//! isomorphism: [`fusion_symbols::bcd`] represents tensor irreps of `SO(N)`/`Sp(2N)`
+//! isomorphism: [`fusion_symbols::lie`] represents tensor irreps of `SO(N)`/`Sp(2N)`
 //! only (spinors belong to the covering group and are rejected with
-//! [`fusion_symbols::bcd::BcdError::NotAdmissible`]). Labels outside the isomorphic
+//! [`fusion_symbols::lie::LieError::NotAdmissible`]). Labels outside the isomorphic
 //! tensor image are out of scope here (role matrix).
 //!
 //! # Dynkin label maps
@@ -22,7 +22,7 @@
 //! / relabelled Dynkin diagram) and then cross-checked against matching dimensions
 //! and product channels through both sides, never merely assumed from a numerical
 //! coincidence. `A_{n}` uses [`fusion_symbols::lie`]
-//! Dynkin labels `(a_1,…,a_n)`; `B_r`/`C_r`/`D_r` use [`fusion_symbols::bcd`] Dynkin
+//! Dynkin labels `(a_1,…,a_n)`; `B_r`/`C_r`/`D_r` use [`fusion_symbols::lie`] Dynkin
 //! labels `(b_0,…,b_{r-1})` in the module's node order (node 0 = vector for
 //! `B`/`D`, per `docs/gauge_soN.md`).
 //!
@@ -67,7 +67,7 @@
 //!
 //! ## `SO(4) ≅ SU(2) × SU(2)` (`D_2 ≅ A_1 × A_1`)
 //!
-//! `SO(4)` is the excluded rank `D_2` in [`fusion_symbols::bcd`] (redirected to the
+//! `SO(4)` is the excluded rank `D_2` in [`fusion_symbols::lie`] (redirected to the
 //! SU(2) machinery). The isomorphism content — an `SO(4)` tensor irrep is a
 //! pair of `SU(2)` irreps with `SO(4)` products factoring as independent
 //! `SU(2)` products — is checked in `src/lie/sun/su2_embedding_tests.rs` between racah's **two independent
@@ -83,28 +83,34 @@
 mod lie_test;
 use std::collections::BTreeMap;
 
-use fusion_symbols::bcd::{directproduct as bdp, Irrep as Bcd, Series};
+#[path = "common/bcd.rs"]
+mod bcd_test;
+use bcd_test::Series;
 use fusion_symbols::lie::LieIrrep as Sun;
+use fusion_symbols::{
+    category::FusionCategory,
+    lie::{LieError, LieGroup, LieIrrep as Bcd},
+};
 use lie_test::product as sdp;
 
 /// `SU(4)` Dynkin `(a_1,a_2,a_3)` → `SO(6)=D_3` Dynkin `(a_2,a_1,a_3)`.
 /// Panics if the image is a spinor (`a_1 + a_3` odd) — callers stay in the
 /// even (tensor) sublattice.
 fn su4_to_so6(a: &[i64]) -> Bcd {
-    Bcd::from_dynkin(Series::D, &[a[1], a[0], a[2]]).expect("SO(6) tensor image")
+    bcd_test::irrep(Series::D, &[a[1], a[0], a[2]]).expect("SO(6) tensor image")
 }
 
 /// `Sp(4)=C_2` Dynkin `(c_0,c_1)` → `SO(5)=B_2` Dynkin `(c_1,c_0)`.
 /// Panics if the image is a spinor (`c_0` odd) — callers stay in the tensor
 /// sublattice.
 fn sp4_to_so5(c: &[i64]) -> Bcd {
-    Bcd::from_dynkin(Series::B, &[c[1], c[0]]).expect("SO(5) tensor image")
+    bcd_test::irrep(Series::B, &[c[1], c[0]]).expect("SO(5) tensor image")
 }
 
 /// Product decomposition of a B/C/D product keyed by the summand's Dynkin
 /// label, for structural comparison with an SU(N) decomposition.
-fn bcd_channels(a: &Bcd, b: &Bcd) -> BTreeMap<Vec<i64>, u32> {
-    bdp(a, b)
+fn bcd_channels(g: GroupId, a: &Bcd, b: &Bcd) -> BTreeMap<Vec<i64>, u32> {
+    bcd_test::product(&LieGroup::new(g).unwrap(), a, b)
         .unwrap()
         .into_iter()
         .map(|(k, v)| (k.dynkin(), v))
@@ -148,7 +154,11 @@ fn so6_su4_dimensions_agree() {
     for a in SO6_LABELS {
         let s = lie_test::irrep(a).unwrap();
         let d = su4_to_so6(a);
-        assert_eq!(s.dim_exact(), d.dim(), "dim mismatch SU(4) {a:?} vs SO(6)");
+        assert_eq!(
+            s.dim_exact(),
+            d.dim_exact(),
+            "dim mismatch SU(4) {a:?} vs SO(6)"
+        );
     }
 }
 
@@ -159,7 +169,7 @@ fn so6_su4_products_agree() {
     for a in SO6_LABELS {
         for b in SO6_LABELS {
             let s = sun_channels(&lie_test::irrep(a).unwrap(), &lie_test::irrep(b).unwrap());
-            let d = bcd_channels(&su4_to_so6(a), &su4_to_so6(b));
+            let d = bcd_channels(GroupId::so(6).unwrap(), &su4_to_so6(a), &su4_to_so6(b));
             // Remap each SU(4) summand label to its D_3 image and compare.
             let s_mapped: BTreeMap<Vec<i64>, u32> = s
                 .into_iter()
@@ -176,9 +186,13 @@ fn so6_su4_products_agree() {
 #[test]
 fn sp4_so5_dimensions_agree() {
     for c in SO5_LABELS {
-        let cc = Bcd::from_dynkin(Series::C, c).unwrap();
+        let cc = bcd_test::irrep(Series::C, c).unwrap();
         let bb = sp4_to_so5(c);
-        assert_eq!(cc.dim(), bb.dim(), "dim mismatch Sp(4) {c:?} vs SO(5)");
+        assert_eq!(
+            cc.dim_exact(),
+            bb.dim_exact(),
+            "dim mismatch Sp(4) {c:?} vs SO(5)"
+        );
     }
 }
 
@@ -187,10 +201,11 @@ fn sp4_so5_products_agree() {
     for a in SO5_LABELS {
         for b in SO5_LABELS {
             let cc = bcd_channels(
-                &Bcd::from_dynkin(Series::C, a).unwrap(),
-                &Bcd::from_dynkin(Series::C, b).unwrap(),
+                GroupId::sp(4).unwrap(),
+                &bcd_test::irrep(Series::C, a).unwrap(),
+                &bcd_test::irrep(Series::C, b).unwrap(),
             );
-            let bb = bcd_channels(&sp4_to_so5(a), &sp4_to_so5(b));
+            let bb = bcd_channels(GroupId::so(5).unwrap(), &sp4_to_so5(a), &sp4_to_so5(b));
             let c_mapped: BTreeMap<Vec<i64>, u32> = cc
                 .into_iter()
                 .map(|(k, v)| (sp4_to_so5(&k).dynkin(), v))
@@ -212,10 +227,10 @@ fn wrong_so6_map_is_detected() {
     // vector/6: SU(4) [0,1,0] is dim 6, but D_3 [0,1,0] is a spinor (rejected)
     // or, for [2,0,0] (dim 10), D_3 [2,0,0] is dim 20 != 10.
     let s = lie_test::irrep(&[2, 0, 0]).unwrap();
-    let wrong = Bcd::from_dynkin(Series::D, &[2, 0, 0]).unwrap();
+    let wrong = bcd_test::irrep(Series::D, &[2, 0, 0]).unwrap();
     assert_ne!(
         s.dim_exact(),
-        wrong.dim(),
+        wrong.dim_exact(),
         "wrong map must not accidentally agree"
     );
 }
@@ -229,20 +244,19 @@ fn wrong_so6_map_is_detected() {
 // labels.
 // ---------------------------------------------------------------------------
 
-use fusion_symbols::bcd::BcdError;
 use fusion_symbols::lie::GroupId;
 
 /// `SU(4)` Dynkin `(a_1,a_2,a_3)` → `Spin(6)` Dynkin `(a_2,a_1,a_3)`, defined
 /// on the whole lattice: `a_1 + a_3` odd is the `D_3` spinor class, which is
 /// exactly the odd-`N`-ality (chiral) `SU(4)` class.
 fn su4_to_spin6(a: &[i64]) -> Bcd {
-    Bcd::from_dynkin_in(&GroupId::spin(6).unwrap(), &[a[1], a[0], a[2]]).expect("Spin(6) label")
+    bcd_test::irrep_in(&GroupId::spin(6).unwrap(), &[a[1], a[0], a[2]]).expect("Spin(6) label")
 }
 
 /// `Sp(4)=C_2` Dynkin `(c_0,c_1)` → `Spin(5)` Dynkin `(c_1,c_0)`, whole
 /// lattice: `c_0` odd is the `B_2` spinor class.
 fn sp4_to_spin5(c: &[i64]) -> Bcd {
-    Bcd::from_dynkin_in(&GroupId::spin(5).unwrap(), &[c[1], c[0]]).expect("Spin(5) label")
+    bcd_test::irrep_in(&GroupId::spin(5).unwrap(), &[c[1], c[0]]).expect("Spin(5) label")
 }
 
 /// `SU(4)` labels spanning **both** classes, including the fundamental `4` and
@@ -278,12 +292,14 @@ fn spin6_su4_dimensions_agree_including_spinors() {
         let d = su4_to_spin6(a);
         assert_eq!(
             s.dim_exact(),
-            d.dim(),
+            d.dim_exact(),
             "dim mismatch SU(4) {a:?} vs Spin(6)"
         );
     }
-    assert_eq!(su4_to_spin6(&[1, 0, 0]).dim(), 4u32.into());
-    assert!(su4_to_spin6(&[1, 0, 0]).is_spinor());
+    assert_eq!(su4_to_spin6(&[1, 0, 0]).dim_exact(), 4u32.into());
+    assert!(!GroupId::so(6)
+        .unwrap()
+        .admits(&su4_to_spin6(&[1, 0, 0]).dynkin()));
 }
 
 /// `Spin(6) ≅ SU(4)`: every ordered product agrees channel-for-channel and
@@ -294,7 +310,11 @@ fn spin6_su4_products_agree_including_spinors() {
     for a in SPIN6_LABELS {
         for b in SPIN6_LABELS {
             let s = sun_channels(&lie_test::irrep(a).unwrap(), &lie_test::irrep(b).unwrap());
-            let d = bcd_channels(&su4_to_spin6(a), &su4_to_spin6(b));
+            let d = bcd_channels(
+                GroupId::spin(6).unwrap(),
+                &su4_to_spin6(a),
+                &su4_to_spin6(b),
+            );
             let s_mapped: BTreeMap<Vec<i64>, u32> = s
                 .into_iter()
                 .map(|(k, v)| (su4_to_spin6(&k).dynkin(), v))
@@ -315,7 +335,10 @@ fn spin6_su4_duals_agree_including_spinors() {
         let s = lie_test::irrep(a).unwrap();
         assert_eq!(
             su4_to_spin6(&lie_test::dual(&s).dynkin()).dynkin(),
-            su4_to_spin6(a).dual().dynkin(),
+            LieGroup::new(GroupId::spin(6).unwrap())
+                .unwrap()
+                .dual(&su4_to_spin6(a))
+                .dynkin(),
             "dual mismatch SU(4) {a:?} vs Spin(6)"
         );
     }
@@ -326,12 +349,18 @@ fn spin6_su4_duals_agree_including_spinors() {
 #[test]
 fn spin5_sp4_dimensions_agree_including_spinors() {
     for c in SPIN5_LABELS {
-        let cc = Bcd::from_dynkin(Series::C, c).unwrap();
+        let cc = bcd_test::irrep(Series::C, c).unwrap();
         let bb = sp4_to_spin5(c);
-        assert_eq!(cc.dim(), bb.dim(), "dim mismatch Sp(4) {c:?} vs Spin(5)");
+        assert_eq!(
+            cc.dim_exact(),
+            bb.dim_exact(),
+            "dim mismatch Sp(4) {c:?} vs Spin(5)"
+        );
     }
-    assert_eq!(sp4_to_spin5(&[1, 0]).dim(), 4u32.into());
-    assert!(sp4_to_spin5(&[1, 0]).is_spinor());
+    assert_eq!(sp4_to_spin5(&[1, 0]).dim_exact(), 4u32.into());
+    assert!(!GroupId::so(5)
+        .unwrap()
+        .admits(&sp4_to_spin5(&[1, 0]).dynkin()));
 }
 
 /// `Spin(5) ≅ Sp(4)`: every ordered product agrees, spinor channels included.
@@ -341,10 +370,15 @@ fn spin5_sp4_products_agree_including_spinors() {
     for a in SPIN5_LABELS {
         for b in SPIN5_LABELS {
             let cc = bcd_channels(
-                &Bcd::from_dynkin(Series::C, a).unwrap(),
-                &Bcd::from_dynkin(Series::C, b).unwrap(),
+                GroupId::sp(4).unwrap(),
+                &bcd_test::irrep(Series::C, a).unwrap(),
+                &bcd_test::irrep(Series::C, b).unwrap(),
             );
-            let bb = bcd_channels(&sp4_to_spin5(a), &sp4_to_spin5(b));
+            let bb = bcd_channels(
+                GroupId::spin(5).unwrap(),
+                &sp4_to_spin5(a),
+                &sp4_to_spin5(b),
+            );
             let c_mapped: BTreeMap<Vec<i64>, u32> = cc
                 .into_iter()
                 .map(|(k, v)| (sp4_to_spin5(&k).dynkin(), v))
@@ -365,34 +399,40 @@ fn spin5_sp4_products_agree_including_spinors() {
 #[test]
 fn spin5_sp4_frobenius_schur_agrees_including_spinors() {
     for c in SPIN5_LABELS {
-        let cc = Bcd::from_dynkin(Series::C, c).unwrap();
+        let cc = bcd_test::irrep(Series::C, c).unwrap();
         let bb = sp4_to_spin5(c);
         assert_eq!(
-            cc.frobenius_schur(),
-            bb.frobenius_schur(),
+            LieGroup::new(GroupId::sp(4).unwrap())
+                .unwrap()
+                .frobenius_schur_indicator(&cc),
+            LieGroup::new(GroupId::spin(5).unwrap())
+                .unwrap()
+                .frobenius_schur_indicator(&bb),
             "FS mismatch Sp(4) {c:?} vs Spin(5)"
         );
     }
-    assert_eq!(sp4_to_spin5(&[1, 0]).frobenius_schur(), -1);
+    assert_eq!(
+        LieGroup::new(GroupId::spin(5).unwrap())
+            .unwrap()
+            .frobenius_schur_indicator(&sp4_to_spin5(&[1, 0])),
+        -1.0
+    );
 }
 
-/// `Spin(3) ≅ SU(2)`: `B_1` is an excluded rank in [`fusion_symbols::bcd`], so the
+/// `Spin(3) ≅ SU(2)`: `B_1` is an excluded rank in [`fusion_symbols::lie`], so the
 /// isomorphism is delivered as a **form-aware redirect** rather than as a
 /// second code path — and the redirect distinguishes the cover from the
 /// quotient, which is the whole point of the isomorphism (`Spin(3) = SU(2)`
 /// has half-integer `j`, `SO(3)` does not).
 #[test]
 fn spin3_su2_is_a_form_aware_low_rank_redirect() {
-    let spin3 = Bcd::from_dynkin_in(&GroupId::spin(3).unwrap(), &[1]);
-    assert!(matches!(
-        spin3,
-        Err(BcdError::ExcludedRank { rank: 1, redirect, .. })
-            if redirect == "use SU(2) instead"
-    ));
-    let so3 = Bcd::from_dynkin_in(&GroupId::so(3).unwrap(), &[1]);
-    assert!(matches!(
-        so3,
-        Err(BcdError::ExcludedRank { rank: 1, redirect, .. })
-            if redirect.contains("integer j")
-    ));
+    let spin3 = LieGroup::new(GroupId::spin(3).unwrap()).unwrap();
+    let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+    let so3 = LieGroup::new(GroupId::so(3).unwrap()).unwrap();
+    assert_eq!(
+        spin3.irrep(&[1]).unwrap().dim_exact(),
+        su2.irrep(&[1]).unwrap().dim_exact()
+    );
+    assert_eq!(spin3.authority_fingerprint(), su2.authority_fingerprint());
+    assert_eq!(so3.irrep(&[1]), Err(LieError::NotAdmissible));
 }

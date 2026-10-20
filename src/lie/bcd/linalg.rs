@@ -268,7 +268,7 @@ mod tests {
 
     #[test]
     fn d3_epoch3_qr_uses_independent_input_columns() {
-        use crate::bcd::{CanonicalCatalog, Irrep, Series};
+        use crate::lie::bcd::{CanonicalCatalog, Irrep, Series};
         QR_INPUTS.with_borrow_mut(|inputs| *inputs = Some(Vec::new()));
         let a = Irrep::from_dynkin(Series::D, &[0, 1, 1]).unwrap();
         let c = Irrep::from_dynkin(Series::D, &[0, 2, 2]).unwrap();

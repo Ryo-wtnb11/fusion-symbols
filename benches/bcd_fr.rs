@@ -6,12 +6,15 @@
 //! of magnitude cheaper than a four-CGC F contraction, and needs no cache.
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use fusion_symbols::bcd::{f_symbol, CanonicalCatalog, Irrep, Series};
+#[path = "../tests/common/bcd.rs"]
+mod bcd_test;
+use bcd_test::{f_symbol, Series};
 use fusion_symbols::cache;
+use fusion_symbols::lie::LieIrrep as Irrep;
 use std::hint::black_box;
 
 fn irr(s: Series, d: &[i64]) -> Irrep {
-    Irrep::from_dynkin(s, d).unwrap()
+    bcd_test::irrep(s, d).unwrap()
 }
 
 /// (label, series, rank, [a,b,c,d,e,f]) representative admissible sextets:
@@ -25,7 +28,7 @@ fn cases() -> Vec<(&'static str, Series, usize, [Irrep; 6])> {
             Series::C,
             2,
             [
-                Irrep::trivial(Series::C, 2).unwrap(),
+                bcd_test::trivial(Series::C, 2).unwrap(),
                 irr(Series::C, &[0, 1]),
                 irr(Series::C, &[0, 1]),
                 irr(Series::C, &[2, 0]),
@@ -39,7 +42,7 @@ fn cases() -> Vec<(&'static str, Series, usize, [Irrep; 6])> {
             Series::B,
             2,
             [
-                Irrep::trivial(Series::B, 2).unwrap(),
+                bcd_test::trivial(Series::B, 2).unwrap(),
                 irr(Series::B, &[1, 0]),
                 irr(Series::B, &[1, 0]),
                 irr(Series::B, &[0, 2]),
@@ -74,10 +77,10 @@ fn bench_cold(c: &mut Criterion) {
                 // Fresh catalog + cleared caches: pay the full canonical-parent
                 // CGC materialization (SVD sweeps) plus the four-CGC contraction.
                 cache::reset();
-                let mut cat = CanonicalCatalog::new(series, rank).unwrap();
+                let cat = bcd_test::group(series, rank).unwrap();
                 black_box(
                     f_symbol(
-                        &mut cat,
+                        &cat,
                         black_box(&s[0]),
                         black_box(&s[1]),
                         black_box(&s[2]),
@@ -96,13 +99,13 @@ fn bench_cold(c: &mut Criterion) {
 fn bench_hit(c: &mut Criterion) {
     let mut g = c.benchmark_group("bcd_f_symbol_cache_hit");
     for (label, series, rank, s) in cases() {
-        let mut cat = CanonicalCatalog::new(series, rank).unwrap();
-        let _ = f_symbol(&mut cat, &s[0], &s[1], &s[2], &s[3], &s[4], &s[5]).unwrap(); // warm
+        let cat = bcd_test::group(series, rank).unwrap();
+        let _ = f_symbol(&cat, &s[0], &s[1], &s[2], &s[3], &s[4], &s[5]).unwrap(); // warm
         g.bench_function(label, |b| {
             b.iter(|| {
                 black_box(
                     f_symbol(
-                        &mut cat,
+                        &cat,
                         black_box(&s[0]),
                         black_box(&s[1]),
                         black_box(&s[2]),

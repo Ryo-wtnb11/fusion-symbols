@@ -6,8 +6,12 @@
 //! value (the cross-global-form section checks this).
 
 #[cfg(feature = "cgc-gen")]
+#[path = "common/bcd.rs"]
+mod bcd_test;
+#[cfg(feature = "cgc-gen")]
 #[path = "common/lie.rs"]
 mod lie_test;
+
 use fusion_symbols::lie::{
     d_odd_central_class, CenterSubgroup, GlobalForm, GroupError, GroupId, RootSystem,
 };
@@ -277,7 +281,9 @@ fn admits_rejects_wrong_length_and_negative_labels() {
 #[cfg(feature = "cgc-gen")]
 mod against_bcd {
     use super::*;
-    use fusion_symbols::bcd::{directproduct, BcdError, Irrep, Series};
+    use crate::bcd_test;
+    use bcd_test::Series;
+    use fusion_symbols::lie::{LieError, LieGroup, LieIrrep as Irrep};
 
     /// The group `bcd` publishes for `series` at rank `r` .
     fn published(series: Series, r: usize) -> GroupId {
@@ -285,16 +291,6 @@ mod against_bcd {
             Series::B => GroupId::so(2 * r + 1).unwrap(),
             Series::C => GroupId::sp(2 * r).unwrap(),
             Series::D => GroupId::so(2 * r).unwrap(),
-        }
-    }
-
-    #[test]
-    fn series_root_system_bridge() {
-        assert_eq!(Series::B.root_system(3), RootSystem::B(3));
-        assert_eq!(Series::C.root_system(3), RootSystem::C(3));
-        assert_eq!(Series::D.root_system(4), RootSystem::D(4));
-        for (series, r) in [(Series::B, 2), (Series::C, 2), (Series::D, 3)] {
-            assert_eq!(series.root_system(r), published(series, r).root_system);
         }
     }
 
@@ -307,11 +303,11 @@ mod against_bcd {
             for r in min_r..=min_r + 2 {
                 let group = published(series, r);
                 for label in sweep(r, 3) {
-                    let built = Irrep::from_dynkin(series, &label);
+                    let built = LieGroup::new(group).unwrap().irrep(&label);
                     let admitted = group.admits(&label);
                     match (&built, admitted) {
                         (Ok(_), true) => {}
-                        (Err(BcdError::NotAdmissible { .. }), false) => {}
+                        (Err(LieError::NotAdmissible), false) => {}
                         other => panic!(
                             "series {series:?} rank {r} label {label:?}: {other:?} \
                              disagrees with admits = {admitted}"
@@ -336,9 +332,12 @@ mod against_bcd {
                 .collect();
             for a in &labels {
                 for b in &labels {
-                    let ia = Irrep::from_dynkin(series, a).unwrap();
-                    let ib = Irrep::from_dynkin(series, b).unwrap();
-                    for c in directproduct(&ia, &ib).unwrap().keys() {
+                    let ia = LieGroup::new(group).unwrap().irrep(a).unwrap();
+                    let ib = LieGroup::new(group).unwrap().irrep(b).unwrap();
+                    for c in bcd_test::product(&LieGroup::new(group).unwrap(), &ia, &ib)
+                        .unwrap()
+                        .keys()
+                    {
                         assert!(
                             group.admits(&c.dynkin()),
                             "{series:?} r={r}: {a:?} ⊗ {b:?} produced {:?}",
@@ -354,20 +353,23 @@ mod against_bcd {
     /// about: PSp(6) and PSO(8) label subsets of the shipped catalogs.
     #[test]
     fn quotient_forms_are_closed_under_fusion() {
-        for (series, r, group) in [
+        for (_series, r, group) in [
             (Series::C, 3, GroupId::psp(6).unwrap()),
             (Series::D, 4, GroupId::pso(8).unwrap()),
         ] {
             let labels: Vec<_> = sweep(r, 2)
                 .into_iter()
-                .filter(|l| group.admits(l) && Irrep::from_dynkin(series, l).is_ok())
+                .filter(|l| group.admits(l) && LieGroup::new(group).unwrap().irrep(l).is_ok())
                 .collect();
             assert!(labels.len() > 2, "{group:?}: nothing to fuse");
             for a in &labels {
                 for b in &labels {
-                    let ia = Irrep::from_dynkin(series, a).unwrap();
-                    let ib = Irrep::from_dynkin(series, b).unwrap();
-                    for c in directproduct(&ia, &ib).unwrap().keys() {
+                    let ia = LieGroup::new(group).unwrap().irrep(a).unwrap();
+                    let ib = LieGroup::new(group).unwrap().irrep(b).unwrap();
+                    for c in bcd_test::product(&LieGroup::new(group).unwrap(), &ia, &ib)
+                        .unwrap()
+                        .keys()
+                    {
                         assert!(
                             group.admits(&c.dynkin()),
                             "{group:?}: {a:?} ⊗ {b:?} produced {:?}",
@@ -408,21 +410,22 @@ mod against_bcd {
     #[ignore = "diagnostic: SO(5) canonical-parent hand example; run with --ignored"]
     fn so5_canonical_parent_hand_example() {
         use num_bigint::BigInt;
-        let irrep = |a: i64, b: i64| Irrep::from_dynkin(Series::C, &[a, b]).unwrap();
+        let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
+        let irrep = |a: i64, b: i64| cat.irrep(&[a, b]).unwrap();
         let spinor = irrep(1, 0); // B₂ ω₂, the 4
         let vector = irrep(0, 1); // B₂ ω₁, the 5
         let adjoint = irrep(2, 0); // B₂ 2ω₂, the 10
 
-        assert_eq!(spinor.dim(), BigInt::from(4));
-        assert_eq!(vector.dim(), BigInt::from(5));
-        assert_eq!(adjoint.dim(), BigInt::from(10));
+        assert_eq!(spinor.dim_exact(), BigInt::from(4));
+        assert_eq!(vector.dim_exact(), BigInt::from(5));
+        assert_eq!(adjoint.dim_exact(), BigInt::from(10));
 
-        let ss = directproduct(&spinor, &spinor).unwrap();
-        let vv = directproduct(&vector, &vector).unwrap();
+        let ss = bcd_test::product(&cat, &spinor, &spinor).unwrap();
+        let vv = bcd_test::product(&cat, &vector, &vector).unwrap();
         let dims = |m: &std::collections::BTreeMap<Irrep, u32>| {
             let mut d: Vec<i64> = m
                 .keys()
-                .map(|k| k.dim().to_string().parse().unwrap())
+                .map(|k| k.dim_exact().to_string().parse().unwrap())
                 .collect();
             d.sort_unstable();
             d
@@ -604,9 +607,15 @@ mod sun_forms {
 
     /// The constructor's own guards, distinct from a form violation.
     #[test]
-    fn from_dynkin_in_rejects_a_foreign_root_system_and_a_wrong_length_label() {
+    fn constructor_rejects_an_unsupported_root_system_and_a_wrong_length_label() {
         assert!(matches!(
-            lie_test::irrep_in(&GroupId::so(7).unwrap(), &[1, 0, 0]),
+            lie_test::irrep_in(
+                &GroupId {
+                    root_system: RootSystem::G2,
+                    form: GlobalForm::SimplyConnected
+                },
+                &[1, 0]
+            ),
             Err(LieError::Unsupported { .. })
         ));
         assert!(matches!(
@@ -645,35 +654,17 @@ mod sun_forms {
 #[cfg(feature = "cgc-gen")]
 #[test]
 fn psp_rejection_uses_the_generic_not_admissible_error() {
-    use fusion_symbols::bcd::{BcdError, Irrep};
-    let psp6 = GroupId::psp(6).unwrap();
-    match Irrep::from_dynkin_in(&psp6, &[1, 0, 0]) {
-        Err(BcdError::NotAdmissible { group, dynkin }) => {
-            assert_eq!(group, psp6);
-            assert_eq!(dynkin, vec![1, 0, 0]);
-            let msg = BcdError::NotAdmissible { group, dynkin }.to_string();
-            assert!(
-                !msg.to_lowercase().contains("spinor"),
-                "PSp(6) rejection must not talk about spinors: {msg}"
-            );
-        }
-        other => panic!("expected NotAdmissible, got {other:?}"),
-    }
-    // The half-spin and PSO forms reject tensor classes for the same reason.
+    use fusion_symbols::lie::{LieError, LieGroup};
     for (group, label) in [
-        (GroupId::pso(8).unwrap(), vec![1, 0, 0, 0]), // the vector of SO(8)
+        (GroupId::psp(6).unwrap(), vec![1, 0, 0]),
+        (GroupId::pso(8).unwrap(), vec![1, 0, 0, 0]),
         (GroupId::half_spin_plus(8).unwrap(), vec![1, 0, 0, 0]),
+        (GroupId::so(7).unwrap(), vec![0, 0, 1]),
     ] {
-        assert!(matches!(
-            Irrep::from_dynkin_in(&group, &label),
-            Err(BcdError::NotAdmissible { .. })
-        ));
+        let error = LieGroup::new(group).unwrap().irrep(&label).unwrap_err();
+        assert_eq!(error, LieError::NotAdmissible);
+        assert!(!error.to_string().to_lowercase().contains("spinor"));
     }
-    // And the spinor case still lands in the same variant.
-    assert!(matches!(
-        Irrep::from_dynkin_in(&GroupId::so(7).unwrap(), &[0, 0, 1]),
-        Err(BcdError::NotAdmissible { .. })
-    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -713,7 +704,9 @@ fn nonsensical_root_datum_admits_nothing() {
         {
             let zero = vec![0i64; root_system.rank()];
             assert!(lie_test::irrep_in(&g, &zero).is_err());
-            assert!(fusion_symbols::bcd::Irrep::from_dynkin_in(&g, &zero).is_err());
+            assert!(fusion_symbols::lie::LieGroup::new(g)
+                .and_then(|cat| cat.irrep(&zero))
+                .is_err());
         }
     }
 }
@@ -745,67 +738,30 @@ mod cross_form_coefficients {
     /// (11) `Spin(N)` and `SO(N)` on their common tensor representations.
     #[test]
     fn spin_and_so_share_tensor_coefficient_data() {
-        use fusion_symbols::bcd::{CanonicalCatalog, Irrep, Series};
-
-        // (matrix dim, series, rank, vector label, a label in vector ⊗ vector)
-        let cases = [
-            (5usize, Series::B, 2usize, vec![1i64, 0], vec![0i64, 2]), // SO(5) 5, 10
-            (6, Series::D, 3, vec![1, 0, 0], vec![0, 1, 1]),           // SO(6) 6, 15
-        ];
-        for (n, series, r, v_label, c_label) in cases {
-            let spin = GroupId::spin(n).unwrap();
-            let so = GroupId::so(n).unwrap();
-            // Both labels are tensor classes: admissible in cover and quotient.
-            for l in [&v_label, &c_label] {
-                assert!(spin.admits(l) && so.admits(l), "{n}: {l:?}");
-            }
-
-            let cover_v = Irrep::from_dynkin_in(&spin, &v_label).unwrap();
-            let quot_v = Irrep::from_dynkin_in(&so, &v_label).unwrap();
-            let cover_c = Irrep::from_dynkin_in(&spin, &c_label).unwrap();
-            let quot_c = Irrep::from_dynkin_in(&so, &c_label).unwrap();
-
-            // Representation data, hence the cache key, is form-free.
-            assert_eq!(cover_v, quot_v);
-            assert_eq!(cover_c, quot_c);
-            assert_eq!(hash_of(&cover_v), hash_of(&quot_v));
-            assert_eq!(
-                hash_of(&(cover_v.clone(), cover_v.clone(), cover_c.clone())),
-                hash_of(&(quot_v.clone(), quot_v.clone(), quot_c.clone())),
-                "the CGC cache key is (Irrep, Irrep, Irrep) — no GlobalForm in it"
-            );
-
-            let mut cat = CanonicalCatalog::new(series, r).unwrap();
-            let cover = cat.cgc(&cover_v, &cover_v, &cover_c).unwrap();
-            let quot = cat.cgc(&quot_v, &quot_v, &quot_c).unwrap();
-            assert_eq!(cover.multiplicity(), quot.multiplicity());
-            assert_eq!(cover.copy_shape(), quot.copy_shape());
-            assert_eq!(cover.data(), quot.data(), "SO({n}) vs Spin({n}) CGC data");
-            for mu in 0..cover.multiplicity() {
-                assert_eq!(cover.copy(mu), quot.copy(mu), "multiplicity axis {mu}");
-            }
-
-            // The F-symbol built on top of them agrees bit for bit too.
-            let triv = Irrep::trivial(series, r).unwrap();
-            let f_cover = fusion_symbols::bcd::f_symbol(
-                &mut cat, &triv, &cover_v, &cover_v, &cover_c, &cover_v, &cover_c,
-            )
-            .unwrap();
-            let f_quot = fusion_symbols::bcd::f_symbol(
-                &mut cat, &triv, &quot_v, &quot_v, &quot_c, &quot_v, &quot_c,
-            )
-            .unwrap();
-            assert_eq!(f_cover.dims(), f_quot.dims());
-            let [d0, d1, d2, d3] = f_cover.dims();
-            for i in 0..d0 {
-                for j in 0..d1 {
-                    for k in 0..d2 {
-                        for l in 0..d3 {
-                            assert_eq!(f_cover.at(i, j, k, l), f_quot.at(i, j, k, l));
-                        }
-                    }
-                }
-            }
+        use fusion_symbols::{
+            category::{FusionCategory, GroupRepresentations},
+            lie::LieGroup,
+        };
+        for (n, v_label, c_label) in [
+            (5, vec![1, 0], vec![0, 2]),
+            (6, vec![1, 0, 0], vec![0, 1, 1]),
+        ] {
+            let spin = LieGroup::new(GroupId::spin(n).unwrap()).unwrap();
+            let so = LieGroup::new(GroupId::so(n).unwrap()).unwrap();
+            let cv = spin.irrep(&v_label).unwrap();
+            let qv = so.irrep(&v_label).unwrap();
+            let cc = spin.irrep(&c_label).unwrap();
+            let qc = so.irrep(&c_label).unwrap();
+            assert_ne!(cv, qv, "objects retain the global form tag");
+            let cover = spin.cgc(&cv, &cv, &cc).unwrap();
+            let quot = so.cgc(&qv, &qv, &qc).unwrap();
+            assert_eq!(cover.dims(), quot.dims());
+            assert_eq!(crate::bcd_test::data(&cover), crate::bcd_test::data(&quot));
+            let f_cover = spin
+                .f_symbol(&spin.unit(), &cv, &cv, &cc, &cv, &cc)
+                .unwrap();
+            let f_quot = so.f_symbol(&so.unit(), &qv, &qv, &qc, &qv, &qc).unwrap();
+            assert_eq!(f_cover, f_quot);
         }
     }
 
@@ -951,23 +907,15 @@ mod cross_form_coefficients {
     /// entry warmed by `Spin(N)`.
     #[test]
     fn so_cannot_reach_a_spin_only_entry() {
-        use fusion_symbols::bcd::{BcdError, CanonicalCatalog, Irrep, Series};
-
-        let spin5 = GroupId::spin(5).unwrap();
-        let so5 = GroupId::so(5).unwrap();
-        let spinor = Irrep::from_dynkin_in(&spin5, &[0, 1]).unwrap();
-        let vector = Irrep::from_dynkin_in(&spin5, &[1, 0]).unwrap();
-        let mut cat = CanonicalCatalog::new(Series::B, 2).unwrap();
-        // Warm a channel involving the spinor.
-        cat.cgc(&spinor, &spinor, &vector).unwrap();
-        // SO(5) still has no spinor label to key it with.
-        assert!(matches!(
-            Irrep::from_dynkin_in(&so5, &[0, 1]),
-            Err(BcdError::NotAdmissible { .. })
-        ));
-        assert!(matches!(
-            Irrep::from_dynkin(Series::B, &[0, 1]),
-            Err(BcdError::NotAdmissible { .. })
-        ));
+        use fusion_symbols::{
+            category::GroupRepresentations,
+            lie::{LieError, LieGroup},
+        };
+        let spin = LieGroup::new(GroupId::spin(5).unwrap()).unwrap();
+        let so = LieGroup::new(GroupId::so(5).unwrap()).unwrap();
+        let spinor = spin.irrep(&[0, 1]).unwrap();
+        let vector = spin.irrep(&[1, 0]).unwrap();
+        spin.cgc(&spinor, &spinor, &vector).unwrap();
+        assert_eq!(so.irrep(&[0, 1]), Err(LieError::NotAdmissible));
     }
 }

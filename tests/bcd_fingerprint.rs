@@ -1,17 +1,18 @@
 //! Compatibility-policy and determinism tests for the generated SO(N)/Sp(2N)
-//! authority fingerprint (`fusion_symbols::bcd::bcd_authority_fingerprint`).
+//! authority fingerprint (`LieGroup::authority_fingerprint`).
 //!
 //! Mirrors `tests/su2_fingerprint.rs`, with the generated-family contract: equal
 //! bytes identify the convention / generation pipeline / tolerance policy, not
 //! byte-identical values (`docs/gauge_soN.md`).
 #![cfg(feature = "cgc-gen")]
 
-use fusion_symbols::bcd::bcd_authority_fingerprint;
+#[path = "common/bcd.rs"]
+mod bcd_test;
 
 /// Compatibility policy: the fingerprint's exact current bytes.
 ///
 /// This literal is written out by hand — deliberately NOT derived from
-/// `bcd_authority_fingerprint()`, so that any change to the returned bytes
+/// `bcd_test::fingerprint()`, so that any change to the returned bytes
 /// (a value-affecting convention change or an epoch bump) breaks this assertion
 /// and forces a review event.
 ///
@@ -24,7 +25,7 @@ use fusion_symbols::bcd::bcd_authority_fingerprint;
 ///
 /// Do not update it to make a test pass. Update it only as one of the four steps
 /// of `docs/gauge.md`, "Status": the spec edit, the `epoch=N` bump in
-/// `bcd_authority_fingerprint`, the CHANGELOG breaking-change entry, and the
+/// `LieGroup::authority_fingerprint`, the CHANGELOG breaking-change entry, and the
 /// regenerated `tests/gauge_golden.rs` values — all in the same PR.
 ///
 /// Epoch history:
@@ -38,7 +39,7 @@ use fusion_symbols::bcd::bcd_authority_fingerprint;
 #[test]
 fn fingerprint_matches_pinned_compatibility_bytes() {
     assert_eq!(
-        bcd_authority_fingerprint(),
+        bcd_test::fingerprint(),
         b"racah:bcd-bootstrap:ref=qspace-v4-dd2cc7e:kron=a-fast:parent=canonical-parent:sweep=gs2-qrpos-posdiag:sort=maxweight-desc:sign=first-significant-positive:align=procrustes-canonical:tol=cg-eps-tier:epoch=3",
     );
 }
@@ -50,5 +51,5 @@ fn fingerprint_matches_pinned_compatibility_bytes() {
 /// break here.
 #[test]
 fn fingerprint_is_deterministic() {
-    assert_eq!(bcd_authority_fingerprint(), bcd_authority_fingerprint());
+    assert_eq!(bcd_test::fingerprint(), bcd_test::fingerprint());
 }

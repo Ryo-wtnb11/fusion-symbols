@@ -12,7 +12,7 @@
 //! cross-backend gate reduces to asserting that the
 //! discrete layer is a function of the convention ALONE. Concretely, two
 //! independent in-process generation runs — caches reset between them, and a
-//! fresh `CanonicalCatalog` for the B/C/D run — must produce byte-identical
+//! fresh `LieGroup` for the B/C/D run — must produce byte-identical
 //! discrete/structural outputs. If the discrete layer depended on anything but
 //! the convention (a race, an accumulation-order-sensitive branch, an
 //! uninitialised read), the two runs would diverge here.
@@ -34,9 +34,12 @@
 
 #[path = "common/lie.rs"]
 mod lie_test;
-use fusion_symbols::bcd::{
-    directproduct as bcd_directproduct, CanonicalCatalog, CatalogCgc, Irrep as BcdIrrep, Series,
-};
+
+#[path = "common/bcd.rs"]
+mod bcd_test;
+use bcd_test::Series;
+use fusion_symbols::category::GroupRepresentations;
+
 use fusion_symbols::cache;
 use fusion_symbols::lie::{LieCgc as Cgc, LieIrrep as SunIrrep};
 use lie_test::{cgc, product as sun_directproduct};
@@ -95,11 +98,11 @@ fn sun_sign_pattern(cg: &Cgc) -> Vec<i8> {
 /// Sign of the first significant B/C/D entry per `(mu, column)`. Each copy is a
 /// column-major `rows x d3` isometry; scanning a column in row order is the
 /// product-basis (`m_a`-fast) storage order of `docs/gauge_soN.md` §1/§8.
-fn bcd_sign_pattern(cg: &CatalogCgc) -> Vec<i8> {
-    let (rows, d3) = cg.copy_shape();
-    let mut signs = Vec::with_capacity(d3 * cg.multiplicity());
-    for mu in 0..cg.multiplicity() {
-        let copy = cg.copy(mu);
+fn bcd_sign_pattern(cg: &fusion_symbols::lie::LieCgc) -> Vec<i8> {
+    let (rows, d3) = (cg.dims()[0] * cg.dims()[1], cg.dims()[2]);
+    let mut signs = Vec::with_capacity(d3 * cg.dims()[3]);
+    for mu in 0..cg.dims()[3] {
+        let copy = bcd_test::copy(cg, mu);
         for col in 0..d3 {
             let column = &copy[col * rows..(col + 1) * rows];
             let sign = column
@@ -121,8 +124,11 @@ fn channel_set_sun(a: &SunIrrep, b: &SunIrrep) -> Vec<(Vec<i64>, u32)> {
         .collect()
 }
 
-fn channel_set_bcd(a: &BcdIrrep, b: &BcdIrrep) -> Vec<(Vec<i64>, u32)> {
-    bcd_directproduct(a, b)
+fn channel_set_bcd(
+    a: &fusion_symbols::lie::LieIrrep,
+    b: &fusion_symbols::lie::LieIrrep,
+) -> Vec<(Vec<i64>, u32)> {
+    bcd_test::product(&bcd_test::group(Series::D, 3).unwrap(), a, b)
         .unwrap()
         .into_iter()
         .map(|(c, m)| (c.dynkin(), m))
@@ -148,20 +154,20 @@ fn sun_run() -> StructuralSig {
 /// One D3 generation run from a fresh catalog: the whole `(0,1,1) ⊗ (0,1,1)`
 /// channel set plus the structural signature of the `N = 2` `(0,1,1)` channel.
 fn bcd_run() -> StructuralSig {
-    let adj = BcdIrrep::from_dynkin(Series::D, &[0, 1, 1]).unwrap();
+    let adj = bcd_test::irrep(Series::D, &[0, 1, 1]).unwrap();
     let channels = channel_set_bcd(&adj, &adj);
-    let mut cat = CanonicalCatalog::new(Series::D, 3).unwrap();
+    let cat = bcd_test::group(Series::D, 3).unwrap();
     let cg = cat.cgc(&adj, &adj, &adj).unwrap();
-    let (rows, d3) = cg.copy_shape();
+    let (rows, d3) = (cg.dims()[0] * cg.dims()[1], cg.dims()[2]);
     assert_eq!(
-        cg.multiplicity(),
+        cg.dims()[3],
         2,
         "picked channel must have outer multiplicity >= 2"
     );
     StructuralSig {
         channels,
-        block_dims: (rows, d3, cg.multiplicity()),
-        om_indices: (0..cg.multiplicity()).collect(),
+        block_dims: (rows, d3, cg.dims()[3]),
+        om_indices: (0..cg.dims()[3]).collect(),
         sign_pattern: bcd_sign_pattern(&cg),
     }
 }
@@ -183,7 +189,7 @@ fn discrete_layer_is_convention_only_across_independent_runs() {
          generation runs"
     );
 
-    // B/C/D: two independent runs, each from a fresh CanonicalCatalog, with a
+    // B/C/D: two independent runs, each from a fresh LieGroup, with a
     // cache reset between them.
     let bcd_first = bcd_run();
     cache::reset();

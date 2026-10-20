@@ -28,7 +28,7 @@ There is no fixed MSRV; `fusion-symbols` builds and is tested on current stable 
 | Feature | Gives you | Cost |
 |---|---|---|
 | *(default)* | SU(2): 3j, 6j, Clebsch–Gordan, F, R, Frobenius–Schur — closed-form, big-rational exact | `num-bigint`, `num-rational`, `num-traits` |
-| `cgc-gen` | SU(N) (`fusion_symbols::lie`), SO(N)/Spin(N)/Sp(2N) (`fusion_symbols::bcd`), and the `fusion_symbols::lie` global forms applied to them | pulls the sequential t4a-faer dense-linear-algebra backend |
+| `cgc-gen` | SU(N) (`fusion_symbols::lie`), SO(N)/Spin(N)/Sp(2N) (`fusion_symbols::lie`), and the `fusion_symbols::lie` global forms applied to them | pulls the sequential t4a-faer dense-linear-algebra backend |
 
 The split is mathematical, not organizational: SU(2) has closed-form
 coefficients and needs no matrix computation; every other family must be
@@ -111,7 +111,8 @@ non-negativity and global-form admissibility. Foreign objects panic. An absent
 channel returns an empty CGC/F/R block; a genuine generation failure returns
 `LieError::Generation(GenerationError)`. The diagnostic implements `Display`
 and exposes its underlying reason through `std::error::Error::source`.
-B/C/D keeps its existing family errors and absent-channel behavior in this slice.
+All generated Lie families return zero blocks for absent channels and
+`LieError::Generation` for generation failures.
 
 A verification-gate failure is always an error, never a silently degraded
 number: `fusion-symbols` will not hand you a coefficient that failed its orthogonality,
@@ -130,7 +131,7 @@ unitarity, or pentagon/hexagon check.
 - [`fusion_symbols::lie::su2::wigner_6j`](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/su2/fn.wigner_6j.html),
   [`fusion_symbols::lie::su2`](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/su2/index.html)
 - [`fusion_symbols::lie`](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html),
-  [`fusion_symbols::bcd`](https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/index.html)
+  [`fusion_symbols::lie`](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/index.html)
 - [`fusion_symbols::cache`](https://docs.rs/fusion-symbols/latest/fusion_symbols/cache/index.html)
 
 [`SignedSqrtRational`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/struct.SignedSqrtRational.html

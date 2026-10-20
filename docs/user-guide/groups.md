@@ -67,26 +67,27 @@ assert_eq!(decomposition[&eight], 2);
 
 ## SO(N) and Sp(2N): the B/C/D series
 
-Use `fusion_symbols::bcd` (`cgc-gen`). These families have no practical GT-type basis, so
+Use `fusion_symbols::lie::LieGroup` (`cgc-gen`). These families have no practical GT-type basis, so
 `fusion-symbols` builds them by a **generator bootstrap**: seed the defining
 representation's generators explicitly, take tensor products, decompose them
 numerically, harvest the new generator sets, recurse.
 
 ```rust
-use fusion_symbols::bcd::{directproduct, Irrep, Series};
+use fusion_symbols::{category::{FusionCategory},lie::{LieGroup,GroupId}};
 
 // SO(5) = B_2: 5 ⊗ 5 = 1 ⊕ 10 ⊕ 14.
-let v = Irrep::from_dynkin(Series::B, &[1, 0]).unwrap();
-let out = directproduct(&v, &v).unwrap();
-let mut dims: Vec<String> = out.keys().map(|s| s.dim().to_string()).collect();
+let cat = LieGroup::new(GroupId::so(5).unwrap()).unwrap();
+    let v = cat.irrep(&[1, 0]).unwrap();
+let out = cat.fusion(&v, &v).map(|it| it.map(|c| { let n = cat.nsymbol(&v,&v,&c); (c,n) }).collect::<std::collections::BTreeMap<_,_>>()).unwrap();
+let mut dims: Vec<String> = out.keys().map(|s| s.dim_exact().to_string()).collect();
 dims.sort();
 assert_eq!(dims, vec!["1", "10", "14"]);
 ```
 
 The label combinatorics here — dimensions, duals, FS indicators, weight
 multiplicities, the decomposition `N^c_ab` — are exact integer arithmetic and
-need no catalog. Only CGC and F/R generation needs a
-[`CanonicalCatalog`](clebsch-gordan.md#son-sp2n-you-need-a-catalog).
+do not materialize generators. CGC and F/R generation use the catalog
+held inside `LieGroup`.
 
 ## Spin(N): when you need spinors
 
@@ -97,23 +98,19 @@ the cover, not of `SO(N)` itself, which is why asking for a spinor label as an
 `SO(N)` irrep is an error rather than a rounding.
 
 ```rust
-use fusion_symbols::bcd::Irrep;
-use fusion_symbols::lie::GroupId;
+use fusion_symbols::{lie::{LieGroup,GroupId}};
 
 let spin5 = GroupId::spin(5).unwrap();
-let s = Irrep::from_dynkin_in(&spin5, &[0, 1]).unwrap();
-assert_eq!(s.dim(), 4u32.into());        // the Spin(5) Dirac spinor
-assert!(s.is_spinor());
-assert_eq!(s.two_partition(), &[1, 1]);  // λ = (½, ½)
+let s = LieGroup::new(spin5).unwrap().irrep(&[0, 1]).unwrap();
+assert_eq!(s.dim_exact(), 4u32.into());        // the Spin(5) Dirac spinor
 
 // The same label is not a representation of SO(5).
 let so5 = GroupId::so(5).unwrap();
-assert!(Irrep::from_dynkin_in(&so5, &[0, 1]).is_err());
+assert!(LieGroup::new(so5).unwrap().irrep(&[0, 1]).is_err());
 ```
 
-`Irrep::from_dynkin(Series::B, …)` (no group argument) is the historically
-published `SO(2r+1)` / `SO(2r)`: tensor irreps only. To get spinors you must
-name the cover with `from_dynkin_in`. Their coefficients come from the same
+Choose `GroupId::so(N)` for tensor irreps or `GroupId::spin(N)` to admit
+spinors, then construct labels with `LieGroup::irrep`. Their coefficients come from the same
 bootstrap, started from a second base case (the Clifford/Fock seeds).
 
 `Spin(2r)` has two spinor chiralities (the two half-spin irreps `ω_{r-1}`,
@@ -123,24 +120,25 @@ bootstrap, started from a second base case (the Clifford/Fock seeds).
 
 This is the easiest place to be off by a factor of two, so it is spelled out.
 
-- `Series::C` at **rank `r`** is the group `Sp(2r)`, of Cartan type `C_r`.
+- `GroupId::sp(2 * r)` names the group `Sp(2r)`, of Cartan type `C_r` and **rank `r`**.
 - Its **defining representation has dimension `2r`**, Dynkin label
   `[1, 0, …, 0]`.
-- So `Sp(4)` is `Series::C` with `r = 2`, and its defining rep is the **4**.
+- So `GroupId::sp(4)` has `r = 2`, and its defining rep is the **4**.
 
 ```rust
-use fusion_symbols::bcd::{directproduct, Irrep, Series};
+use fusion_symbols::{category::{FusionCategory},lie::{LieGroup,GroupId}};
 
 // Sp(4) = C_2. The defining 4, and 4 ⊗ 4 = 1 ⊕ 5 ⊕ 10.
-let four = Irrep::from_dynkin(Series::C, &[1, 0]).unwrap();
-assert_eq!(four.dim(), 4u32.into());
-let out = directproduct(&four, &four).unwrap();
-let mut dims: Vec<String> = out.keys().map(|s| s.dim().to_string()).collect();
+let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
+    let four = cat.irrep(&[1, 0]).unwrap();
+assert_eq!(four.dim_exact(), 4u32.into());
+let out = cat.fusion(&four,&four).map(|it| it.map(|c| { let n = cat.nsymbol(&four,&four,&c); (c,n) }).collect::<std::collections::BTreeMap<_,_>>()).unwrap();
+let mut dims: Vec<String> = out.keys().map(|s| s.dim_exact().to_string()).collect();
 dims.sort();
 assert_eq!(dims, vec!["1", "10", "5"]); // string sort
 ```
 
-`Sp(2r)` is simply connected, so the `C` series has no spinor sector and no
+`Sp(2r)` is simply connected, so it has no spinor sector and no
 second global form to choose. (`PSp(2r) = Sp(2r)/Z₂` exists and is available via
 `GroupId::psp`, but there is no cover above `Sp(2r)`.)
 
@@ -157,10 +155,10 @@ use fusion_symbols::{lie::{GroupId, LieGroup}};
 let psu3 = GroupId::psu(3).unwrap();       // SU(3)/Z₃
 
 // The adjoint 8 has zero triality, so it is a genuine PSU(3) representation.
-assert!(LieGroup::new(psu3).unwrap().irrep( &[1, 1]).is_ok());
+assert!(LieGroup::new(psu3).unwrap().irrep(&[1, 1]).is_ok());
 
 // The fundamental 3 has triality 1: PSU(3) has no such representation.
-assert!(LieGroup::new(psu3).unwrap().irrep( &[1, 0]).is_err());
+assert!(LieGroup::new(psu3).unwrap().irrep(&[1, 0]).is_err());
 ```
 
 Available forms: `GroupId::su`, `su_quotient(n, k)`, `psu`, `sp`, `psp`, `spin`,
@@ -170,9 +168,8 @@ Available forms: `GroupId::su`, `su_quotient(n, k)`, `psu`, `sp`, `psp`, `spin`,
 called admissibility and they are unrelated:
 
 1. *Global-form admissibility* (this section): is this weight a representation
-   of this group at all? Enforced once, at `LieGroup::irrep` construction (B/C/D: `from_dynkin_in`).
-   Failure is `LieError::NotAdmissible` /
-   `BcdError::NotAdmissible`.
+   of this group at all? Enforced once, at `LieGroup::irrep` construction.
+   Failure is `LieError::NotAdmissible`.
 2. *Coupling admissibility* (SU(2)): does this label tuple satisfy the triangle
    and parity rules of a 3j/6j? Failure is an exact zero, or
    `Su2Error::NotAdmissible` on the `*_checked` functions.
@@ -197,7 +194,7 @@ basis, gauge, and cached values.
 
 - [`fusion_symbols::lie`]: `GroupId`, `RootSystem`, `GlobalForm`, `CenterSubgroup`,
   `GroupId::admits`
-- [`LieGroup::irrep`], [`bcd::Irrep::from_dynkin_in`]
+- [`LieGroup::irrep`]
 - Deeper background: [`../theory.pdf`](../theory.pdf) §3 (the Killing–Cartan
   classification and the Dynkin diagrams), §4 (each family's compact group,
   its centre, and the global forms as centre quotients), §5 (the
@@ -208,4 +205,3 @@ basis, gauge, and cached values.
 [`RootSystem`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/enum.RootSystem.html
 [`fusion_symbols::lie`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/index.html
 [`LieGroup::irrep`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html
-[`bcd::Irrep::from_dynkin_in`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/struct.Irrep.html#method.from_dynkin_in

@@ -27,11 +27,14 @@
 
 #![cfg(feature = "cgc-gen")]
 
-use fusion_symbols::bcd::{
-    check_commutators, check_f_unitarity, check_hexagon, check_pentagon, defining_seed,
-    directproduct, spinor_seeds, BcdError, CanonicalCatalog, CatalogCgc, Irrep, Series,
-};
+#[path = "common/bcd.rs"]
+mod bcd_test;
+use bcd_test::{check_f_unitarity, check_hexagon, check_pentagon, Series};
 use fusion_symbols::lie::GroupId;
+use fusion_symbols::{
+    category::{FusionCategory, GroupRepresentations},
+    lie::{LieCgc, LieError, LieGroup, LieIrrep as Irrep},
+};
 
 /// The `B`/`D` families in scope, as `(series, rank, N)` with `N` the matrix
 /// dimension of `Spin(N)`.
@@ -43,80 +46,12 @@ const FAMILIES: &[(Series, usize, usize)] = &[
 ];
 
 fn ir(n: usize, dynkin: &[i64]) -> Irrep {
-    Irrep::from_dynkin_in(&GroupId::spin(n).unwrap(), dynkin).expect("Spin(N) label")
+    bcd_test::irrep_in(&GroupId::spin(n).unwrap(), dynkin).expect("Spin(N) label")
 }
 
 // ---------------------------------------------------------------------------
 // The seed.
 // ---------------------------------------------------------------------------
-
-/// Every spinor seed passes the same exact commutator self-check as the
-/// defining seeds, as every base case must.
-#[test]
-fn spinor_seed_commutators_close() {
-    for &(series, r, _) in FAMILIES {
-        for (label, seed) in spinor_seeds(series, r).unwrap() {
-            check_commutators(&seed)
-                .unwrap_or_else(|e| panic!("{series:?}_{r} spinor {label:?}: {e}"));
-        }
-    }
-}
-
-/// The derived structure constants are properties of the **algebra**, not of
-/// the representation: the spinor seed must report exactly the `f_{i,k}` and
-/// `d_{i,j}` of the defining seed. This is the sharpest available check that
-/// the spinor generators are the *same* abstract generators the bootstrap
-/// composes tensor products of — a wrong root assignment, a wrong node order,
-/// or a wrong ladder normalization all move these.
-#[test]
-fn spinor_seed_structure_constants_match_the_defining_seed() {
-    for &(series, r, _) in FAMILIES {
-        let reference = check_commutators(&defining_seed(series, r).unwrap()).unwrap();
-        for (label, seed) in spinor_seeds(series, r).unwrap() {
-            let got = check_commutators(&seed).unwrap();
-            assert_eq!(
-                got.cartan_coeffs, reference.cartan_coeffs,
-                "{series:?}_{r} spinor {label:?}: [Sp,Sp†] coefficients"
-            );
-            assert_eq!(
-                got.root_weights, reference.root_weights,
-                "{series:?}_{r} spinor {label:?}: root components"
-            );
-        }
-    }
-}
-
-/// `B_r` has one spinor base case (`ω_r`), `D_r` two (the half-spinors), `C_r`
-/// none — and the carrier dimensions are `2^r` and `2^{r-1}`.
-#[test]
-fn spinor_seed_inventory_is_one_for_b_two_for_d_none_for_c() {
-    assert!(spinor_seeds(Series::C, 3).unwrap().is_empty());
-    for &(series, r, _) in FAMILIES {
-        let seeds = spinor_seeds(series, r).unwrap();
-        let (want_count, want_dim) = match series {
-            Series::B => (1, 1usize << r),
-            _ => (2, 1usize << (r - 1)),
-        };
-        assert_eq!(seeds.len(), want_count, "{series:?}_{r} seed count");
-        for (_, seed) in &seeds {
-            assert_eq!(seed.dim(), want_dim, "{series:?}_{r} carrier dimension");
-        }
-    }
-}
-
-/// The excluded low ranks are excluded for the spinor seeds too, with the
-/// simply-connected redirect (`Spin(3) ≅ SU(2)`, `Spin(4) ≅ SU(2)×SU(2)`).
-#[test]
-fn spinor_seeds_reject_the_excluded_low_ranks() {
-    assert!(matches!(
-        spinor_seeds(Series::B, 1),
-        Err(BcdError::ExcludedRank { redirect, .. }) if redirect.contains("SU(2)")
-    ));
-    assert!(matches!(
-        spinor_seeds(Series::D, 2),
-        Err(BcdError::ExcludedRank { redirect, .. }) if redirect.contains("SU(2)×SU(2)")
-    ));
-}
 
 // ---------------------------------------------------------------------------
 // Labels.
@@ -126,23 +61,25 @@ fn spinor_seeds_reject_the_excluded_low_ranks() {
 /// whole content of "global form" at the label layer.
 #[test]
 fn spinor_labels_are_admissible_only_in_the_cover() {
-    for &(series, r, n) in FAMILIES {
-        for (label, _) in spinor_seeds(series, r).unwrap() {
+    for &(_, r, n) in FAMILIES {
+        for label in spinor_labels(n, r) {
             assert!(
-                Irrep::from_dynkin_in(&GroupId::spin(n).unwrap(), &label).is_ok(),
+                bcd_test::irrep_in(&GroupId::spin(n).unwrap(), &label).is_ok(),
                 "Spin({n}) must admit {label:?}"
             );
             assert!(
                 matches!(
-                    Irrep::from_dynkin_in(&GroupId::so(n).unwrap(), &label),
-                    Err(BcdError::NotAdmissible { .. })
+                    bcd_test::irrep_in(&GroupId::so(n).unwrap(), &label),
+                    Err(LieError::NotAdmissible)
                 ),
                 "SO({n}) must reject {label:?}"
             );
             assert!(
                 matches!(
-                    Irrep::from_dynkin(series, &label),
-                    Err(BcdError::NotAdmissible { .. })
+                    LieGroup::new(GroupId::so(n).unwrap())
+                        .unwrap()
+                        .irrep(&label),
+                    Err(LieError::NotAdmissible)
                 ),
                 "the published constructor must still reject {label:?}"
             );
@@ -150,36 +87,16 @@ fn spinor_labels_are_admissible_only_in_the_cover() {
     }
 }
 
-/// The doubled ε-basis weight is what makes a spinor representable at all: its
-/// `2λ` is all-odd, the tensor irreps' is all-even, and `partition()` — which
-/// promises an integer partition — is `None` exactly on the spinors.
-#[test]
-fn spinor_weights_are_half_integers_in_the_doubled_encoding() {
-    let s = ir(7, &[0, 0, 1]);
-    assert_eq!(s.two_partition(), &[1, 1, 1]);
-    assert!(s.is_spinor());
-    assert_eq!(s.partition(), None);
-    assert_eq!(s.weight_multiplicities(), None);
-
-    let v = ir(7, &[1, 0, 0]);
-    assert_eq!(v.two_partition(), &[2, 0, 0]);
-    assert!(!v.is_spinor());
-    assert_eq!(v.partition(), Some(vec![1, 0, 0]));
-}
-
 /// Weyl dimensions of the fundamental spinors: `2^r` for `B_r`, `2^{r-1}` per
 /// chirality for `D_r`. Computed by the exact Weyl formula on the half-integer
 /// weight, i.e. an independent statement from the seed's carrier size.
 #[test]
 fn spinor_dimensions_are_the_clifford_module_dimensions() {
-    for &(series, r, n) in FAMILIES {
-        let want: u64 = match series {
-            Series::B => 1 << r,
-            _ => 1 << (r - 1),
-        };
-        for (label, _) in spinor_seeds(series, r).unwrap() {
+    for &(_, r, n) in FAMILIES {
+        let want: u64 = if n % 2 == 1 { 1 << r } else { 1 << (r - 1) };
+        for label in spinor_labels(n, r) {
             assert_eq!(
-                ir(n, &label).dim(),
+                ir(n, &label).dim_exact(),
                 want.into(),
                 "dim of Spin({n}) {label:?}"
             );
@@ -206,8 +123,8 @@ fn spinor_frobenius_schur_is_the_n_mod_8_reality_type() {
     ];
     for &(n, dynkin, want) in cases {
         assert_eq!(
-            ir(n, dynkin).frobenius_schur(),
-            want,
+            spin_group(n).frobenius_schur_indicator(&ir(n, dynkin)),
+            f64::from(want),
             "FS of Spin({n}) {dynkin:?}"
         );
     }
@@ -219,10 +136,14 @@ fn spinor_frobenius_schur_is_the_n_mod_8_reality_type() {
 #[test]
 fn half_spinor_duality_follows_the_d_series_chirality_rule() {
     let s = ir(6, &[0, 0, 1]);
-    assert_eq!(s.dual().dynkin(), vec![0, 1, 0], "Spin(6) 4* = 4bar");
+    assert_eq!(
+        spin_group(6).dual(&s).dynkin(),
+        vec![0, 1, 0],
+        "Spin(6) 4* = 4bar"
+    );
     let s8 = ir(8, &[0, 0, 0, 1]);
     assert_eq!(
-        s8.dual().dynkin(),
+        spin_group(8).dual(&s8).dynkin(),
         vec![0, 0, 0, 1],
         "Spin(8) 8_s self-dual"
     );
@@ -232,8 +153,8 @@ fn half_spinor_duality_follows_the_d_series_chirality_rule() {
 /// and `Spin(8)` products. Independent of the numeric pipeline.
 #[test]
 fn spinor_fusion_matches_the_textbook_products() {
-    let channels = |a: &Irrep, b: &Irrep| -> Vec<(Vec<i64>, u32)> {
-        let mut v: Vec<(Vec<i64>, u32)> = directproduct(a, b)
+    let channels = |n, a: &Irrep, b: &Irrep| -> Vec<(Vec<i64>, u32)> {
+        let mut v: Vec<(Vec<i64>, u32)> = bcd_test::product(&spin_group(n), a, b)
             .unwrap()
             .into_iter()
             .map(|(k, m)| (k.dynkin(), m))
@@ -243,7 +164,7 @@ fn spinor_fusion_matches_the_textbook_products() {
     };
     // Spin(7): 8 ⊗ 8 = 1 + 7 + 21 + 35.
     assert_eq!(
-        channels(&ir(7, &[0, 0, 1]), &ir(7, &[0, 0, 1])),
+        channels(7, &ir(7, &[0, 0, 1]), &ir(7, &[0, 0, 1])),
         vec![
             (vec![0, 0, 0], 1),
             (vec![0, 0, 2], 1),
@@ -253,12 +174,12 @@ fn spinor_fusion_matches_the_textbook_products() {
     );
     // Spin(8) triality: 8_s ⊗ 8_v = 8_c + 56_c.
     assert_eq!(
-        channels(&ir(8, &[0, 0, 0, 1]), &ir(8, &[1, 0, 0, 0])),
+        channels(8, &ir(8, &[0, 0, 0, 1]), &ir(8, &[1, 0, 0, 0])),
         vec![(vec![0, 0, 1, 0], 1), (vec![1, 0, 0, 1], 1)]
     );
     // Spin(5): 4 ⊗ 4 = 1 + 5 + 10 (the SO(5) global-form diagnostic).
     assert_eq!(
-        channels(&ir(5, &[0, 1]), &ir(5, &[0, 1])),
+        channels(5, &ir(5, &[0, 1]), &ir(5, &[0, 1])),
         vec![(vec![0, 0], 1), (vec![0, 2], 1), (vec![1, 0], 1)]
     );
 }
@@ -268,11 +189,11 @@ fn spinor_fusion_matches_the_textbook_products() {
 // ---------------------------------------------------------------------------
 
 /// Worst `|(CᵀC − I)|` over the outer-multiplicity copies of a CGC block.
-fn isometry_residual(c: &CatalogCgc) -> f64 {
-    let (rows, cols) = c.copy_shape();
+fn isometry_residual(c: &LieCgc) -> f64 {
+    let (rows, cols) = (c.dims()[0] * c.dims()[1], c.dims()[2]);
     let mut worst: f64 = 0.0;
-    for mu in 0..c.multiplicity() {
-        let m = c.copy(mu);
+    for mu in 0..c.dims()[3] {
+        let m = bcd_test::copy(c, mu);
         for i in 0..cols {
             for j in 0..cols {
                 let dot: f64 = (0..rows).map(|k| m[i * rows + k] * m[j * rows + k]).sum();
@@ -288,16 +209,15 @@ fn isometry_residual(c: &CatalogCgc) -> f64 {
 /// coefficients rather than only inside the sweep.
 #[test]
 fn spinor_cgc_columns_are_orthonormal() {
-    for &(series, r, n) in FAMILIES {
-        let mut cat = CanonicalCatalog::new(series, r).unwrap();
-        let spinors: Vec<Irrep> = spinor_seeds(series, r)
-            .unwrap()
+    for &(_, r, n) in FAMILIES {
+        let cat = spin_group(n);
+        let spinors: Vec<Irrep> = spinor_labels(n, r)
             .into_iter()
-            .map(|(label, _)| ir(n, &label))
+            .map(|label| ir(n, &label))
             .collect();
         let s = spinors[0].clone();
-        for partner in [s.clone(), s.dual()] {
-            for (c, _) in directproduct(&s, &partner).unwrap() {
+        for partner in [s.clone(), cat.dual(&s)] {
+            for (c, _) in bcd_test::product(&cat, &s, &partner).unwrap() {
                 let cgc = cat.cgc(&s, &partner, &c).unwrap();
                 let residual = isometry_residual(&cgc);
                 assert!(
@@ -312,44 +232,6 @@ fn spinor_cgc_columns_are_orthonormal() {
     }
 }
 
-/// A spinor that is **not** a base case is reached by the canonical-parent
-/// recursion (§14.4's spinor branch: `λ = μ + ω_r`, remove a box from `μ`).
-/// `B_2`'s `(1,1)` is `λ = (3/2, 1/2)`, dimension 16.
-#[test]
-fn the_recursion_reaches_a_non_base_spinor() {
-    let x = ir(5, &[1, 1]);
-    assert_eq!(x.dim(), 16u32.into());
-    let mut cat = CanonicalCatalog::new(Series::B, 2).unwrap();
-    assert_eq!(cat.generators(&x).unwrap().dim(), 16);
-}
-
-/// A catalog that is only ever asked for tensor irreps materializes **no**
-/// spinor generators: the class-indexed candidate-set restriction keeps the spinor sector entirely out of the tensor bootstrap,
-/// which is what preserves every shipped `SO(N)`/`Sp(2N)` coefficient.
-#[test]
-fn the_tensor_bootstrap_never_touches_the_spinor_sector() {
-    let mut cat = CanonicalCatalog::new(Series::B, 2).unwrap();
-    let before = cat.len();
-    let adjoint = Irrep::from_dynkin(Series::B, &[0, 2]).unwrap();
-    cat.generators(&adjoint).unwrap();
-    assert!(cat.len() > before, "the adjoint must materialize something");
-    // Nothing in the catalog is a spinor: with a spinor parent the SO(5)
-    // adjoint's frame would have moved (the `so5_canonical_parent_hand_example`
-    // diagnostic in `tests/global_form.rs`).
-    let spinor = ir(5, &[0, 1]);
-    let mut probe = CanonicalCatalog::new(Series::B, 2).unwrap();
-    probe.generators(&adjoint).unwrap();
-    assert_eq!(
-        probe.len(),
-        cat.len(),
-        "materialization must be deterministic"
-    );
-    assert!(
-        probe.cgc(&spinor, &spinor, &adjoint).is_ok(),
-        "the spinor product is still available on demand"
-    );
-}
-
 // ---------------------------------------------------------------------------
 // Recoupling gates on the spinor channels that close (see the module note).
 // ---------------------------------------------------------------------------
@@ -359,31 +241,31 @@ fn the_tensor_bootstrap_never_touches_the_spinor_sector() {
 /// (`1 + 15`) and the chiral ones (`6 + 10`).
 #[test]
 fn spinor_f_symbols_are_unitary_on_spin6() {
-    let mut cat = CanonicalCatalog::new(Series::D, 3).unwrap();
+    let cat = spin_group(6);
     let s = ir(6, &[0, 0, 1]);
     let sb = ir(6, &[0, 1, 0]);
-    check_f_unitarity(&mut cat, &s, &sb, &s, &sb).unwrap();
-    check_f_unitarity(&mut cat, &s, &s, &s, &s).unwrap();
+    check_f_unitarity(&cat, &s, &sb, &s, &sb).unwrap();
+    check_f_unitarity(&cat, &s, &s, &s, &s).unwrap();
 }
 
 /// The pentagon closes on the `Spin(6)` `4 ⊗ 4̄` spinor family.
 #[test]
 fn spinor_pentagon_closes_on_spin6() {
-    let mut cat = CanonicalCatalog::new(Series::D, 3).unwrap();
+    let cat = spin_group(6);
     let s = ir(6, &[0, 0, 1]);
     let sb = ir(6, &[0, 1, 0]);
-    check_pentagon(&mut cat, &s, &sb, &s, &sb).unwrap();
+    check_pentagon(&cat, &s, &sb, &s, &sb).unwrap();
 }
 
 /// The hexagon closes on a mixed spinor/vector `Spin(6)` triple — braiding
 /// with a spinor leg.
 #[test]
 fn spinor_hexagon_closes_on_spin6() {
-    let mut cat = CanonicalCatalog::new(Series::D, 3).unwrap();
+    let cat = spin_group(6);
     let s = ir(6, &[0, 0, 1]);
     let sb = ir(6, &[0, 1, 0]);
     let v = ir(6, &[1, 0, 0]);
-    check_hexagon(&mut cat, &s, &sb, &v).unwrap();
+    check_hexagon(&cat, &s, &sb, &v).unwrap();
 }
 
 /// The `Spin(6)` `4 ⊗ 4 = 6 + 1̄0` family routes through the **defining**-rep
@@ -394,8 +276,23 @@ fn spinor_hexagon_closes_on_spin6() {
 #[test]
 fn spinor_recoupling_closes_through_the_defining_channel_on_spin6() {
     let s = ir(6, &[0, 0, 1]);
-    let mut cat = CanonicalCatalog::new(Series::D, 3).unwrap();
-    check_pentagon(&mut cat, &s, &s, &s, &s).unwrap();
-    let mut cat = CanonicalCatalog::new(Series::D, 3).unwrap();
-    check_hexagon(&mut cat, &s, &s, &s).unwrap();
+    let cat = spin_group(6);
+    check_pentagon(&cat, &s, &s, &s, &s).unwrap();
+    let cat = spin_group(6);
+    check_hexagon(&cat, &s, &s, &s).unwrap();
+}
+
+fn spin_group(n: usize) -> LieGroup {
+    LieGroup::new(GroupId::spin(n).unwrap()).unwrap()
+}
+fn spinor_labels(n: usize, r: usize) -> Vec<Vec<i64>> {
+    let mut d = vec![0; r];
+    d[r - 1] = 1;
+    let mut labels = vec![d.clone()];
+    if n.is_multiple_of(2) {
+        d[r - 1] = 0;
+        d[r - 2] = 1;
+        labels.push(d);
+    }
+    labels
 }

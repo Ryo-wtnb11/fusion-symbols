@@ -4,7 +4,7 @@
 //! weights against the classical vector/fundamental weight sets.
 
 use super::*;
-use crate::bcd::Irrep;
+use crate::lie::bcd::Irrep;
 use num_rational::Ratio;
 
 fn ivec(entries: &[(usize, usize, i64)]) -> Vec<(usize, usize, i64)> {
