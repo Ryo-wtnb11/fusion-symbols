@@ -9,25 +9,21 @@
 
 use num_complex::Complex64;
 
-/// A category object, in the one-based labelling the upstream files use.
-///
-/// This is the crate's public sector label: `TableObject(1)` is the unit,
-/// and the numbering is exactly the numbering in the pinned text files, so a
-/// label can be checked against upstream by eye.
+/// A validated object in one shipped category, with a one-based source index.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct TableObject(pub u16);
-
+pub struct TableObject {
+    pub(super) table_id: u32,
+    pub(super) index: u16,
+}
 impl TableObject {
-    /// The one-based label as written in the source files.
-    #[inline]
-    pub const fn label(self) -> u16 {
-        self.0
+    /// The one-based index in the pinned source files.
+    pub const fn index(self) -> u16 {
+        self.index
     }
 }
-
 impl core::fmt::Display for TableObject {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(formatter, "object {}", self.0)
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "object {}", self.index)
     }
 }
 
@@ -70,8 +66,7 @@ impl core::fmt::Display for UnsupportedReason {
 /// in the embedded data or in this crate's reading of it, never a caller
 /// mistake: the tables ship with the crate, so in a released build they are
 /// unreachable and the tests are what keep them so. The others are answers to
-/// a caller: a category that is unknown or unsupported, and the checked
-/// queries' rejections.
+/// a caller: a category that is unknown or unsupported, an invalid object index, or absent braiding.
 ///
 /// [`FieldCount`]: TableError::FieldCount
 /// [`FusionAxiom`]: TableError::FusionAxiom
@@ -145,18 +140,7 @@ pub enum TableError {
     /// A query named a label outside `1..=rank`.
     UnknownObject {
         /// The offending label.
-        object: TableObject,
-    },
-    /// A checked query named a vertex `left ⊗ right → coupled` with `N = 0`.
-    /// For an F-symbol this is the first failing vertex in the order
-    /// `(a, b, e)`, `(e, c, d)`, `(b, c, f)`, `(a, f, d)`.
-    NotAdmissible {
-        /// First object of the vertex.
-        left: TableObject,
-        /// Second object of the vertex.
-        right: TableObject,
-        /// Coupled object of the vertex.
-        coupled: TableObject,
+        object: u16,
     },
 }
 
@@ -200,14 +184,6 @@ impl core::fmt::Display for TableError {
             Self::Unsupported { reason } => write!(formatter, "unsupported category: {reason}"),
             Self::NoBraiding => formatter.write_str("the category has no braiding"),
             Self::UnknownObject { object } => write!(formatter, "{object} is not in the category"),
-            Self::NotAdmissible {
-                left,
-                right,
-                coupled,
-            } => write!(
-                formatter,
-                "inadmissible vertex: {left} ⊗ {right} does not contain {coupled}"
-            ),
         }
     }
 }
@@ -495,7 +471,7 @@ impl MultiplicityFreeTable {
     /// Object 1 is the unit and acts as one on both sides.
     ///
     /// These are exact integer facts, so they are checked here rather than in
-    /// tests: they are what makes `TableObject(1)` the unit of *this*
+    /// tests: they are what makes the object at index `1` the unit of *this*
     /// table, which consumers rely on exactly.
     fn check_unit_laws(&self) -> Result<(), TableError> {
         for a in 0..self.rank {

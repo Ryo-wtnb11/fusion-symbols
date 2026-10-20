@@ -1,4 +1,4 @@
-//! Reference tests for the `tables` catalog.
+//! Reference tests for the `table` catalog.
 //!
 //! Two independent kinds of check, deliberately kept apart:
 //!
@@ -18,9 +18,10 @@
 //! engine and stays with the consumer. The A/B symbols are derived by the
 //! consumer and are not part of this crate.
 
+use fusion_symbols::category::FusionCategory;
 use std::collections::HashMap;
 
-use fusion_symbols::tables::{TableCategory, TableError, TableObject};
+use fusion_symbols::table::{TableCategory, TableObject};
 use num_complex::Complex64;
 
 /// Documented absolute bound for every approximate comparison: a fixed
@@ -203,7 +204,7 @@ fn gauge_equivalent(
 ) -> Result<(), String> {
     assert_eq!(category.rank(), usize::from(tks.rank));
     let labels: Vec<u16> = (1..=tks.rank).collect();
-    let here = |a: u16| TableObject(map[usize::from(a) - 1]);
+    let here = |a: u16| category.object(map[usize::from(a) - 1]).unwrap();
     let close = |what: String, got: Complex64, want: Complex64| {
         if (got - want).norm() <= FP_BOUND {
             Ok(())
@@ -214,26 +215,30 @@ fn gauge_equivalent(
     for &a in &labels {
         close(
             format!("dim {a}"),
-            category.dim(here(a)).into(),
+            category.dim(&here(a)).into(),
             tks.dim[&a].into(),
         )?;
         close(
             format!("fs {a}"),
-            category.frobenius_schur(here(a)),
+            category.frobenius_schur_phase(&here(a)),
             tks.fs[&a].into(),
         )?;
-        close(format!("twist {a}"), category.twist(here(a)), tks.twist[&a])?;
+        close(
+            format!("twist {a}"),
+            category.twist(&here(a)),
+            tks.twist[&a],
+        )?;
         for &b in &labels {
             for &c in &labels {
                 let n = tks.n.get(&[a, b, c]).copied().unwrap_or(0);
-                if category.nsymbol(here(a), here(b), here(c)) != n {
+                if category.nsymbol(&here(a), &here(b), &here(c)) != n {
                     return Err(format!("N {a} {b} {c}"));
                 }
                 let r_tks = tks.r.get(&[a, b, c]).copied().unwrap_or_default();
                 let gauge = if n == 0 { 1.0 } else { u(a, b, c) / u(b, a, c) };
                 close(
                     format!("R {a} {b} {c}"),
-                    category.r_symbol(here(a), here(b), here(c)),
+                    category.r_symbol(&here(a), &here(b), &here(c)).unwrap(),
                     r_tks * gauge,
                 )?;
                 for &d in &labels {
@@ -247,14 +252,16 @@ fn gauge_equivalent(
                             };
                             close(
                                 format!("F {a} {b} {c} {d} {e} {f}"),
-                                category.f_symbol(
-                                    here(a),
-                                    here(b),
-                                    here(c),
-                                    here(d),
-                                    here(e),
-                                    here(f),
-                                ),
+                                category
+                                    .f_symbol(
+                                        &here(a),
+                                        &here(b),
+                                        &here(c),
+                                        &here(d),
+                                        &here(e),
+                                        &here(f),
+                                    )
+                                    .unwrap(),
                                 (f_tks * gauge).into(),
                             )?;
                         }
@@ -274,8 +281,8 @@ fn fibonacci_is_tensorkitsectors_fibonacci_in_the_same_gauge() {
     // Negative control: the mirror braiding is not TensorKitSectors'.
     let mirror = TableCategory::by_code([2, 1, 0, 2, 1, 1, 1]).expect("shipped");
     assert!(gauge_equivalent(&mirror, &tks, &[1, 2], |_, _, _| 1.0).is_err());
-    for a in [TableObject(1), TableObject(2)] {
-        assert_eq!(fib.dual(a), a);
+    for a in [fib.object(1).unwrap(), fib.object(2).unwrap()] {
+        assert_eq!(fib.dual(&a), a);
     }
 }
 
@@ -284,36 +291,36 @@ fn fibonacci_entries_are_the_correctly_rounded_exact_values() {
     // Checked against AnyonWiki badbfe2 (exact symbols `1/φ`, `1/√φ`,
     // `e^{4πi/5}`, `e^{-3πi/5}`) and a 60-digit decimal evaluation: the
     // nearest binary64 values. `1.0 / PHI` in f64 is one ulp below the first.
-    let tau = TableObject(2);
-    let unit = TableObject(1);
     let fib = table();
+    let tau = fib.object(2).unwrap();
+    let unit = fib.object(1).unwrap();
     let real = |re| Complex64::new(re, 0.0);
     assert_bits(
-        fib.f_symbol(tau, tau, tau, tau, unit, unit),
+        fib.f_symbol(&tau, &tau, &tau, &tau, &unit, &unit).unwrap(),
         real(0.618_033_988_749_894_9),
         "F[1,1]",
     );
     assert_bits(
-        fib.f_symbol(tau, tau, tau, tau, unit, tau),
+        fib.f_symbol(&tau, &tau, &tau, &tau, &unit, &tau).unwrap(),
         real(0.786_151_377_757_423_3),
         "F[1,τ]",
     );
     assert_bits(
-        fib.f_symbol(tau, tau, tau, tau, tau, tau),
+        fib.f_symbol(&tau, &tau, &tau, &tau, &tau, &tau).unwrap(),
         real(-0.618_033_988_749_894_9),
         "F[τ,τ]",
     );
     assert_bits(
-        fib.r_symbol(tau, tau, unit),
+        fib.r_symbol(&tau, &tau, &unit).unwrap(),
         Complex64::new(-0.809_016_994_374_947_5, 0.587_785_252_292_473_1),
         "R^{ττ}_1",
     );
     assert_bits(
-        fib.r_symbol(tau, tau, tau),
+        fib.r_symbol(&tau, &tau, &tau).unwrap(),
         Complex64::new(-0.309_016_994_374_947_45, -0.951_056_516_295_153_5),
         "R^{ττ}_τ",
     );
-    assert!((fib.dim(tau) - PHI).abs() <= FP_BOUND);
+    assert!((fib.dim(&tau) - PHI).abs() <= FP_BOUND);
 }
 
 #[test]
@@ -343,7 +350,7 @@ fn ising_is_tensorkitsectors_ising_up_to_the_documented_vertex_gauge() {
 // -------------------------------------------------------------------------
 
 fn channels(p: &TableCategory, a: TableObject, b: TableObject) -> Vec<TableObject> {
-    p.fusion(a, b).collect()
+    p.fusion(&a, &b).unwrap().collect()
 }
 
 #[test]
@@ -357,11 +364,11 @@ fn f_blocks_are_unitary() {
                     for &d in &objects {
                         let rows: Vec<_> = channels(&p, a, b)
                             .into_iter()
-                            .filter(|&e| p.nsymbol(e, c, d) > 0)
+                            .filter(|&e| p.nsymbol(&e, &c, &d) > 0)
                             .collect();
                         let columns: Vec<_> = channels(&p, b, c)
                             .into_iter()
-                            .filter(|&f| p.nsymbol(a, f, d) > 0)
+                            .filter(|&f| p.nsymbol(&a, &f, &d) > 0)
                             .collect();
                         assert_eq!(rows.len(), columns.len(), "{name}: F block not square");
                         for (i, &f1) in columns.iter().enumerate() {
@@ -369,8 +376,8 @@ fn f_blocks_are_unitary() {
                                 let entry: Complex64 = rows
                                     .iter()
                                     .map(|&e| {
-                                        p.f_symbol(a, b, c, d, e, f1).conj()
-                                            * p.f_symbol(a, b, c, d, e, f2)
+                                        p.f_symbol(&a, &b, &c, &d, &e, &f1).unwrap().conj()
+                                            * p.f_symbol(&a, &b, &c, &d, &e, &f2).unwrap()
                                     })
                                     .sum();
                                 let expected = Complex64::new(f64::from(u8::from(i == j)), 0.0);
@@ -396,7 +403,7 @@ fn r_symbols_are_unit_modulus_on_admissible_channels() {
         for &a in &objects {
             for &b in &objects {
                 for c in channels(&p, a, b) {
-                    let modulus = p.r_symbol(a, b, c).norm();
+                    let modulus = p.r_symbol(&a, &b, &c).unwrap().norm();
                     assert!(
                         (modulus - 1.0).abs() <= FP_BOUND,
                         "{name}: |R{:?}| = {modulus}",
@@ -412,18 +419,27 @@ fn r_symbols_are_unit_modulus_on_admissible_channels() {
 fn unit_associators_are_bitwise_one() {
     // The unitor associators of TensorKitSectors' `triangle_equation`,
     // asserted bitwise: consumers drop these factors as exact identities.
-    let unit = TableObject(1);
     let one = Complex64::new(1.0, 0.0);
     for p in shipped() {
+        let unit = p.unit();
         let name = p.uuid();
         let objects: Vec<TableObject> = p.objects().collect();
         for &a in &objects {
             for &b in &objects {
                 for c in channels(&p, a, b) {
                     for (which, value) in [
-                        ("left unitor", p.f_symbol(unit, a, b, c, a, c)),
-                        ("middle unitor", p.f_symbol(a, unit, b, c, a, b)),
-                        ("right unitor", p.f_symbol(a, b, unit, c, c, b)),
+                        (
+                            "left unitor",
+                            p.f_symbol(&unit, &a, &b, &c, &a, &c).unwrap(),
+                        ),
+                        (
+                            "middle unitor",
+                            p.f_symbol(&a, &unit, &b, &c, &a, &b).unwrap(),
+                        ),
+                        (
+                            "right unitor",
+                            p.f_symbol(&a, &b, &unit, &c, &c, &b).unwrap(),
+                        ),
                     ] {
                         assert_bits(value, one, &format!("{name} {which}{:?}", (a, b, c)));
                     }
@@ -459,17 +475,21 @@ fn pentagon_equation_holds() {
                                 for g in channels(&p, f, c) {
                                     for i in channels(&p, b, h) {
                                         for &e in &objects {
-                                            if p.nsymbol(g, d, e) == 0 || p.nsymbol(a, i, e) == 0 {
+                                            if p.nsymbol(&g, &d, &e) == 0
+                                                || p.nsymbol(&a, &i, &e) == 0
+                                            {
                                                 continue;
                                             }
-                                            let lhs = p.f_symbol(f, c, d, e, g, h)
-                                                * p.f_symbol(a, b, h, e, f, i);
+                                            let lhs = p.f_symbol(&f, &c, &d, &e, &g, &h).unwrap()
+                                                * p.f_symbol(&a, &b, &h, &e, &f, &i).unwrap();
                                             let rhs: Complex64 = channels(&p, b, c)
                                                 .into_iter()
                                                 .map(|j| {
-                                                    p.f_symbol(a, b, c, g, f, j)
-                                                        * p.f_symbol(a, j, d, e, g, i)
-                                                        * p.f_symbol(b, c, d, i, j, h)
+                                                    p.f_symbol(&a, &b, &c, &g, &f, &j).unwrap()
+                                                        * p.f_symbol(&a, &j, &d, &e, &g, &i)
+                                                            .unwrap()
+                                                        * p.f_symbol(&b, &c, &d, &i, &j, &h)
+                                                            .unwrap()
                                                 })
                                                 .sum();
                                             assert!(
@@ -508,21 +528,25 @@ fn both_hexagon_equations_hold() {
                     for e in channels(&p, c, a) {
                         for f in channels(&p, c, b) {
                             for &d in &objects {
-                                if p.nsymbol(e, b, d) == 0 || p.nsymbol(a, f, d) == 0 {
+                                if p.nsymbol(&e, &b, &d) == 0 || p.nsymbol(&a, &f, &d) == 0 {
                                     continue;
                                 }
-                                let facbdef = p.f_symbol(a, c, b, d, e, f);
-                                let over = p.r_symbol(c, a, e) * facbdef * p.r_symbol(c, b, f);
-                                let under = p.r_symbol(a, c, e).conj()
+                                let facbdef = p.f_symbol(&a, &c, &b, &d, &e, &f).unwrap();
+                                let over = p.r_symbol(&c, &a, &e).unwrap()
                                     * facbdef
-                                    * p.r_symbol(b, c, f).conj();
+                                    * p.r_symbol(&c, &b, &f).unwrap();
+                                let under = p.r_symbol(&a, &c, &e).unwrap().conj()
+                                    * facbdef
+                                    * p.r_symbol(&b, &c, &f).unwrap().conj();
                                 let mut path_over = Complex64::new(0.0, 0.0);
                                 let mut path_under = Complex64::new(0.0, 0.0);
                                 for g in channels(&p, a, b) {
-                                    let fcabdeg = p.f_symbol(c, a, b, d, e, g);
-                                    let fabcdgf = p.f_symbol(a, b, c, d, g, f);
-                                    path_over += fcabdeg * p.r_symbol(c, g, d) * fabcdgf;
-                                    path_under += fcabdeg * p.r_symbol(g, c, d).conj() * fabcdgf;
+                                    let fcabdeg = p.f_symbol(&c, &a, &b, &d, &e, &g).unwrap();
+                                    let fabcdgf = p.f_symbol(&a, &b, &c, &d, &g, &f).unwrap();
+                                    path_over +=
+                                        fcabdeg * p.r_symbol(&c, &g, &d).unwrap() * fabcdgf;
+                                    path_under +=
+                                        fcabdeg * p.r_symbol(&g, &c, &d).unwrap().conj() * fabcdgf;
                                 }
                                 assert!(
                                     (over - path_over).norm() <= FP_BOUND,
@@ -554,10 +578,12 @@ fn ribbon_relation_ties_twists_to_the_braid() {
         for &a in &objects {
             for &b in &objects {
                 for c in channels(&p, a, b) {
-                    let actual =
-                        p.twist(a) * p.twist(b) * p.r_symbol(b, a, c) * p.r_symbol(a, b, c);
+                    let actual = p.twist(&a)
+                        * p.twist(&b)
+                        * p.r_symbol(&b, &a, &c).unwrap()
+                        * p.r_symbol(&a, &b, &c).unwrap();
                     assert!(
-                        (actual - p.twist(c)).norm() <= FP_BOUND,
+                        (actual - p.twist(&c)).norm() <= FP_BOUND,
                         "{name}: ribbon{:?}",
                         (a, b, c)
                     );
@@ -570,182 +596,105 @@ fn ribbon_relation_ties_twists_to_the_braid() {
 // -------------------------------------------------------------------------
 // Provider contract
 // -------------------------------------------------------------------------
-
 #[test]
-fn checked_and_infallible_queries_agree() {
-    for p in shipped() {
-        let objects: Vec<TableObject> = p.objects().collect();
-        for &a in &objects {
-            for &b in &objects {
-                for &c in &objects {
-                    if p.is_braided() {
-                        let checked = p.r_symbol_checked(a, b, c);
-                        assert_eq!(checked.is_ok(), p.nsymbol(a, b, c) == 1);
-                        if let Ok(value) = checked {
-                            assert_bits(value, p.r_symbol(a, b, c), "checked R");
-                        }
-                    }
-                    for &d in &objects {
-                        for &e in &objects {
-                            for &f in &objects {
-                                match p.f_symbol_checked(a, b, c, d, e, f) {
-                                    Ok(value) => assert_bits(
-                                        value,
-                                        p.f_symbol(a, b, c, d, e, f),
-                                        "checked F",
-                                    ),
-                                    Err(TableError::NotAdmissible { .. }) => assert_eq!(
-                                        p.f_symbol(a, b, c, d, e, f),
-                                        Complex64::new(0.0, 0.0)
-                                    ),
-                                    Err(other) => panic!("unexpected {other}"),
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if p.is_braided() {
-            for &a in &objects {
-                assert_bits(
-                    p.twist_checked(a).expect("braided"),
-                    p.twist(a),
-                    "checked twist",
-                );
-            }
-        }
-    }
+fn objects_are_validated_and_symbols_on_absent_channels_are_zero() {
+    use fusion_symbols::table::TableError;
     let fib = table();
-    let unit = fib.unit();
-    let tau = TableObject(2);
+    for index in [0, 3, u16::MAX] {
+        assert_eq!(
+            fib.object(index),
+            Err(TableError::UnknownObject { object: index })
+        );
+    }
     assert_eq!(
-        fib.f_symbol_checked(tau, tau, unit, unit, tau, tau),
-        Err(TableError::NotAdmissible {
-            left: tau,
-            right: unit,
-            coupled: unit
-        })
+        fib.objects().map(|a| a.index()).collect::<Vec<_>>(),
+        vec![1, 2]
     );
-    for label in [0u16, 3, u16::MAX] {
-        let bad = TableObject(label);
-        assert_eq!(
-            fib.r_symbol_checked(unit, unit, bad),
-            Err(TableError::UnknownObject { object: bad })
-        );
-        assert_eq!(
-            fib.f_symbol_checked(bad, unit, unit, unit, unit, unit),
-            Err(TableError::UnknownObject { object: bad })
-        );
-        assert_eq!(
-            fib.twist_checked(bad),
-            Err(TableError::UnknownObject { object: bad })
-        );
-    }
+    let (unit, tau) = (fib.unit(), fib.object(2).unwrap());
+    assert_eq!(
+        fib.f_symbol(&tau, &tau, &unit, &unit, &tau, &tau).unwrap(),
+        Complex64::new(0.0, 0.0)
+    );
+    assert_eq!(
+        fib.r_symbol(&unit, &unit, &tau).unwrap(),
+        Complex64::new(0.0, 0.0)
+    );
 }
 
-/// A category without a braiding has N and F only: R and the twist are a
-/// typed capability error, never zeros.
 #[test]
-fn fusion_only_entries_refuse_r_symbols_and_twists() {
-    use std::panic::{self, AssertUnwindSafe};
-
-    let mut fusion_only = 0;
-    for p in shipped().filter(|p| !p.is_braided()) {
-        let unit = p.unit();
-        let any = TableObject(2);
-        assert_eq!(
-            p.r_symbol_checked(unit, unit, unit),
-            Err(TableError::NoBraiding)
-        );
-        // NoBraiding is reported before any label check.
-        assert_eq!(
-            p.r_symbol_checked(TableObject(0), unit, unit),
-            Err(TableError::NoBraiding)
-        );
-        assert_eq!(p.twist_checked(any), Err(TableError::NoBraiding));
-        for (what, call) in [
-            (
-                "r_symbol",
-                Box::new(|| {
-                    let _ = p.r_symbol(unit, unit, unit);
-                }) as Box<dyn Fn()>,
-            ),
-            (
-                "twist",
-                Box::new(|| {
-                    let _ = p.twist(any);
-                }),
-            ),
-        ] {
-            let payload = panic::catch_unwind(AssertUnwindSafe(call)).expect_err(what);
-            let message = payload
-                .downcast_ref::<String>()
-                .cloned()
-                .unwrap_or_default();
-            assert!(
-                message.contains(what) && message.contains(&TableError::NoBraiding.to_string()),
-                "{what}: {message:?}"
-            );
-        }
-        // N and F are still there.
-        assert_eq!(
-            p.f_symbol(unit, unit, unit, unit, unit, unit),
-            Complex64::new(1.0, 0.0)
-        );
-        fusion_only += 1;
-    }
-    // 16 of rank <= 4; 107 with `anyonwiki-unitary`.
-    let expected = if cfg!(feature = "anyonwiki-unitary") {
-        107
-    } else {
-        16
-    };
-    assert_eq!(fusion_only, expected);
-}
-
-/// An out-of-domain label must panic with the typed domain error on the
-/// infallible surface — never alias another table entry, never fail on a raw
-/// slice index.
-#[test]
-fn infallible_queries_panic_with_the_domain_error_on_unknown_labels() {
-    use std::panic::{self, AssertUnwindSafe};
-
-    fn assert_domain_panic<T>(what: &str, bad: TableObject, call: impl FnOnce() -> T) {
-        let payload = panic::catch_unwind(AssertUnwindSafe(call))
-            .err()
-            .unwrap_or_else(|| panic!("{what} returned a value for {bad:?}"));
-        let message = payload
-            .downcast_ref::<String>()
-            .map(String::as_str)
-            .unwrap_or_default();
-        let expected = TableError::UnknownObject { object: bad }.to_string();
-        assert!(
-            message.contains(what) && message.contains(&expected),
-            "{what} on {bad:?} panicked with {message:?}"
-        );
-    }
-
+fn foreign_objects_panic_before_capability_checks_in_every_argument() {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
     let fib = table();
-    let ok = TableObject(2);
-    for bad in [0u16, 3, 5, u16::MAX].map(TableObject) {
+    let foreign = fib.unit();
+    let fusion_only = TableCategory::by_code([3, 1, 0, 2, 2, 0, 1]).unwrap();
+    for cat in [TableCategory::ising(), fusion_only] {
+        let ok = cat.unit();
+        let rejects = |call: &dyn Fn()| {
+            let payload =
+                catch_unwind(AssertUnwindSafe(call)).expect_err("foreign object must panic");
+            let message = payload.downcast_ref::<String>().unwrap();
+            assert!(message.contains("foreign table object"), "{message}");
+        };
         for slot in 0..6 {
-            let mut ids = [ok; 6];
-            ids[slot] = bad;
-            let [a, b, c, d, e, f] = ids;
-            assert_domain_panic("f_symbol", bad, || fib.f_symbol(a, b, c, d, e, f));
+            let mut labels = [ok; 6];
+            labels[slot] = foreign;
+            let [a, b, c, d, e, f] = labels;
+            rejects(&|| {
+                let _ = cat.f_symbol(&a, &b, &c, &d, &e, &f);
+            });
         }
         for slot in 0..3 {
-            let mut ids = [ok; 3];
-            ids[slot] = bad;
-            let [a, b, c] = ids;
-            assert_domain_panic("r_symbol", bad, || fib.r_symbol(a, b, c));
-            assert_domain_panic("nsymbol", bad, || fib.nsymbol(a, b, c));
+            let mut labels = [ok; 3];
+            labels[slot] = foreign;
+            let [a, b, c] = labels;
+            rejects(&|| {
+                let _ = cat.r_symbol(&a, &b, &c);
+            });
+            rejects(&|| {
+                cat.nsymbol(&a, &b, &c);
+            });
         }
-        assert_domain_panic("fusion", bad, || fib.fusion(bad, ok).count());
-        assert_domain_panic("dim", bad, || fib.dim(bad));
-        assert_domain_panic("dual", bad, || fib.dual(bad));
-        assert_domain_panic("twist", bad, || fib.twist(bad));
-        assert_domain_panic("frobenius_schur", bad, || fib.frobenius_schur(bad));
+        for slot in 0..2 {
+            let mut labels = [ok; 2];
+            labels[slot] = foreign;
+            rejects(&|| {
+                let _ = cat.fusion(&labels[0], &labels[1]);
+            });
+        }
+        rejects(&|| {
+            cat.dim(&foreign);
+        });
+        rejects(&|| {
+            cat.dual(&foreign);
+        });
+        rejects(&|| {
+            cat.frobenius_schur_phase(&foreign);
+        });
+        rejects(&|| {
+            cat.frobenius_schur_indicator(&foreign);
+        });
+        rejects(&|| {
+            cat.twist(&foreign);
+        });
+    }
+}
+
+#[test]
+fn fusion_only_entries_refuse_braiding() {
+    use fusion_symbols::{category::BraidingStyle, table::TableError};
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    for cat in shipped().filter(|cat| !cat.is_braided()) {
+        let unit = cat.unit();
+        assert_eq!(cat.braiding_style(), BraidingStyle::None);
+        assert_eq!(
+            cat.r_symbol(&unit, &unit, &unit),
+            Err(TableError::NoBraiding)
+        );
+        assert!(catch_unwind(AssertUnwindSafe(|| cat.twist(&unit))).is_err());
+        assert_eq!(
+            cat.f_symbol(&unit, &unit, &unit, &unit, &unit, &unit)
+                .unwrap(),
+            Complex64::new(1.0, 0.0)
+        );
     }
 }

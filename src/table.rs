@@ -49,19 +49,24 @@
 //! tabulated in the crate's `docs/references_categories.md`; the
 //! machine-readable form is [`TableProvenance`].
 
+use crate::category::{BraidingStyle, FusionCategory, FusionStyle};
 use num_complex::Complex64;
+use std::{
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
 // Generated (`tools/anyonwiki/gen_category_tables.py`): kept byte-equal to
 // the generator output, so rustfmt leaves it alone.
 #[rustfmt::skip]
 mod catalog;
+mod parser;
 mod provenance;
-mod table;
 
+pub use parser::{TableError, TableObject, UnsupportedReason};
 pub use provenance::{TableProvenance, PROJECTION_EPOCH};
-pub use table::{TableError, TableObject, UnsupportedReason};
 
-use table::MultiplicityFreeTable;
+use parser::MultiplicityFreeTable;
 
 /// One shipped entry, as generated into `catalog.rs`. The texts are the
 /// committed files embedded verbatim: they are the identity-bearing bytes,
@@ -83,34 +88,36 @@ const ISING_UUID: &str = "37fa4e56-97c6-11f1-907a-eb6ab8e8bc11";
 /// A multiplicity-free unitary fusion category from the pinned AnyonWiki
 /// database, in the source gauge.
 ///
-/// Objects are the one-based [`TableObject`] labels of the source files, in
-/// the fusion ring's element order: `TableObject(1)` is the unit. Index
-/// order follows TensorKitSectors: `F^{abc}_d[e, f]`, `R^{ab}_c`.
-///
-/// The infallible queries take labels by precondition and panic on a label
-/// outside `1..=rank` (a flat table cannot tell an out-of-range label from
-/// another entry), and [`r_symbol`](Self::r_symbol) / [`twist`](Self::twist)
-/// panic on a category without a braiding ([`is_braided`](Self::is_braided));
-/// an in-range inadmissible symbol is exact zero. The `_checked` variants
-/// return [`TableError`] instead.
+/// Objects are validated by [`Self::object`] and carry a private catalog tag.
+/// Every object-taking query panics on foreign objects before checking capabilities.
+/// Inadmissible symbols are exact zero. On fusion-only entries, `r_symbol`
+/// returns [`TableError::NoBraiding`] and `twist` panics.
 ///
 /// # Examples
 ///
 /// ```
-/// use fusion_symbols::tables::{TableCategory, TableObject};
+/// use fusion_symbols::{category::FusionCategory, table::TableCategory};
 ///
 /// let fib = TableCategory::fibonacci();
-/// let tau = TableObject(2);
-/// assert_eq!(fib.fusion(tau, tau).count(), 2);
-/// assert!((fib.dim(tau) - (1.0 + 5f64.sqrt()) / 2.0).abs() < 1e-15);
+/// let tau = fib.object(2)?;
+/// assert_eq!(fib.fusion(&tau, &tau)?.count(), 2);
+/// assert!((fib.dim(&tau) - (1.0 + 5f64.sqrt()) / 2.0).abs() < 1e-15);
 ///
 /// let rep_s3 = TableCategory::by_code([3, 1, 0, 2, 2, 0, 1])?; // fusion-only
 /// assert!(!rep_s3.is_braided());
-/// # Ok::<(), fusion_symbols::tables::TableError>(())
+/// # Ok::<(), fusion_symbols::table::TableError>(())
 /// ```
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TableCategory {
+    table_id: u32,
+    data: Arc<TableData>,
     entry: &'static CategoryEntry,
+}
+
+#[derive(Debug)]
+struct TableData {
+    fusion_style: FusionStyle,
+    braiding_style: BraidingStyle,
     table: MultiplicityFreeTable,
     // Derived once at construction from F and R only, exactly as
     // TensorKitSectors 0.3.9 derives them (docs/references_categories.md,
@@ -120,6 +127,18 @@ pub struct TableCategory {
     /// `None` for a fusion-only entry.
     twists: Option<Vec<Complex64>>,
     fingerprint: Vec<u8>,
+}
+
+impl PartialEq for TableCategory {
+    fn eq(&self, other: &Self) -> bool {
+        self.uuid() == other.uuid()
+    }
+}
+impl Eq for TableCategory {}
+impl Hash for TableCategory {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.uuid().hash(state);
+    }
 }
 
 impl TableCategory {
@@ -143,11 +162,12 @@ impl TableCategory {
         if let Some(reason) = *unsupported {
             return Err(TableError::Unsupported { reason });
         }
-        let entry = catalog::SHIPPED
+        let (table_id, entry) = catalog::SHIPPED
             .iter()
-            .find(|entry| entry.uuid == uuid)
+            .enumerate()
+            .find(|(_, entry)| entry.uuid == uuid)
             .expect("generator invariant: every supported INDEX row is in SHIPPED (tested)");
-        Self::from_entry(entry)
+        Self::from_entry(table_id as u32, entry)
     }
 
     /// The category with `anyonwiki_code` `code` = `[rank, multiplicity,
@@ -167,8 +187,8 @@ impl TableCategory {
     }
 
     /// Fibonacci, `anyonwiki_code [2,1,0,2,1,2,1]` (uuid
-    /// `37fa4e42-97c6-11f1-9d0f-9b7fe5c504f9`): `TableObject(1)` = `𝟙`,
-    /// `TableObject(2)` = `τ`.
+    /// `37fa4e42-97c6-11f1-9d0f-9b7fe5c504f9`): index `1` = `𝟙`,
+    /// index `2` = `τ`.
     ///
     /// This is TensorKitSectors' `FibonacciAnyon` in its own gauge and
     /// braiding (`R^{ττ}_𝟙 = e^{+4πi/5}`; code `[2,1,0,2,1,1,1]` is the
@@ -183,7 +203,7 @@ impl TableCategory {
 
     /// Ising, `anyonwiki_code [3,1,0,1,1,1,1]` (uuid
     /// `37fa4e56-97c6-11f1-907a-eb6ab8e8bc11`), in AnyonWiki's object order:
-    /// `TableObject(1)` = `𝟙`, `TableObject(2)` = `ψ`, `TableObject(3)` = `σ`
+    /// index `1` = `𝟙`, index `2` = `ψ`, index `3` = `σ`
     /// (TensorKitSectors' `IsingAnyon` orders `I, σ, ψ`).
     ///
     /// Its braiding is `IsingAnyon`'s (`R^{σσ}_𝟙 = e^{-iπ/8}`; code
@@ -202,7 +222,7 @@ impl TableCategory {
         catalog::SHIPPED.iter().map(|entry| entry.uuid)
     }
 
-    fn from_entry(entry: &'static CategoryEntry) -> Result<Self, TableError> {
+    fn from_entry(table_id: u32, entry: &'static CategoryEntry) -> Result<Self, TableError> {
         let rank = usize::from(entry.code[0]);
         let table = MultiplicityFreeTable::parse(rank, entry.n, entry.f, entry.r.unwrap_or(""))?;
 
@@ -219,7 +239,7 @@ impl TableCategory {
             })
             .collect();
         // `twist_from_Rsymbol`: Σ_{b ∈ a⊗a} d_b/d_a R^{aa}_b, ascending b.
-        let twists = entry.r.map(|_| {
+        let twists: Option<Vec<Complex64>> = entry.r.map(|_| {
             (0..rank)
                 .map(|a| {
                     table
@@ -230,13 +250,46 @@ impl TableCategory {
                 .collect()
         });
 
+        let fusion_style =
+            if (0..rank).all(|a| (0..rank).all(|b| table.channels(a, b).count() == 1)) {
+                FusionStyle::Unique
+            } else {
+                FusionStyle::Simple
+            };
+        // Only derived floating quantities use a tolerance; N and labels remain exact.
+        let close = |a: Complex64, b: Complex64| (a - b).norm() <= 1e-12;
+        let one = Complex64::new(1.0, 0.0);
+        let braiding_style = match &twists {
+            None => BraidingStyle::None,
+            Some(twists) => {
+                let symmetric = (0..rank).all(|a| {
+                    (0..rank).all(|b| {
+                        table
+                            .channels(a, b)
+                            .all(|c| close(table.rsymbol(a, b, c) * table.rsymbol(b, a, c), one))
+                    })
+                });
+                if symmetric && twists.iter().all(|&t| close(t, one)) {
+                    BraidingStyle::Bosonic
+                } else if symmetric && twists.iter().any(|&t| close(t, -one)) {
+                    BraidingStyle::Fermionic
+                } else {
+                    BraidingStyle::Anyonic
+                }
+            }
+        };
         Ok(Self {
             entry,
-            table,
-            dims,
-            frobenius_schur,
-            twists,
-            fingerprint: fingerprint_bytes(&entry.provenance, entry.n, entry.f, entry.r),
+            table_id,
+            data: Arc::new(TableData {
+                table,
+                dims,
+                frobenius_schur,
+                twists,
+                fusion_style,
+                braiding_style,
+                fingerprint: fingerprint_bytes(&entry.provenance, entry.n, entry.f, entry.r),
+            }),
         })
     }
 
@@ -257,205 +310,160 @@ impl TableCategory {
 
     /// Number of simple objects.
     pub fn rank(&self) -> usize {
-        self.table.rank()
+        self.data.table.rank()
     }
 
     /// Whether the category is braided. Without a braiding there are no
     /// R-symbols and no twists ([`TableError::NoBraiding`]).
     pub fn is_braided(&self) -> bool {
-        self.twists.is_some()
+        self.data.twists.is_some()
     }
 
-    /// The category's objects in the frozen source order.
-    pub fn objects(&self) -> impl Iterator<Item = TableObject> {
-        (1..=self.table.rank() as u16).map(TableObject)
-    }
-
-    /// The tensor unit, `TableObject(1)`.
-    pub fn unit(&self) -> TableObject {
-        TableObject(1)
-    }
-
-    /// Opaque authority fingerprint: the provenance record plus the pinned
-    /// source files, byte for byte.
+    /// Validate a one-based source index.
     ///
-    /// Compare by equality only, never parse. It changes exactly when a table
-    /// byte, a provenance field or the projection epoch changes, including an
-    /// edit too small to move any `f64`.
-    pub fn authority_fingerprint(&self) -> &[u8] {
-        &self.fingerprint
+    /// # Errors
+    /// Returns [`TableError::UnknownObject`] outside `1..=rank`.
+    pub fn object(&self, index: u16) -> Result<TableObject, TableError> {
+        if (1..=self.rank()).contains(&usize::from(index)) {
+            Ok(TableObject {
+                table_id: self.table_id,
+                index,
+            })
+        } else {
+            Err(TableError::UnknownObject { object: index })
+        }
     }
 
-    /// Quantum dimension `d_a = |1 / F^{a ā a}_a[𝟙, 𝟙]|`.
+    /// The category's tagged objects in the frozen source order.
+    pub fn objects(&self) -> impl Iterator<Item = TableObject> + '_ {
+        (1..=self.rank() as u16).map(|index| self.object(index).expect("in-range index"))
+    }
+
+    fn index(&self, a: &TableObject) -> usize {
+        assert_eq!(a.table_id, self.table_id, "foreign table object");
+        usize::from(a.index) - 1
+    }
+    fn at_index(&self, index: usize) -> TableObject {
+        TableObject {
+            table_id: self.table_id,
+            index: index as u16 + 1,
+        }
+    }
+}
+
+/// Allocation-free iterator over fusion channels in the frozen source order.
+#[derive(Clone, Debug)]
+pub struct TableFusion<'a> {
+    category: &'a TableCategory,
+    a: usize,
+    b: usize,
+    remaining: std::ops::Range<usize>,
+}
+
+impl Iterator for TableFusion<'_> {
+    type Item = TableObject;
+
+    fn next(&mut self) -> Option<TableObject> {
+        self.remaining
+            .find(|&c| self.category.data.table.nsymbol(self.a, self.b, c) > 0)
+            .map(|c| self.category.at_index(c))
+    }
+}
+
+impl FusionCategory for TableCategory {
+    type Object = TableObject;
+    type Scalar = Complex64;
+    type FSymbol = Complex64;
+    type RSymbol = Complex64;
+    type Fusion<'a> = TableFusion<'a>;
+    type Error = TableError;
+    fn fusion_style(&self) -> FusionStyle {
+        self.data.fusion_style
+    }
+    fn braiding_style(&self) -> BraidingStyle {
+        self.data.braiding_style
+    }
+    fn unit(&self) -> TableObject {
+        self.at_index(0)
+    }
+    fn dual(&self, a: &TableObject) -> TableObject {
+        self.at_index(self.data.table.dual(self.index(a)))
+    }
+    fn dim(&self, a: &TableObject) -> f64 {
+        self.data.dims[self.index(a)]
+    }
+    fn frobenius_schur_phase(&self, a: &TableObject) -> Complex64 {
+        self.data.frobenius_schur[self.index(a)]
+    }
+    fn frobenius_schur_indicator(&self, a: &TableObject) -> Complex64 {
+        let phase = self.frobenius_schur_phase(a);
+        if *a == self.dual(a) {
+            phase
+        } else {
+            Complex64::new(0.0, 0.0)
+        }
+    }
+    /// Twist derived from R.
     ///
     /// # Panics
-    ///
-    /// If `a` is not an object of the category.
-    pub fn dim(&self, a: TableObject) -> f64 {
-        self.dims[self.index_or_panic("dim", a)]
+    /// Panics on foreign objects first, then if braiding is absent.
+    fn twist(&self, a: &TableObject) -> Complex64 {
+        let i = self.index(a);
+        self.data
+            .twists
+            .as_ref()
+            .expect("twist: the category has no braiding")[i]
     }
-
-    /// The dual object: the unique `b` with `N^{ab}_𝟙 = 1`.
-    ///
-    /// # Panics
-    ///
-    /// If `a` is not an object of the category.
-    pub fn dual(&self, a: TableObject) -> TableObject {
-        object(self.table.dual(self.index_or_panic("dual", a)))
+    fn fusion<'a>(
+        &'a self,
+        a: &TableObject,
+        b: &TableObject,
+    ) -> Result<Self::Fusion<'a>, TableError> {
+        let (a, b) = (self.index(a), self.index(b));
+        Ok(TableFusion {
+            category: self,
+            a,
+            b,
+            remaining: 0..self.rank(),
+        })
     }
-
-    /// Frobenius–Schur phase `κ_a = F^{a ā a}_a[𝟙, 𝟙] / |F^{a ā a}_a[𝟙, 𝟙]|`.
-    ///
-    /// # Panics
-    ///
-    /// If `a` is not an object of the category.
-    pub fn frobenius_schur(&self, a: TableObject) -> Complex64 {
-        self.frobenius_schur[self.index_or_panic("frobenius_schur", a)]
+    fn nsymbol(&self, a: &TableObject, b: &TableObject, c: &TableObject) -> u32 {
+        self.data
+            .table
+            .nsymbol(self.index(a), self.index(b), self.index(c))
     }
-
-    /// Twist `θ_a = Σ_{b ∈ a⊗a} d_b/d_a · R^{aa}_b`.
-    ///
-    /// # Panics
-    ///
-    /// If the category is not braided, or `a` is not an object of it.
-    pub fn twist(&self, a: TableObject) -> Complex64 {
-        self.twist_checked(a)
-            .unwrap_or_else(|error| panic!("twist precondition violated: {error}"))
-    }
-
-    /// Checked [`twist`](Self::twist): [`TableError::NoBraiding`] or
-    /// [`TableError::UnknownObject`] instead of a panic.
-    pub fn twist_checked(&self, a: TableObject) -> Result<Complex64, TableError> {
-        let twists = self.twists.as_ref().ok_or(TableError::NoBraiding)?;
-        Ok(twists[self.index(a)?])
-    }
-
-    /// Fusion channels of `a ⊗ b` in ascending label order (TensorKitSectors
-    /// filters `values(I)` in that order).
-    ///
-    /// # Panics
-    ///
-    /// If `a` or `b` is not an object of the category.
-    pub fn fusion(&self, a: TableObject, b: TableObject) -> impl Iterator<Item = TableObject> + '_ {
-        self.table
-            .channels(
-                self.index_or_panic("fusion", a),
-                self.index_or_panic("fusion", b),
-            )
-            .map(object)
-    }
-
-    /// Fusion multiplicity `N^{ab}_c`.
-    ///
-    /// # Panics
-    ///
-    /// If a label is not an object of the category.
-    pub fn nsymbol(&self, a: TableObject, b: TableObject, c: TableObject) -> u32 {
-        let i = |x| self.index_or_panic("nsymbol", x);
-        self.table.nsymbol(i(a), i(b), i(c))
-    }
-
-    /// F-symbol `F^{abc}_d[e, f]`; exact zero for an unlisted entry.
-    ///
-    /// # Panics
-    ///
-    /// If a label is not an object of the category.
-    #[allow(clippy::too_many_arguments)]
-    pub fn f_symbol(
+    fn f_symbol(
         &self,
-        a: TableObject,
-        b: TableObject,
-        c: TableObject,
-        d: TableObject,
-        e: TableObject,
-        f: TableObject,
-    ) -> Complex64 {
-        let i = |x| self.index_or_panic("f_symbol", x);
-        self.table.fsymbol(i(a), i(b), i(c), i(d), i(e), i(f))
-    }
-
-    /// Checked [`f_symbol`](Self::f_symbol): an error for an unknown label or
-    /// an inadmissible vertex instead of a panic or a zero.
-    #[allow(clippy::too_many_arguments)]
-    pub fn f_symbol_checked(
-        &self,
-        a: TableObject,
-        b: TableObject,
-        c: TableObject,
-        d: TableObject,
-        e: TableObject,
-        f: TableObject,
+        a: &TableObject,
+        b: &TableObject,
+        c: &TableObject,
+        d: &TableObject,
+        e: &TableObject,
+        f: &TableObject,
     ) -> Result<Complex64, TableError> {
-        for x in [a, b, c, d, e, f] {
-            self.index(x)?;
-        }
-        for (left, right, coupled) in [(a, b, e), (e, c, d), (b, c, f), (a, f, d)] {
-            self.check_vertex(left, right, coupled)?;
-        }
-        Ok(self.f_symbol(a, b, c, d, e, f))
+        Ok(self.data.table.fsymbol(
+            self.index(a),
+            self.index(b),
+            self.index(c),
+            self.index(d),
+            self.index(e),
+            self.index(f),
+        ))
     }
-
-    /// R-symbol `R^{ab}_c`; exact zero for an unlisted entry.
-    ///
-    /// # Panics
-    ///
-    /// If the category is not braided, or a label is not an object of it.
-    pub fn r_symbol(&self, a: TableObject, b: TableObject, c: TableObject) -> Complex64 {
-        if !self.is_braided() {
-            panic!("r_symbol precondition violated: {}", TableError::NoBraiding);
-        }
-        let i = |x| self.index_or_panic("r_symbol", x);
-        self.table.rsymbol(i(a), i(b), i(c))
-    }
-
-    /// Checked [`r_symbol`](Self::r_symbol): [`TableError::NoBraiding`] for a
-    /// category without a braiding, otherwise an error for an unknown label
-    /// or an inadmissible vertex, instead of a panic or a zero.
-    pub fn r_symbol_checked(
+    fn r_symbol(
         &self,
-        a: TableObject,
-        b: TableObject,
-        c: TableObject,
+        a: &TableObject,
+        b: &TableObject,
+        c: &TableObject,
     ) -> Result<Complex64, TableError> {
+        let (a, b, c) = (self.index(a), self.index(b), self.index(c));
         if !self.is_braided() {
             return Err(TableError::NoBraiding);
         }
-        for x in [a, b, c] {
-            self.index(x)?;
-        }
-        self.check_vertex(a, b, c)?;
-        Ok(self.r_symbol(a, b, c))
+        Ok(self.data.table.rsymbol(a, b, c))
     }
-
-    fn check_vertex(
-        &self,
-        left: TableObject,
-        right: TableObject,
-        coupled: TableObject,
-    ) -> Result<(), TableError> {
-        if self.nsymbol(left, right, coupled) == 0 {
-            Err(TableError::NotAdmissible {
-                left,
-                right,
-                coupled,
-            })
-        } else {
-            Ok(())
-        }
-    }
-
-    fn index(&self, a: TableObject) -> Result<usize, TableError> {
-        let label = usize::from(a.label());
-        if (1..=self.rank()).contains(&label) {
-            Ok(label - 1)
-        } else {
-            Err(TableError::UnknownObject { object: a })
-        }
-    }
-
-    fn index_or_panic(&self, method: &str, a: TableObject) -> usize {
-        self.index(a)
-            .unwrap_or_else(|error| panic!("{method} precondition violated: {error}"))
+    fn authority_fingerprint(&self) -> &[u8] {
+        &self.data.fingerprint
     }
 }
 
@@ -482,10 +490,6 @@ fn fingerprint_bytes(
         bytes.extend_from_slice(text.as_bytes());
     }
     bytes
-}
-
-fn object(index: usize) -> TableObject {
-    TableObject(index as u16 + 1)
 }
 
 #[cfg(test)]

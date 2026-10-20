@@ -67,7 +67,16 @@ An SU(N) irrep is named by its `N-1` Dynkin labels. See
 
 ## How errors work
 
-`fusion-symbols` has two error styles, and the difference is deliberate.
+Abelian, fermion, CU(1) and table categories use `category::FusionCategory`.
+Constructors validate objects, N = 0 is a value, and F/R return `Ok(0)` on
+inadmissible vertices. Only fusion can overflow U(1)/CU(1) labels.
+`CU1Irrep::new` retains `InvalidLabel` for invalid `(twice_charge, s)` pairs.
+`TableCategory::object(index)` alone reports an out-of-range table index.
+Foreign cyclic/table objects panic. Fusion-only tables return
+`TableError::NoBraiding` from `r_symbol`; `twist` panics. Both reject foreign
+objects before checking braiding.
+
+The Lie families retain these error styles:
 
 **The infallible SU(2) functions return exact zero for a forbidden coupling.**
 `wigner_6j`, `wigner_3j`, `clebsch_gordan`, `su2_f_symbol`, `su2_r_symbol` never

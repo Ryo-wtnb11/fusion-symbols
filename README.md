@@ -30,9 +30,10 @@ Supported symmetries:
   (`cgc-gen` feature);
 - U(1), Z_N (including Z2) and fermion parity via `category::FusionCategory`
   (`abelian::{U1, ZN}`, `fermion::FermionParity`), closed form (default);
-- CU(1) = U(1) ⋊ C, closed form with its existing per-family API (default);
+- CU(1) = U(1) ⋊ C via `cu1::CU1` and `FusionCategory`, closed form (default);
 - the unitary multiplicity-free AnyonWiki categories of rank ≤ 4, Fibonacci
-  and Ising among them (default; rank 5–7 with `anyonwiki-unitary`).
+  and Ising among them via `table::TableCategory` and `FusionCategory`
+  (default; rank 5–7 with `anyonwiki-unitary`).
 
 The base SU(2) surface is stable. In the `cgc-gen` surface,
 `sun_authority_fingerprint`, `bcd_authority_fingerprint`,
@@ -84,7 +85,7 @@ Documentation index: [`docs/README.md`](docs/README.md).
 
 fusion-symbols follows the conventions of
 [TensorKitSectors.jl](https://github.com/QuantumKitHub/TensorKitSectors.jl)
-and [TensorKit.jl](https://github.com/QuantumKitHub/TensorKit.jl). The `tables`
+and [TensorKit.jl](https://github.com/QuantumKitHub/TensorKit.jl). The `table`
 data come from the [AnyonWiki](https://anyonwiki.org/) database
 ([`anyonwiki/AnyonWikiDatabase`](https://github.com/anyonwiki/AnyonWikiDatabase),
 MIT). The Lie-group algorithms are ported from WignerSymbols.jl,
@@ -107,7 +108,7 @@ If you use fusion-symbols in academic work, please cite it
 }
 ```
 
-If you use the `tables` tables, please also cite the sources the
+If you use the `table` tables, please also cite the sources the
 AnyonWiki database asks for: G. Vercleyen, *On Low-Rank Multiplicity-Free
 Fusion Categories*, [arXiv:2405.20075](https://arxiv.org/abs/2405.20075)
 (published as [doi:10.1007/s00220-026-05705-2](https://doi.org/10.1007/s00220-026-05705-2)),

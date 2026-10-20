@@ -7,7 +7,10 @@
 //! order are TensorKitSectors' closed forms. A few literals pin the sign
 //! convention against the reference itself.
 
-use fusion_symbols::cu1::{cu1_f_symbol, cu1_nsymbol, cu1_r_symbol, CU1Irrep};
+use fusion_symbols::{
+    category::FusionCategory,
+    cu1::{CU1Irrep, CU1},
+};
 
 const OP: CU1Irrep = CU1Irrep::VACUUM;
 const OM: CU1Irrep = CU1Irrep::PSEUDOSCALAR;
@@ -121,14 +124,14 @@ fn f_and_r_are_the_fusion_tensor_recouplings() {
     for &a in &all {
         for &b in &all {
             for &c in &all {
-                let r = cu1_r_symbol(a, b, c);
+                let r = CU1.r_symbol(&a, &b, &c).unwrap();
                 assert_eq!(r, dense_r(a, b, c), "R {a:?} {b:?} {c:?}");
                 nonzero.0 += usize::from(r != 0.0);
                 for &d in &all {
                     for &e in &all {
                         for &f in &all {
                             let l = [a, b, c, d, e, f];
-                            let got = cu1_f_symbol(a, b, c, d, e, f);
+                            let got = CU1.f_symbol(&a, &b, &c, &d, &e, &f).unwrap();
                             assert!((got - dense_f(l)).abs() < 1e-15, "F {l:?}");
                             nonzero.1 += usize::from(got != 0.0);
                         }
@@ -158,28 +161,31 @@ fn values_checked_against_tensorkitsectors() {
     ];
     for ([a, b, c, d, e, x], want) in f {
         assert_eq!(
-            cu1_f_symbol(a, b, c, d, e, x),
+            CU1.f_symbol(&a, &b, &c, &d, &e, &x).unwrap(),
             want,
             "{a:?}{b:?}{c:?}{d:?}{e:?}{x:?}"
         );
     }
-    assert_eq!(cu1_r_symbol(j(1), j(1), OM), -1.0);
-    assert_eq!(cu1_r_symbol(j(1), j(1), OP), 1.0);
-    assert_eq!(cu1_r_symbol(j(1), j(1), j(2)), 1.0);
-    assert_eq!(cu1_r_symbol(OM, j(1), j(1)), 1.0);
+    assert_eq!(CU1.r_symbol(&j(1), &j(1), &OM).unwrap(), -1.0);
+    assert_eq!(CU1.r_symbol(&j(1), &j(1), &OP).unwrap(), 1.0);
+    assert_eq!(CU1.r_symbol(&j(1), &j(1), &j(2)).unwrap(), 1.0);
+    assert_eq!(CU1.r_symbol(&OM, &j(1), &j(1)).unwrap(), 1.0);
     // Known deviation: TensorKitSectors returns `-0.0` on this inadmissible
     // tuple (`-convert(Float64, N)` with `N = 0`); here every inadmissible
     // symbol is `+0.0`.
-    assert_eq!(cu1_r_symbol(j(1), j(2), OM).to_bits(), 0.0f64.to_bits());
+    assert_eq!(
+        CU1.r_symbol(&j(1), &j(2), &OM).unwrap().to_bits(),
+        0.0f64.to_bits()
+    );
 }
 
 #[test]
 fn unary_data_and_fusion_order_follow_tensorkitsectors() {
     // `dim = 1` for `0±`, `2` when charged; self-dual; FS phase and twist 1.
     for a in labels() {
-        assert_eq!(a.dim(), dim(a) as f64);
-        assert_eq!(a.dual(), a);
-        assert_eq!((a.frobenius_schur(), a.twist()), (1.0, 1.0));
+        assert_eq!(CU1.dim(&a), dim(a) as f64);
+        assert_eq!(CU1.dual(&a), a);
+        assert_eq!((CU1.frobenius_schur_phase(&a), CU1.twist(&a)), (1.0, 1.0));
     }
     // `SectorProductIterator{CU1Irrep}` order: `0± ⊗ 0± = 0^{s xor s'}`,
     // `0± ⊗ j = j`, `j ⊗ j = [0+, 0-, 2j]`, `j ⊗ k = [|j-k|, j+k]`.
@@ -194,10 +200,10 @@ fn unary_data_and_fusion_order_follow_tensorkitsectors() {
                 _ if qa == qb => vec![OP, OM, j(2 * qa)],
                 _ => vec![j(qa.abs_diff(qb)), j(qa + qb)],
             };
-            let got: Vec<_> = a.fusion(b).unwrap().collect();
+            let got: Vec<_> = CU1.fusion(&a, &b).unwrap().collect();
             assert_eq!(got, want, "{a:?} ⊗ {b:?}");
             for &c in &all {
-                assert_eq!(cu1_nsymbol(a, b, c), u32::from(want.contains(&c)));
+                assert_eq!(CU1.nsymbol(&a, &b, &c), u32::from(want.contains(&c)));
             }
         }
     }

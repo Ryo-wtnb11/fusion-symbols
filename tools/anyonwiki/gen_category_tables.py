@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline generator for the `tables` catalog (fusion-symbols).
+"""Offline generator for the `table` catalog (fusion-symbols).
 
 Authority: AnyonWikiDatabase (https://github.com/anyonwiki/AnyonWikiDatabase,
 MIT) at commit badbfe299dd533c12a84e817f5890059705e0a3c. Nothing in the crate
@@ -19,7 +19,7 @@ crate root:
   data/anyonwiki-badbfe2/N/<ring code>.txt    a b c Nabc
   data/anyonwiki-badbfe2/F/<code>.txt         a b c d α e β μ f ν Re Im
   data/anyonwiki-badbfe2/R/<code>.txt         a b c α μ Re Im   (braided only)
-  src/tables/catalog.rs                       shipped entries + status index
+  src/table/catalog.rs                       shipped entries + status index
   tests/fixtures/anyonwiki-badbfe2-check.txt  every exact symbol per entry
                                               of rank <= DEFAULT_MAX_RANK
   tests/fixtures/anyonwiki-badbfe2-unitary-check.txt
@@ -58,7 +58,7 @@ SHA256 = {
     RINGS: "66117d72d204a5359ef43e584ed46cfe503240558aa8b9c381922b4861aa1153",
 }
 DATA = "data/anyonwiki-badbfe2"
-CATALOG = "src/tables/catalog.rs"
+CATALOG = "src/table/catalog.rs"
 CHECK = "tests/fixtures/anyonwiki-badbfe2-check.txt"
 UNITARY_CHECK = "tests/fixtures/anyonwiki-badbfe2-unitary-check.txt"
 # Rank cut of the default build; every supported entry above it is compiled

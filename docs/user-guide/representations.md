@@ -7,11 +7,11 @@
 
 ## What is an irrep here?
 
-An **irrep** (irreducible representation) is, in `fusion-symbols`, just a *label*: a
-dominant integral highest weight. Nothing about the representation is stored —
-no matrices, no basis — only the weight that identifies it. Everything else
-(dimension, dual, basis size, coefficients) is computed from that label on
-demand.
+An **irrep** (irreducible representation) is identified by a label. For Lie
+groups this is a dominant integral highest weight; CU(1) uses a charge and
+conjugation label. Table categories instead use validated simple-object
+indices. Dimensions, duals and coefficients are queried through the family
+API or category value.
 
 Each family has its own label type, because each family has its own natural
 encoding:
@@ -21,12 +21,36 @@ encoding:
 | SU(2) | [`su2::Su2Irrep`] | one `u32`, the **doubled spin** `dj = 2j` |
 | SU(N) | [`sun::Irrep`] | `N-1` Dynkin labels (stored internally as a normalized weight) |
 | SO(N), Spin(N), Sp(2N) | [`bcd::Irrep`] | `r` Dynkin labels plus the Cartan series `B`/`C`/`D` |
+| CU(1) | `cu1::CU1Irrep` | twice charge `u32` and `s`: `(0,0)`, `(0,1)`, or `(q>0,2)` |
+| Shipped categories | `table::TableObject` | validated one-based index and private catalog tag |
 
 ## When do I need this?
 
 Always — every coefficient function takes irrep labels. Getting the label
 convention right is the single most common source of confusion, so this chapter
 is worth reading once before anything else.
+
+## CU(1) and table objects
+
+CU(1) labels keep `CU1Irrep::new(twice_charge, s)?`,
+`CU1Irrep::from_twice_charge(q)`, `VACUUM` and `PSEUDOSCALAR`. Mathematical
+queries go through the `cu1::CU1` category and `category::FusionCategory`.
+
+Table labels come from their category, not from a public tuple constructor:
+
+```rust
+use fusion_symbols::{category::FusionCategory, table::TableCategory};
+
+let fib = TableCategory::fibonacci();
+let tau = fib.object(2).unwrap();
+assert_eq!(tau.index(), 2);
+assert_eq!(fib.fusion(&tau, &tau).unwrap().count(), 2);
+```
+
+`object(index)` rejects indices outside `1..=rank`. Every table query panics
+on an object from another uuid, even if its index fits. Clones and independently
+constructed categories with the same uuid accept the same objects. Clones
+share parsed and derived data; category equality and hashing use the uuid.
 
 ## SU(2): doubled spins
 

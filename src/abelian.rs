@@ -645,7 +645,7 @@ mod tests {
             }
             assert_ne!(
                 *a,
-                crate::tables::TableCategory::fibonacci().authority_fingerprint()
+                crate::table::TableCategory::fibonacci().authority_fingerprint()
             );
         }
     }

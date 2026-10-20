@@ -6,7 +6,9 @@
 use fusion_symbols::{
     abelian::{U1Irrep, ZNIrrep, U1, ZN},
     category::{BraidingStyle, FusionCategory, FusionStyle, Promote, Scalar, SymbolBlock},
+    cu1::{CU1Irrep, CU1},
     fermion::{FermionParity, FermionParityIrrep},
+    table::TableCategory,
 };
 use num_complex::Complex64;
 
@@ -73,11 +75,13 @@ fn conformance<C: FusionCategory>(cat: C, labels: Vec<C::Object>) {
                 zero
             },
         );
-        let mut twist = zero;
-        for b in outcomes(&cat, a, a) {
-            twist = twist + C::Scalar::from_f64(cat.dim(&b) / cat.dim(a)) * r(&cat, a, a, &b);
+        if cat.braiding_style() != BraidingStyle::None {
+            let mut twist = zero;
+            for b in outcomes(&cat, a, a) {
+                twist = twist + C::Scalar::from_f64(cat.dim(&b) / cat.dim(a)) * r(&cat, a, a, &b);
+            }
+            close(cat.twist(a), twist);
         }
-        close(cat.twist(a), twist);
         for b in &labels {
             let dimension_sum: f64 = outcomes(&cat, a, b)
                 .iter()
@@ -117,26 +121,30 @@ fn conformance<C: FusionCategory>(cat: C, labels: Vec<C::Object>) {
                         }
                     }
                 }
-                // Both hexagons, using the reference's axis/argument order.
-                for e in outcomes(&cat, c, a) {
-                    for right in outcomes(&cat, c, b) {
-                        for d in outcomes(&cat, &e, b) {
-                            if cat.nsymbol(a, &right, &d) == 0 {
-                                continue;
+                if cat.braiding_style() != BraidingStyle::None {
+                    // Both hexagons, using the reference's axis/argument order.
+                    for e in outcomes(&cat, c, a) {
+                        for right in outcomes(&cat, c, b) {
+                            for d in outcomes(&cat, &e, b) {
+                                if cat.nsymbol(a, &right, &d) == 0 {
+                                    continue;
+                                }
+                                let middle = f(&cat, [a, c, b, &d, &e, &right]);
+                                let lhs = r(&cat, c, a, &e) * middle * r(&cat, c, b, &right);
+                                let lhs_under = r(&cat, a, c, &e).conj()
+                                    * middle
+                                    * r(&cat, b, c, &right).conj();
+                                let (mut rhs, mut rhs_under) = (zero, zero);
+                                for g in outcomes(&cat, a, b) {
+                                    let left = f(&cat, [c, a, b, &d, &e, &g]);
+                                    let right_f = f(&cat, [a, b, c, &d, &g, &right]);
+                                    rhs = rhs + left * r(&cat, c, &g, &d) * right_f;
+                                    rhs_under =
+                                        rhs_under + left * r(&cat, &g, c, &d).conj() * right_f;
+                                }
+                                close(lhs, rhs);
+                                close(lhs_under, rhs_under);
                             }
-                            let middle = f(&cat, [a, c, b, &d, &e, &right]);
-                            let lhs = r(&cat, c, a, &e) * middle * r(&cat, c, b, &right);
-                            let lhs_under =
-                                r(&cat, a, c, &e).conj() * middle * r(&cat, b, c, &right).conj();
-                            let (mut rhs, mut rhs_under) = (zero, zero);
-                            for g in outcomes(&cat, a, b) {
-                                let left = f(&cat, [c, a, b, &d, &e, &g]);
-                                let right_f = f(&cat, [a, b, c, &d, &g, &right]);
-                                rhs = rhs + left * r(&cat, c, &g, &d) * right_f;
-                                rhs_under = rhs_under + left * r(&cat, &g, c, &d).conj() * right_f;
-                            }
-                            close(lhs, rhs);
-                            close(lhs_under, rhs_under);
                         }
                     }
                 }
@@ -233,4 +241,26 @@ fn real_storage_rejects_out_of_range() {
 #[should_panic(expected = "symbol index out of range")]
 fn complex_storage_rejects_out_of_range() {
     <Complex64 as SymbolBlock<2>>::get(&Complex64::new(0.0, 0.0), [1, 0]);
+}
+
+#[test]
+fn cu1_identities() {
+    assert_eq!(CU1.fusion_style(), FusionStyle::Simple);
+    assert_eq!(CU1.braiding_style(), BraidingStyle::Bosonic);
+    conformance(
+        CU1,
+        [CU1Irrep::VACUUM, CU1Irrep::PSEUDOSCALAR]
+            .into_iter()
+            .chain((1..=4).map(CU1Irrep::from_twice_charge))
+            .collect(),
+    );
+}
+
+#[test]
+fn shipped_table_identities() {
+    for uuid in TableCategory::shipped_uuids() {
+        let cat = TableCategory::by_uuid(uuid).unwrap();
+        let labels = cat.objects().collect();
+        conformance(cat, labels);
+    }
 }
