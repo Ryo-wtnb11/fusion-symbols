@@ -1,9 +1,12 @@
 //! Public base-tier cache trim contract.
 
+#[path = "common/a1.rs"]
+mod a1;
+use a1::exact_f;
 use fusion_symbols::cache::{
     base_cache_stats, cache_budgets, reset, trim_to, CoefficientCacheTier,
 };
-use fusion_symbols::{su2_f_symbol, wigner_3j, wigner_6j};
+use fusion_symbols::lie::su2::{wigner_3j, wigner_6j};
 
 #[test]
 fn trim_is_tier_local_preserves_budget_and_allows_refill() {
@@ -11,7 +14,7 @@ fn trim_is_tier_local_preserves_budget_and_allows_refill() {
     let budget = cache_budgets();
     let _ = wigner_3j(2, 2, 2, 0, 0, 0);
     let _ = wigner_6j(2, 2, 2, 2, 2, 2);
-    let _ = su2_f_symbol(2, 2, 2, 2, 2, 2);
+    let _ = exact_f(2, 2, 2, 2, 2, 2);
     for tier in [
         CoefficientCacheTier::ThreeJ,
         CoefficientCacheTier::SixJ,

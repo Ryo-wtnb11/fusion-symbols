@@ -12,7 +12,7 @@
 /// `README.md`, code block 1.
 #[test]
 fn readme_1() {
-    use fusion_symbols::wigner_6j;
+    use fusion_symbols::lie::su2::wigner_6j;
 
     let sixj = wigner_6j(2, 2, 2, 2, 2, 2);
     assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
@@ -47,7 +47,7 @@ fn readme_3() {
 #[test]
 fn readme_4() {
     use fusion_symbols::bcd::Irrep;
-    use fusion_symbols::group::GroupId;
+    use fusion_symbols::lie::GroupId;
 
     let spin7 = GroupId::spin(7).unwrap();
     let s = Irrep::from_dynkin_in(&spin7, &[0, 0, 1]).unwrap();
@@ -60,7 +60,7 @@ fn readme_4() {
 /// `docs/user-guide/clebsch-gordan.md`, code block 1.
 #[test]
 fn clebsch_gordan_1() {
-    use fusion_symbols::su2::clebsch_gordan;
+    use fusion_symbols::lie::su2::clebsch_gordan;
 
     // ⟨½ +½, ½ −½ | 0 0⟩ = 1/√2, in doubled labels.
     let cg = clebsch_gordan(1, 1, 1, -1, 0, 0);
@@ -112,11 +112,18 @@ fn clebsch_gordan_4() {
 /// `docs/user-guide/fusion.md`, code block 1.
 #[test]
 fn fusion_1() {
-    use fusion_symbols::su2::Su2Irrep;
-
-    let half = Su2Irrep::new(1);
-    let channels: Vec<u32> = half.fusion(half).unwrap().map(|s| s.dj()).collect();
-    assert_eq!(channels, vec![0, 2]); // ½ ⊗ ½ = 0 ⊕ 1
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
+    let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+    let half = group.irrep(&[1]).unwrap();
+    let channels: Vec<i64> = group
+        .fusion(&half, &half)
+        .unwrap()
+        .map(|s| s.dynkin()[0])
+        .collect();
+    assert_eq!(channels, vec![0, 2]);
 }
 
 /// `docs/user-guide/fusion.md`, code block 2.
@@ -162,7 +169,7 @@ fn fusion_4() {
 /// `docs/user-guide/getting-started.md`, code block 1.
 #[test]
 fn getting_started_1() {
-    use fusion_symbols::wigner_6j;
+    use fusion_symbols::lie::su2::wigner_6j;
 
     let sixj = wigner_6j(2, 2, 2, 2, 2, 2);
     assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
@@ -181,7 +188,7 @@ fn getting_started_2() {
 /// `docs/user-guide/getting-started.md`, code block 3.
 #[test]
 fn getting_started_3() {
-    use fusion_symbols::su2::{wigner_6j_checked, Su2Error};
+    use fusion_symbols::lie::su2::{wigner_6j_checked, Su2Error};
 
     // Admissible, and genuinely nonzero.
     assert!(wigner_6j_checked(2, 2, 2, 2, 2, 2).is_ok());
@@ -196,11 +203,18 @@ fn getting_started_3() {
 /// `docs/user-guide/groups.md`, code block 1.
 #[test]
 fn groups_1() {
-    use fusion_symbols::su2::Su2Irrep;
-
-    let one = Su2Irrep::new(2); // spin 1
-    let channels: Vec<u32> = one.fusion(one).unwrap().map(|s| s.dj()).collect();
-    assert_eq!(channels, vec![0, 2, 4]); // 1 ⊗ 1 = 0 ⊕ 1 ⊕ 2
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
+    let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+    let one = group.irrep(&[2]).unwrap();
+    let channels: Vec<i64> = group
+        .fusion(&one, &one)
+        .unwrap()
+        .map(|s| s.dynkin()[0])
+        .collect();
+    assert_eq!(channels, vec![0, 2, 4]);
 }
 
 /// `docs/user-guide/groups.md`, code block 2.
@@ -231,7 +245,7 @@ fn groups_3() {
 #[test]
 fn groups_4() {
     use fusion_symbols::bcd::Irrep;
-    use fusion_symbols::group::GroupId;
+    use fusion_symbols::lie::GroupId;
 
     let spin5 = GroupId::spin(5).unwrap();
     let s = Irrep::from_dynkin_in(&spin5, &[0, 1]).unwrap();
@@ -261,7 +275,7 @@ fn groups_5() {
 /// `docs/user-guide/groups.md`, code block 6.
 #[test]
 fn groups_6() {
-    use fusion_symbols::group::GroupId;
+    use fusion_symbols::lie::GroupId;
     use fusion_symbols::sun::Irrep;
 
     let psu3 = GroupId::psu(3).unwrap(); // SU(3)/Z₃
@@ -276,17 +290,20 @@ fn groups_6() {
 /// `docs/user-guide/recoupling.md`, code block 1.
 #[test]
 fn recoupling_1() {
-    use fusion_symbols::{su2_f_symbol, su2_r_symbol, wigner_6j};
-
-    // {1 1 1; 1 1 1} = 1/6 in doubled labels (all dj = 2, i.e. spin 1).
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{su2::wigner_6j, GroupId, LieGroup},
+    };
     assert!((wigner_6j(2, 2, 2, 2, 2, 2).to_f64() - 1.0 / 6.0).abs() < 1e-14);
-
-    // F and R are multiplicity-free here: plain f64 scalars.
-    let f = su2_f_symbol(1, 1, 1, 1, 0, 0); // F^{½½½}_{½}[0, 0]
-    assert!((f + 0.5).abs() < 1e-14);
-
-    let r = su2_r_symbol(1, 1, 0); // (-1)^(j1+j2-j3) = -1 for ½ ⊗ ½ → 0
-    assert_eq!(r, -1.0);
+    let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+    let half = group.irrep(&[1]).unwrap();
+    let unit = group.unit();
+    let f = group
+        .f_symbol(&half, &half, &half, &half, &unit, &unit)
+        .unwrap();
+    assert_eq!(f.at(0, 0, 0, 0), -0.5);
+    let r = group.r_symbol(&half, &half, &unit).unwrap();
+    assert_eq!(r.at(0, 0), -1.0);
 }
 
 /// `docs/user-guide/recoupling.md`, code block 2.
@@ -421,13 +438,16 @@ fn recoupling_5() {
 /// `docs/user-guide/representations.md`, code block 1.
 #[test]
 fn representations_1() {
-    use fusion_symbols::su2::{su2_frobenius_schur, Su2Irrep};
-
-    let s = Su2Irrep::new(3); // dj = 3, i.e. spin 3/2
-    assert_eq!(s.dj(), 3);
-    assert_eq!(s.dim(), 4); // 2j + 1
-    assert_eq!(s.dual(), s); // every SU(2) irrep is self-dual
-    assert_eq!(su2_frobenius_schur(3), -1.0); // half-integer j: symplectic self-duality
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
+    let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+    let s = group.irrep(&[3]).unwrap(); // doubled spin 3, i.e. spin 3/2
+    assert_eq!(s.dynkin(), vec![3]);
+    assert_eq!(s.dim_exact(), 4.into());
+    assert_eq!(group.dual(&s), s);
+    assert_eq!(group.frobenius_schur_phase(&s), -1.0);
 }
 
 /// `docs/user-guide/representations.md`, code block 2.
@@ -503,7 +523,11 @@ fn resources_2() {
 /// `docs/user-guide/resources.md`, code block 3.
 #[test]
 fn resources_3() {
-    let fingerprint = fusion_symbols::su2_authority_fingerprint();
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
+    let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+    let fingerprint = group.authority_fingerprint();
     assert!(!fingerprint.is_empty());
-    // Persist `fingerprint` alongside any table you derive from racah's SU(2) values.
 }

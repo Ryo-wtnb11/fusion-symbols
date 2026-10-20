@@ -20,20 +20,34 @@
 //! error. Here `{1 1 1; 1 1 1} = 1/6`:
 //!
 //! ```
-//! use fusion_symbols::wigner_6j;
+//! use fusion_symbols::lie::su2::wigner_6j;
 //!
 //! let sixj = wigner_6j(2, 2, 2, 2, 2, 2);
 //! assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
+//! ```
+//!
+//! A1 category symbols use validated Dynkin labels and inline blocks:
+//!
+//! ```
+//! use fusion_symbols::{category::FusionCategory, lie::{su2::wigner_6j, GroupId, LieGroup}};
+//! assert!((wigner_6j(2, 2, 2, 2, 2, 2).to_f64() - 1.0 / 6.0).abs() < 1e-14);
+//! let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+//! let half = group.irrep(&[1]).unwrap();
+//! let unit = group.unit();
+//! let f = group.f_symbol(&half, &half, &half, &half, &unit, &unit).unwrap();
+//! assert_eq!(f.at(0, 0, 0, 0), -0.5);
+//! let r = group.r_symbol(&half, &half, &unit).unwrap();
+//! assert_eq!(r.at(0, 0), -1.0);
 //! ```
 //!
 //! # Where to look
 //!
 //! | You want | Go to |
 //! |---|---|
-//! | SU(2): 3j, 6j, CG, F, R, Frobenius–Schur — exact, no feature flag | [`su2`] (re-exported at the crate root) |
+//! | SU(2): 3j, 6j, CG, F, R, Frobenius–Schur — exact, no feature flag | [`lie::su2`] and [`lie::LieGroup`] |
 //! | SU(N), SU(N)/Z_k, PSU(N) — Gelfand–Tsetlin construction | [`sun`] (`cgc-gen`) |
 //! | SO(N), Spin(N), Sp(2r) — generator bootstrap, B/C/D series | [`bcd`] (`cgc-gen`) |
-//! | Which highest weights a global form admits | [`group`] |
+//! | Which highest weights a global form admits | [`lie::GroupId`] |
 //! | Cache ceilings, budgets, statistics | [`cache`] |
 //! | Shared category contract, styles and scalar symbol storage | [`category`] |
 //! | U(1), Z_N (including Z2) in closed form | [`abelian::U1`], [`abelian::ZN`] |
@@ -91,11 +105,11 @@
 //!
 //! Each family publishes an opaque **authority fingerprint** naming the
 //! convention set its coefficients are computed in
-//! ([`su2_authority_fingerprint`], [`sun::sun_authority_fingerprint`],
+//! ([`category::FusionCategory::authority_fingerprint`], [`sun::sun_authority_fingerprint`],
 //! [`bcd::bcd_authority_fingerprint`]). Persist the bytes next to anything you
 //! derive from these coefficients and compare by equality on load; never parse
 //! them. The base SU(2) provider adds a checked representation surface
-//! ([`su2::Su2Irrep`] and the `*_checked` coefficient functions) and a cache
+//! ([`lie::LieIrrep`] and the `*_checked` coefficient functions) and a cache
 //! resource contract ([`cache::base_cache_stats`],
 //! [`cache::BASE_CACHE_MAX_BYTES`], [`cache::reset`]). The
 //! [User Guide][guide-resources] carries the prose.
@@ -205,17 +219,8 @@ mod audit_alloc {
 
 pub mod cache;
 
-/// Which highest weights are genuine representations of *which* group:
-/// [`group::RootSystem`], [`group::GlobalForm`], [`group::CenterSubgroup`],
-/// [`group::GroupId`] and the central-character admissibility predicate
-/// [`group::GroupId::admits`].
-///
-/// Naming the Lie algebra does not name the group — `so(N)` belongs to both
-/// `Spin(N)` and `SO(N)`, `su(N)` to `SU(N)`, every `SU(N)/Z_k` and `PSU(N)` —
-/// and the groups differ in exactly one respect: which dominant weights they
-/// admit. A global form deletes irreps; it never changes a coefficient value.
-/// Pure integer arithmetic, no feature gate.
-pub mod group;
+/// Lie groups, validated irreps, and exact SU(2) evaluators.
+pub mod lie;
 
 mod exact;
 mod primefactor;
@@ -226,14 +231,6 @@ mod cache_audit;
 mod cache_budget_pressure;
 #[cfg(all(test, feature = "cgc-gen"))]
 mod cache_trim_pressure;
-
-/// Exact SU(2) recoupling: doubled-spin labels (`dj = 2j`), the infallible
-/// closed-form Wigner 3j/6j, Clebsch–Gordan, F/R/Frobenius–Schur functions
-/// (exact zero for an inadmissible tuple), and an additive *checked* surface
-/// ([`su2::Su2Irrep`], [`su2::wigner_6j_checked`], …) that returns a typed
-/// error instead of requiring consumers to infer validity from a zero
-/// coefficient. Its items are re-exported at the crate root.
-pub mod su2;
 
 /// SU(N), `SU(N)/Z_k` and `PSU(N)`: irreps from Dynkin labels, exact Weyl
 /// dimensions, duals, Littlewood–Richardson products, and the Clebsch–Gordan /
@@ -264,12 +261,3 @@ pub mod category;
 pub mod cu1;
 pub mod fermion;
 pub mod table;
-
-pub use exact::SignedSqrtRational;
-pub use su2::{
-    canonical_regge_3j, canonical_regge_6j, clebsch_gordan, clebsch_gordan_checked,
-    su2_authority_fingerprint, su2_f_symbol, su2_f_symbol_checked, su2_frobenius_schur,
-    su2_r_symbol, su2_r_symbol_checked, su2_twist, wigner_3j, wigner_3j_checked, wigner_6j,
-    wigner_6j_checked, AdmissibilityViolation, Regge3j, Regge6j, ReggeError, ReggePhase, Su2Error,
-    Su2Fusion, Su2Irrep,
-};

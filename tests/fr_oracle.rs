@@ -7,7 +7,10 @@
 //! checked against TensorKitSectors itself. F is composed exactly and rounded
 //! once, so the tolerance covers only the reference's own last-ulp rounding.
 
-use fusion_symbols::{su2_f_symbol, su2_r_symbol, wigner_6j};
+#[path = "common/a1.rs"]
+mod a1;
+use a1::{exact_f, exact_r};
+use fusion_symbols::lie::su2::wigner_6j;
 
 fn tri(a: u32, b: u32, c: u32) -> bool {
     (a + b + c).is_multiple_of(2) && c >= a.abs_diff(b) && c <= a + b
@@ -30,11 +33,11 @@ fn f_and_r_are_the_tensorkitsectors_formulas() {
         for b in 0..=MAX {
             for c in 0..=MAX {
                 let r = if tri(a, b, c) { parity(a + b - c) } else { 0.0 };
-                assert_eq!(su2_r_symbol(a, b, c), r, "R {a} {b} {c}");
+                assert_eq!(exact_r(a, b, c), r, "R {a} {b} {c}");
                 for d in 0..=MAX {
                     for e in 0..=MAX {
                         for f in 0..=MAX {
-                            let got = su2_f_symbol(a, b, c, d, e, f);
+                            let got = exact_f(a, b, c, d, e, f);
                             if !(tri(a, b, e) && tri(e, c, d) && tri(b, c, f) && tri(a, f, d)) {
                                 assert_eq!(got, 0.0, "F {:?}", [a, b, c, d, e, f]);
                                 continue;
@@ -67,7 +70,7 @@ fn values_checked_against_tensorkitsectors() {
         ([3, 1, 2, 2, 2, 3], 0.912_870_929_175_276_9),
         ([2, 2, 2, 2, 0, 4], 0.745_355_992_499_929_9),
     ] {
-        let got = su2_f_symbol(d[0], d[1], d[2], d[3], d[4], d[5]);
+        let got = exact_f(d[0], d[1], d[2], d[3], d[4], d[5]);
         assert!((got - want).abs() <= 2.0 * f64::EPSILON, "F {d:?}: {got}");
     }
     for (d, want) in [
@@ -78,6 +81,6 @@ fn values_checked_against_tensorkitsectors() {
         ([3, 3, 4], -1.0),
         ([2, 2, 0], 1.0),
     ] {
-        assert_eq!(su2_r_symbol(d[0], d[1], d[2]), want, "R {d:?}");
+        assert_eq!(exact_r(d[0], d[1], d[2]), want, "R {d:?}");
     }
 }

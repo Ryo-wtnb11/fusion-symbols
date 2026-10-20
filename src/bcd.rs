@@ -26,7 +26,7 @@
 //!
 //! The object is the set of finite-dimensional linear representations of a
 //! **connected compact group** with one of these root systems. Which group is
-//! named by a [`GroupId`](crate::group::GroupId), and the only thing the choice
+//! named by a [`GroupId`](crate::lie::GroupId), and the only thing the choice
 //! changes is *which highest weights are admissible* — never a coefficient
 //! value.
 //!
@@ -120,7 +120,7 @@ use num_bigint::BigInt;
 use num_rational::Ratio;
 use num_traits::One;
 
-use crate::group::{CenterSubgroup, GlobalForm, GroupId, RootSystem};
+use crate::lie::{CenterSubgroup, GlobalForm, GroupId, RootSystem};
 
 /// The three orthogonal/symplectic Cartan series covered here.
 ///
@@ -439,7 +439,7 @@ impl Irrep {
     ///
     /// ```
     /// use fusion_symbols::bcd::Irrep;
-    /// use fusion_symbols::group::GroupId;
+    /// use fusion_symbols::lie::GroupId;
     ///
     /// let spin7 = GroupId::spin(7).unwrap(); // B_3 + SimplyConnected
     /// let s = Irrep::from_dynkin_in(&spin7, &[0, 0, 1]).unwrap();
@@ -479,7 +479,7 @@ impl Irrep {
             });
         }
         // Central-character condition of `group` — one implementation, in
-        // `crate::group`. For a form that does not admit the
+        // `crate::lie`. For a form that does not admit the
         // spinor lattice this is the tensor-irrep constraint.
         if !group.admits(dynkin) {
             return Err(BcdError::NotAdmissible {
@@ -1272,7 +1272,7 @@ pub use fr::{
 /// > prove numerical agreement.
 ///
 /// This is deliberately weaker than the base SU(2) fingerprint
-/// ([`crate::su2_authority_fingerprint`]), whose exact big-rational surface lets
+/// ([`crate::category::FusionCategory::authority_fingerprint`]), whose exact big-rational surface lets
 /// equal bytes mean equal values. The generated B/C/D family is a *two-layer*
 /// contract (`docs/gauge_soN.md` §12: value agreement within the verification
 /// tolerances, bitwise reproducible only single-threaded in-process, not across

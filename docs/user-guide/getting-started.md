@@ -28,7 +28,7 @@ There is no fixed MSRV; `fusion-symbols` builds and is tested on current stable 
 | Feature | Gives you | Cost |
 |---|---|---|
 | *(default)* | SU(2): 3j, 6j, Clebsch–Gordan, F, R, Frobenius–Schur — closed-form, big-rational exact | `num-bigint`, `num-rational`, `num-traits` |
-| `cgc-gen` | SU(N) (`fusion_symbols::sun`), SO(N)/Spin(N)/Sp(2N) (`fusion_symbols::bcd`), and the `fusion_symbols::group` global forms applied to them | pulls the sequential t4a-faer dense-linear-algebra backend |
+| `cgc-gen` | SU(N) (`fusion_symbols::sun`), SO(N)/Spin(N)/Sp(2N) (`fusion_symbols::bcd`), and the `fusion_symbols::lie` global forms applied to them | pulls the sequential t4a-faer dense-linear-algebra backend |
 
 The split is mathematical, not organizational: SU(2) has closed-form
 coefficients and needs no matrix computation; every other family must be
@@ -37,7 +37,7 @@ coefficients and needs no matrix computation; every other family must be
 ## First calculation: SU(2) (no features)
 
 ```rust
-use fusion_symbols::wigner_6j;
+use fusion_symbols::lie::su2::wigner_6j;
 
 let sixj = wigner_6j(2, 2, 2, 2, 2, 2);
 assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
@@ -76,10 +76,13 @@ Foreign cyclic/table objects panic. Fusion-only tables return
 `TableError::NoBraiding` from `r_symbol`; `twist` panics. Both reject foreign
 objects before checking braiding.
 
-The Lie families retain these error styles:
+Rank-one `LieGroup` category symbols return inline blocks, with a zero axis
+for inadmissible vertices. Labels are validated at construction, and fusion
+reports `LieError::LabelOverflow`. The exact evaluators and generated families
+retain these error styles:
 
-**The infallible SU(2) functions return exact zero for a forbidden coupling.**
-`wigner_6j`, `wigner_3j`, `clebsch_gordan`, `su2_f_symbol`, `su2_r_symbol` never
+**The exact SU(2) evaluators return exact zero for a forbidden coupling.**
+`lie::su2::{wigner_6j, wigner_3j, clebsch_gordan}` never
 fail: a label set that violates a triangle or parity rule returns `0`, matching
 the physics convention where a forbidden channel simply contributes nothing.
 
@@ -88,7 +91,7 @@ the physics convention where a forbidden channel simply contributes nothing.
 apart, use the `*_checked` twins:
 
 ```rust
-use fusion_symbols::su2::{wigner_6j_checked, Su2Error};
+use fusion_symbols::lie::su2::{wigner_6j_checked, Su2Error};
 
 // Admissible, and genuinely nonzero.
 assert!(wigner_6j_checked(2, 2, 2, 2, 2, 2).is_ok());
@@ -126,8 +129,8 @@ unitarity, or pentagon/hexagon check.
 
 ## Related API
 
-- [`fusion_symbols::wigner_6j`](https://docs.rs/fusion-symbols/latest/fusion_symbols/fn.wigner_6j.html),
-  [`fusion_symbols::su2`](https://docs.rs/fusion-symbols/latest/fusion_symbols/su2/index.html)
+- [`fusion_symbols::lie::su2::wigner_6j`](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/su2/fn.wigner_6j.html),
+  [`fusion_symbols::lie::su2`](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/su2/index.html)
 - [`fusion_symbols::sun`](https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/index.html),
   [`fusion_symbols::bcd`](https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/index.html)
 - [`fusion_symbols::cache`](https://docs.rs/fusion-symbols/latest/fusion_symbols/cache/index.html)

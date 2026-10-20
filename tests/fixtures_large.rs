@@ -11,7 +11,7 @@ use num_bigint::BigInt;
 use num_rational::Ratio;
 use num_traits::{One, Zero};
 
-use fusion_symbols::wigner_6j;
+use fusion_symbols::lie::su2::wigner_6j;
 
 fn tri(a: u32, b: u32, c: u32) -> bool {
     (a + b + c).is_multiple_of(2) && c >= a.abs_diff(b) && c <= a + b

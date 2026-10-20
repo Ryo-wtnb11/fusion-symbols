@@ -60,26 +60,25 @@ even for zero symbols. A foreign modulus panics on every category operation.
 `frobenius_schur_indicator` is zero for non-self-dual objects.
 Odd parity has R(odd, odd, even) = −1 and twist −1.
 
-## SU(2): exact scalars
+## SU(2): exact values in inline blocks
 
 ```rust
-use fusion_symbols::{su2_f_symbol, su2_r_symbol, wigner_6j};
-
-// {1 1 1; 1 1 1} = 1/6 in doubled labels (all dj = 2, i.e. spin 1).
+use fusion_symbols::{category::FusionCategory, lie::{su2::wigner_6j, GroupId, LieGroup}};
 assert!((wigner_6j(2, 2, 2, 2, 2, 2).to_f64() - 1.0 / 6.0).abs() < 1e-14);
-
-// F and R are multiplicity-free here: plain f64 scalars.
-let f = su2_f_symbol(1, 1, 1, 1, 0, 0);   // F^{½½½}_{½}[0, 0]
-assert!((f + 0.5).abs() < 1e-14);
-
-let r = su2_r_symbol(1, 1, 0);            // (-1)^(j1+j2-j3) = -1 for ½ ⊗ ½ → 0
-assert_eq!(r, -1.0);
+let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+let half = group.irrep(&[1]).unwrap();
+let unit = group.unit();
+let f = group.f_symbol(&half, &half, &half, &half, &unit, &unit).unwrap();
+assert_eq!(f.at(0, 0, 0, 0), -0.5);
+let r = group.r_symbol(&half, &half, &unit).unwrap();
+assert_eq!(r.at(0, 0), -1.0);
 ```
 
-Argument order is `su2_f_symbol(dj1, dj2, dj3, dj4, dj5, dj6)` for
-`F^{dj1 dj2 dj3}_{dj4}[dj5, dj6]`, and `su2_r_symbol(dj1, dj2, dj3)` for
-`R^{dj1 dj2}_{dj3}`. Non-admissible labels give exact `0.0`; the `*_checked`
-twins return `Err(Su2Error::NotAdmissible)` instead.
+`group.f_symbol(a,b,c,d,e,f)` returns `F^{abc}_d[e,f]` with axes
+`[N(a,b,e), N(e,c,d), N(b,c,f), N(a,f,d)]`; `r_symbol(a,b,c)` has
+axes `[N(a,b,c), N(b,a,c)]`. Admissible A1 blocks store one `f64`
+inline. Inadmissible vertices give an empty block with a zero axis.
+The exact 3j/6j/CG evaluators retain their `_checked` forms and `Su2Error`.
 
 ## SU(N): blocks over multiplicity indices
 
@@ -285,20 +284,20 @@ as a typed error.
 
 ## Related API
 
-- [`fusion_symbols::su2_f_symbol`], [`fusion_symbols::su2_r_symbol`], [`fusion_symbols::wigner_6j`],
+- [`fusion_symbols::category::FusionCategory::f_symbol`], [`fusion_symbols::category::FusionCategory::r_symbol`], [`fusion_symbols::lie::su2::wigner_6j`],
   and their `*_checked` twins
 - [`sun::f_symbol`], [`sun::r_symbol`], [`sun::check_f_unitarity`],
   `check_pentagon`, `check_hexagon`
 - [`bcd::f_symbol`], [`bcd::r_symbol`], and the same three checks
 - [`FBlock`], [`RBlock`]
 
-[`fusion_symbols::su2_f_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/fn.su2_f_symbol.html
-[`fusion_symbols::su2_r_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/fn.su2_r_symbol.html
-[`fusion_symbols::wigner_6j`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/fn.wigner_6j.html
-[`sun::f_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/fn.f_symbol.html
-[`sun::r_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/fn.r_symbol.html
+[`fusion_symbols::category::FusionCategory::f_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.f_symbol
+[`fusion_symbols::category::FusionCategory::r_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.r_symbol
+[`fusion_symbols::lie::su2::wigner_6j`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/su2/fn.wigner_6j.html
+[`sun::f_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/fn.f_symbol
+[`sun::r_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/fn.r_symbol
 [`sun::check_f_unitarity`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/fn.check_f_unitarity.html
-[`bcd::f_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/fn.f_symbol.html
-[`bcd::r_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/fn.r_symbol.html
+[`bcd::f_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/fn.f_symbol
+[`bcd::r_symbol`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/bcd/fn.r_symbol
 [`FBlock`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/struct.FBlock.html
 [`RBlock`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/struct.RBlock.html

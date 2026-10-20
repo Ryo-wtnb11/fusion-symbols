@@ -264,3 +264,23 @@ fn shipped_table_identities() {
         conformance(cat, labels);
     }
 }
+
+#[test]
+fn su2_identities_through_dj6() {
+    use fusion_symbols::lie::{GroupId, LieGroup};
+    let cat = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+    conformance(cat, (0..=6).map(|dj| cat.irrep(&[dj]).unwrap()).collect());
+}
+
+#[test]
+fn so3_identities() {
+    use fusion_symbols::lie::{GroupId, LieGroup};
+    let cat = LieGroup::new(GroupId::so(3).unwrap()).unwrap();
+    conformance(
+        cat,
+        (0..=6)
+            .step_by(2)
+            .map(|dj| cat.irrep(&[dj]).unwrap())
+            .collect(),
+    );
+}

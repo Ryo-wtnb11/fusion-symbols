@@ -34,7 +34,7 @@ Exact, closed-form, no feature flag. Both irrep and projection labels are
 doubled (`dj = 2j`, `dm = 2m`).
 
 ```rust
-use fusion_symbols::su2::clebsch_gordan;
+use fusion_symbols::lie::su2::clebsch_gordan;
 
 // ⟨½ +½, ½ −½ | 0 0⟩ = 1/√2, in doubled labels.
 let cg = clebsch_gordan(1, 1, 1, -1, 0, 0);
@@ -157,7 +157,7 @@ the value cache is keyed on the irrep labels, not on the catalog instance.
 - [`bcd::CanonicalCatalog::cgc`], [`CatalogCgc`]
 
 [`SignedSqrtRational`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/struct.SignedSqrtRational.html
-[`su2::clebsch_gordan`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/fn.clebsch_gordan.html
+[`su2::clebsch_gordan`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/su2/fn.clebsch_gordan.html
 [`sun::cgc`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/fn.cgc.html
 [`sun::Cgc`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/struct.Cgc.html
 [`sun::CgcEntry`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/sun/struct.CgcEntry.html

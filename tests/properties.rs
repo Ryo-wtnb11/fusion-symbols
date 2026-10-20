@@ -8,7 +8,7 @@ use num_traits::{One, Zero};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
-use fusion_symbols::{
+use fusion_symbols::lie::su2::{
     canonical_regge_6j, clebsch_gordan, wigner_3j, wigner_6j, SignedSqrtRational,
 };
 

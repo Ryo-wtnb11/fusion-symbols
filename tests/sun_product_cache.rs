@@ -4,11 +4,13 @@
 
 #![cfg(feature = "cgc-gen")]
 
+#[path = "common/a1.rs"]
+mod a1;
 use std::sync::{Arc, Barrier};
 
 use fusion_symbols::cache::{self, TierStats};
+use fusion_symbols::category::FusionCategory;
 use fusion_symbols::sun::{directproduct, shared_directproduct, Irrep, SunError};
-use fusion_symbols::Su2Irrep;
 
 fn irr(dynkin: &[i64]) -> Irrep {
     Irrep::from_dynkin(dynkin).unwrap()
@@ -114,10 +116,10 @@ fn sun_product_cache_contract() {
     // The dedicated allocation-free SU(2) decomposition remains independent
     // and uncached by this generated SU(N) tier.
     cache::reset();
-    let channels = Su2Irrep::new(3)
-        .fusion(Su2Irrep::new(2))
+    let channels = a1::group()
+        .fusion(&a1::ir(3), &a1::ir(2))
         .unwrap()
-        .map(Su2Irrep::dj)
+        .map(|s| s.dynkin()[0] as u32)
         .collect::<Vec<_>>();
     assert_eq!(channels, [1, 3, 5]);
     assert_eq!(

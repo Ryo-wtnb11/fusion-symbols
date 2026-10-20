@@ -64,7 +64,7 @@
 use num_rational::Ratio;
 use num_traits::{One, Zero};
 
-use crate::group::GlobalForm;
+use crate::lie::GlobalForm;
 
 use super::{BcdError, Series};
 

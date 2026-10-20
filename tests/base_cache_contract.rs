@@ -13,8 +13,11 @@
 //! local caches in `src/cache.rs`; here we prove the aggregate retained-charge cap, the
 //! per-tier/total statistic coherence, hit/miss accounting, and reset zeroing.
 
+#[path = "common/a1.rs"]
+mod a1;
+use a1::exact_f;
 use fusion_symbols::cache::{self, BASE_CACHE_MAX_BYTES};
-use fusion_symbols::{su2_f_symbol, wigner_3j, wigner_6j};
+use fusion_symbols::lie::su2::{wigner_3j, wigner_6j};
 
 #[test]
 fn base_cache_resource_contract() {
@@ -33,16 +36,16 @@ fn base_cache_resource_contract() {
         "one miss then one hit on the 3j tier"
     );
 
-    // 6j: `wigner_6j` (and, below, `su2_f_symbol`) can populate this tier, so
+    // 6j: `wigner_6j` (and, below, `exact_f`) can populate this tier, so
     // assert monotone accounting rather than exact deltas.
     let _ = wigner_6j(2, 2, 2, 2, 2, 2); // miss
     let _ = wigner_6j(2, 2, 2, 2, 2, 2); // hit
     let s = cache::base_cache_stats();
     assert!(s.six_j.misses >= 1 && s.six_j.hits >= 1, "6j miss+hit");
 
-    // derived-F: `su2_f_symbol` owns this tier.
-    let _ = su2_f_symbol(2, 2, 2, 2, 2, 2); // miss
-    let _ = su2_f_symbol(2, 2, 2, 2, 2, 2); // hit
+    // derived-F: `exact_f` owns this tier.
+    let _ = exact_f(2, 2, 2, 2, 2, 2); // miss
+    let _ = exact_f(2, 2, 2, 2, 2, 2); // hit
     let s = cache::base_cache_stats();
     assert!(
         s.derived_f.misses >= 1 && s.derived_f.hits >= 1,
@@ -58,7 +61,7 @@ fn base_cache_resource_contract() {
                 let _ = wigner_3j(a, b, c, 0, 0, 0);
                 let _ = wigner_6j(a, b, c, a, b, c);
                 // derived-F sweep.
-                let _ = su2_f_symbol(a, b, c, a, b, c);
+                let _ = exact_f(a, b, c, a, b, c);
             }
         }
     }

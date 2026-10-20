@@ -6,24 +6,27 @@
 //! sum is independent of the `twist()` implementations, which return a
 //! constant without generating any R-symbol.
 
-use fusion_symbols::{su2_r_symbol, su2_twist, Su2Irrep};
+#[path = "common/a1.rs"]
+mod a1;
+use a1::{exact_r, twist};
+use fusion_symbols::category::FusionCategory;
 
 #[cfg(feature = "cgc-gen")]
 const TOL: f64 = 1e-10;
 
 #[test]
-fn su2_twist_matches_r_symbol_formula_up_to_j5() {
+fn twist_matches_r_symbol_formula_up_to_j5() {
     for dj in 0..=10u32 {
-        let a = Su2Irrep::new(dj);
-        let sum: f64 = a
-            .fusion(a)
+        let a = a1::ir(dj);
+        let sum: f64 = a1::group()
+            .fusion(&a, &a)
             .unwrap()
-            .map(|c| c.dim() as f64 * su2_r_symbol(dj, dj, c.dj()))
+            .map(|c| a1::group().dim(&c) * exact_r(dj, dj, c.dynkin()[0] as u32))
             .sum();
-        let theta = sum / a.dim() as f64;
+        let theta = sum / a1::group().dim(&a);
         // Integer-valued sum: exact, no tolerance needed.
         assert_eq!(theta, 1.0, "R-formula twist for dj = {dj}");
-        assert_eq!(su2_twist(dj), theta, "su2_twist({dj})");
+        assert_eq!(twist(dj), theta, "twist({dj})");
     }
 }
 
@@ -66,7 +69,7 @@ fn sun_twist_matches_r_symbol_formula() {
 #[test]
 fn bcd_twist_matches_r_symbol_formula() {
     use fusion_symbols::bcd::{directproduct, r_symbol, CanonicalCatalog, Irrep, Series};
-    use fusion_symbols::group::GroupId;
+    use fusion_symbols::lie::GroupId;
 
     // Spin(5): vector 5 and spinor 4 (quaternionic); Sp(4): defining 4
     // (quaternionic) and 5; Spin(6): vector 6 and the non-self-dual spinor 4.

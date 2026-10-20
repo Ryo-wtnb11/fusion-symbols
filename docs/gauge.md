@@ -52,7 +52,7 @@ with no signal anywhere. Under this freeze the arrow points the other way:
   have.
 - The **authority fingerprints are the version of this specification**, not a
   label for the current build's output. `sun_authority_fingerprint()`,
-  `bcd_authority_fingerprint()`, and `su2_authority_fingerprint()` change only
+  `bcd_authority_fingerprint()`, and `FusionCategory::authority_fingerprint()` change only
   when the specification they cite is corrected.
 - The fingerprint strings keep their `racah:` prefix **permanently**: they are
   identifiers, not a crate name. The rename to `fusion-symbols` does not change
@@ -68,7 +68,7 @@ correction**, and it requires, in the same change:
    the defect it corrects stated — what the old rule got wrong, not merely what
    the new rule says.
 2. **A fingerprint bump.** The affected family's `epoch=N` tag incremented in
-   `su2.rs:su2_authority_fingerprint` / `sun.rs:sun_authority_fingerprint` /
+   `lie/su2.rs::fingerprint` / `sun.rs:sun_authority_fingerprint` /
    `bcd.rs:bcd_authority_fingerprint`, and the pinned literal in the matching
    `tests/*_fingerprint.rs` updated in the same PR. Epochs are per-family and
    independent: correcting the SU(N) spec never invalidates SU(2)- or
@@ -397,40 +397,40 @@ The base (no-feature) SU(2) path has no free basis to fix: every coefficient is 
 closed-form expression in exact big-rational arithmetic, so its "gauge" is the
 set of **phase, normalization, and argument-order conventions** the formulas are
 written in. They are normative on the same terms as §1–§11, and are the
-conventions the `su2_authority_fingerprint` tags name.
+conventions the `FusionCategory::authority_fingerprint` tags name.
 
 - **Evaluation model — `model=bigrational-round-once`.** Every value is computed
   as a big-rational Racah sum carried as `exact.rs:SignedSqrtRational` (a signed
   rational under a square root) with a **single final rounding** to `f64`
-  (`su2.rs` module docs). No intermediate rounding: the dimension factors fold
+  (`lie/su2.rs` module docs). No intermediate rounding: the dimension factors fold
   into the radicand (`times_sqrt_int`) and phases into the sign. Where the
-  presented value is `f64` (`su2.rs:su2_f_symbol`) it is a *presentation* of that
+  presented value is `f64` (`lie/su2.rs::f_symbol`) it is a *presentation* of that
   same exact value, never an independent computation. This is value-fixing: a
   differently-associated float evaluation is a different (worse) value.
-- **3j — `3j=condon-shortley`.** `su2.rs:wigner_3j` (`wigner_3j_uncached`): the
+- **3j — `3j=condon-shortley`.** `lie/su2.rs:wigner_3j` (`wigner_3j_uncached`): the
   Condon–Shortley phase convention, evaluated by the prime-factorized Racah
   single sum (`primefactor.rs`). Non-admissible labels return exact zero, never
   an error and never a panic.
-- **6j — `6j=racah-single-sum`.** `su2.rs:wigner_6j` (`wigner_6j_uncached`): the
+- **6j — `6j=racah-single-sum`.** `lie/su2.rs:wigner_6j` (`wigner_6j_uncached`): the
   Racah single-sum closed form, with the triangle coefficients from
-  `su2.rs:delta_sq_pf`.
-- **Clebsch–Gordan — `cg=condon-shortley`.** `su2.rs:clebsch_gordan`, composed
+  `lie/su2.rs:delta_sq_pf`.
+- **Clebsch–Gordan — `cg=condon-shortley`.** `lie/su2.rs:clebsch_gordan`, composed
   from the 3j as
   $\sqrt{dj_3+1}\,(-1)^{(dj_2-dj_1-dm_3)/2}\, \begin{pmatrix} dj_1 & dj_2 & dj_3 \\ dm_1 & dm_2 & -dm_3\end{pmatrix}$.
   Both the $\sqrt{dj_3+1}$ normalization and the sign are part of the gauge:
   this is its own convention, not inherited from the 3j.
-- **F symbol — `f=tks-su2irrep`.** `su2.rs:f_symbol_exact` is the value
+- **F symbol — `f=tks-su2irrep`.** `lie/su2.rs:f_symbol_exact` is the value
   authority:
   $F = (-1)^{j_1+j_2+j_3+j_4}\sqrt{(dj_5+1)(dj_6+1)}\; \{dj_1\,dj_2\,dj_5 / dj_3\,dj_4\,dj_6\}$,
   matching TensorKitSectors `su2irrep.jl:Fsymbol`. **The 6j argument order is
   gauge**, not an implementation detail — a permuted argument order is a
   different F convention with the same 6j.
-- **R symbol — `r=tks-su2irrep`.** `su2.rs:su2_r_symbol`: $(-1)^{j_1+j_2-j_3}$ on
-  an admissible triangle, exact `0.0` otherwise (TensorKitSectors
+- **R symbol — `r=tks-su2irrep`.** `lie/su2.rs::r_symbol`: $(-1)^{j_1+j_2-j_3}$ on
+  an admissible triangle, exact zero otherwise (an empty category block) (TensorKitSectors
   `su2irrep.jl:Rsymbol`). The zero on a non-admissible triple mirrors
   `Nsymbol == 0` and is normative: it is what stops a caller multiplying a
   spurious sign into a forbidden channel.
-- **Frobenius–Schur — `fs=tks-su2irrep`.** `su2.rs:su2_frobenius_schur`:
+- **Frobenius–Schur — `fs=tks-su2irrep`.** `lie/su2.rs::fs_phase`:
   $(-1)^{dj}$, i.e. `+1` for integer `j` and `-1` for half-integer. Tagged
   separately from `r` because it is a distinct formula, not the R convention.
 
@@ -438,7 +438,7 @@ conventions the `su2_authority_fingerprint` tags name.
 
 - The **doubled-spin label encoding** `dj = 2j`. It is input addressing / API
   shape; changing it would be an API break that leaves every value unchanged.
-- The **canonical Regge keys** (`su2.rs:canonical_regge_3j`,
+- The **canonical Regge keys** (`lie/su2.rs:canonical_regge_3j`,
   `canonical_regge_6j`, `canonicalize3j`). These canonicalize a symbol onto a
   representative of its symmetry class *for caching*, carrying the compensating
   phase so the returned value is identical either way. They are value-neutral by

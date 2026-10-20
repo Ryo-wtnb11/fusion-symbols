@@ -27,7 +27,19 @@ value/gauge rule noted below.
   coupling through corrected frames may also move; invalidate persisted B/C/D
   coefficients using the new fingerprint. SU(2)/SU(N) epochs are unchanged.
 
-- **Category interface (#146):** `category::FusionCategory` replaces
+- **Category interface (#146):** Slice 3 adds `lie::LieGroup`,
+  `LieIrrep`, `LieFusion`, `LieError` and `LieCgc` for A(1), B(1), C(1).
+  `group` items move to `lie`; exact SU(2) evaluators, checked forms,
+  Regge types and `SignedSqrtRational` move to `lie::su2`; root re-exports
+  are removed. `Su2Irrep`, `Su2Fusion`, `su2_f_symbol(_checked)`,
+  `su2_r_symbol(_checked)`, `su2_frobenius_schur`, `su2_twist` and
+  `su2_authority_fingerprint` are replaced by category methods.
+  `Su2Error` remains for exact checked evaluators. `FBlock`/`RBlock`
+  move to base `lie` storage with allocation-free `one` constructors;
+  generated-family re-exports remain. SU(2) values and fingerprints are
+  unchanged for every rank-one form. Python-visible names remain unchanged.
+  Higher-rank LieGroup dispatch is deferred to slice 4.
+  The existing interface `category::FusionCategory` replaces
   abelian per-object `dim`, `dual`, `frobenius_schur`, `twist`, `fusion`
   methods and all `z2_*`, `zn_*`, `u1_*`, `fermion_parity_*` free functions
   (including `_checked` and authority fingerprint functions).

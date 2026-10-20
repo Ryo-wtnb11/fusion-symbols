@@ -258,3 +258,6 @@ API reference: every function and method with its precise types, array shapes,
 axis semantics and raised exceptions. The same information is in each object's
 `__doc__` (`help(racah.clebsch_gordan)`). For the underlying per-item
 semantics, [docs.rs/fusion-symbols](https://docs.rs/fusion-symbols).
+
+Python-visible SU(2) names are unchanged. Their Rust implementations now use
+`lie::su2` for exact evaluators and `LieGroup` for category symbols.

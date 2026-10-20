@@ -4,7 +4,7 @@ use fusion_symbols::cache::{
     base_cache_stats, cache_budgets, configure_cache_budgets, reset, CacheBudgetError,
     CoefficientCacheBudgets, CoefficientCacheTier,
 };
-use fusion_symbols::wigner_6j;
+use fusion_symbols::lie::su2::wigner_6j;
 
 #[test]
 fn zero_budget_is_retryable_then_compute_without_retention() {

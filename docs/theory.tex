@@ -151,8 +151,8 @@ form; Section~\ref{sec:racah} then says which entries of the classification
 \code{racah} actually computes for and by which code path. Everything after
 that --- highest weights, bases, fusion, CGC, $F$ and $R$ --- refers back to
 those three sections rather than re-deriving where the families come from.
-This mirrors the crate: \code{group::RootSystem} carries all nine families and
-\code{group::GroupId} is a root system paired with a global form.
+This mirrors the crate: \code{lie::RootSystem} carries all nine families and
+\code{lie::GroupId} is a root system paired with a global form.
 
 \paragraph{Two constructions, two normative documents.} The crate has three
 coefficient engines but only two constructions. $SU(2)$ is evaluated from
@@ -224,7 +224,7 @@ Overlines denote complex conjugation, daggers Hermitian adjoints.
 
 Every group \code{racah} computes for is a compact form of one entry in a
 finite classification, and the crate's type system is a transcription of that
-classification: \code{fusion\_symbols::group::RootSystem} has exactly nine variants,
+classification: \code{fusion\_symbols::lie::RootSystem} has exactly nine variants,
 one per family. This section states the classification, draws its diagrams in
 the numbering the API uses, and records the rank conventions that make the
 list irredundant. It is the backbone the rest of the note hangs off.

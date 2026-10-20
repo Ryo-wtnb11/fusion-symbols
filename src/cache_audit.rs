@@ -4,9 +4,9 @@ use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 use crate::cache;
+use crate::lie::su2::{f_symbol as exact_f, wigner_3j, wigner_6j};
 use crate::primefactor;
 use crate::sun::{cgc, directproduct, f_symbol, shared_directproduct, Irrep};
-use crate::{su2_f_symbol, wigner_3j, wigner_6j};
 
 fn irr(dynkin: &[i64]) -> Irrep {
     Irrep::from_dynkin(dynkin).unwrap()
@@ -127,7 +127,7 @@ fn clone_slope<T>(label: &str, make: impl Fn() -> T) {
 fn su2() {
     let _ = wigner_3j(20, 20, 20, 0, 0, 0);
     let _ = wigner_6j(60, 60, 60, 60, 60, 60);
-    let _ = su2_f_symbol(2, 2, 2, 2, 2, 2);
+    let _ = exact_f(2, 2, 2, 2, 2, 2);
 }
 
 fn su2_no_reuse() {
@@ -136,7 +136,7 @@ fn su2_no_reuse() {
     cache::reset();
     let _ = wigner_6j(60, 60, 60, 60, 60, 60);
     cache::reset();
-    let _ = su2_f_symbol(2, 2, 2, 2, 2, 2);
+    let _ = exact_f(2, 2, 2, 2, 2, 2);
 }
 
 fn su3() {

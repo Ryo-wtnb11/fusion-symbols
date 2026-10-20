@@ -5,7 +5,7 @@
 //! A global form only selects admissible labels; it changes no coefficient
 //! value (the cross-global-form section checks this).
 
-use fusion_symbols::group::{
+use fusion_symbols::lie::{
     d_odd_central_class, CenterSubgroup, GlobalForm, GroupError, GroupId, RootSystem,
 };
 
