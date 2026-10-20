@@ -592,8 +592,8 @@ mod tests {
         );
         let fibonacci = crate::tables::TableCategory::fibonacci();
         for other in [
-            crate::abelian::u1_authority_fingerprint(),
-            crate::abelian::z2_authority_fingerprint(),
+            crate::abelian::U1_FINGERPRINT,
+            crate::abelian::LEGACY_PARITY_FINGERPRINT,
             fibonacci.authority_fingerprint(),
         ] {
             assert_ne!(cu1_authority_fingerprint(), other);

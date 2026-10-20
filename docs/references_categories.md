@@ -1,17 +1,26 @@
-# Provenance: non-Lie categories (`abelian`, `cu1`, `tables`)
+# Provenance: non-Lie categories (`abelian`, `fermion`, `cu1`, `tables`)
 
-## Abelian groups (`abelian` module)
+## Abelian groups and fermion parity (`abelian` and `fermion` modules)
 
 | Field | Value |
 | --- | --- |
 | Reference | TensorKitSectors.jl `0.3.9`, git `67d342a130bd9e31caf3eccbf9ca46ec8b088556` (registry git-tree-sha1 `9f536263310aae90df175337d586a1655104aae3`; `src/` identical to `~/.julia/packages/TensorKitSectors/VuA9Z`) |
 | Z2, Z_N, U(1): `Nsymbol`, `Fsymbol`, `Rsymbol`, FS phase | `src/irreps/irreps.jl`: `Nsymbol` (l. 57), `Fsymbol` (l. 58), `frobenius_schur_phase(::AbelianIrrep)` (l. 62), `Rsymbol` (l. 65); `BraidingStyle(::AbstractIrrep) = Bosonic()` (l. 17) |
-| Z_N labels, dual, fusion | `src/irreps/znirrep.jl`: `ZNIrrep{N}(n) = mod(n, N)` (l. 24), `dual` (l. 82), `⊗` (l. 83). The modulus is a runtime `u32` carried by the label (as in symtn), not a type parameter |
+| Z_N labels, dual, fusion | `src/irreps/znirrep.jl`: `ZNIrrep{N}(n) = mod(n, N)` (l. 24), `dual` (l. 82), `⊗` (l. 83). The modulus is a runtime `u32` carried by both `ZN` and `ZNIrrep`, not a type parameter. `new` reduces charges; `from_canonical` rejects noncanonical charges without reduction |
 | U(1) labels, dual, fusion | `src/irreps/u1irrep.jl`: `dual` (l. 30), `⊗` (l. 31). TKS stores a `HalfInt`; here integer `i32` charges without `i32::MIN` (as in symtn); half-integer charges are not representable |
 | Fermion parity | `src/fermions.jl`: `dual` (l. 34), `dim` (l. 35), `BraidingStyle = Fermionic()` (l. 39), `⊗` (l. 43), `Nsymbol` (l. 45), `Fsymbol` (l. 48), `Rsymbol` (l. 51), `twist` (l. 54); FS phase from the generic `src/sectors.jl:frobenius_schur_phase_from_Fsymbol` (l. 461) |
 | `dim`, bosonic twist | generic `src/sectors.jl:dim_from_Fsymbol` (UniqueFusion → 1, l. 429) and `twist_from_Rsymbol` (l. 646) |
 | Scalars | `f64` (exact ±1, 0); TKS declares `Int`. TKS values checked by hand in `src/abelian.rs::tests::matches_measured_tensorkitsectors_values` |
 | Ported implementation | [symtn](https://github.com/Ryo-wtnb11/symtn-rs) `symtn-sectors/src/abelian.rs` at `49d09dc4fc0825b29d547e63a70014221c0c5406`; two deliberate differences: an inadmissible F or R is `0.0` here (symtn returns `±1.0` unchecked), and U(1) `N` is the exact `0` where `a + b` leaves `i32` (symtn's checked N fails) |
+
+The public surface is `category::FusionCategory`, implemented by
+`abelian::{U1, ZN}` and `fermion::FermionParity`; the parity label is
+`fermion::FermionParityIrrep`. Z2 is `ZN::new(2)`. Foreign moduli panic before
+computation. Inadmissible symbols are zero; `Error` is `Infallible` for ZN
+and parity, while U(1) fusion reports label overflow. FS indicator is the FS
+phase for self-dual objects and zero otherwise
+(`src/sectors.jl::frobenius_schur_indicator`). Generic identities are checked
+in `tests/category_conformance.rs::category_identities`.
 
 ## CU(1) = U(1) ⋊ C (`cu1` module)
 

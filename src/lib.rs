@@ -35,7 +35,9 @@
 //! | SO(N), Spin(N), Sp(2r) — generator bootstrap, B/C/D series | [`bcd`] (`cgc-gen`) |
 //! | Which highest weights a global form admits | [`group`] |
 //! | Cache ceilings, budgets, statistics | [`cache`] |
-//! | Z2, Z_N, U(1), fermion parity in closed form (TensorKitSectors `ZNIrrep`, `U1Irrep`, `FermionParity`) | [`abelian`] |
+//! | Shared category contract, styles and scalar symbol storage | [`category`] |
+//! | U(1), Z_N (including Z2) in closed form | [`abelian::U1`], [`abelian::ZN`] |
+//! | Fermion parity in closed form | [`fermion::FermionParity`] |
 //! | CU(1) = U(1) ⋊ C (`O(2)`) in closed form (TensorKitSectors `CU1Irrep`) | [`cu1`] |
 //! | Finite multiplicity-free unitary categories (Fibonacci, Ising, …, rank ≤ 4; rank ≤ 7 with `anyonwiki-unitary`) from pinned AnyonWiki tables (exact symbols, correctly rounded) | [`tables`] |
 //!
@@ -43,17 +45,17 @@
 //!
 //! Finite fusion categories have finite data, so their modules are closed
 //! forms or pinned, provenance-tracked tables, never a runtime construction,
-//! and need no feature flag. They follow the same per-family convention as
-//! [`su2`]: a label type with `dim` / `dual` / `frobenius_schur` / `twist` /
-//! `fusion`; `nsymbol` / `f_symbol` / `r_symbol` returning exact zero for an
-//! inadmissible request, plus `_checked` variants with a typed
-//! `NotAdmissible` error; and an opaque authority fingerprint. Index order,
-//! scalar types follow TensorKitSectors.jl (`F^{abc}_d[e, f]` with
-//! `e ∈ a ⊗ b`, `f ∈ b ⊗ c`; `R^{ab}_c`); braided values are
-//! [`num_complex::Complex64`], except in [`abelian`] and [`cu1`], whose
-//! braiding is real and whose symbols are `f64`. The closed forms use
-//! TensorKitSectors' gauge; [`tables`] uses AnyonWiki's (gauge-equivalent, and
-//! for Fibonacci identical).
+//! and need no feature flag. [`abelian`] and [`fermion`] expose their
+//! validated objects through [`category::FusionCategory`]: N = 0 is a value,
+//! F/R return zero for inadmissible vertices, and errors mean genuine failure
+//! or an absent capability. Foreign objects panic. Logical symbol shape comes
+//! from N; scalar storage has all-one axes even for a zero symbol.
+//! [`cu1`] and [`tables`] retain their per-family methods and checked APIs.
+//! Index order follows TensorKitSectors.jl (`F^{abc}_d[e, f]` with
+//! `e ∈ a ⊗ b`, `f ∈ b ⊗ c`; `R^{ab}_c`). Symbols in [`abelian`],
+//! [`fermion`] and [`cu1`] are `f64`; [`tables`] uses
+//! [`num_complex::Complex64`]. Closed forms use TensorKitSectors' gauge;
+//! [`tables`] uses AnyonWiki's (gauge-equivalent, and for Fibonacci identical).
 //! Provenance: [`docs/references_categories.md`].
 //!
 //! # Layers
@@ -251,15 +253,12 @@ pub mod bcd;
 #[cfg(feature = "cgc-gen")]
 mod frcore;
 
-// ponytail: no provider trait across families. Each family is a module with
-// the same function names (as su2/sun/bcd already are); a trait is introduced
-// when the Deligne-product slice needs to be generic over its factor
-// categories.
-
 // Module docs are the files' inner `//!` docs: an outer `///` here would make
 // rustdoc resolve their intra-doc links in the crate-root scope.
 pub mod abelian;
+pub mod category;
 pub mod cu1;
+pub mod fermion;
 pub mod tables;
 
 pub use exact::SignedSqrtRational;

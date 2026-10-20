@@ -28,7 +28,9 @@ Supported symmetries:
 - SU(2), exact (default);
 - SU(N), SU(N)/Z_k, PSU(N), SO(N), Spin(N), Sp(2N), generated at run time
   (`cgc-gen` feature);
-- Z2, Z_N, U(1), fermion parity and CU(1) = U(1) ⋊ C, closed form (default);
+- U(1), Z_N (including Z2) and fermion parity via `category::FusionCategory`
+  (`abelian::{U1, ZN}`, `fermion::FermionParity`), closed form (default);
+- CU(1) = U(1) ⋊ C, closed form with its existing per-family API (default);
 - the unitary multiplicity-free AnyonWiki categories of rank ≤ 4, Fibonacci
   and Ising among them (default; rank 5–7 with `anyonwiki-unitary`).
 
