@@ -167,6 +167,17 @@ impl<S: Scalar> RBlock<S> {
         }
     }
 
+    /// `n × n` row-major data; a single entry is stored inline.
+    pub(crate) fn from_row_major(n: usize, mut data: impl ExactSizeIterator<Item = S>) -> Self {
+        debug_assert_eq!(data.len(), n * n);
+        let data = match data.len() {
+            0 => Storage::Empty,
+            1 => Storage::One(data.next().expect("one entry")),
+            _ => Storage::Shared(data.collect()),
+        };
+        Self { n, data }
+    }
+
     pub(crate) fn zeros(n: usize) -> Self {
         Self::from_vec(n, vec![S::zero(); n * n])
     }
@@ -263,5 +274,14 @@ mod tests {
             FBlock::from_vec([0, 1, 1, 1], vec![])
         );
         assert_eq!(RBlock::one(-1.0), RBlock::from_vec(1, vec![-1.0]));
+        // A/B blocks: a single entry stays inline, an absent channel is empty.
+        assert!(matches!(
+            RBlock::from_row_major(1, std::iter::once(-1.0)).data,
+            Storage::One(-1.0)
+        ));
+        assert!(matches!(
+            RBlock::<f64>::from_row_major(0, std::iter::empty()).data,
+            Storage::Empty
+        ));
     }
 }

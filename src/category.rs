@@ -339,6 +339,77 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         b: &Self::Object,
         c: &Self::Object,
     ) -> Result<Self::RSymbol, Self::Error>;
+    /// `A^{ab}_c`, which turns a splitting vertex `c → a ⊗ b` into a fusion
+    /// vertex `ā ⊗ c → b` (TensorKitSectors 0.3.9,
+    /// `src/sectors.jl::Asymbol_from_Fsymbol`):
+    ///
+    /// ```text
+    /// A^{ab}_c[μ, ν] = √d_a √d_b / √d_c · conj(κ_a · F^{ā a b}_b[𝟙, c][0, 0, μ, ν])
+    /// ```
+    ///
+    /// with `κ_a` the [Frobenius–Schur phase](Self::frobenius_schur_phase)
+    /// (not the indicator). Logical axes are `[N(a,b,c), N(ā,c,b)]`, row
+    /// `μ`, column `ν`; the two vertices through `𝟙` have multiplicity one.
+    /// `N(a,b,c) = 0` gives the empty `0 × 0` block. Braiding is not needed.
+    ///
+    /// A and B are returned as [`RBlock`] regardless of the category's
+    /// [`Self::RSymbol`] type, so the default works for every category; a
+    /// `1 × 1` block is stored inline without allocation. The default
+    /// evaluates that F; a category may override it with the same values.
+    /// Errors are those of F.
+    ///
+    /// # Panics
+    /// Panics on foreign objects. The default also panics if the F block's
+    /// size disagrees with `N(a,b,c)`.
+    fn a_symbol(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+    ) -> Result<RBlock<Self::Scalar>, Self::Error> {
+        let n = self.nsymbol(a, b, c) as usize;
+        if n == 0 {
+            return Ok(rank2_block(n, std::iter::empty()));
+        }
+        let f = self.f_symbol(&self.dual(a), a, b, b, &self.unit(), c)?;
+        let kappa = self.frobenius_schur_phase(a);
+        let scale = vertex_scale(self, a, b, c);
+        Ok(rank2_block(
+            n,
+            f.as_slice().iter().map(|&x| scale * (kappa * x).conj()),
+        ))
+    }
+    /// `B^{ab}_c`, which turns a splitting vertex `c → a ⊗ b` into a fusion
+    /// vertex `c ⊗ b̄ → a` (TensorKitSectors 0.3.9,
+    /// `src/sectors.jl::Bsymbol_from_Fsymbol`):
+    ///
+    /// ```text
+    /// B^{ab}_c[μ, ν] = √d_a √d_b / √d_c · F^{a b b̄}_a[c, 𝟙][μ, ν, 0, 0]
+    /// ```
+    ///
+    /// Logical axes are `[N(a,b,c), N(c,b̄,a)]`, row `μ`, column `ν`.
+    /// `N(a,b,c) = 0` gives the empty `0 × 0` block. Braiding is not needed.
+    ///
+    /// Returned as [`RBlock`] regardless of [`Self::RSymbol`], as for
+    /// [`Self::a_symbol`]. The default evaluates that F; a category may
+    /// override it with the same values. Errors are those of F.
+    ///
+    /// # Panics
+    /// As for [`Self::a_symbol`].
+    fn b_symbol(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+    ) -> Result<RBlock<Self::Scalar>, Self::Error> {
+        let n = self.nsymbol(a, b, c) as usize;
+        if n == 0 {
+            return Ok(rank2_block(n, std::iter::empty()));
+        }
+        let f = self.f_symbol(a, b, &self.dual(b), a, c, &self.unit())?;
+        let scale = vertex_scale(self, a, b, c);
+        Ok(rank2_block(n, f.as_slice().iter().map(|&x| scale * x)))
+    }
     /// Opaque convention bytes; compare by equality, never parse.
     fn authority_fingerprint(&self) -> &[u8];
 
@@ -454,6 +525,59 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         );
         Ok(block)
     }
+    #[doc(hidden)]
+    fn __fusion_symbols_validated_a_symbol(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+        _: sealed::Validated,
+    ) -> Result<RBlock<Self::Scalar>, Self::Error> {
+        let block = self.a_symbol(a, b, c)?;
+        let n = [self.nsymbol(a, b, c), self.nsymbol(&self.dual(a), c, b)];
+        assert!(
+            block.dims() == n.map(|n| n as usize),
+            "A block shape disagrees with its N symbols"
+        );
+        Ok(block)
+    }
+    #[doc(hidden)]
+    fn __fusion_symbols_validated_b_symbol(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+        _: sealed::Validated,
+    ) -> Result<RBlock<Self::Scalar>, Self::Error> {
+        let block = self.b_symbol(a, b, c)?;
+        let n = [self.nsymbol(a, b, c), self.nsymbol(c, &self.dual(b), a)];
+        assert!(
+            block.dims() == n.map(|n| n as usize),
+            "B block shape disagrees with its N symbols"
+        );
+        Ok(block)
+    }
+}
+
+// `√d_a √d_b / √d_c`, the normalization shared by A and B.
+fn vertex_scale<C: FusionCategory>(
+    cat: &C,
+    a: &C::Object,
+    b: &C::Object,
+    c: &C::Object,
+) -> C::Scalar {
+    C::Scalar::from_f64(cat.dim(a).sqrt() * cat.dim(b).sqrt() / cat.dim(c).sqrt())
+}
+
+// The square `n × n` A or B block from row-major data (`N(a,b,c)` equals
+// `N(ā,c,b)` and `N(c,b̄,a)` by Frobenius reciprocity).
+fn rank2_block<S: Scalar>(n: usize, data: impl ExactSizeIterator<Item = S>) -> RBlock<S> {
+    assert_eq!(
+        data.len(),
+        n * n,
+        "F block size disagrees with its N symbols"
+    );
+    RBlock::from_row_major(n, data)
 }
 
 /// Group categories that additionally provide Clebsch–Gordan data.

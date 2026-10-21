@@ -15,8 +15,8 @@
 //!    pentagon, hexagon and the ribbon relation. They are never generators.
 //!
 //! The planar tensor workflow of the original symtn file needs a tensor
-//! engine and stays with the consumer. The A/B symbols are derived by the
-//! consumer and are not part of this crate.
+//! engine and stays with the consumer. A/B symbols are checked in
+//! `tests/ab_symbols.rs`.
 
 use fusion_symbols::category::FusionCategory;
 use std::collections::HashMap;

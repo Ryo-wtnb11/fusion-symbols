@@ -3,7 +3,7 @@
 //! Labels exclude `i32::MIN` so every dual is representable. Symbols are
 //! exact `f64` zeros and ones; inadmissible vertices give zero, not errors.
 
-use crate::category::{BraidingStyle, FusionCategory, FusionStyle, GroupRepresentations};
+use crate::category::{BraidingStyle, FusionCategory, FusionStyle, GroupRepresentations, RBlock};
 
 /// An unrepresentable U(1) charge, requested directly or produced by fusion.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -145,6 +145,22 @@ impl FusionCategory for U1 {
     }
     fn r_symbol(&self, a: &U1Irrep, b: &U1Irrep, c: &U1Irrep) -> Result<f64, Self::Error> {
         Ok(f64::from(self.nsymbol(a, b, c)))
+    }
+    // TensorKitSectors `irreps.jl` (AbelianIrrep): A and B are N, since every
+    // admissible F and every dimension is one.
+    fn a_symbol(&self, a: &U1Irrep, b: &U1Irrep, c: &U1Irrep) -> Result<RBlock<f64>, Self::Error> {
+        Ok(if self.nsymbol(a, b, c) == 0 {
+            RBlock::zeros(0)
+        } else {
+            RBlock::one(1.0)
+        })
+    }
+    fn b_symbol(&self, a: &U1Irrep, b: &U1Irrep, c: &U1Irrep) -> Result<RBlock<f64>, Self::Error> {
+        Ok(if self.nsymbol(a, b, c) == 0 {
+            RBlock::zeros(0)
+        } else {
+            RBlock::one(1.0)
+        })
     }
     // F is the product of the four vertex N, so exactly `1` when admissible;
     // the unit is the self-dual identity charge.

@@ -3,7 +3,7 @@
 //! Labels are validated at construction. Symbols are exact `f64` zeros and
 //! ones, with unique fusion; inadmissible vertices give zero, not errors.
 
-use crate::category::{BraidingStyle, FusionCategory, FusionStyle};
+use crate::category::{BraidingStyle, FusionCategory, FusionStyle, RBlock};
 use std::{convert::Infallible, num::NonZeroU32};
 
 /// An invalid cyclic modulus or noncanonical charge.
@@ -212,6 +212,22 @@ impl FusionCategory for ZN {
     }
     fn r_symbol(&self, a: &ZNIrrep, b: &ZNIrrep, c: &ZNIrrep) -> Result<f64, Self::Error> {
         Ok(f64::from(self.nsymbol(a, b, c)))
+    }
+    // TensorKitSectors `irreps.jl` (AbelianIrrep): A and B are N, since every
+    // admissible F and every dimension is one.
+    fn a_symbol(&self, a: &ZNIrrep, b: &ZNIrrep, c: &ZNIrrep) -> Result<RBlock<f64>, Self::Error> {
+        Ok(if self.nsymbol(a, b, c) == 0 {
+            RBlock::zeros(0)
+        } else {
+            RBlock::one(1.0)
+        })
+    }
+    fn b_symbol(&self, a: &ZNIrrep, b: &ZNIrrep, c: &ZNIrrep) -> Result<RBlock<f64>, Self::Error> {
+        Ok(if self.nsymbol(a, b, c) == 0 {
+            RBlock::zeros(0)
+        } else {
+            RBlock::one(1.0)
+        })
     }
     // F is the product of the four vertex N, so exactly `1` when admissible;
     // the unit is the self-dual identity charge.

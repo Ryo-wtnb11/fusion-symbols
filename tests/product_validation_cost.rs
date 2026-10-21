@@ -113,10 +113,10 @@ impl FusionCategory for Counter {
 }
 
 /// Leaf calls `[dim, nsymbol, braiding_style, queried]` for each object query.
-fn costs<C: FusionCategory<Scalar = f64>>(cat: &C) -> [[usize; 4]; 9] {
+fn costs<C: FusionCategory<Scalar = f64>>(cat: &C) -> [[usize; 4]; 11] {
     let u = cat.unit();
     take();
-    let mut out = [[0; 4]; 9];
+    let mut out = [[0; 4]; 11];
     let mut record = |i: usize, value: f64| {
         assert_eq!(value, 1.0);
         out[i] = take();
@@ -132,23 +132,30 @@ fn costs<C: FusionCategory<Scalar = f64>>(cat: &C) -> [[usize; 4]; 9] {
     record(7, f.as_slice()[0]);
     let r = cat.r_symbol(&u, &u, &u).unwrap();
     record(8, r.as_slice()[0]);
+    let a = cat.a_symbol(&u, &u, &u).unwrap();
+    record(9, a.as_slice()[0]);
+    let b = cat.b_symbol(&u, &u, &u).unwrap();
+    record(10, b.as_slice()[0]);
     out
 }
 
-/// Exact leaf-call counts for a product of `k` leaf factors. F and R query N
-/// twice per leaf: once for the product shape and once to check that leaf's
-/// block against its own multiplicities.
-fn linear(k: usize) -> [[usize; 4]; 9] {
+/// Exact leaf-call counts for a product of `k` leaf factors. F, R, A and B
+/// query N twice per leaf: once for the product shape and once to check that
+/// leaf's block against its own multiplicities. A and B also count the leaf's
+/// default derivation (one N, one F, three dimensions, duals).
+fn linear(k: usize) -> [[usize; 4]; 11] {
     [
-        [k, 0, 0, 0],         // dim
-        [k, 0, 0, k],         // dual
-        [k, 0, 0, k],         // frobenius_schur_phase
-        [k, 0, 0, k],         // frobenius_schur_indicator
-        [k, 0, k, k],         // twist
-        [2 * k, 0, 0, k],     // fusion
-        [3 * k, k, 0, 0],     // nsymbol
-        [6 * k, 8 * k, 0, k], // f_symbol
-        [3 * k, 4 * k, k, k], // r_symbol
+        [k, 0, 0, 0],             // dim
+        [k, 0, 0, k],             // dual
+        [k, 0, 0, k],             // frobenius_schur_phase
+        [k, 0, 0, k],             // frobenius_schur_indicator
+        [k, 0, k, k],             // twist
+        [2 * k, 0, 0, k],         // fusion
+        [3 * k, k, 0, 0],         // nsymbol
+        [6 * k, 8 * k, 0, k],     // f_symbol
+        [3 * k, 4 * k, k, k],     // r_symbol
+        [6 * k, 5 * k, 0, 5 * k], // a_symbol (leaf default: dual, F, FS phase)
+        [6 * k, 5 * k, 0, 4 * k], // b_symbol (leaf default: dual, F)
     ]
 }
 
@@ -218,6 +225,8 @@ fn nested_foreign_objects_still_panic() {
         std::panic::catch_unwind(|| cat.f_symbol(&u, &u, &u, &u, &u, &bad).map(|_| ())).is_err()
     );
     assert!(std::panic::catch_unwind(|| cat.r_symbol(&u, &u, &bad).map(|_| ())).is_err());
+    assert!(std::panic::catch_unwind(|| cat.a_symbol(&bad, &u, &u).map(|_| ())).is_err());
+    assert!(std::panic::catch_unwind(|| cat.b_symbol(&u, &bad, &u).map(|_| ())).is_err());
 }
 
 /// Reports `N = 2` everywhere but returns 1x1 blocks.
@@ -275,6 +284,12 @@ impl FusionCategory for Malformed {
     fn r_symbol(&self, _: &u8, _: &u8, _: &u8) -> Result<RBlock<f64>, Infallible> {
         Ok(RBlock::one(1.0))
     }
+    fn a_symbol(&self, _: &u8, _: &u8, _: &u8) -> Result<RBlock<f64>, Infallible> {
+        Ok(RBlock::one(1.0))
+    }
+    fn b_symbol(&self, _: &u8, _: &u8, _: &u8) -> Result<RBlock<f64>, Infallible> {
+        Ok(RBlock::one(1.0))
+    }
     fn authority_fingerprint(&self) -> &[u8] {
         b"malformed"
     }
@@ -318,6 +333,26 @@ fn leaf_blocks_disagreeing_with_n_panic_in_every_build() {
         assert!(message.contains("F block shape disagrees"), "{message}");
         let message = panic_message(std::panic::catch_unwind(|| r(nested)));
         assert!(message.contains("R block shape disagrees"), "{message}");
+        for a in [true, false] {
+            let message = panic_message(std::panic::catch_unwind(|| {
+                fn ab<C: FusionCategory>(cat: &C, a: bool) {
+                    let u = cat.unit();
+                    let block = if a {
+                        cat.a_symbol(&u, &u, &u)
+                    } else {
+                        cat.b_symbol(&u, &u, &u)
+                    };
+                    block.map(|_| ()).unwrap()
+                }
+                if nested {
+                    ab(&deep, a)
+                } else {
+                    ab(&flat, a)
+                }
+            }));
+            let want = if a { "A block shape" } else { "B block shape" };
+            assert!(message.contains(want), "{message}");
+        }
     }
 }
 

@@ -35,6 +35,16 @@ value/gauge rule noted below.
   each `TableCategory` reads both off its stored F at construction (every
   shipped entry has a canonical unit; the untwisted pointed entries also have a
   trivial associator).
+- `FusionCategory::a_symbol` and `FusionCategory::b_symbol` return the
+  TensorKitSectors A- and B-symbols, `A^{ab}_c = √d_a √d_b / √d_c ·
+  conj(κ_a F^{ā a b}_b[𝟙, c])` and `B^{ab}_c = √d_a √d_b / √d_c ·
+  F^{a b b̄}_a[c, 𝟙]`, as `RBlock` matrices with axes `[N(a,b,c), N(ā,c,b)]`
+  and `[N(a,b,c), N(c,b̄,a)]`, whatever the category's `RSymbol` type. They
+  need no braiding, so fusion-only tables provide them. The provided defaults
+  evaluate that F for every category; `U1` and `ZN` return `N` as
+  TensorKitSectors' abelian irreps do, and products take the
+  last-factor-fastest Kronecker product of their factors' blocks. An absent
+  channel gives the empty `0 × 0` block; a `1 × 1` block does not allocate.
 
 ### Performance
 
