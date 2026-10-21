@@ -176,7 +176,7 @@ impl std::error::Error for SunError {}
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct Irrep {
     /// Normalized highest weight, length `N`, nonincreasing, last entry `0`.
-    weight: Box<[i64]>,
+    weight: Arc<[i64]>,
 }
 
 /// Order-normalized key for one SU(N) tensor-product decomposition.
@@ -259,12 +259,12 @@ pub(crate) fn public_directproduct_reconstructions() -> usize {
 impl crate::cache::CacheCharge for SunProduct {
     fn value_bytes(&self) -> usize {
         std::mem::size_of::<Self>()
-            .saturating_add(2 * std::mem::size_of::<usize>())
+            .saturating_add(crate::cache::ARC_COUNTS_BYTES)
             .saturating_add(std::mem::size_of_val(self.0.as_ref()))
             .saturating_add(
                 self.0
                     .iter()
-                    .map(|(irrep, _)| std::mem::size_of_val(irrep.weight.as_ref()))
+                    .map(|(irrep, _)| irrep.weight_bytes())
                     .sum::<usize>(),
             )
     }
@@ -272,11 +272,16 @@ impl crate::cache::CacheCharge for SunProduct {
 
 impl crate::cache::CacheKeyCharge for Irrep {
     fn key_bytes(&self) -> usize {
-        std::mem::size_of::<Self>().saturating_add(std::mem::size_of_val(self.weight.as_ref()))
+        std::mem::size_of::<Self>().saturating_add(self.weight_bytes())
     }
 }
 
 impl Irrep {
+    /// Shared weight allocation: counts plus payload.
+    fn weight_bytes(&self) -> usize {
+        crate::cache::ARC_COUNTS_BYTES.saturating_add(std::mem::size_of_val(self.weight.as_ref()))
+    }
+
     /// Construct from an `N`-component highest weight (any shift representative).
     ///
     /// Normalizes by subtracting the last component. Rejects an empty slice
@@ -294,7 +299,7 @@ impl Irrep {
             }
         }
         let last = weight[weight.len() - 1];
-        let norm: Box<[i64]> = weight.iter().map(|x| x - last).collect();
+        let norm: Arc<[i64]> = weight.iter().map(|x| x - last).collect();
         Ok(Irrep { weight: norm })
     }
 
@@ -309,14 +314,19 @@ impl Irrep {
                 dynkin: dynkin.to_vec(),
             });
         }
-        let n = dynkin.len() + 1;
-        let mut w = vec![0i64; n];
-        for i in (0..n - 1).rev() {
-            w[i] = w[i + 1] + dynkin[i];
-        }
-        Ok(Irrep {
-            weight: w.into_boxed_slice(),
-        })
+        // Suffix sums, emitted front to back so the exact-length iterator fills
+        // the shared allocation directly.
+        let mut suffix: i64 = dynkin.iter().sum();
+        let weight = dynkin
+            .iter()
+            .map(|&a| {
+                let w = suffix;
+                suffix -= a;
+                w
+            })
+            .chain([0])
+            .collect();
+        Ok(Irrep { weight })
     }
 
     /// The trivial (vacuum) SU(N) irrep — the all-zero weight of length `N`.
@@ -327,7 +337,7 @@ impl Irrep {
             return Err(SunError::EmptyLabel);
         }
         Ok(Irrep {
-            weight: vec![0i64; n].into_boxed_slice(),
+            weight: vec![0i64; n].into(),
         })
     }
 

@@ -7,6 +7,17 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Performance
+
+- Product object validation and shape queries now cost time linear in the
+  number of leaf factors, including for nested products, which previously
+  re-validated and recomputed shapes at every nesting level. Building F/R
+  blocks still scales with the block size, and fusion with the number of
+  outcomes. Values and errors are unchanged; a factor whose F or R block
+  disagrees with its own N symbols now panics in every build.
+- Cloning a generated A/B/C/D `LieIrrep` no longer allocates, so a warm
+  `fusion` over these groups yields its channel labels without allocation.
+
 ## [0.5.1] - 2026-10-21
 
 ### Added

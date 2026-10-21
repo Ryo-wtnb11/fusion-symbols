@@ -11,8 +11,8 @@
 //! these implementations currently restricts factors to owned category types;
 //! arbitrary borrowed providers are not promised.
 use crate::category::{
-    BraidingStyle, FBlock, FusionCategory, FusionStyle, Promote, RBlock, Scalar, Storage,
-    SymbolBlock,
+    sealed::Validated, BraidingStyle, FBlock, FusionCategory, FusionStyle, Promote, RBlock, Scalar,
+    Storage, SymbolBlock,
 };
 use std::{
     convert::Infallible,
@@ -266,12 +266,10 @@ fn shape<S, const R: usize>(factors: &[[u32; R]]) -> Option<[usize; R]> {
     Some(dims)
 }
 
-fn storage<B: SymbolBlock<R>, const R: usize>(
-    block: B,
-    dims: [u32; R],
-) -> ([usize; R], Storage<B::Scalar>) {
+fn storage<B: SymbolBlock<R>, const R: usize>(block: B) -> ([usize; R], Storage<B::Scalar>) {
+    let dims = block.dims();
     (
-        dims.map(|n| n as usize),
+        dims,
         if dims == [1; R] {
             Storage::One(block.get([0; R]))
         } else {
@@ -284,10 +282,10 @@ fn storage<B: SymbolBlock<R>, const R: usize>(
 fn kron<A: Scalar + Promote<B::Scalar>, B: SymbolBlock<R>, const R: usize>(
     left_dims: [usize; R],
     left: Storage<A>,
-    right_dims: [u32; R],
     right: B,
 ) -> ([usize; R], Storage<<A as Promote<B::Scalar>>::Output>) {
-    let dims = std::array::from_fn(|i| left_dims[i] * right_dims[i] as usize);
+    let right_dims = right.dims();
+    let dims = std::array::from_fn(|i| left_dims[i] * right_dims[i]);
     let entry = |mut flat: usize| {
         let mut l = 0;
         let mut stride = 1;
@@ -295,9 +293,9 @@ fn kron<A: Scalar + Promote<B::Scalar>, B: SymbolBlock<R>, const R: usize>(
         for axis in (0..R).rev() {
             let digit = flat % dims[axis];
             flat /= dims[axis];
-            l += digit / right_dims[axis] as usize * stride;
+            l += digit / right_dims[axis] * stride;
             stride *= left_dims[axis];
-            r[axis] = digit % right_dims[axis] as usize;
+            r[axis] = digit % right_dims[axis];
         }
         A::left(left.as_slice()[l]) * A::right(right.get(r))
     };
@@ -337,68 +335,103 @@ macro_rules! impl_product {
                 else if styles.contains(&Fermionic) { Fermionic } else { Bosonic }
             }
             fn unit(&self) -> Self::Object { (self.factors.0.unit(), $(self.factors.$i.unit(),)+) }
+            // Public queries validate every leaf object once through `dim`, which
+            // never re-validates, then use the `__fusion_symbols_validated_*` paths below.
             fn dual(&self, a: &Self::Object) -> Self::Object {
-                self.factors.0.dim(&a.0); $(self.factors.$i.dim(&a.$i);)+
-                (self.factors.0.dual(&a.0), $(self.factors.$i.dual(&a.$i),)+)
+                self.dim(a);
+                self.__fusion_symbols_validated_dual(a, Validated(()))
             }
             fn dim(&self, a: &Self::Object) -> f64 {
                 let value = self.factors.0.dim(&a.0); $(let value = value * self.factors.$i.dim(&a.$i);)+ value
             }
             fn frobenius_schur_phase(&self, a: &Self::Object) -> Self::Scalar {
-                self.factors.0.dim(&a.0); $(self.factors.$i.dim(&a.$i);)+
-                let value = self.factors.0.frobenius_schur_phase(&a.0);
-                $(let value = <$Prev as Promote<$C::Scalar>>::left(value) * <$Prev as Promote<$C::Scalar>>::right(self.factors.$i.frobenius_schur_phase(&a.$i));)+ value
+                self.dim(a);
+                self.__fusion_symbols_validated_frobenius_schur_phase(a, Validated(()))
             }
             fn frobenius_schur_indicator(&self, a: &Self::Object) -> Self::Scalar {
-                self.factors.0.dim(&a.0); $(self.factors.$i.dim(&a.$i);)+
-                let value = self.factors.0.frobenius_schur_indicator(&a.0);
-                $(let value = <$Prev as Promote<$C::Scalar>>::left(value) * <$Prev as Promote<$C::Scalar>>::right(self.factors.$i.frobenius_schur_indicator(&a.$i));)+ value
+                self.dim(a);
+                self.__fusion_symbols_validated_frobenius_schur_indicator(a, Validated(()))
             }
             fn twist(&self, a: &Self::Object) -> Self::Scalar {
-                self.factors.0.dim(&a.0); $(self.factors.$i.dim(&a.$i);)+
+                self.dim(a);
                 assert!(self.factors.0.braiding_style() != BraidingStyle::None, "product factor 0 has no braiding");
                 $(assert!(self.factors.$i.braiding_style() != BraidingStyle::None, "product factor {} has no braiding", $i);)+
-                let value = self.factors.0.twist(&a.0);
-                $(let value = <$Prev as Promote<$C::Scalar>>::left(value) * <$Prev as Promote<$C::Scalar>>::right(self.factors.$i.twist(&a.$i));)+ value
+                self.__fusion_symbols_validated_twist(a, Validated(()))
             }
             fn fusion<'a>(&'a self, a: &Self::Object, b: &Self::Object) -> Result<Self::Fusion<'a>, Self::Error> {
-                for a in [a, b] { self.factors.0.dim(&a.0); $(self.factors.$i.dim(&a.$i);)+ }
-                let initial = (self.factors.0.fusion(&a.0, &b.0).map_err(ProductError::Factor0)?.fuse(),
-                    $(self.factors.$i.fusion(&a.$i, &b.$i).map_err(ProductError::$Err)?.fuse(),)+);
+                for a in [a, b] { self.dim(a); }
+                self.__fusion_symbols_validated_fusion(a, b, Validated(()))
+            }
+            /// Panics only if a nonzero product multiplicity exceeds `u32`, or an object is foreign.
+            fn nsymbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> u32 {
+                for a in [a, b, c] { self.dim(a); }
+                self.__fusion_symbols_validated_nsymbol(a, b, c, Validated(()))
+            }
+            fn f_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, d: &Self::Object, e: &Self::Object, f: &Self::Object) -> Result<Self::FSymbol, Self::Error> {
+                for a in [a, b, c, d, e, f] { self.dim(a); }
+                let t = Validated(());
+                let shapes = [
+                    [self.factors.0.__fusion_symbols_validated_nsymbol(&a.0,&b.0,&e.0,t),self.factors.0.__fusion_symbols_validated_nsymbol(&e.0,&c.0,&d.0,t),self.factors.0.__fusion_symbols_validated_nsymbol(&b.0,&c.0,&f.0,t),self.factors.0.__fusion_symbols_validated_nsymbol(&a.0,&f.0,&d.0,t)],
+                    $([self.factors.$i.__fusion_symbols_validated_nsymbol(&a.$i,&b.$i,&e.$i,t),self.factors.$i.__fusion_symbols_validated_nsymbol(&e.$i,&c.$i,&d.$i,t),self.factors.$i.__fusion_symbols_validated_nsymbol(&b.$i,&c.$i,&f.$i,t),self.factors.$i.__fusion_symbols_validated_nsymbol(&a.$i,&f.$i,&d.$i,t)],)+
+                ];
+                let dims = shape::<Self::Scalar, 4>(&shapes).ok_or(ProductError::Overflow)?;
+                if dims.contains(&0) { return Ok(FBlock { dims, data: Storage::Empty }); }
+                let block = self.__fusion_symbols_validated_f_symbol(a, b, c, d, e, f, t)?;
+                debug_assert_eq!(block.dims(), dims);
+                Ok(block)
+            }
+            fn r_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<Self::RSymbol, Self::Error> {
+                for a in [a, b, c] { self.dim(a); }
+                if self.factors.0.braiding_style() == BraidingStyle::None { return Err(ProductError::NoBraiding { factor: 0 }); }
+                $(if self.factors.$i.braiding_style() == BraidingStyle::None { return Err(ProductError::NoBraiding { factor: $i }); })+
+                let t = Validated(());
+                let shapes = [[self.factors.0.__fusion_symbols_validated_nsymbol(&a.0,&b.0,&c.0,t), self.factors.0.__fusion_symbols_validated_nsymbol(&b.0,&a.0,&c.0,t)],
+                    $([self.factors.$i.__fusion_symbols_validated_nsymbol(&a.$i,&b.$i,&c.$i,t), self.factors.$i.__fusion_symbols_validated_nsymbol(&b.$i,&a.$i,&c.$i,t)],)+];
+                let dims = shape::<Self::Scalar, 2>(&shapes).ok_or(ProductError::Overflow)?;
+                if dims.contains(&0) { return Ok(RBlock { n: dims[0], data: Storage::Empty }); }
+                let block = self.__fusion_symbols_validated_r_symbol(a, b, c, t)?;
+                debug_assert_eq!(block.dims(), dims);
+                Ok(block)
+            }
+            fn __fusion_symbols_validated_dual(&self, a: &Self::Object, t: Validated) -> Self::Object {
+                (self.factors.0.__fusion_symbols_validated_dual(&a.0, t), $(self.factors.$i.__fusion_symbols_validated_dual(&a.$i, t),)+)
+            }
+            fn __fusion_symbols_validated_frobenius_schur_phase(&self, a: &Self::Object, t: Validated) -> Self::Scalar {
+                let value = self.factors.0.__fusion_symbols_validated_frobenius_schur_phase(&a.0, t);
+                $(let value = <$Prev as Promote<$C::Scalar>>::left(value) * <$Prev as Promote<$C::Scalar>>::right(self.factors.$i.__fusion_symbols_validated_frobenius_schur_phase(&a.$i, t));)+ value
+            }
+            fn __fusion_symbols_validated_frobenius_schur_indicator(&self, a: &Self::Object, t: Validated) -> Self::Scalar {
+                let value = self.factors.0.__fusion_symbols_validated_frobenius_schur_indicator(&a.0, t);
+                $(let value = <$Prev as Promote<$C::Scalar>>::left(value) * <$Prev as Promote<$C::Scalar>>::right(self.factors.$i.__fusion_symbols_validated_frobenius_schur_indicator(&a.$i, t));)+ value
+            }
+            // The caller has checked that every factor braids.
+            fn __fusion_symbols_validated_twist(&self, a: &Self::Object, t: Validated) -> Self::Scalar {
+                let value = self.factors.0.__fusion_symbols_validated_twist(&a.0, t);
+                $(let value = <$Prev as Promote<$C::Scalar>>::left(value) * <$Prev as Promote<$C::Scalar>>::right(self.factors.$i.__fusion_symbols_validated_twist(&a.$i, t));)+ value
+            }
+            fn __fusion_symbols_validated_fusion<'a>(&'a self, a: &Self::Object, b: &Self::Object, t: Validated) -> Result<Self::Fusion<'a>, Self::Error> {
+                let initial = (self.factors.0.__fusion_symbols_validated_fusion(&a.0, &b.0, t).map_err(ProductError::Factor0)?.fuse(),
+                    $(self.factors.$i.__fusion_symbols_validated_fusion(&a.$i, &b.$i, t).map_err(ProductError::$Err)?.fuse(),)+);
                 let mut active = initial.clone();
                 let current = (|| Some((active.0.next()?, $(active.$i.next()?,)+)))();
                 Ok(ProductFusion { initial, active, current })
             }
-            /// Panics only if a nonzero product multiplicity exceeds `u32`, or an object is foreign.
-            fn nsymbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> u32 {
-                for a in [a, b, c] { self.factors.0.dim(&a.0); $(self.factors.$i.dim(&a.$i);)+ }
-                multiplicity([self.factors.0.nsymbol(&a.0, &b.0, &c.0), $(self.factors.$i.nsymbol(&a.$i, &b.$i, &c.$i)),+])
+            fn __fusion_symbols_validated_nsymbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> u32 {
+                multiplicity([self.factors.0.__fusion_symbols_validated_nsymbol(&a.0, &b.0, &c.0, t), $(self.factors.$i.__fusion_symbols_validated_nsymbol(&a.$i, &b.$i, &c.$i, t)),+])
                     .expect("nonzero product multiplicity exceeds u32")
             }
-            fn f_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, d: &Self::Object, e: &Self::Object, f: &Self::Object) -> Result<Self::FSymbol, Self::Error> {
-                for a in [a, b, c, d, e, f] { self.factors.0.dim(&a.0); $(self.factors.$i.dim(&a.$i);)+ }
-                let shapes = [
-                    [self.factors.0.nsymbol(&a.0,&b.0,&e.0),self.factors.0.nsymbol(&e.0,&c.0,&d.0),self.factors.0.nsymbol(&b.0,&c.0,&f.0),self.factors.0.nsymbol(&a.0,&f.0,&d.0)],
-                    $([self.factors.$i.nsymbol(&a.$i,&b.$i,&e.$i),self.factors.$i.nsymbol(&e.$i,&c.$i,&d.$i),self.factors.$i.nsymbol(&b.$i,&c.$i,&f.$i),self.factors.$i.nsymbol(&a.$i,&f.$i,&d.$i)],)+
-                ];
-                let dims = shape::<Self::Scalar, 4>(&shapes).ok_or(ProductError::Overflow)?;
-                if dims.contains(&0) { return Ok(FBlock { dims, data: Storage::Empty }); }
-                let (axis, data) = storage(self.factors.0.f_symbol(&a.0,&b.0,&c.0,&d.0,&e.0,&f.0).map_err(ProductError::Factor0)?, shapes[0]);
-                $(let (axis, data) = kron(axis, data, shapes[$i], self.factors.$i.f_symbol(&a.$i,&b.$i,&c.$i,&d.$i,&e.$i,&f.$i).map_err(ProductError::$Err)?);)+
-                debug_assert_eq!(axis, dims);
+            // The caller has established nonzero, representable shapes for every
+            // factor (an enclosing product's shape bounds this one's), so the
+            // factor blocks are combined without recomputing them.
+            fn __fusion_symbols_validated_f_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, d: &Self::Object, e: &Self::Object, f: &Self::Object, t: Validated) -> Result<Self::FSymbol, Self::Error> {
+                let (dims, data) = storage(self.factors.0.__fusion_symbols_validated_f_symbol(&a.0,&b.0,&c.0,&d.0,&e.0,&f.0,t).map_err(ProductError::Factor0)?);
+                $(let (dims, data) = kron(dims, data, self.factors.$i.__fusion_symbols_validated_f_symbol(&a.$i,&b.$i,&c.$i,&d.$i,&e.$i,&f.$i,t).map_err(ProductError::$Err)?);)+
                 Ok(FBlock { dims, data })
             }
-            fn r_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<Self::RSymbol, Self::Error> {
-                for a in [a, b, c] { self.factors.0.dim(&a.0); $(self.factors.$i.dim(&a.$i);)+ }
-                if self.factors.0.braiding_style() == BraidingStyle::None { return Err(ProductError::NoBraiding { factor: 0 }); }
-                $(if self.factors.$i.braiding_style() == BraidingStyle::None { return Err(ProductError::NoBraiding { factor: $i }); })+
-                let shapes = [[self.factors.0.nsymbol(&a.0,&b.0,&c.0), self.factors.0.nsymbol(&b.0,&a.0,&c.0)],
-                    $([self.factors.$i.nsymbol(&a.$i,&b.$i,&c.$i), self.factors.$i.nsymbol(&b.$i,&a.$i,&c.$i)],)+];
-                let dims = shape::<Self::Scalar, 2>(&shapes).ok_or(ProductError::Overflow)?;
-                if dims.contains(&0) { return Ok(RBlock { n: dims[0], data: Storage::Empty }); }
-                let (axis, data) = storage(self.factors.0.r_symbol(&a.0,&b.0,&c.0).map_err(ProductError::Factor0)?, shapes[0]);
-                $(let (axis, data) = kron(axis, data, shapes[$i], self.factors.$i.r_symbol(&a.$i,&b.$i,&c.$i).map_err(ProductError::$Err)?);)+
-                debug_assert_eq!(axis, dims);
+            // As for F; braiding of every factor has also been checked.
+            fn __fusion_symbols_validated_r_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> Result<Self::RSymbol, Self::Error> {
+                let (dims, data) = storage(self.factors.0.__fusion_symbols_validated_r_symbol(&a.0,&b.0,&c.0,t).map_err(ProductError::Factor0)?);
+                $(let (dims, data) = kron(dims, data, self.factors.$i.__fusion_symbols_validated_r_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?);)+
                 Ok(RBlock { n: dims[0], data })
             }
             fn authority_fingerprint(&self) -> &[u8] {

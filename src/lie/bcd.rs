@@ -103,6 +103,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
+use std::sync::Arc;
 
 use num_bigint::BigInt;
 use num_rational::Ratio;
@@ -372,12 +373,14 @@ pub struct Irrep {
     /// (`dj = 2j` in the base SU(2) layer, `src/lib.rs`). Doubling is a
     /// strictly monotone relabelling, so `Ord`/`Hash` — and every order derived
     /// from them — are unchanged for the tensor irreps.
-    two_weight: Box<[i64]>,
+    two_weight: Arc<[i64]>,
 }
 
 impl crate::cache::CacheKeyCharge for Irrep {
     fn key_bytes(&self) -> usize {
-        std::mem::size_of::<Self>().saturating_add(std::mem::size_of_val(self.two_weight.as_ref()))
+        std::mem::size_of::<Self>()
+            .saturating_add(crate::cache::ARC_COUNTS_BYTES)
+            .saturating_add(std::mem::size_of_val(self.two_weight.as_ref()))
     }
 }
 
@@ -450,7 +453,7 @@ impl Irrep {
         }
         Ok(Irrep {
             series,
-            two_weight: dynkin_to_two_partition(series, dynkin)?.into_boxed_slice(),
+            two_weight: dynkin_to_two_partition(series, dynkin)?.into(),
         })
     }
 
@@ -467,7 +470,7 @@ impl Irrep {
     pub(crate) fn from_two_weight(series: Series, two_weight: Vec<i64>) -> Irrep {
         Irrep {
             series,
-            two_weight: two_weight.into_boxed_slice(),
+            two_weight: two_weight.into(),
         }
     }
 
@@ -545,14 +548,15 @@ impl Irrep {
     ///   flip: `so(6) = D_3` has `dual((0,2,0)) = (0,0,2)` (a tensor chiral
     ///   pair) and the vector `(1,0,0)` self-dual.
     pub fn dual(&self) -> Irrep {
-        let mut w = self.two_weight.to_vec();
-        if self.series == Series::D && self.rank() % 2 == 1 {
-            let last = self.rank() - 1;
-            w[last] = -w[last];
+        if self.series != Series::D || self.rank().is_multiple_of(2) {
+            return self.clone();
         }
+        let last = self.rank() - 1;
         Irrep {
             series: self.series,
-            two_weight: w.into_boxed_slice(),
+            two_weight: (self.two_weight.iter().enumerate())
+                .map(|(i, &x)| if i == last { -x } else { x })
+                .collect(),
         }
     }
 
@@ -1140,10 +1144,7 @@ fn permute_rec(v: &[i64], idx: &mut Vec<usize>, k: usize, set: &mut HashSet<Vec<
 /// `det(w)·m_b(μ)` to the coefficient of the irrep with highest weight
 /// `w(ξ) − ρ`. All arithmetic is exact integer; `ρ`-shifts are carried at
 /// twice scale to keep `B`'s half-integer `ρ` integral.
-pub(crate) fn shared_directproduct(
-    a: &Irrep,
-    b: &Irrep,
-) -> Result<std::sync::Arc<[(Irrep, u32)]>, BcdError> {
+pub(crate) fn shared_directproduct(a: &Irrep, b: &Irrep) -> Result<Arc<[(Irrep, u32)]>, BcdError> {
     use crate::cache::bcd_cgc_cache::{BcdKey, BcdValue};
     if a.series != b.series || a.rank() != b.rank() {
         return Err(BcdError::GroupMismatch {
@@ -1202,7 +1203,7 @@ fn directproduct_uncached(a: &Irrep, b: &Irrep) -> BTreeMap<Irrep, u32> {
             result.insert(
                 Irrep {
                     series,
-                    two_weight: c.into_boxed_slice(),
+                    two_weight: c.into(),
                 },
                 n as u32,
             );
