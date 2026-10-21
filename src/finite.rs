@@ -111,7 +111,7 @@ const ZN_FINGERPRINT: &[u8] = b"fusion-symbols:abelian-zn:labels=u32-runtime-mod
 /// Cyclic bosonic category with validated, modulus-tagged objects.
 ///
 /// # Panics
-/// Every object-taking method panics if any object's modulus differs from
+/// Every object-taking method except `contains` panics if any object's modulus differs from
 /// this category's modulus, even when another vertex has `N = 0`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ZN {
@@ -157,6 +157,9 @@ impl FusionCategory for ZN {
             modulus: self.modulus,
             charge: 0,
         }
+    }
+    fn contains(&self, a: &ZNIrrep) -> bool {
+        a.modulus == self.modulus && a.charge < self.modulus()
     }
     fn dual(&self, a: &ZNIrrep) -> ZNIrrep {
         self.validate(&[a]);

@@ -90,6 +90,9 @@ impl FusionCategory for U1 {
     fn unit(&self) -> U1Irrep {
         U1Irrep::UNIT
     }
+    fn contains(&self, a: &U1Irrep) -> bool {
+        a.charge != i32::MIN
+    }
     fn dual(&self, a: &U1Irrep) -> U1Irrep {
         U1Irrep { charge: -a.charge }
     }

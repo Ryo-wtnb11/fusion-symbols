@@ -40,7 +40,8 @@ pinned AnyonWiki tables described below.
 `table::TableCategory` implement
 `category::FusionCategory`, the single surface for dimension, dual, FS phase
 and indicator, twist, fusion and N/F/R. Objects are validated at construction;
-foreign Lie, cyclic or table objects panic. N = 0 gives scalar zero or a block
+foreign Lie, cyclic or table objects panic, and `contains` is the
+non-panicking membership check. N = 0 gives scalar zero or a block
 with a zero axis; U(1), rank-one Lie and CU(1) fusion overflow
 is a typed error. Closed-form symbols are `f64`, table symbols are `Complex64`.
 Category identity includes the modulus or table uuid;

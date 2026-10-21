@@ -16,6 +16,7 @@ fn bump(i: usize) {
 fn take() -> [usize; 4] {
     CALLS.with(|c| c.each_ref().map(|x| x.replace(0)))
 }
+thread_local! { static CONTAINS: Cell<usize> = const { Cell::new(0) }; }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Counter;
@@ -39,6 +40,10 @@ impl FusionCategory for Counter {
     }
     fn unit(&self) -> u8 {
         0
+    }
+    fn contains(&self, a: &u8) -> bool {
+        CONTAINS.with(|c| c.set(c.get() + 1));
+        *a == 0
     }
     fn dual(&self, a: &u8) -> u8 {
         check(a);
@@ -305,4 +310,31 @@ fn leaf_blocks_disagreeing_with_n_panic_in_every_build() {
         let message = panic_message(std::panic::catch_unwind(|| r(nested)));
         assert!(message.contains("R block shape disagrees"), "{message}");
     }
+}
+
+/// Leaf `contains` calls and every other leaf call made by one product `contains`.
+fn contains_cost<C: FusionCategory>(cat: &C, a: &C::Object) -> (bool, usize, [usize; 4]) {
+    take();
+    CONTAINS.with(|c| c.set(0));
+    let result = cat.contains(a);
+    (result, CONTAINS.with(|c| c.replace(0)), take())
+}
+
+#[test]
+fn product_contains_checks_each_leaf_once_without_other_queries() {
+    let c = Counter;
+    let flat = product![c.clone(), c.clone(), c.clone(), c.clone()];
+    assert_eq!(contains_cost(&flat, &flat.unit()), (true, 4, [0; 4]));
+    let p2 = product(c.clone(), c.clone());
+    let p4 = product(product(p2.clone(), c.clone()), c.clone());
+    assert_eq!(contains_cost(&p4, &p4.unit()), (true, 4, [0; 4]));
+    let balanced = product![p2.clone(), product![c.clone(), p2.clone(), c.clone()], p2];
+    assert_eq!(
+        contains_cost(&balanced, &balanced.unit()),
+        (true, 8, [0; 4])
+    );
+    // A foreign leaf is rejected without a panic or any other leaf query.
+    let (found, _, others) = contains_cost(&p4, &(((0, 1), 0), 0));
+    assert!(!found);
+    assert_eq!(others, [0; 4]);
 }

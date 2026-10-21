@@ -32,7 +32,8 @@ use std::collections::BTreeMap;
 /// Objects retain the full `GroupId` tag, including for isomorphic groups.
 ///
 /// # Panics
-/// Every object-taking category method panics on an object from another group.
+/// Every object-taking category method except `contains` panics on an object
+/// from another group.
 #[derive(Clone)]
 pub struct LieGroup {
     group: GroupId,
@@ -502,6 +503,11 @@ impl FusionCategory for LieGroup {
             #[cfg(feature = "lie-generated")]
             bcd: None,
         }
+    }
+    // The group is the whole identity: a B/C/D catalog is a cache that
+    // `LieGroup` equality ignores, and labels are validated at construction.
+    fn contains(&self, a: &LieIrrep) -> bool {
+        a.group == self.group
     }
     fn dual(&self, a: &LieIrrep) -> LieIrrep {
         self.label(a);
