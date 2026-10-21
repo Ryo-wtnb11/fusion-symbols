@@ -52,9 +52,9 @@ longer developed here (#130).
 
 ```toml
 [dependencies]
-fusion-symbols = "0.4"
+fusion-symbols = "0.5"
 # generated SU(N)/SO(N)/Sp(2N) families:
-# fusion-symbols = { version = "0.4", features = ["cgc-gen"] }
+# fusion-symbols = { version = "0.5", features = ["cgc-gen"] }
 ```
 
 ## Example

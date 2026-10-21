@@ -9,7 +9,7 @@
 
 ```toml
 [dependencies]
-fusion-symbols = "0.4"
+fusion-symbols = "0.5"
 ```
 
 That is the **base** build: exact rank-one Lie symbols, closed-form abelian,
@@ -19,7 +19,7 @@ Spin(N) or Sp(2N), turn on `cgc-gen`:
 
 ```toml
 [dependencies]
-fusion-symbols = { version = "0.4", features = ["cgc-gen"] }
+fusion-symbols = { version = "0.5", features = ["cgc-gen"] }
 ```
 
 There is no fixed MSRV; `fusion-symbols` builds and is tested on current stable Rust.
