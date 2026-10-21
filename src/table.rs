@@ -127,6 +127,9 @@ struct TableData {
     frobenius_schur: Vec<Complex64>,
     /// `None` for a fusion-only entry.
     twists: Option<Vec<Complex64>>,
+    /// Gauge certificates, read off the stored F exactly (no tolerance).
+    trivial_associator: bool,
+    canonical_unit: bool,
     fingerprint: Vec<u8>,
 }
 
@@ -279,6 +282,28 @@ impl TableCategory {
                 }
             }
         };
+        // Exact comparisons: the certificates promise the stored values
+        // themselves, and a correctly rounded exact `1` is exactly `1.0`. The
+        // unit laws and the unit's self-duality are already `parse` errors.
+        let admissible = |[a, b, c, d, e, f]: [usize; 6]| {
+            [(a, b, e), (e, c, d), (b, c, f), (a, f, d)]
+                .iter()
+                .all(|&(x, y, z)| table.nsymbol(x, y, z) > 0)
+        };
+        let admissible_f = (0..rank.pow(6))
+            .map(|flat| {
+                let mut labels = [0; 6];
+                for (axis, label) in labels.iter_mut().enumerate() {
+                    *label = flat / rank.pow(5 - axis as u32) % rank;
+                }
+                labels
+            })
+            .filter(|&labels| admissible(labels));
+        let is_one = |[a, b, c, d, e, f]: [usize; 6]| table.fsymbol(a, b, c, d, e, f) == one;
+        let trivial_associator = admissible_f.clone().all(is_one);
+        let canonical_unit = admissible_f
+            .filter(|labels| labels[..3].contains(&0))
+            .all(is_one);
         Ok(Self {
             entry,
             table_id,
@@ -287,6 +312,8 @@ impl TableCategory {
                 dims,
                 frobenius_schur,
                 twists,
+                trivial_associator,
+                canonical_unit,
                 fusion_style,
                 braiding_style,
                 fingerprint: fingerprint_bytes(&entry.provenance, entry.n, entry.f, entry.r),
@@ -465,6 +492,17 @@ impl FusionCategory for TableCategory {
             return Err(TableError::NoBraiding);
         }
         Ok(self.data.table.rsymbol(a, b, c))
+    }
+    /// Read off the stored F at construction: `true` exactly when every
+    /// admissible entry is `1` (the pointed entries with a trivial 3-cocycle).
+    fn has_trivial_associator_gauge(&self) -> bool {
+        self.data.trivial_associator
+    }
+    /// Read off the stored F at construction: `true` exactly when every
+    /// admissible F with `a`, `b` or `c` the unit is `1` (multiplicity free,
+    /// so the identity is `1`); `parse` already enforces the unit laws.
+    fn has_canonical_unit(&self) -> bool {
+        self.data.canonical_unit
     }
     fn authority_fingerprint(&self) -> &[u8] {
         &self.data.fingerprint

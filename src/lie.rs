@@ -696,6 +696,23 @@ impl FusionCategory for LieGroup {
             RBlock::zeros(0)
         })
     }
+    /// `false`: every group has an irrep of dimension `d > 1`, whose
+    /// `|F^{a ā a}_a[𝟙, 𝟙]| = 1/d` (SU(2): `F^{½½½}_½[0, 0] = -1/2`).
+    fn has_trivial_associator_gauge(&self) -> bool {
+        false
+    }
+    // `true` for every group. The unit is the trivial irrep: self-dual, and
+    // `𝟙 ⊗ a = a ⊗ 𝟙 = a` once. SU(2): the exact 6j closed form gives
+    // `F^{𝟙bc}_d = F^{a𝟙c}_d = F^{ab𝟙}_d = (-1)^{2(j_1+j_2+j_3)} = 1` (integer
+    // triangle sum), rounded exactly. Generated groups contract four CGC
+    // (`frcore::f_block_raw`); with a unit leg two of them are the
+    // identity embeddings of `𝟙 ⊗ s → s` / `s ⊗ 𝟙 → s` (`docs/gauge.md` §7;
+    // B/C/D: the unit's frame is unique, `docs/gauge_soN.md`) and the other
+    // two are the same isometry `x ⊗ y → z`, so the block is its column
+    // orthonormality `Σ C_κ C_ν = δ_{κν}`: the identity, up to rounding.
+    fn has_canonical_unit(&self) -> bool {
+        true
+    }
     fn authority_fingerprint(&self) -> &[u8] {
         #[cfg(feature = "lie-generated")]
         if self.catalog.is_some() {

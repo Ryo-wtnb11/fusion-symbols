@@ -17,6 +17,7 @@ fn take() -> [usize; 4] {
     CALLS.with(|c| c.each_ref().map(|x| x.replace(0)))
 }
 thread_local! { static CONTAINS: Cell<usize> = const { Cell::new(0) }; }
+thread_local! { static CERTIFICATES: Cell<usize> = const { Cell::new(0) }; }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Counter;
@@ -40,6 +41,14 @@ impl FusionCategory for Counter {
     }
     fn unit(&self) -> u8 {
         0
+    }
+    fn has_trivial_associator_gauge(&self) -> bool {
+        CERTIFICATES.with(|c| c.set(c.get() + 1));
+        true
+    }
+    fn has_canonical_unit(&self) -> bool {
+        CERTIFICATES.with(|c| c.set(c.get() + 1));
+        true
     }
     fn contains(&self, a: &u8) -> bool {
         CONTAINS.with(|c| c.set(c.get() + 1));
@@ -337,4 +346,40 @@ fn product_contains_checks_each_leaf_once_without_other_queries() {
     let (found, _, others) = contains_cost(&p4, &(((0, 1), 0), 0));
     assert!(!found);
     assert_eq!(others, [0; 4]);
+}
+
+/// Leaf certificate calls and every other leaf call made by both product
+/// certificates.
+fn certificate_cost<C: FusionCategory>(cat: &C) -> (bool, usize, [usize; 4], usize) {
+    take();
+    CONTAINS.with(|c| c.set(0));
+    CERTIFICATES.with(|c| c.set(0));
+    let result = cat.has_trivial_associator_gauge() && cat.has_canonical_unit();
+    (
+        result,
+        CERTIFICATES.with(|c| c.replace(0)),
+        take(),
+        CONTAINS.with(|c| c.replace(0)),
+    )
+}
+
+#[test]
+fn product_certificates_ask_each_leaf_once_without_symbol_queries() {
+    let c = Counter;
+    let flat = product![c.clone(), c.clone(), c.clone(), c.clone()];
+    assert_eq!(certificate_cost(&flat), (true, 8, [0; 4], 0));
+    let p2 = product(c.clone(), c.clone());
+    let p4 = product(product(p2.clone(), c.clone()), c.clone());
+    assert_eq!(certificate_cost(&p4), (true, 8, [0; 4], 0));
+    let balanced = product![p2.clone(), product![c.clone(), p2.clone(), c.clone()], p2];
+    assert_eq!(certificate_cost(&balanced), (true, 16, [0; 4], 0));
+}
+
+#[test]
+fn certificates_default_to_false() {
+    assert!(!Malformed.has_trivial_associator_gauge());
+    assert!(!Malformed.has_canonical_unit());
+    // A non-certifying leaf makes the conjunction false.
+    let cat = product(Counter, Malformed);
+    assert!(!cat.has_trivial_associator_gauge() && !cat.has_canonical_unit());
 }

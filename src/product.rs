@@ -347,6 +347,15 @@ macro_rules! impl_product {
                 else if styles.contains(&Fermionic) { Fermionic } else { Bosonic }
             }
             fn unit(&self) -> Self::Object { (self.factors.0.unit(), $(self.factors.$i.unit(),)+) }
+            // Each Deligne factor acts on its own tensor factor, so a product F is
+            // the Kronecker product of factor F (`__fusion_symbols_validated_f_symbol`):
+            // all ones, or identities on unit legs, exactly when every factor's are.
+            fn has_trivial_associator_gauge(&self) -> bool {
+                self.factors.0.has_trivial_associator_gauge() $(&& self.factors.$i.has_trivial_associator_gauge())+
+            }
+            fn has_canonical_unit(&self) -> bool {
+                self.factors.0.has_canonical_unit() $(&& self.factors.$i.has_canonical_unit())+
+            }
             // One public `contains` per immediate factor; a nested product
             // recurses once into its own factors, so each leaf is checked once.
             fn contains(&self, a: &Self::Object) -> bool {

@@ -213,6 +213,14 @@ impl FusionCategory for ZN {
     fn r_symbol(&self, a: &ZNIrrep, b: &ZNIrrep, c: &ZNIrrep) -> Result<f64, Self::Error> {
         Ok(f64::from(self.nsymbol(a, b, c)))
     }
+    // F is the product of the four vertex N, so exactly `1` when admissible;
+    // the unit is the self-dual identity charge.
+    fn has_trivial_associator_gauge(&self) -> bool {
+        true
+    }
+    fn has_canonical_unit(&self) -> bool {
+        true
+    }
     fn authority_fingerprint(&self) -> &[u8] {
         ZN_FINGERPRINT
     }

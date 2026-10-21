@@ -110,6 +110,14 @@ impl FusionCategory for FermionParity {
         let n = f64::from(self.nsymbol(a, b, c));
         Ok(if a.odd && b.odd && n != 0.0 { -n } else { n })
     }
+    // F is the product of the four vertex N, so exactly `1` when admissible;
+    // the unit is the self-dual identity charge.
+    fn has_trivial_associator_gauge(&self) -> bool {
+        true
+    }
+    fn has_canonical_unit(&self) -> bool {
+        true
+    }
     fn authority_fingerprint(&self) -> &[u8] {
         FINGERPRINT
     }
