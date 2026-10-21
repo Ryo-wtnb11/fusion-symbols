@@ -4,7 +4,7 @@ The repository and its single crate are `fusion-symbols` (formerly `racah`;
 lib `fusion_symbols`). The public modules follow the mathematical classification:
 `category` (shared contract), `lie` (Lie-simple groups and their global forms),
 `abelian`, `group` (other compact groups, currently CU(1)), `fermion`, `table`,
-and `cache` (resource controls). `product` is planned, not implemented.
+`product` (ordered Deligne products), and `cache` (resource controls).
 The rules below apply to every family; the `cgc-gen` and dense-backend sections
 concern the Lie-group generation path.
 
@@ -25,7 +25,7 @@ non-trivial change.
   `fermion` irreps); sector behaviour beyond those
   symbols belongs to the consumer.
 - Base crate: `category`, exact rank-one `lie` (with `lie::su2` evaluators),
-  closed-form `abelian`, `group`, `fermion`, tabulated `table`, and `cache`.
+  closed-form `abelian`, `group`, `fermion`, tabulated `table`, `product`, and `cache`.
   Dependencies stay minimal (big-integer arithmetic and `num-complex`).
 - `cgc-gen` feature: all runtime generation (SU(N)/SO(N)/Sp(2N)) and every
   dense-kernel dependency live behind this feature. Factorizations

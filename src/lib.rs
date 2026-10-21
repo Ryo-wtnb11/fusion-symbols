@@ -53,7 +53,7 @@
 //! | Other compact groups: CU(1) = U(1) ⋊ C = O(2), in closed form | [`group`] |
 //! | Fermion parity in closed form | [`fermion::FermionParity`] |
 //! | Finite multiplicity-free unitary categories (Fibonacci, Ising, …, rank ≤ 4; rank ≤ 7 with `anyonwiki-unitary`) from pinned AnyonWiki tables | [`table`] |
-//! | Deligne products | Planned; no public `product` module yet |
+//! | Ordered Deligne products, 2..=12 immediate factors | [`mod@product`] |
 //! | Cache ceilings, budgets, statistics | [`cache`] |
 //!
 //! SU(N) uses the same [`lie::LieGroup`] and [`lie::LieIrrep`] layer as A1.
@@ -61,6 +61,18 @@
 //! [`category::GroupRepresentations::cgc`] returns [`lie::LieCgc`]. Empty
 //! vertices give zero blocks; genuine generation failures are opaque
 //! [`lie::LieError::Generation`] diagnostics with an error source.
+//!
+//! # Deligne products
+//!
+//! ```
+//! use fusion_symbols::{abelian::U1, category::FusionCategory,
+//!     fermion::{FermionParity, FermionParityIrrep}, product};
+//! let cat = product(U1, FermionParity);
+//! let odd = (cat.factors().0.unit(), FermionParityIrrep::ODD);
+//! assert_eq!(cat.twist(&odd), -1.0);
+//! let three = product![U1, FermionParity, U1];
+//! assert_eq!(three.dim(&three.unit()), 1.0);
+//! ```
 //!
 //! # Non-Lie families
 //!
@@ -253,3 +265,6 @@ pub mod category;
 pub mod fermion;
 pub mod group;
 pub mod table;
+
+pub mod product;
+pub use product::product;

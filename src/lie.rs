@@ -6,10 +6,12 @@ mod gt;
 #[cfg(feature = "cgc-gen")]
 pub(crate) mod sun;
 pub use gt::GtPattern;
-mod blocks;
 mod group;
 pub mod su2;
-pub use blocks::{FBlock, RBlock};
+/// Real F-symbol storage (compatibility alias).
+pub type FBlock = crate::category::FBlock<f64>;
+/// Real R-symbol storage (compatibility alias).
+pub type RBlock = crate::category::RBlock<f64>;
 pub use group::*;
 
 use crate::category::{BraidingStyle, FusionCategory, FusionStyle, GroupRepresentations};
