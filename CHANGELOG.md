@@ -9,6 +9,10 @@ value/gauge rule noted below.
 
 ### Added
 
+- `lie::U1` implements `GroupRepresentations` with `Cgc = f64`: the single
+  coefficient of the one-dimensional irreps, exactly `1.0` when `c = a + b` and
+  `0.0` otherwise (equal to `N^{ab}_c`, so also `0.0` when `a + b` leaves
+  `i32`). It never returns an error.
 - `FusionCategory::contains` reports, without panicking, whether an object
   belongs to a category value; every other object-taking query panics on such
   a foreign object. Built-in categories check only label identity and range;
