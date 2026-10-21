@@ -89,7 +89,8 @@ const ISING_UUID: &str = "37fa4e56-97c6-11f1-907a-eb6ab8e8bc11";
 /// database, in the source gauge.
 ///
 /// Objects are validated by [`Self::object`] and carry a private catalog tag.
-/// Every object-taking query panics on foreign objects before checking capabilities.
+/// Every object-taking query except `contains` panics on foreign objects before
+/// checking capabilities.
 /// Inadmissible symbols are exact zero. On fusion-only entries, `r_symbol`
 /// returns [`TableError::NoBraiding`] and `twist` panics.
 ///
@@ -385,6 +386,9 @@ impl FusionCategory for TableCategory {
     }
     fn unit(&self) -> TableObject {
         self.at_index(0)
+    }
+    fn contains(&self, a: &TableObject) -> bool {
+        a.table_id == self.table_id && (1..=self.rank()).contains(&usize::from(a.index))
     }
     fn dual(&self, a: &TableObject) -> TableObject {
         self.at_index(self.data.table.dual(self.index(a)))

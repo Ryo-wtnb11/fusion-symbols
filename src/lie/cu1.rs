@@ -177,6 +177,9 @@ impl FusionCategory for CU1 {
     fn unit(&self) -> CU1Irrep {
         CU1Irrep::VACUUM
     }
+    fn contains(&self, a: &CU1Irrep) -> bool {
+        CU1Irrep::new(a.twice_charge, a.s).is_ok()
+    }
     fn dual(&self, a: &CU1Irrep) -> CU1Irrep {
         *a
     }

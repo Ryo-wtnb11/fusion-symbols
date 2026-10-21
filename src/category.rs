@@ -193,13 +193,14 @@ impl<const RANK: usize> SymbolBlock<RANK> for Complex64 {
 
 /// One mathematical category, with objects validated at construction.
 ///
-/// Every object-taking method panics on a foreign object, before testing
-/// capability or admissibility. `N = 0` is a value, never an error. Errors
+/// Every object-taking method except [`Self::contains`] panics on a foreign
+/// object, before testing capability or admissibility. `N = 0` is a value, never an error. Errors
 /// mean genuine computation failure or absent capability. Category equality
 /// and hashing use full mathematical identity, independently of the fingerprint.
 ///
 /// # Panics
-/// All object-taking methods panic for objects from a different category value.
+/// All object-taking methods except [`Self::contains`] panic for objects from a
+/// different category value.
 /// Capability checks and zero-channel handling must not bypass this validation.
 pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// Validated simple-object label, in deterministic order.
@@ -223,6 +224,23 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     fn braiding_style(&self) -> BraidingStyle;
     /// The single simple unit.
     fn unit(&self) -> Self::Object;
+    /// Whether `a` is an object of this category value; never panics.
+    ///
+    /// This is the non-panicking pre-check for every other object-taking
+    /// method: `true` exactly when those methods accept `a` without a
+    /// foreign-object panic. It inspects only the label's identity and
+    /// range, never computing a dimension or symbol, so it costs O(1) for
+    /// a leaf category and one leaf check per leaf for a product.
+    ///
+    /// The default returns `true`, which asserts that no value of
+    /// `Self::Object` can be foreign to any value of `Self`: it is sound only
+    /// when the object type carries no category parameter. A category whose
+    /// values differ by a parameter its objects record (a modulus, a group, a
+    /// table) must override it.
+    fn contains(&self, a: &Self::Object) -> bool {
+        let _ = a;
+        true
+    }
     /// Dual of a validated object; foreign objects panic.
     fn dual(&self, a: &Self::Object) -> Self::Object;
     /// Quantum dimension; foreign objects panic.
@@ -243,6 +261,22 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     ) -> Result<Self::Fusion<'a>, Self::Error>;
     /// Exact vertex multiplicity, including zero; foreign objects panic.
     fn nsymbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> u32;
+    /// Checked [`Self::nsymbol`]: an unrepresentable multiplicity is an
+    /// error instead of a panic. Foreign objects still panic; use
+    /// [`Self::contains`] first to avoid that.
+    ///
+    /// The default returns `Ok(self.nsymbol(a, b, c))`, which is exact for a
+    /// category whose `nsymbol` cannot overflow. A category that composes
+    /// multiplicities, such as [`crate::product::Product`], overrides it.
+    /// It costs the same as `nsymbol`.
+    fn try_nsymbol(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+    ) -> Result<u32, Self::Error> {
+        Ok(self.nsymbol(a, b, c))
+    }
     /// `F^{abc}_d[e,f]`; inadmissible vertices return zero storage. Logical
     /// axes are `[N(a,b,e), N(e,c,d), N(b,c,f), N(a,f,d)]`.
     /// Foreign objects panic; errors indicate genuine failure.
@@ -325,6 +359,16 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         _: sealed::Validated,
     ) -> u32 {
         self.nsymbol(a, b, c)
+    }
+    #[doc(hidden)]
+    fn __fusion_symbols_validated_try_nsymbol(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+        _: sealed::Validated,
+    ) -> Result<u32, Self::Error> {
+        self.try_nsymbol(a, b, c)
     }
     #[doc(hidden)]
     #[allow(clippy::too_many_arguments)]

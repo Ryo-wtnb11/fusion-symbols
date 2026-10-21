@@ -150,7 +150,7 @@ and `sectors.jl` style `&` methods. Their relevant guards and assumptions map as
 | `_kron` assumes matching ranks and valid Cartesian indices | Fixed block ranks and per-axis decoding; shape/count/byte overflow is a typed `Overflow`. |
 | Julia product iteration can restart each component | Clone initialized `Fuse` iterators; nonempty reset is a documented loud-panic invariant. A valid clone preserves the initialized iterator sequence. |
 | Styles restrict braiding and symbol availability | R capability errors and twist panic after full preflight; no special-case branch bypasses validation. |
-| Julia multiplicity/product arithmetic fits its representation | Checked Rust arithmetic, zero-wins N, documented N panic or typed F/R `Overflow`. |
+| Julia multiplicity/product arithmetic fits its representation | Checked Rust arithmetic, zero-wins N, documented `nsymbol` panic or typed `try_nsymbol`/F/R `Overflow`. |
 | Single-sector symbol base cases | N/A: Rust accepts 2..=12 immediate factors and delegates leaf symbols to the factor authority. |
 
 No reference assertions are present on these product-symbol paths. TKS

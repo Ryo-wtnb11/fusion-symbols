@@ -240,22 +240,34 @@ pub struct ProductFusion<I, O> {
     current: Option<O>,
 }
 
-// Read all multiplicities before multiplying: a zero beats any nonzero prefix overflow.
-fn multiplicity(values: impl IntoIterator<Item = u32>) -> Option<u32> {
+// Read all multiplicities before multiplying: a zero factor fixes the product
+// at zero, so it beats both a nonzero prefix overflow and any factor failure.
+// Otherwise the first factor failure wins, then overflow.
+fn checked_multiplicity<E>(
+    values: impl IntoIterator<Item = Result<u32, E>>,
+    overflow: E,
+) -> Result<u32, E> {
     let mut product = Some(1u32);
+    let mut error = None;
     for n in values {
-        product = if n == 0 || product == Some(0) {
-            Some(0)
-        } else {
-            product.and_then(|p| p.checked_mul(n))
-        };
+        match n {
+            Ok(0) => return Ok(0),
+            Ok(n) => product = product.and_then(|p| p.checked_mul(n)),
+            Err(e) => {
+                error.get_or_insert(e);
+            }
+        }
     }
-    product
+    match (error, product) {
+        (Some(e), _) => Err(e),
+        (None, Some(n)) => Ok(n),
+        (None, None) => Err(overflow),
+    }
 }
-fn shape<S, const R: usize>(factors: &[[u32; R]]) -> Option<[usize; R]> {
+fn shape<S, const R: usize>(n: [u32; R]) -> Option<[usize; R]> {
     let mut dims = [0; R];
-    for axis in 0..R {
-        dims[axis] = usize::try_from(multiplicity(factors.iter().map(|d| d[axis]))?).ok()?;
+    for (dim, n) in dims.iter_mut().zip(n) {
+        *dim = usize::try_from(n).ok()?;
     }
     let count = if dims.contains(&0) {
         0
@@ -335,6 +347,11 @@ macro_rules! impl_product {
                 else if styles.contains(&Fermionic) { Fermionic } else { Bosonic }
             }
             fn unit(&self) -> Self::Object { (self.factors.0.unit(), $(self.factors.$i.unit(),)+) }
+            // One public `contains` per immediate factor; a nested product
+            // recurses once into its own factors, so each leaf is checked once.
+            fn contains(&self, a: &Self::Object) -> bool {
+                self.factors.0.contains(&a.0) $(&& self.factors.$i.contains(&a.$i))+
+            }
             // Public queries validate every leaf object once through `dim`, which
             // never re-validates, then use the `__fusion_symbols_validated_*` paths below.
             fn dual(&self, a: &Self::Object) -> Self::Object {
@@ -362,19 +379,25 @@ macro_rules! impl_product {
                 for a in [a, b] { self.dim(a); }
                 self.__fusion_symbols_validated_fusion(a, b, Validated(()))
             }
-            /// Panics only if a nonzero product multiplicity exceeds `u32`, or an object is foreign.
+            /// Panics only if a nonzero product multiplicity exceeds `u32`, or an object is foreign;
+            /// [`FusionCategory::try_nsymbol`] reports the former as an error.
             fn nsymbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> u32 {
                 for a in [a, b, c] { self.dim(a); }
                 self.__fusion_symbols_validated_nsymbol(a, b, c, Validated(()))
             }
+            /// `Overflow` if a nonzero product multiplicity exceeds `u32`; a factor's
+            /// failure (including a nested product's overflow) is returned at its
+            /// immediate position. A zero factor multiplicity beats both.
+            /// Foreign objects panic.
+            fn try_nsymbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<u32, Self::Error> {
+                for a in [a, b, c] { self.dim(a); }
+                self.__fusion_symbols_validated_try_nsymbol(a, b, c, Validated(()))
+            }
             fn f_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, d: &Self::Object, e: &Self::Object, f: &Self::Object) -> Result<Self::FSymbol, Self::Error> {
                 for a in [a, b, c, d, e, f] { self.dim(a); }
                 let t = Validated(());
-                let shapes = [
-                    [self.factors.0.__fusion_symbols_validated_nsymbol(&a.0,&b.0,&e.0,t),self.factors.0.__fusion_symbols_validated_nsymbol(&e.0,&c.0,&d.0,t),self.factors.0.__fusion_symbols_validated_nsymbol(&b.0,&c.0,&f.0,t),self.factors.0.__fusion_symbols_validated_nsymbol(&a.0,&f.0,&d.0,t)],
-                    $([self.factors.$i.__fusion_symbols_validated_nsymbol(&a.$i,&b.$i,&e.$i,t),self.factors.$i.__fusion_symbols_validated_nsymbol(&e.$i,&c.$i,&d.$i,t),self.factors.$i.__fusion_symbols_validated_nsymbol(&b.$i,&c.$i,&f.$i,t),self.factors.$i.__fusion_symbols_validated_nsymbol(&a.$i,&f.$i,&d.$i,t)],)+
-                ];
-                let dims = shape::<Self::Scalar, 4>(&shapes).ok_or(ProductError::Overflow)?;
+                let n = |x, y, z| self.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
+                let dims = shape::<Self::Scalar, 4>([n(a, b, e)?, n(e, c, d)?, n(b, c, f)?, n(a, f, d)?]).ok_or(ProductError::Overflow)?;
                 if dims.contains(&0) { return Ok(FBlock { dims, data: Storage::Empty }); }
                 let block = self.__fusion_symbols_validated_f_symbol(a, b, c, d, e, f, t)?;
                 debug_assert_eq!(block.dims(), dims);
@@ -385,9 +408,8 @@ macro_rules! impl_product {
                 if self.factors.0.braiding_style() == BraidingStyle::None { return Err(ProductError::NoBraiding { factor: 0 }); }
                 $(if self.factors.$i.braiding_style() == BraidingStyle::None { return Err(ProductError::NoBraiding { factor: $i }); })+
                 let t = Validated(());
-                let shapes = [[self.factors.0.__fusion_symbols_validated_nsymbol(&a.0,&b.0,&c.0,t), self.factors.0.__fusion_symbols_validated_nsymbol(&b.0,&a.0,&c.0,t)],
-                    $([self.factors.$i.__fusion_symbols_validated_nsymbol(&a.$i,&b.$i,&c.$i,t), self.factors.$i.__fusion_symbols_validated_nsymbol(&b.$i,&a.$i,&c.$i,t)],)+];
-                let dims = shape::<Self::Scalar, 2>(&shapes).ok_or(ProductError::Overflow)?;
+                let n = |x, y, z| self.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
+                let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(b, a, c)?]).ok_or(ProductError::Overflow)?;
                 if dims.contains(&0) { return Ok(RBlock { n: dims[0], data: Storage::Empty }); }
                 let block = self.__fusion_symbols_validated_r_symbol(a, b, c, t)?;
                 debug_assert_eq!(block.dims(), dims);
@@ -417,8 +439,14 @@ macro_rules! impl_product {
                 Ok(ProductFusion { initial, active, current })
             }
             fn __fusion_symbols_validated_nsymbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> u32 {
-                multiplicity([self.factors.0.__fusion_symbols_validated_nsymbol(&a.0, &b.0, &c.0, t), $(self.factors.$i.__fusion_symbols_validated_nsymbol(&a.$i, &b.$i, &c.$i, t)),+])
+                checked_multiplicity([self.factors.0.__fusion_symbols_validated_nsymbol(&a.0, &b.0, &c.0, t), $(self.factors.$i.__fusion_symbols_validated_nsymbol(&a.$i, &b.$i, &c.$i, t)),+].map(Ok), ())
                     .expect("nonzero product multiplicity exceeds u32")
+            }
+            fn __fusion_symbols_validated_try_nsymbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> Result<u32, Self::Error> {
+                checked_multiplicity([
+                    self.factors.0.__fusion_symbols_validated_try_nsymbol(&a.0, &b.0, &c.0, t).map_err(ProductError::Factor0),
+                    $(self.factors.$i.__fusion_symbols_validated_try_nsymbol(&a.$i, &b.$i, &c.$i, t).map_err(ProductError::$Err)),+
+                ], ProductError::Overflow)
             }
             // The caller has established nonzero, representable shapes for every
             // factor (an enclosing product's shape bounds this one's), so the

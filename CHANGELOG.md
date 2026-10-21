@@ -7,6 +7,20 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Added
+
+- `FusionCategory::contains` reports, without panicking, whether an object
+  belongs to a category value; every other object-taking query panics on such
+  a foreign object. Built-in categories check only label identity and range;
+  products check each leaf once. The default returns `true` and is correct
+  only for categories whose objects carry no category parameter.
+- `FusionCategory::try_nsymbol` returns an unrepresentable multiplicity as an
+  error. For products it is `ProductError::Overflow`, a nested product's
+  overflow keeps its immediate factor position, and a zero factor multiplicity
+  still gives `Ok(0)`. Product F and R symbols use it to build their shapes, so
+  a nested product whose multiplicity overflows now returns an error from
+  `f_symbol` and `r_symbol` instead of panicking.
+
 ### Performance
 
 - Product object validation and shape queries now cost time linear in the

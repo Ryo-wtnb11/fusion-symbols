@@ -968,3 +968,65 @@ fn u1_overflow_in_every_immediate_position() {
             .starts_with(&format!("Factor{position}(")));
     }
 }
+
+#[test]
+fn try_nsymbol_reports_overflow_and_zero_beats_it() {
+    let probe = |n| Probe {
+        n: [n; 4],
+        ..Probe::default()
+    };
+    let z2 = (0, 0);
+    let z3 = (0, 0, 0);
+    // Flat: u32::MAX * 2 overflows, unless a later factor is zero.
+    let flat = product(probe(u32::MAX), probe(2));
+    assert!(matches!(
+        flat.try_nsymbol(&z2, &z2, &z2),
+        Err(ProductError::Overflow)
+    ));
+    let flat_zero = product![probe(u32::MAX), probe(2), probe(0)];
+    assert_eq!(flat_zero.try_nsymbol(&z3, &z3, &z3).unwrap(), 0);
+    // Nested: the inner overflow keeps its immediate position, and every
+    // F/R shape query returns it instead of panicking.
+    let nested = product(product(probe(u32::MAX), probe(2)), probe(1));
+    let z = ((0, 0), 0);
+    let inner_overflow = |e| matches!(e, ProductError::Factor0(ProductError::Overflow));
+    assert!(inner_overflow(nested.try_nsymbol(&z, &z, &z).unwrap_err()));
+    assert!(inner_overflow(
+        nested.f_symbol(&z, &z, &z, &z, &z, &z).unwrap_err()
+    ));
+    assert!(inner_overflow(nested.r_symbol(&z, &z, &z).unwrap_err()));
+    let right = product(probe(1), product(probe(2), probe(u32::MAX)));
+    let z = (0, (0, 0));
+    assert!(matches!(
+        right.try_nsymbol(&z, &z, &z),
+        Err(ProductError::Factor1(ProductError::Overflow))
+    ));
+    assert!(matches!(
+        right.f_symbol(&z, &z, &z, &z, &z, &z),
+        Err(ProductError::Factor1(ProductError::Overflow))
+    ));
+    // A zero after a nested overflow fixes N = 0 and empty F/R blocks.
+    let nested_zero = product(product(probe(u32::MAX), probe(2)), probe(0));
+    let z = ((0, 0), 0);
+    assert_eq!(nested_zero.try_nsymbol(&z, &z, &z).unwrap(), 0);
+    assert!(nested_zero
+        .f_symbol(&z, &z, &z, &z, &z, &z)
+        .unwrap()
+        .data()
+        .is_empty());
+    assert!(nested_zero.r_symbol(&z, &z, &z).unwrap().data().is_empty());
+    // Representable values equal nsymbol: 3 * 5 * 7 = 105, also nested.
+    let fits = product(product(probe(3), probe(5)), probe(7));
+    assert_eq!(fits.try_nsymbol(&z, &z, &z).unwrap(), 105);
+    assert_eq!(fits.nsymbol(&z, &z, &z), 105);
+    let su2 = su2();
+    let s = su2.irrep(&[1]).unwrap();
+    let cat = product(su2.clone(), U1);
+    let a = (s.clone(), U1Irrep::new(1).unwrap());
+    let c = (su2.irrep(&[2]).unwrap(), U1Irrep::new(2).unwrap());
+    assert_eq!(cat.try_nsymbol(&a, &a, &c).unwrap(), 1);
+    assert_eq!(cat.try_nsymbol(&a, &a, &cat.unit()).unwrap(), 0);
+    assert_eq!(su2.try_nsymbol(&s, &s, &su2.unit()).unwrap(), 1);
+    // Foreign objects still panic.
+    assert!(std::panic::catch_unwind(|| fits.try_nsymbol(&z, &z, &((0, 0), 255))).is_err());
+}

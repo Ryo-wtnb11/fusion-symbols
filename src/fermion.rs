@@ -47,6 +47,10 @@ impl FusionCategory for FermionParity {
     fn unit(&self) -> FermionParityIrrep {
         FermionParityIrrep::EVEN
     }
+    // Both parity labels belong to the single fermion-parity category.
+    fn contains(&self, _a: &FermionParityIrrep) -> bool {
+        true
+    }
     fn dual(&self, a: &FermionParityIrrep) -> FermionParityIrrep {
         *a
     }
