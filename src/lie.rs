@@ -72,6 +72,45 @@ pub struct LieIrrep {
     bcd: Option<bcd::Irrep>,
 }
 
+struct DynkinLabels<'a> {
+    irrep: &'a LieIrrep,
+    indices: std::ops::Range<usize>,
+}
+
+impl Iterator for DynkinLabels<'_> {
+    type Item = i64;
+
+    fn next(&mut self) -> Option<i64> {
+        let i = self.indices.next()?;
+        #[cfg(feature = "lie-generated")]
+        if let Some(a) = &self.irrep.generated {
+            let w = a.weight();
+            return Some(w[i] - w[i + 1]);
+        }
+        #[cfg(feature = "lie-generated")]
+        if let Some(a) = &self.irrep.bcd {
+            let w = a.two_partition();
+            return Some(if i + 1 < w.len() {
+                ((i128::from(w[i]) - i128::from(w[i + 1])) / 2) as i64
+            } else {
+                match a.series() {
+                    bcd::Series::B => w[i],
+                    bcd::Series::C => w[i] / 2,
+                    bcd::Series::D => ((i128::from(w[i - 1]) + i128::from(w[i])) / 2) as i64,
+                }
+            });
+        }
+        let _ = i;
+        Some(i64::from(self.irrep.dj))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.indices.size_hint()
+    }
+}
+
+impl ExactSizeIterator for DynkinLabels<'_> {}
+
 /// Invalid labels, excluded representations, arithmetic failure, or absent capability.
 #[derive(Clone, Debug, PartialEq)]
 pub enum LieError {
@@ -311,7 +350,8 @@ impl LieIrrep {
         None
     }
 
-    /// Highest weight in Dynkin coordinates.
+    /// Highest weight in Dynkin coordinates, materialized in an owned allocation.
+    /// Use [`Self::dynkin_labels`] for allocation-free label reading on hot paths.
     pub fn dynkin(&self) -> Vec<i64> {
         #[cfg(feature = "lie-generated")]
         if let Some(a) = &self.bcd {
@@ -323,6 +363,18 @@ impl LieIrrep {
         }
         vec![i64::from(self.dj)]
     }
+
+    /// Iterate over every highest-weight Dynkin coordinate, including zeros,
+    /// in the same order as [`Self::dynkin`]. Construction and consumption
+    /// allocate nothing; each coordinate takes O(1) time. `len()` reports
+    /// the number of remaining coordinates.
+    pub fn dynkin_labels(&self) -> impl ExactSizeIterator<Item = i64> + '_ {
+        DynkinLabels {
+            irrep: self,
+            indices: 0..self.group.root_system.rank(),
+        }
+    }
+
     /// Exact dimension.
     pub fn dim_exact(&self) -> BigInt {
         #[cfg(feature = "lie-generated")]

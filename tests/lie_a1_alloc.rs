@@ -46,14 +46,14 @@ fn inline_blocks_and_warm_a1_symbols_allocate_nothing() {
         .f_symbol(&half, &zero, &zero, &zero, &zero, &zero)
         .unwrap();
     let empty_r = cat.r_symbol(&half, &zero, &zero).unwrap();
-    let fusion = cat.fusion(&half, &half).unwrap();
+    let fusion_count = cat.fusion(&half, &half).unwrap().count();
     let after = ALLOCS.load(Ordering::Relaxed);
     assert_eq!(after, before);
     assert_eq!(f, expected);
     assert_eq!(r.at(0, 0), -1.0);
     assert!(empty_f.data().is_empty());
     assert!(empty_r.data().is_empty());
-    assert_eq!(fusion.count(), 2);
+    assert_eq!(fusion_count, 2);
     let warm = fusion_symbols::cache::base_cache_stats();
     assert_eq!(warm.derived_f.misses, stats.derived_f.misses);
     assert_eq!(warm.derived_f.hits, stats.derived_f.hits + 1);

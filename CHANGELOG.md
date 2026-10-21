@@ -7,6 +7,12 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Added
+
+- `LieIrrep::dynkin_labels()` reads every Dynkin coordinate without allocation,
+  with constant time per coordinate and an exact remaining length, for rank-one
+  and generated A/B/C/D representations, including quotient groups and spinors.
+
 ## [0.5.0] - 2026-10-21
 
 ### Added

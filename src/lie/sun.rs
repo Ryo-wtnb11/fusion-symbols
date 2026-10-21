@@ -337,7 +337,7 @@ impl Irrep {
     }
 
     /// The normalized highest weight (length `N`, nonincreasing, last `0`).
-    fn weight(&self) -> &[i64] {
+    pub(super) fn weight(&self) -> &[i64] {
         &self.weight
     }
 

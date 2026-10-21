@@ -33,6 +33,7 @@
 //! assert!((wigner_6j(2, 2, 2, 2, 2, 2).to_f64() - 1.0 / 6.0).abs() < 1e-14);
 //! let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
 //! let half = group.irrep(&[1]).unwrap();
+//! assert_eq!(half.dynkin_labels().next(), Some(1)); // allocation-free label reading
 //! let unit = group.unit();
 //! let f = group.f_symbol(&half, &half, &half, &half, &unit, &unit).unwrap();
 //! assert_eq!(f.at(0, 0, 0, 0), -0.5);
