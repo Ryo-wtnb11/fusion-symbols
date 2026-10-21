@@ -8,7 +8,7 @@ not do, and how to start; the sections below moved here from it.
 
 The shared contract lives in `category`. Families are classified as `lie`
 (Lie-simple groups and their global forms), `abelian`, `group` (other compact
-groups: CU(1) = O(2)), `fermion`, and `table`. `product` is planned;
+groups: CU(1) = O(2)), `fermion`, and `table`. `product` composes ordered Deligne products;
 `cache` supplies resource controls. The first consumer is
 [symtn](https://github.com/Ryo-wtnb11/symtn-rs).
 
@@ -249,3 +249,17 @@ A(r), B(r), C(r), r ≥ 2, and D(r), r ≥ 3, require `cgc-gen`; without it `Lie
 `LieError::Unsupported { requires: "cgc-gen" }`. B/C/D use the same `LieGroup`
 surface with a shared per-value generator catalog. D(2) requires the
 `SU(2) × SU(2)` product.
+
+## Deligne products
+
+`product(a, b)` composes two category values; `product![a, b, c]` composes
+three through twelve. `product::Product::new((a, b))` accepts tuples of two
+through twelve factors. Objects are corresponding tuples. Factors may be
+products themselves; nesting is preserved. All families can participate,
+including generated Lie categories when `cgc-gen` is enabled.
+
+F/R blocks are `category::FBlock<S>` / `RBlock<S>` with one promoted scalar
+(`Complex64` if any factor is complex). `lie::FBlock` and `lie::RBlock` remain
+concrete `f64` aliases. Product coefficients consume factor queries without a
+new coefficient cache or CGC capability. See [products in the User Guide](user-guide/fusion.md#deligne-products)
+for fermions, ordering, validation and representability limits.

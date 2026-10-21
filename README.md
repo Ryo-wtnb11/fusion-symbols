@@ -34,7 +34,7 @@ The modules follow the mathematical classification:
 | `fermion` | Fermion parity via `FermionParity`, with `FermionParityIrrep` labels | default |
 | `table` | 74 unitary multiplicity-free AnyonWiki categories of rank ≤ 4, including Fibonacci and Ising | default |
 | `table` | 303 further AnyonWiki categories of rank 5–7 | `anyonwiki-unitary` |
-| `product` | Deligne products (planned; no public module yet) | — |
+| `product` | Ordered Deligne products of 2..=12 immediate factors, with explicit nesting | default |
 | `cache` | Coefficient-cache budgets, statistics, reset and trimming | default; generated tiers with `cgc-gen` |
 
 The exact SU(2) evaluators live under `lie::su2`; category operations use

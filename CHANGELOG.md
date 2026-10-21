@@ -7,6 +7,14 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Added
+
+- Ordered Deligne products through `product::Product`, `product(a, b)` and
+  `product![a, b, c, ...]`, with 2..=12 immediate factors, explicit nesting,
+  typed factor/overflow errors, scalar promotion and factorwise F/R symbols.
+- Generic `category::FBlock<S = f64>` and `category::RBlock<S = f64>`;
+  `lie::FBlock` / `lie::RBlock` remain concrete `f64` compatibility aliases.
+
 ### Breaking — category API migration (#146)
 
 All symmetry families now implement `category::FusionCategory`; Lie CGC use
@@ -14,7 +22,7 @@ All symmetry families now implement `category::FusionCategory`; Lie CGC use
 validated objects carry labels. This removes duplicate free functions and
 validation paths, and lets generic identity checks work across families.
 Modules follow the mathematical classification: `category`, `lie`, `abelian`,
-`group` (other compact groups), `fermion`, `table`, planned `product`, and `cache`.
+`group` (other compact groups), `fermion`, `table`, `product`, and `cache`.
 Import the traits to call their methods.
 
 | Old API | New API |

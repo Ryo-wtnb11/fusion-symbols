@@ -11,7 +11,7 @@ known difference and the reason recorded for it. Per-symbol provenance is in
 - **A standalone provider, not a sector interface.** There is no `Sector`
   trait or tensor engine. `category::FusionCategory` supplies mathematical
   quantities and `FusionStyle`/`BraidingStyle` for every family: `lie`,
-  `abelian`, `group` (CU(1)), `fermion` and `table`. `product` is planned;
+  `abelian`, `group` (CU(1)), `fermion`, `table` and `product`;
   `cache` controls resources. Tensor-network
   behaviour built on the symbols belongs to the consumer
   ([`AGENTS.md`](../AGENTS.md) "Boundaries";
@@ -117,3 +117,46 @@ known difference and the reason recorded for it. Per-symbol provenance is in
   derivations of dimension, Frobenius–Schur phase and twist from F and R
   agree with the database's own values
   ([`references_categories.md`](references_categories.md), "Selection").
+
+## Deligne products
+
+- `product::Product<C>` retains 2..=12 immediate factors in a tuple. Explicit
+  nesting and trivial factors are preserved. TensorKitSectors 0.3.9 `⊠`
+  flattens products and absorbs `Trivial`; Rust callers choose their tuple
+  shape explicitly. Nested and flat label types and fingerprints differ.
+- Fusion enumeration varies the first factor fastest, while every F/R
+  multiplicity axis varies the last factor fastest, matching TKS. Rust block
+  buffers are row-major; compare indexed entries with Julia arrays.
+- Rust uses one `FusionCategory::Scalar`, promoted left to right with
+  `category::Promote`. TKS separates fusion and braiding scalar types.
+- Fermionic R and twist multiply factorwise without a cross-factor sign.
+  Charge/spin and parity labels are independent; no parity constraint is imposed.
+- Products provide no `GroupRepresentations` / CGC implementation. Cloneable
+  initialized fusion iterators reset without querying a factor again. The
+  higher-ranked iterator bound currently supports owned category types.
+
+### Reference guard inventory
+
+The port uses TensorKitSectors 0.3.9 `product.jl::Nsymbol`, `Fsymbol`,
+`Rsymbol`, `⊗`, style methods, `auxiliary.jl::_kron` / `_kron_promote`,
+and `sectors.jl` style `&` methods. Their relevant guards and assumptions map as follows:
+
+| Reference guard or invariant | Rust mapping |
+|---|---|
+| `SectorTuple`, same sector type `I` for symbol inputs | Compile-time tuple/object types and factor `dim` preflight; foreign labels panic loudly. |
+| `unit` rejects `GenericUnit` | N/A: `category::FusionCategory::unit` requires one simple unit. |
+| Scalar `_kron_promote` fills the logical N-derived shape | Logical axes queried independently of `SymbolBlock::dims`; zero axes skip values, all-one axes stay inline. |
+| `_kron` assumes matching ranks and valid Cartesian indices | Fixed block ranks and per-axis decoding; shape/count/byte overflow is a typed `Overflow`. |
+| Julia product iteration can restart each component | Clone initialized `Fuse` iterators; nonempty reset is a documented loud-panic invariant. A valid clone preserves the initialized iterator sequence. |
+| Styles restrict braiding and symbol availability | R capability errors and twist panic after full preflight; no special-case branch bypasses validation. |
+| Julia multiplicity/product arithmetic fits its representation | Checked Rust arithmetic, zero-wins N, documented N panic or typed F/R `Overflow`. |
+| Single-sector symbol base cases | N/A: Rust accepts 2..=12 immediate factors and delegates leaf symbols to the factor authority. |
+
+No reference assertions are present on these product-symbol paths. TKS
+`fusiontensor`, value indexing/order-by-distance, generic units and flattening
+are outside the approved port. Factor generation retains its own verification
+gates; composition only consumes those authorities. Independent indexed
+oracles are in `tests/product.rs`; structural identities use
+`tests/category_conformance.rs::product_identities` and
+`tests/category_conformance.rs::product_multiplicity_residuals`. Composition allocation checks are in
+`tests/product_alloc.rs::warm_product_composition_allocates_nothing`.

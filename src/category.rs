@@ -280,3 +280,7 @@ pub trait GroupRepresentations: FusionCategory {
 
 mod residual;
 pub use residual::{f_unitarity_residual, hexagon_residual, pentagon_residual};
+
+mod blocks;
+pub(crate) use blocks::Storage;
+pub use blocks::{FBlock, RBlock};

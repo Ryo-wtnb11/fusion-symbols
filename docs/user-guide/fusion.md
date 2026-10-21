@@ -148,3 +148,68 @@ with some twist minus one, and `Anyonic` otherwise.
 
 [`category::FusionCategory::fusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.fusion
 [`lie::LieFusion`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieFusion.html
+
+## Deligne products
+
+A Deligne product combines independent categories. For example, fU(1) is
+U(1) ⊠ fermion parity and fSU(2) is SU(2) ⊠ fermion parity:
+
+```rust
+use fusion_symbols::{abelian::{U1, U1Irrep}, category::FusionCategory,
+    fermion::{FermionParity, FermionParityIrrep}, product};
+let cat = product(U1, FermionParity);
+let odd = (U1Irrep::new(1).unwrap(), FermionParityIrrep::ODD);
+assert_eq!(cat.twist(&odd), -1.0);
+let three = product![U1, FermionParity, U1,];
+assert_eq!(three.dim(&three.unit()), 1.0);
+```
+
+Use `product::Product::new((a, b, ...))` for a tuple of 2..=12 category
+values. `factors()` borrows the tuple; `into_factors()` returns it. The
+`product!` macro accepts 3..=12 factors and evaluates each expression once.
+A product may itself be a factor: `product(product(a, b), c)` has objects
+`((x, y), z)`. Nesting is preserved, with no automatic flattening or removal
+of trivial factors. Use a flat tuple when flat labels are wanted.
+
+Objects, unit, dual, dimensions, N, Frobenius–Schur data and twists compose
+factorwise. Charge/spin and parity labels are independent: the product does
+not enforce parity equal to charge mod 2 or twice-spin mod 2. R contains the
+fermion factor's odd–odd minus sign, with no additional cross-factor sign.
+In particular, exchanging `(odd, even)` with `(even, odd)` in two parity
+factors has coefficient +1.
+
+There are two distinct orders:
+
+- Fusion outcomes form a Cartesian product with the **first factor fastest**.
+- On **each** F/R multiplicity axis the **last factor is fastest**:
+  two factor indices combine as `i = i_left * n_right + i_right`.
+  Blocks retain Rust row-major storage across those axes.
+
+Logical axes come from factor N, including zero axes for inadmissible scalar
+symbols. Zero axes give empty storage; all-one blocks store one inline
+coefficient without allocation. Other blocks share their buffers when cloned.
+The scalar is promoted left to right (`f64` unless a factor is `Complex64`),
+as is coefficient multiplication. Reassociation has the same indexed
+mathematics after relabeling, with floating-point comparisons made to tolerance.
+This guarantee requires representable intermediate queries.
+
+All supplied objects are validated across all factors before any capability,
+shape or value check. R then returns `ProductError::NoBraiding { factor }`
+for an unbraided immediate factor, even if N is zero. Twist instead panics
+on absent braiding, as required by `FusionCategory::twist`. Factor errors
+retain their immediate index (`Factor0` through `Factor11`).
+
+`nsymbol` reads all immediate multiplicities; a zero wins, otherwise a result
+above `u32::MAX` panics loudly. F/R calculate their own checked multiplicities,
+shapes, element counts and byte layouts and return `ProductError::Overflow`;
+they do not call the product's panicking N method. A nested factor's own N
+query must still be representable. Objects from foreign category values panic
+before any of these outcomes.
+
+Fusion iterators are initialized once and reset by cloning the initialized
+iterators. The product-only higher-ranked Clone bound currently restricts
+providers to owned category types. Product identity, hashing and debug output
+use ordered factor values, independently of lazy fingerprint initialization.
+Nested fingerprints retain their framing, even when relabeled values agree.
+There is no product coefficient cache and no product CGC implementation
+(`GroupRepresentations` is not implemented).

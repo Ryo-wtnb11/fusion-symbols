@@ -315,3 +315,55 @@ mod bcd_conformance {
         }
     }
 }
+
+#[test]
+fn product_identities() {
+    use fusion_symbols::{
+        lie::{GroupId, LieGroup},
+        product,
+    };
+    let parity = FermionParityIrrep::ODD;
+    let fu1 = product(U1, FermionParity);
+    conformance(
+        fu1,
+        vec![
+            (U1.unit(), FermionParityIrrep::EVEN),
+            (U1Irrep::new(1).unwrap(), parity),
+        ],
+    );
+    let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+    let half = su2.irrep(&[1]).unwrap();
+    let fsu2 = product(su2.clone(), FermionParity);
+    conformance(fsu2.clone(), vec![fsu2.unit(), (half.clone(), parity)]);
+    let fib = TableCategory::fibonacci();
+    let tau = fib.object(2).unwrap();
+    let fibsu2 = product(fib, su2.clone());
+    conformance(fibsu2.clone(), vec![fibsu2.unit(), (tau, half.clone())]);
+    let ss = product(su2.clone(), su2);
+    conformance(ss.clone(), vec![ss.unit(), (half.clone(), half)]);
+}
+
+#[cfg(feature = "cgc-gen")]
+#[test]
+fn product_multiplicity_residuals() {
+    use fusion_symbols::{
+        category::{f_unitarity_residual, hexagon_residual, pentagon_residual},
+        lie::{GroupId, LieGroup},
+        product,
+    };
+    let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+    let octet = su3.irrep(&[1, 1]).unwrap();
+    let cat = product(su3, FermionParity);
+    let o = (octet, FermionParityIrrep::ODD);
+    let u = cat.unit();
+    assert_eq!(
+        cat.nsymbol(&o, &o, &(o.0.clone(), FermionParityIrrep::EVEN)),
+        2
+    );
+    close(
+        f_unitarity_residual(&cat, &u, &o, &o, &(o.0.clone(), FermionParityIrrep::EVEN)).unwrap(),
+        0.0,
+    );
+    close(hexagon_residual(&cat, &u, &o, &o).unwrap(), 0.0);
+    close(pentagon_residual(&cat, &u, &u, &o, &o).unwrap(), 0.0);
+}
