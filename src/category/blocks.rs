@@ -42,7 +42,7 @@ impl<S> Storage<S> {
 /// `dims = [d_0, d_1, d_2, d_3]`.
 ///
 /// ```
-/// # #[cfg(feature = "cgc-gen")] {
+/// # #[cfg(feature = "lie-generated")] {
 /// use fusion_symbols::{category::FusionCategory, lie::{LieGroup, GroupId}};
 /// let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 ///

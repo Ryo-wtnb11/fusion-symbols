@@ -4,7 +4,7 @@
 //! `cache::stats()` aggregates every tier; splitting into several parallel
 //! tests would race the shared counters.
 
-#![cfg(feature = "cgc-gen")]
+#![cfg(feature = "lie-generated")]
 
 #[path = "common/lie.rs"]
 mod lie_test;

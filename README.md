@@ -22,23 +22,25 @@ Differences in detail are listed in docs/.
 
 ## Status
 
-The modules follow the mathematical classification:
+The modules follow the mathematical classification: `lie` contains
+positive-dimensional compact Lie groups; `finite` contains finite groups.
+Base entries also work with `default-features = false`.
 
 | Module | Supported data | Feature |
 |---|---|---|
 | `category` | Shared `FusionCategory` contract, styles, scalar blocks and identity residuals | default |
 | `lie` | SU(2), SO(3), Spin(3), Sp(2), PSU(2) through `LieGroup`; exact evaluators in `lie::su2` | default |
-| `lie` | SU(N), SU(N)/Z_k, PSU(N), SO(N), Spin(N), Sp(2N) and their supported global forms | `cgc-gen` |
-| `abelian` | U(1), Z_N (including Z2) via `U1`, `ZN` | default |
-| `group` | Other compact groups: CU(1) = U(1) ⋊ C = O(2), via `CU1` | default |
+| `lie` | SU(N), SU(N)/Z_k, PSU(N), SO(N), Spin(N), Sp(2N) and their supported global forms | `lie-generated` (default) |
+| `lie` | Closed-form U(1) and CU(1) = U(1) ⋊ C = O(2), via `U1`, `CU1` | base |
+| `finite` | Finite cyclic groups Z_N (including Z2) via `ZN` | base |
 | `fermion` | Fermion parity via `FermionParity`, with `FermionParityIrrep` labels | default |
 | `table` | 74 unitary multiplicity-free AnyonWiki categories of rank ≤ 4, including Fibonacci and Ising | default |
 | `table` | 303 further AnyonWiki categories of rank 5–7 | `anyonwiki-unitary` |
 | `product` | Ordered Deligne products of 2..=12 immediate factors, with explicit nesting | default |
-| `cache` | Coefficient-cache budgets, statistics, reset and trimming | default; generated tiers with `cgc-gen` |
+| `cache` | Coefficient-cache budgets, statistics, reset and trimming | default; generated tiers with `lie-generated` |
 
 The exact SU(2) evaluators live under `lie::su2`; category operations use
-`lie::LieGroup` and `category::FusionCategory`. In the `cgc-gen` surface, the
+`lie::LieGroup` and `category::FusionCategory`. In the `lie-generated` surface, the
 fingerprint bytes of the generated families (SU(N), SO/Spin/Sp),
 `cache::GENERATED_CACHE_MAX_BYTES` and `cache::GeneratedCacheStats` are marked
 unstable in their rustdoc.
@@ -53,8 +55,8 @@ longer developed here (#130).
 ```toml
 [dependencies]
 fusion-symbols = "0.5"
-# generated SU(N)/SO(N)/Sp(2N) families:
-# fusion-symbols = { version = "0.5", features = ["cgc-gen"] }
+# To omit generated Lie coefficients and the dense backend:
+# fusion-symbols = { version = "0.5", default-features = false }
 ```
 
 ## Example

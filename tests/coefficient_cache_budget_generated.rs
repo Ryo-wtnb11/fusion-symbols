@@ -1,6 +1,6 @@
 //! Generated-family zero-budget coefficient-cache contract.
 
-#![cfg(feature = "cgc-gen")]
+#![cfg(feature = "lie-generated")]
 
 #[path = "common/lie.rs"]
 mod lie_test;

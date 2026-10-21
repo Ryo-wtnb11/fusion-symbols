@@ -23,24 +23,28 @@ All symmetry families now implement `category::FusionCategory`; Lie CGC use
 `category::GroupRepresentations`. Category values supply the mathematics and
 validated objects carry labels. This removes duplicate free functions and
 validation paths, and lets generic identity checks work across families.
-Modules follow the mathematical classification: `category`, `lie`, `abelian`,
-`group` (other compact groups), `fermion`, `table`, `product`, and `cache`.
+Modules follow the mathematical classification: `category`, `lie`
+(positive-dimensional compact Lie groups, including U(1) and CU(1)), `finite`
+(finite groups, currently Z_N), `fermion`, `table`, `product`, and `cache`.
 Import the traits to call their methods.
 
 | Old API | New API |
 |---|---|
 | Per-object `dim`, `dual`, `frobenius_schur`, `twist`, `fusion` on abelian, parity and CU(1) labels | Category methods taking object references; `frobenius_schur_phase` and `frobenius_schur_indicator` are distinct (indicator is zero unless self-dual) |
-| `z2_*`, `zn_*`, `u1_*` N/F/R and fingerprint functions | `FusionCategory::{nsymbol,f_symbol,r_symbol,authority_fingerprint}` on `abelian::ZN` / `abelian::U1` |
-| `abelian::Z2Irrep`, including `EVEN`, `ODD`, `new`, `is_odd` | `abelian::ZN::new(2)?` with `ZNIrrep::from_canonical(0 or 1, 2)?`; inspect `charge()` |
+| `z2_*`, `zn_*`, `u1_*` N/F/R and fingerprint functions | `FusionCategory::{nsymbol,f_symbol,r_symbol,authority_fingerprint}` on `finite::ZN` / `lie::U1` |
+| `Z2Irrep` in the former abelian module, including `EVEN`, `ODD`, `new`, `is_odd` | `finite::ZN::new(2)?` with `ZNIrrep::from_canonical(0 or 1, 2)?`; inspect `charge()` |
+| U(1) types in the former abelian module; CU(1) types in the former group module | `lie::{U1,U1Irrep,U1Error,CU1,CU1Irrep,CU1Fusion,CU1Error}` |
+| Z_N types in the former abelian module | `finite::{ZN,ZNIrrep,ZNError}` (including `from_canonical`); Z2 is `ZN::new(2)` |
+| Former opt-in runtime-generation feature | `lie-generated`, enabled by default; opt out with `default-features = false`; no old-name alias |
 | `ZNIrrep::unit(n)` | `ZN::new(n)?.unit()`; `ZNIrrep::new` still reduces charges, `from_canonical` rejects noncanonical charges |
-| `abelian::FermionParity` label | `fermion::FermionParityIrrep` (same constructors/accessors); `fermion::FermionParity` is the category |
+| `FermionParity` in the former abelian module label | `fermion::FermionParityIrrep` (same constructors/accessors); `fermion::FermionParity` is the category |
 | `fermion_parity_*` symbol/fingerprint functions | `FusionCategory` methods on `fermion::FermionParity` |
-| `cu1::{CU1Irrep,CU1Fusion,CU1Error}`; `cu1::CU1` | `group::{CU1,CU1Irrep,CU1Fusion,CU1Error}`; `cu1` is removed |
-| `cu1_*` symbol/fingerprint functions | `FusionCategory` methods on `group::CU1` |
+| `cu1::{CU1Irrep,CU1Fusion,CU1Error}`; `cu1::CU1` | `lie::{CU1,CU1Irrep,CU1Fusion,CU1Error}`; `cu1` is removed |
+| `cu1_*` symbol/fingerprint functions | `FusionCategory` methods on `lie::CU1` |
 | `tables::*` | `table::*`; metadata, provenance and named category constructors remain inherent methods |
 | `TableObject(index)`, `TableObject::label()` | `TableCategory::object(index)?`, `TableObject::index()`; fields and catalog tags are private |
 | Inherent table `unit`, `dim`, `dual`, `frobenius_schur`, `twist`, `fusion`, `nsymbol`, F/R and fingerprint methods | `FusionCategory` methods with object references; `fusion`, F/R return `Result`; `TableFusion` borrows the category |
-| `group::{GroupId,RootSystem,GlobalForm,CenterSubgroup,GroupError}` and their constructors/methods | Same names under `lie`; `group` now contains CU(1), not the Lie global-form types |
+| Global-form types `GroupId`, `RootSystem`, `GlobalForm`, `CenterSubgroup`, `GroupError` in the former group module | Same names under `lie`; the former group module is removed |
 | `su2::*` and crate-root exact evaluators, checked exact evaluators, Regge utilities, `SignedSqrtRational`, `Su2Error`, `AdmissibilityViolation` | Same names under `lie::su2` (including exact 3j/6j/CG `_checked` forms) |
 | `Su2Irrep`, `Su2Fusion`, `Su2Irrep::{new,dj,dim,dual,fusion}` | `LieGroup::new(GroupId::su(2)?)?`, `irrep(&[dj])?`, `LieIrrep::{dynkin,dim_exact}`, category `dual` / `fusion` yielding `LieFusion` |
 | `su2_f_symbol`, `su2_r_symbol`, `su2_frobenius_schur`, `su2_twist`, `su2_authority_fingerprint` | `FusionCategory` methods on a rank-one `lie::LieGroup`; F/R are `lie::{FBlock,RBlock}` with inline scalar storage |
@@ -55,12 +59,12 @@ Import the traits to call their methods.
 | `bcd::Irrep::{dim,dual,frobenius_schur,twist,two_weight_multiplicities,weight_multiplicities}` | `LieIrrep::{dim_exact,weight_multiplicities}` and category methods, including spinors; weights are Dynkin coordinates |
 | `bcd::Irrep::{partition,two_partition,is_spinor}`, `bcd::{Seed,CommReport,Generators,Block,Decomposition,defining_seed,spinor_seeds,decompose,decompose_defining_product,cgc_sweeps}` and their accessors | No public replacement; engines are private behind `LieGroup` |
 | `bcd::CanonicalCatalog`, its constructors, `with_budget`, `bytes`, `budget`, `reset`, generation/statistics methods | Catalog is owned by `LieGroup`; use `with_catalog_budget`, `catalog_stats() -> Result<(bytes,budget),LieError>`, `reset_catalog()`; clones share it |
-| `AbelianError<L>` | Non-generic `abelian::AbelianError`; label type is no longer an error parameter |
+| Combined abelian label/overflow error | `lie::U1Error` (`U1ChargeOutOfRange`) and `finite::ZNError` (`ZeroModulus`, `NonCanonicalCharge`); non-generic, with variant names unchanged |
 | `SunError`, `BcdError`, `bcd::{CatalogError,SweepError,FrError}` | `LieError`; genuine generation failures are opaque `GenerationError` diagnostics with `Display` and `Error::source` |
 | `check_f_unitarity`, `check_pentagon`, `check_hexagon` | `category::{f_unitarity_residual,pentagon_residual,hexagon_residual}`; return maximum absolute residual, caller chooses tolerance |
 | `bcd::check_commutators` | Private generation gates; use generic residuals for public consistency checks |
 | Symbol `_checked` duals (abelian, parity, CU(1), table and SU(2) F/R); table `twist_checked` | Construction-time object validation followed by category methods; exact 3j/6j/CG checked evaluators remain |
-| `AbelianError::{NotAdmissible,ModulusMismatch}`, `CU1Error::NotAdmissible`, `TableError::NotAdmissible` | Absent channels are zero; foreign objects panic. Invalid labels/overflow retain typed errors; `TableError::UnknownObject { object }` is reported by construction |
+| Former abelian `NotAdmissible` / `ModulusMismatch` errors, `CU1Error::NotAdmissible`, `TableError::NotAdmissible` | Absent channels are zero; foreign objects panic. Invalid labels/overflow retain typed errors; `TableError::UnknownObject { object }` is reported by construction |
 
 Behaviour and persisted-data changes:
 
@@ -74,7 +78,8 @@ Behaviour and persisted-data changes:
 - **Z2 fingerprint:** `z2_authority_fingerprint` is retired. Z2 uses the
   unchanged ZN fingerprint. Coefficient values do not change; replace the
   persisted fingerprint when migrating. Other #146 values, gauge conventions,
-  fingerprint bytes (including their permanent `racah:` prefixes), and cache
+  fingerprint bytes (including permanent `racah:`, `fusion-symbols:abelian-u1`
+  and `fusion-symbols:abelian-zn` prefixes), and cache
   APIs are unchanged. A1 dense CGC skip magnetic-selection-rule zeros without
   calling the exact evaluator; all returned values are unchanged.
 - **B/C/D gauge correction (#151), epoch 3:** §4a of `docs/gauge_soN.md`
@@ -94,7 +99,7 @@ Behaviour and persisted-data changes:
 
 ### Changed
 
-- **cgc-gen dense backend (#151):** t4a-faer replaces Tenferro for dense
+- **lie-generated dense backend (#151):** t4a-faer replaces Tenferro for dense
   factorizations and contractions, preserving plain column-major buffers and
   verification gates. The minimum is now 0.24.7 to exclude 0.24.6's threaded-SVD
   defect (tensor4all/faer#25). Only `std` is enabled; this crate uses explicit

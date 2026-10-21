@@ -1,6 +1,6 @@
 //! Generated-tier coefficient-cache resource contract.
 //!
-//! The `cgc-gen` analogue of `tests/base_cache_contract.rs`: the five generated
+//! The `lie-generated` analogue of `tests/base_cache_contract.rs`: the five generated
 //! tiers (SU(N) product, SU(N) CGC, SU(N) F, B/C/D CGC, B/C/D F) are process-global and
 //! `cache::reset()`/`generated_cache_stats()` act on shared state, so this is
 //! kept in one `#[test]` (splitting into parallel tests would race the shared
@@ -14,7 +14,7 @@
 //! coherence, that the generated stats are a subset of the aggregate `stats()`,
 //! and reset zeroing of every field of every generated tier and of `total()`.
 
-#![cfg(feature = "cgc-gen")]
+#![cfg(feature = "lie-generated")]
 
 #[path = "common/lie.rs"]
 mod lie_test;

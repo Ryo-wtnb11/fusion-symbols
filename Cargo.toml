@@ -12,7 +12,8 @@ keywords = ["recoupling", "clebsch-gordan", "wigner", "lie-group", "6j"]
 categories = ["mathematics", "science"]
 
 # docs.rs builds the generated SU(N)/SO(N)/Sp(2N) surfaces too, not just the
-# base SU(2) path, so the published docs cover the whole API.
+# base SU(2) path, and include the optional table catalog. The generated
+# Lie surface is enabled by default; published docs cover every feature.
 # The KaTeX header renders `$...$` / `$$...$$` math in the doc comments; local
 # and CI doc builds pass the same flag (README dev note; CI `doc` job).
 [package.metadata.docs.rs]
@@ -20,14 +21,14 @@ all-features = true
 rustdoc-args = ["--html-in-header", "doc/katex-header.html"]
 
 [features]
-default = []
+default = ["lie-generated"]
 # Every supported (unitary, unitary-gauge, |1/F| dimensions) AnyonWiki entry of
 # rank 5-7 in `table`: 303 entries beyond the 74 of rank <= 4 shipped by
 # default. Data only, no dependency; about 4.2 MB of embedded tables.
 anyonwiki-unitary = []
 # Runtime coefficient generation for SU(N)/SO(N)/Sp(2N).
 # Sequential dense factorization and contraction kernels; the caller owns parallelism.
-cgc-gen = ["dep:t4a-faer"]
+lie-generated = ["dep:t4a-faer"]
 
 [dependencies]
 num-bigint = "0.4"
@@ -37,7 +38,7 @@ num-traits = "0.2"
 # `from_polar` need it.
 num-complex = "0.4"
 # crates.io semver range; std only (no rayon or global parallelism).
-# Only cgc-gen pulls the dense backend; base builds stay dependency-light.
+# Only lie-generated pulls the dense backend; base builds stay dependency-light.
 t4a-faer = { version = "0.24.7", default-features = false, features = ["std"], optional = true }
 
 [dev-dependencies]
@@ -55,22 +56,22 @@ harness = false
 [[bench]]
 name = "sun_cgc"
 harness = false
-required-features = ["cgc-gen"]
+required-features = ["lie-generated"]
 
 # SU(N) F-symbol generation cost (cold contraction + warm F-cache hit).
 [[bench]]
 name = "sun_fr"
 harness = false
-required-features = ["cgc-gen"]
+required-features = ["lie-generated"]
 
 # SU(N) product working-set collector plus cold/warm decomposition timing.
 [[bench]]
 name = "sun_product"
 harness = false
-required-features = ["cgc-gen"]
+required-features = ["lie-generated"]
 
 # B/C/D F-symbol generation cost (cold catalog+sweep+contraction + warm hit).
 [[bench]]
 name = "bcd_fr"
 harness = false
-required-features = ["cgc-gen"]
+required-features = ["lie-generated"]

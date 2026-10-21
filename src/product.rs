@@ -76,16 +76,16 @@ where
 /// Compose 3..=12 factors, evaluating each expression once. A trailing comma is allowed.
 ///
 /// ```
-/// use fusion_symbols::{abelian::U1, fermion::FermionParity, product};
+/// use fusion_symbols::{lie::U1, fermion::FermionParity, product};
 /// let cat = product![U1, FermionParity, U1,];
 /// assert_eq!(cat.into_factors(), (U1, FermionParity, U1));
 /// ```
 /// ```compile_fail
-/// use fusion_symbols::{abelian::U1, product};
+/// use fusion_symbols::{lie::U1, product};
 /// let _ = product![U1];
 /// ```
 /// ```compile_fail
-/// use fusion_symbols::{abelian::U1, product};
+/// use fusion_symbols::{lie::U1, product};
 /// let _ = product![U1,U1,U1,U1,U1,U1,U1,U1,U1,U1,U1,U1,U1];
 /// ```
 #[macro_export]

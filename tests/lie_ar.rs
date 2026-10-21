@@ -1,4 +1,4 @@
-#![cfg(feature = "cgc-gen")]
+#![cfg(feature = "lie-generated")]
 use fusion_symbols::{
     cache,
     category::{FusionCategory, FusionStyle, GroupRepresentations},

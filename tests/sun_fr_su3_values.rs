@@ -5,7 +5,7 @@
 //! including the multiplicity-axis order of `8 ⊗ 8 → 8`. Pentagon, hexagon and
 //! unitarity over the small irreps are in `tests/sun_fr_gates.rs`; they are
 //! gauge invariant, so these literals are what pins the gauge.
-#![cfg(feature = "cgc-gen")]
+#![cfg(feature = "lie-generated")]
 
 #[path = "common/lie.rs"]
 mod lie_test;

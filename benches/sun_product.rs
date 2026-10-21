@@ -1,7 +1,7 @@
 //! SU(N) tensor-product cache working-set collector and cold/warm timing.
 //!
 //! Not a CI gate. Run with
-//! `cargo bench --bench sun_product --features cgc-gen`.
+//! `cargo bench --bench sun_product --features lie-generated`.
 
 #[path = "../tests/common/lie.rs"]
 mod lie_test;

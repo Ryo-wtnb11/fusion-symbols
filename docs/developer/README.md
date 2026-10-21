@@ -41,7 +41,7 @@ The collectors that produce these are `src/cache_audit.rs`,
 
 ## Implementation notes
 
-**Kernel routing.** All dense numerical work behind `cgc-gen` — the
+**Kernel routing.** All dense numerical work behind `lie-generated` — the
 nullspace/QR/least-squares factorizations and the CGC contractions producing
 F/R — routes through t4a-faer with explicit `Par::Seq` and scratch workspaces
 (`src/lie/sun/linalg.rs`, `src/lie/bcd/linalg.rs`). Only `std` is enabled, without
@@ -73,9 +73,12 @@ as internal consistency gates.
 
 ```sh
 cargo fmt --all --check
-cargo clippy --all-targets --all-features    # CI runs with RUSTFLAGS=-D warnings
-cargo test --all-features
+RUSTFLAGS="-D warnings" cargo clippy --all-targets
+RUSTFLAGS="-D warnings" cargo clippy --all-targets --no-default-features
+RUSTFLAGS="-D warnings" cargo clippy --all-targets --all-features
+cargo test
 cargo test --no-default-features
+cargo test --all-features
 RUSTDOCFLAGS="-D warnings --html-in-header doc/katex-header.html" \
   cargo doc --no-deps --all-features
 ```
@@ -87,12 +90,12 @@ renders locally exactly as it will on docs.rs. Add `--open` to read it.
 ## Benchmarks
 
 Criterion harnesses under `benches/`, none of them CI gates. All but `wigner`
-need the `cgc-gen` feature.
+need `lie-generated`, which is enabled by default.
 
 | Bench | What it measures | How to run |
 |---|---|---|
 | `wigner` | Prime-factorized exact 3j/6j on doubled spins ≤ 254, the thousands tier, and the repeated-label cache-hit regime. | `cargo bench --bench wigner` |
-| `sun_cgc` | SU(N) CGC generation cost across representative `(N, dim)` channels, plus the warm cache-hit path. | `cargo bench --bench sun_cgc --features cgc-gen` |
-| `sun_fr` | SU(N) F-symbol cost, cold (full four-CGC contraction, CGC caches cleared) and warm (derived-f64 F cache hit). R is not benched separately: a single sparse join of two CGC, no cache. | `cargo bench --bench sun_fr --features cgc-gen` |
-| `sun_product` | SU(N) tensor-product cache working set (counting global allocator) plus cold/warm decomposition timing. | `cargo bench --bench sun_product --features cgc-gen` |
-| `bcd_fr` | SO(N)/Sp(2N) F-symbol cost, cold (fresh catalog + full CGC sweep + four-CGC contraction) and warm (derived-f64 bcd F cache hit). Same R rationale as `sun_fr`. | `cargo bench --bench bcd_fr --features cgc-gen` |
+| `sun_cgc` | SU(N) CGC generation cost across representative `(N, dim)` channels, plus the warm cache-hit path. | `cargo bench --bench sun_cgc --features lie-generated` |
+| `sun_fr` | SU(N) F-symbol cost, cold (full four-CGC contraction, CGC caches cleared) and warm (derived-f64 F cache hit). R is not benched separately: a single sparse join of two CGC, no cache. | `cargo bench --bench sun_fr --features lie-generated` |
+| `sun_product` | SU(N) tensor-product cache working set (counting global allocator) plus cold/warm decomposition timing. | `cargo bench --bench sun_product --features lie-generated` |
+| `bcd_fr` | SO(N)/Sp(2N) F-symbol cost, cold (fresh catalog + full CGC sweep + four-CGC contraction) and warm (derived-f64 bcd F cache hit). Same R rationale as `sun_fr`. | `cargo bench --bench bcd_fr --features lie-generated` |

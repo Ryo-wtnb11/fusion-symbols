@@ -1,31 +1,4 @@
-//! Compact groups that are neither Lie-simple nor abelian
-//! (currently CU(1) = U(1) ⋊ C = O(2)).
-//!
-//! Every value follows TensorKitSectors.jl 0.3.9 (git `67d342a1`)
-//! `src/irreps/cu1irrep.jl` (`CU1Irrep`: constructor, `dual`, `⊗`, `dim`,
-//! `Nsymbol`, `Fsymbol`, `Rsymbol`, `frobenius_schur_phase`), with the generic
-//! `src/sectors.jl:twist_from_Rsymbol` for the twist, which `CU1Irrep` does
-//! not override. Never "simplify" a sign or branch of [`CU1::f_symbol`]
-//! without rereading `cu1irrep.jl:Fsymbol`: the gauge is in its branch order.
-//!
-//! The irreps are `0+` (the unit), `0-` (the pseudoscalar, charge
-//! conjugation acting by `-1`) and, for each half-integer `j > 0`, a
-//! two-dimensional irrep. Fusion is multiplicity free; every irrep is
-//! self-dual; the braiding is bosonic (twist `1`) with
-//! `R^{ab}_{0-} = -1` for charged `a`, `b`; the Frobenius–Schur phase is `1`.
-//!
-//! Scalars are `f64`, as TensorKitSectors' `fusionscalartype` and
-//! `braidingscalartype` (`Float64`). F and R are the recouplings of
-//! TensorKitSectors' `CU1Irrep` fusion tensors (`tests/cu1_values.rs`
-//! contracts them densely).
-//! One deliberate signed-zero difference: TensorKitSectors' `Rsymbol` returns
-//! `-0.0` for an inadmissible `R^{ab}_{0-}` with charged `a` (it negates the
-//! zero `N`); here every inadmissible symbol is `+0.0`, as in symtn and the
-//! other families of this crate.
-//!
-//! Label domain: `twice_charge = 2j` is any `u32`. A consumer whose own
-//! encoding is narrower (symtn's sector codec stops at `u32::MAX - 1`)
-//! validates that bound itself.
+//! Closed-form CU(1) coefficients.
 
 use crate::category::{BraidingStyle, FusionCategory, FusionStyle};
 
@@ -156,7 +129,35 @@ impl DoubleEndedIterator for CU1Fusion {
 
 impl ExactSizeIterator for CU1Fusion {}
 
-/// CU(1) category; every validated CU(1) label belongs to it.
+/// Closed-form CU(1) = U(1) ⋊ C = O(2).
+///
+/// Every value follows TensorKitSectors.jl 0.3.9 (git `67d342a1`)
+/// `src/irreps/cu1irrep.jl` (`CU1Irrep`: constructor, `dual`, `⊗`, `dim`,
+/// `Nsymbol`, `Fsymbol`, `Rsymbol`, `frobenius_schur_phase`), with the generic
+/// `src/sectors.jl:twist_from_Rsymbol` for the twist, which `CU1Irrep` does
+/// not override. Never "simplify" a sign or branch of [`CU1::f_symbol`]
+/// without rereading `cu1irrep.jl:Fsymbol`: the gauge is in its branch order.
+///
+/// The irreps are `0+` (the unit), `0-` (the pseudoscalar, charge
+/// conjugation acting by `-1`) and, for each half-integer `j > 0`, a
+/// two-dimensional irrep. Fusion is multiplicity free; every irrep is
+/// self-dual; the braiding is bosonic (twist `1`) with
+/// `R^{ab}_{0-} = -1` for charged `a`, `b`; the Frobenius–Schur phase is `1`.
+///
+/// Scalars are `f64`, as TensorKitSectors' `fusionscalartype` and
+/// `braidingscalartype` (`Float64`). F and R are the recouplings of
+/// TensorKitSectors' `CU1Irrep` fusion tensors (`tests/cu1_values.rs`
+/// contracts them densely).
+/// One deliberate signed-zero difference: TensorKitSectors' `Rsymbol` returns
+/// `-0.0` for an inadmissible `R^{ab}_{0-}` with charged `a` (it negates the
+/// zero `N`); here every inadmissible symbol is `+0.0`, as in symtn and the
+/// other families of this crate.
+///
+/// Label domain: `twice_charge = 2j` is any `u32`. A consumer whose own
+/// encoding is narrower (symtn's sector codec stops at `u32::MAX - 1`)
+/// validates that bound itself.
+///
+/// Every validated CU(1) label belongs to this category.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct CU1;
 
@@ -534,8 +535,8 @@ mod tests {
         );
         let fibonacci = crate::table::TableCategory::fibonacci();
         for other in [
-            crate::abelian::U1_FINGERPRINT,
-            crate::abelian::LEGACY_PARITY_FINGERPRINT,
+            super::super::u1::U1_FINGERPRINT,
+            crate::finite::LEGACY_PARITY_FINGERPRINT,
             fibonacci.authority_fingerprint(),
         ] {
             assert_ne!(CU1.authority_fingerprint(), other);

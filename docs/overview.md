@@ -7,8 +7,8 @@ not do, and how to start; the sections below moved here from it.
 ## Families
 
 The shared contract lives in `category`. Families are classified as `lie`
-(Lie-simple groups and their global forms), `abelian`, `group` (other compact
-groups: CU(1) = O(2)), `fermion`, and `table`. `product` composes ordered Deligne products;
+(positive-dimensional compact Lie groups, including U(1) and CU(1) = O(2)),
+`finite` (finite groups, currently Z_N), `fermion`, and `table`. `product` composes ordered Deligne products;
 `cache` supplies resource controls. The first consumer is
 [symtn](https://github.com/Ryo-wtnb11/symtn-rs).
 
@@ -26,16 +26,17 @@ pinned AnyonWiki tables described below.
 | Family | Module | Feature | Labels |
 |---|---|---|---|
 | SU(2), SO(3), Spin(3), Sp(2), PSU(2) | `fusion_symbols::lie::LieGroup` and `lie::su2` | *(default)* | doubled spin `dj = 2j` |
-| SU(N), SU(N)/Z_k, PSU(N) | `fusion_symbols::lie` | `cgc-gen` | `N-1` Dynkin labels |
-| SO(N), Spin(N) | `fusion_symbols::lie::LieGroup` (B/D) | `cgc-gen` | `r` Dynkin labels |
-| Sp(2r) | `fusion_symbols::lie::LieGroup` (C) | `cgc-gen` | `r` Dynkin labels |
-| U(1), Z_N (Z2 = `ZN::new(2)`) | `fusion_symbols::abelian` | *(default)* | `U1` / `U1Irrep` (`i32`), `ZN` / `ZNIrrep` (charge, runtime `N`) |
-| CU(1) = U(1) ⋊ C (`O(2)`) | `fusion_symbols::group` | *(default)* | `CU1` / `CU1Irrep` (twice charge `u32`, TensorKitSectors `s`) |
+| SU(N), SU(N)/Z_k, PSU(N) | `fusion_symbols::lie` | `lie-generated` (default) | `N-1` Dynkin labels |
+| SO(N), Spin(N) | `fusion_symbols::lie::LieGroup` (B/D) | `lie-generated` (default) | `r` Dynkin labels |
+| Sp(2r) | `fusion_symbols::lie::LieGroup` (C) | `lie-generated` (default) | `r` Dynkin labels |
+| U(1) | `fusion_symbols::lie` | base | `U1` / `U1Irrep` (`i32`) |
+| Z_N (Z2 = `ZN::new(2)`) | `fusion_symbols::finite` | base | `ZN` / `ZNIrrep` (charge, runtime `N`) |
+| CU(1) = U(1) ⋊ C (`O(2)`) | `fusion_symbols::lie` | *(default)* | `CU1` / `CU1Irrep` (twice charge `u32`, TensorKitSectors `s`) |
 | Fermion parity | `fusion_symbols::fermion` | *(default)* | `FermionParity` / `FermionParityIrrep` (bool) |
 | Unitary multiplicity-free categories, rank ≤ 4 (AnyonWiki tables: 74 entries incl. Fibonacci, Ising) | `fusion_symbols::table` | *(default)* | `TableCategory` (`by_uuid`, `by_code`, `fibonacci()`, `ising()`); tagged `TableObject` from `object(1..=rank)?` |
 | … rank 5–7 (303 further AnyonWiki entries, about 4.2 MB of embedded tables) | `fusion_symbols::table` | `anyonwiki-unitary` | as above |
 
-`lie::LieGroup`, `abelian::{U1, ZN}`, `group::CU1`, `fermion::FermionParity` and
+`lie::LieGroup`, `lie::U1`, `finite::ZN`, `lie::CU1`, `fermion::FermionParity` and
 `table::TableCategory` implement
 `category::FusionCategory`, the single surface for dimension, dual, FS phase
 and indicator, twist, fusion and N/F/R. Objects are validated at construction;
@@ -88,16 +89,16 @@ For any admissible irreps of a supported group:
 
 | Feature | Adds | Pulls in |
 |---|---|---|
-| *(default)* | `category`; exact rank-one `lie`; closed-form `abelian`, `group` (CU(1)), `fermion`; rank ≤ 4 `table`; `cache` | `num-bigint`, `num-rational`, `num-traits`, `num-complex` |
-| `cgc-gen` | Runtime CGC / F / R generation for SU(N) (Gelfand–Tsetlin) and SO(N)/Sp(2N) (generator bootstrap) | `t4a-faer` (sequential, `std` only) (the dense factorization + contraction backend) |
+| `default-features = false` | `category`; exact rank-one `lie`; closed-form `lie::{U1, CU1}`, `finite::ZN`, `fermion`; rank ≤ 4 `table`; `product`; `cache` | `num-bigint`, `num-rational`, `num-traits`, `num-complex` |
+| `lie-generated` (default) | Runtime CGC / F / R generation for SU(N) (Gelfand–Tsetlin) and SO(N)/Sp(2N) (generator bootstrap) | `t4a-faer` (sequential, `std` only) (the dense factorization + contraction backend) |
 | `anyonwiki-unitary` | The 303 supported AnyonWiki `table` entries of rank 5–7 (377 in all); without it they are `NotShipped` (feature added in 0.4.1) | nothing (embedded data only, about 4.2 MB) |
 
 The feature boundary is mathematical, not organizational: SU(2) has closed forms
-and needs no matrix computation, so consumers who need only SU(2) never pull a
-linear-algebra stack. No fixed MSRV — `fusion-symbols` builds and is tested on current
+and needs no matrix computation, so consumers who need only closed forms can opt out with
+`default-features = false` to avoid the linear-algebra stack. No fixed MSRV — `fusion-symbols` builds and is tested on current
 stable Rust.
 
-With `cgc-gen` enabled the coefficient caches may retain several hundred MiB by
+With `lie-generated` enabled the coefficient caches may retain several hundred MiB by
 default; call `fusion_symbols::cache::configure_cache_budgets` once before first use to
 lower that bound
 ([User Guide: resources](user-guide/resources.md#bounding-cache-memory)).
@@ -107,7 +108,7 @@ lower that bound
 Each is a literal copy of a crate doctest, so it compiles against the current
 API.
 
-SU(N) (`cgc-gen`). Irreps are built from Dynkin labels (length `N-1`); this
+SU(N) (`lie-generated`). Irreps are built from Dynkin labels (length `N-1`); this
 decomposes the SU(3) product `8 ⊗ 8`, where the adjoint appears twice:
 
 ```rust
@@ -121,7 +122,7 @@ assert_eq!(cat.fusion(&eight, &eight).unwrap()
     .collect::<std::collections::BTreeMap<_, _>>()[&eight], 2);
 ```
 
-SO(N)/Sp(2N) (`cgc-gen`). Generation runs through a per-(series, rank)
+SO(N)/Sp(2N) (`lie-generated`). Generation runs through a per-(series, rank)
 `LieGroup` that retains canonical generator matrices; this is an Sp(4) (`C_2`)
 F-symbol block:
 
@@ -192,7 +193,7 @@ references, one per family (full provenance in
 - **Symbolic algebraic-number coefficients.** See
   [Exactness and gauge](#exactness-and-gauge).
 - **Additional disconnected or non-compact groups.** CU(1) = O(2) is
-  supported in `group`; other O(N), Pin(N), and non-compact groups are unsupported.
+  supported in `lie`; other O(N), Pin(N), and non-compact groups are unsupported.
 
 Why each family gets a different algorithm — and why that choice is forced by
 the group's branching structure rather than chosen for convenience — is argued
@@ -226,7 +227,7 @@ next to anything you derive, and compare by equality
 
 Feature-complete for its v0 scope; all families are implemented and
 oracle-checked. The base SU(2) surface — authority fingerprint, checked
-representation layer, cache resource contract — is stable; the `cgc-gen`
+representation layer, cache resource contract — is stable; the `lie-generated`
 generated-provider surface is unstable; the
 generated-family fingerprint bytes are opaque. The rustdoc marker is on `FusionCategory::authority_fingerprint`,
 `cache::GENERATED_CACHE_MAX_BYTES` and `cache::GeneratedCacheStats`.
@@ -245,8 +246,8 @@ gauge drift with no reference toolchain in the loop.
 
 Rank-one A(1), B(1), C(1) groups use one exact SU(2) path and fingerprint.
 Objects keep the caller's `GroupId`; isomorphic groups remain mutually foreign.
-A(r), B(r), C(r), r ≥ 2, and D(r), r ≥ 3, require `cgc-gen`; without it `LieGroup::new` returns
-`LieError::Unsupported { requires: "cgc-gen" }`. B/C/D use the same `LieGroup`
+A(r), B(r), C(r), r ≥ 2, and D(r), r ≥ 3, require `lie-generated`; without it `LieGroup::new` returns
+`LieError::Unsupported { requires: "lie-generated" }`. B/C/D use the same `LieGroup`
 surface with a shared per-value generator catalog. D(2) requires the
 `SU(2) × SU(2)` product.
 
@@ -256,7 +257,7 @@ surface with a shared per-value generator catalog. D(2) requires the
 three through twelve. `product::Product::new((a, b))` accepts tuples of two
 through twelve factors. Objects are corresponding tuples. Factors may be
 products themselves; nesting is preserved. All families can participate,
-including generated Lie categories when `cgc-gen` is enabled.
+including generated Lie categories when `lie-generated` is enabled.
 
 F/R blocks are `category::FBlock<S>` / `RBlock<S>` with one promoted scalar
 (`Complex64` if any factor is complex). `lie::FBlock` and `lie::RBlock` remain

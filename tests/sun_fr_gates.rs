@@ -7,7 +7,7 @@
 //! octet `8 = (1,1)`, where `8 ⊗ 8 → 8` has multiplicity 2, so the F blocks are
 //! genuine `2×2×2×2` arrays and the identities mix multiplicity indices.
 
-#![cfg(feature = "cgc-gen")]
+#![cfg(feature = "lie-generated")]
 
 #[path = "common/lie.rs"]
 mod lie_test;

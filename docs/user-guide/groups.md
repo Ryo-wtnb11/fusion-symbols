@@ -42,13 +42,13 @@ assert_eq!(channels, vec![0, 2, 4]);
 ```
 
 `GroupId::su(2)` always selects the exact rank-one path, including with
-`cgc-gen` enabled.
+`lie-generated` enabled.
 SO(3), Spin(3), Sp(2), and PSU(2) use the same implementation; SO(3)
 and PSU(2) admit only even doubled spins. Objects retain distinct group tags.
 
 ## SU(N), N ≥ 3
 
-Use `lie::LieGroup` with `GroupId::su(n)` (`cgc-gen` for n ≥ 3). Coefficients are built by the Gelfand–Tsetlin
+Use `lie::LieGroup` with `GroupId::su(n)` (`lie-generated` for n ≥ 3). Coefficients are built by the Gelfand–Tsetlin
 construction: GT patterns label the basis of an irrep uniquely, so ladder
 operators have exact closed-form matrix elements and the CGC follow from a
 highest-weight nullspace solve.
@@ -67,7 +67,7 @@ assert_eq!(decomposition[&eight], 2);
 
 ## SO(N) and Sp(2N): the B/C/D series
 
-Use `fusion_symbols::lie::LieGroup` (`cgc-gen`). These families have no practical GT-type basis, so
+Use `fusion_symbols::lie::LieGroup` (`lie-generated`). These families have no practical GT-type basis, so
 `fusion-symbols` builds them by a **generator bootstrap**: seed the defining
 representation's generators explicitly, take tensor products, decompose them
 numerically, harvest the new generator sets, recurse.
@@ -182,9 +182,10 @@ basis, gauge, and cached values.
 
 ## Caveats
 
-- `lie` covers connected compact groups with supported simple root systems.
-  CU(1) = O(2) is supported separately in `group`; other O(N), Pin(N), and
-  non-compact groups are unsupported.
+- `lie` covers positive-dimensional compact Lie groups: `LieGroup` handles
+  supported simple root systems and global forms, while `U1` and `CU1`
+  supply closed forms. CU(1) = O(2) is disconnected; other O(N), Pin(N),
+  and non-compact groups are unsupported.
 - Choosing a global form never changes a number. If you were hoping `SO(N)`
   coefficients would differ from `Spin(N)` ones on shared irreps: they do not,
   by construction.

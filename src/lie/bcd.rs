@@ -1217,25 +1217,25 @@ use seeds::defining_seed;
 use seeds::{check_commutators, spinor_seeds};
 
 // The decomposition sweep and its dense linalg seam depend on
-// `t4a-faer`, so they live behind the `cgc-gen` feature like the SU(N)
+// `t4a-faer`, so they live behind the `lie-generated` feature like the SU(N)
 // CGC pipeline; the base crate stays dependency-light.
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 mod linalg;
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 mod sweep;
 
 // The canonical catalog (append-only generator ownership) sits on top of
-// the sweep, so it shares the `cgc-gen` feature gate.
-#[cfg(feature = "cgc-gen")]
+// the sweep, so it shares the `lie-generated` feature gate.
+#[cfg(feature = "lie-generated")]
 mod catalog;
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 pub use catalog::{CanonicalCatalog, CatalogCgc, CatalogError};
 
 // The B/C/D binding of the family-generic F/R core, over the canonical
 // catalog's CGC.
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 pub(crate) mod fr;
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 pub use fr::{f_symbol, r_symbol};
 
 /// Opaque authority fingerprint of the generated SO(N)/Sp(2N) provider — **the
@@ -1336,7 +1336,7 @@ pub use fr::{f_symbol, r_symbol};
 ///
 /// **Unstable: the shape may change.** Cargo features cannot express
 /// instability tiers, so this rustdoc label carries the marker.
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 pub fn bcd_authority_fingerprint() -> &'static [u8] {
     // Spec version. Bump the trailing `epoch=N` (and the literal in
     // tests/bcd_fingerprint.rs) only when docs/gauge_soN.md is corrected, under
@@ -1347,7 +1347,7 @@ pub fn bcd_authority_fingerprint() -> &'static [u8] {
 #[cfg(test)]
 mod tests;
 
-#[cfg(all(test, feature = "cgc-gen"))]
+#[cfg(all(test, feature = "lie-generated"))]
 mod intertwiner_tests;
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 //! SU(N) CGC generation cost across representative `(N, dim)` pairs, plus the
 //! warm cache-hit path. Not a CI gate; run with `cargo bench --features
-//! cgc-gen`.
+//! lie-generated`.
 
 #[path = "../tests/common/lie.rs"]
 mod lie_test;

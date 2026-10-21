@@ -2,10 +2,10 @@
 
 The repository and its single crate are `fusion-symbols` (formerly `racah`;
 lib `fusion_symbols`). The public modules follow the mathematical classification:
-`category` (shared contract), `lie` (Lie-simple groups and their global forms),
-`abelian`, `group` (other compact groups, currently CU(1)), `fermion`, `table`,
+`category` (shared contract), `lie` (positive-dimensional compact Lie groups,
+including U(1) and CU(1)), `finite` (finite groups, currently Z_N), `fermion`, `table`,
 `product` (ordered Deligne products), and `cache` (resource controls).
-The rules below apply to every family; the `cgc-gen` and dense-backend sections
+The rules below apply to every family; the `lie-generated` and dense-backend sections
 concern the Lie-group generation path.
 
 Design authority: the architecture, acceptance criteria, and reference-role
@@ -21,13 +21,14 @@ non-trivial change.
   are not, and there is no
   dependency on any tensor-network engine crate. Label types are limited to
   the plain object labels a module's symbols are indexed by (for example
-  `table::TableObject`, `lie::LieIrrep`, and the `abelian`, `group` and
+  `table::TableObject`, `lie::LieIrrep`, and the `lie`, `finite` and
   `fermion` irreps); sector behaviour beyond those
   symbols belongs to the consumer.
 - Base crate: `category`, exact rank-one `lie` (with `lie::su2` evaluators),
-  closed-form `abelian`, `group`, `fermion`, tabulated `table`, `product`, and `cache`.
+  closed-form U(1)/CU(1) in `lie`, `finite`, `fermion`, tabulated `table`, `product`, and `cache`.
   Dependencies stay minimal (big-integer arithmetic and `num-complex`).
-- `cgc-gen` feature: all runtime generation (SU(N)/SO(N)/Sp(2N)) and every
+- `lie-generated` feature (enabled by default; opt out with
+  `default-features = false`): all runtime generation (SU(N)/SO(N)/Sp(2N)) and every
   dense-kernel dependency live behind this feature. Factorizations
   (nullspace/QR/least-squares) and CGC contractions route through the
   selected dense backend; hand-rolled numeric kernels are not accepted.
@@ -66,9 +67,9 @@ constraints, and unreachable-by-construction assumptions). Every port PR must:
 3. Ensure every fast-path / special-case branch runs the same verification
    gates as the general path, or prove those gates vacuous for that branch.
 
-## t4a-faer dependency (cgc-gen)
+## t4a-faer dependency (lie-generated)
 
-The `cgc-gen` feature uses the crates.io semver range `t4a-faer = "0.24.7"`,
+The `lie-generated` feature uses the crates.io semver range `t4a-faer = "0.24.7"`,
 with default features disabled and only `std` enabled. The minimum excludes
 the threaded-SVD defect in 0.24.6 (tensor4all/faer#25). No `rayon`: dense
 operations are sequential, and the caller owns parallelism. Use explicit

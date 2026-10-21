@@ -4,7 +4,7 @@
 //! of racah's own `F[a, ā, a, a, 1, 1]` (the reference definition,
 //! `sectors.jl:frobenius_schur_phase_from_Fsymbol`), and `phase`.
 
-#![cfg(feature = "cgc-gen")]
+#![cfg(feature = "lie-generated")]
 
 #[path = "common/lie.rs"]
 mod lie_test;

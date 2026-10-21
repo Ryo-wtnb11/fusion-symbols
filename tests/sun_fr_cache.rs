@@ -5,7 +5,7 @@
 //! covered generically in `src/cache.rs` (and specialised for the `Arc<FBlock>`
 //! tier there); this file exercises the end-to-end public path.
 
-#![cfg(feature = "cgc-gen")]
+#![cfg(feature = "lie-generated")]
 
 #[path = "common/lie.rs"]
 mod lie_test;

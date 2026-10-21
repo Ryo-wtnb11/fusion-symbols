@@ -34,9 +34,9 @@ object you need. Everything else is reference.
 
 ## Families
 
-Use `category::FusionCategory` for all families: `lie` for Lie-simple groups
-and their global forms, `abelian` for U(1)/Z_N, `group` for other compact
-groups (CU(1)), `fermion` for parity, and `table` for pinned categories.
+Use `category::FusionCategory` for all families: `lie` for positive-dimensional
+compact Lie groups, including U(1) and CU(1); `finite` for finite groups
+(currently Z_N); `fermion` for parity; and `table` for pinned categories.
 `product` composes ordered Deligne products (see [Fusion](fusion.md#deligne-products));
 `cache` controls resources.
 

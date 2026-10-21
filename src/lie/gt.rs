@@ -31,7 +31,7 @@ impl GtPattern {
     }
 
     #[inline]
-    #[cfg(feature = "cgc-gen")]
+    #[cfg(feature = "lie-generated")]
     pub(super) fn set(&mut self, k: usize, l: usize, v: i64) {
         let idx = Self::flat_index(self.n, k, l);
         self.data[idx] = v;

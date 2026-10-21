@@ -17,8 +17,8 @@ provenance in one place — what was taken, from which reference at which versio
 *why that machinery is the right (or only) one for the family*, and where
 `fusion-symbols` deviates. The module and item rustdoc keep the load-bearing contracts
 next to the code; this page is the map from `fusion-symbols` symbol to source.
-The non-Lie modules (`abelian`, `group`, `fermion`, `table`) have their own provenance
-page, [`references_categories.md`](references_categories.md).
+The closed-form U(1)/CU(1) categories in `lie`, finite groups in `finite`,
+and the `fermion` and `table` modules have their own provenance page, [`references_categories.md`](references_categories.md).
 
 Citations of the form `file:symbol` name a symbol in the cited project's source
 tree (path relative to that project's root), not a local checkout path. Numbered
@@ -47,7 +47,7 @@ blow-up.
 | `primefactor.rs` (whole module) | WignerSymbols.jl v2.0.0, `src/primefactorization.jl` $[10]$ | Prime-factorized factorial arithmetic (`mul!`, `divexact!`, `splitsquare`, `primefactorial`, `commondenominator!`, `sumlist!`) | Factorial-heavy Racah sums blow up as big integers; prime factorization keeps them small — a measured-need upgrade | Same growing-global-table design |
 | `cache.rs` (whole module) | WignerSymbols.jl v2.0.0, transparent LRU inside `wigner3j`/`wigner6j` $[10]$ | Per-kind cache keyed by canonical Regge labels | A Regge class names exactly one exact value, so caching is pure memoization | **FIFO**, not LRU, and bounded by a byte policy (`cache.rs::FifoCache` doc) |
 
-## SU(N) — `cgc-gen`, Gelfand–Tsetlin construction
+## SU(N) — `lie-generated`, Gelfand–Tsetlin construction
 
 **Why this construction.** The unitary chain
 $U(N) \supset U(N-1) \supset \cdots \supset U(1)$ is multiplicity-free (the
@@ -65,7 +65,7 @@ possible, and it is $SU(N)$-specific (see [`docs/theory.tex`](theory.tex) §8).
 | `lie/sun/linalg.rs` | SUNRepresentations.jl v0.4.0, `src/clebschgordan.jl:_nullspace!` (`svd!(A; full=true)`), `qrpos!`, `lower_weight_CGC!` least squares $[9]$ | Nullspace, positive-diagonal QR, least squares | The three dense factorizations the CGC solve needs | Routed through t4a-faer with explicit `Par::Seq` and scratch workspaces; no hand-rolled kernels |
 | `lie/sun/fr.rs::f_symbol`, `r_symbol` | SUNRepresentations.jl v0.4.0, `src/sector.jl:_Fsymbol` (`:58-89`), `_Rsymbol` (`:91-110`); contraction wiring/axis order TensorKitSectors `src/sectors.jl:Fsymbol_from_fusiontensor` $[9]$ | F = four-CGC contraction over magnetic indices; R = braiding matrix | Standard categorical definition of F/R from CGC | No Regge-style canonicalization — no tetrahedral/Regge symmetry is implemented for the GT-basis SU(N) F blocks (`lie/sun/fr.rs`, `cache.rs::cache_f` doc) |
 
-## SO(N) / Sp(2N) — `cgc-gen`, generator bootstrap
+## SO(N) / Sp(2N) — `lie-generated`, generator bootstrap
 
 **Why this construction.** The symplectic chain $Sp(2r) \supset Sp(2r-2)$ has
 branching multiplicities, so no GT-type basis with practical closed-form matrix

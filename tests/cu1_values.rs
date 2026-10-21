@@ -9,7 +9,7 @@
 
 use fusion_symbols::{
     category::FusionCategory,
-    group::{CU1Irrep, CU1},
+    lie::{CU1Irrep, CU1},
 };
 
 const OP: CU1Irrep = CU1Irrep::VACUUM;

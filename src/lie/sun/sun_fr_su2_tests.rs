@@ -41,7 +41,7 @@
 //! pin) — so a future gauge change that broke either the per-channel law or the
 //! cancellation would surface here.
 
-#![cfg(feature = "cgc-gen")]
+#![cfg(feature = "lie-generated")]
 
 use crate::lie::su2::clebsch_gordan;
 use crate::lie::su2::{f_symbol as exact_f, r_symbol as exact_r};

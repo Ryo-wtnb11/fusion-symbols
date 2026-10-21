@@ -9,7 +9,7 @@ Fresh release processes measured revision `78491855d1023545121020454989a6dee6859
 on macOS/aarch64 with rustc 1.96.0. Five samples per mode used:
 
 ```text
-for mode in retained partial zero; do for sample in 1 2 3 4 5; do RACAH_TRIM_REVISION=78491855d1023545121020454989a6dee6859c6e COEFFICIENT_CACHE_TRIM_SAMPLE=$sample CARGO_TARGET_DIR=/private/tmp/racah-67-trim-release-7849185 cargo test --release --features cgc-gen --lib coefficient_cache_trim_$mode -- --ignored --nocapture; done; done
+for mode in retained partial zero; do for sample in 1 2 3 4 5; do RACAH_TRIM_REVISION=78491855d1023545121020454989a6dee6859c6e COEFFICIENT_CACHE_TRIM_SAMPLE=$sample CARGO_TARGET_DIR=/private/tmp/racah-67-trim-release-7849185 cargo test --release --features lie-generated --lib coefficient_cache_trim_$mode -- --ignored --nocapture; done; done
 ```
 
 The SU(2), SU(3), and SU(4) workload first fills 3j, 6j, and SU(N)-product tiers,

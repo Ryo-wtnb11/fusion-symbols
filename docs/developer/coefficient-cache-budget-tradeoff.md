@@ -10,7 +10,7 @@ This release-only, fresh-process pressure trace measures revision
 1.96.0. Five fresh processes were recorded per mode:
 
 ```text
-for mode in default constrained disabled; do for sample in 1 2 3 4 5; do COEFFICIENT_CACHE_BUDGET_SAMPLE=$sample RACAH_BUDGET_REVISION=52d3732b1263e40b7bd095c08e0bfa214c5d127f CARGO_TARGET_DIR=/private/tmp/racah-budget-pressure-52d3732 cargo test --release --features cgc-gen --lib cache_budget_pressure_$mode -- --ignored --nocapture; done; done
+for mode in default constrained disabled; do for sample in 1 2 3 4 5; do COEFFICIENT_CACHE_BUDGET_SAMPLE=$sample RACAH_BUDGET_REVISION=52d3732b1263e40b7bd095c08e0bfa214c5d127f CARGO_TARGET_DIR=/private/tmp/racah-budget-pressure-52d3732 cargo test --release --features lie-generated --lib cache_budget_pressure_$mode -- --ignored --nocapture; done; done
 ```
 
 `RACAH_BUDGET_REVISION` is embedded by `option_env!` at compilation, not read

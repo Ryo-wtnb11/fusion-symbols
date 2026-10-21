@@ -107,15 +107,18 @@ fn base_cache_resource_contract() {
     assert!(total.entries > 0, "the fill retained entries");
 
     // Base totals agree with the aggregate `stats()`. Under the default feature
-    // set the base tiers are the only tiers, so the two are equal; `cgc-gen`
+    // set the base tiers are the only tiers, so the two are equal; `lie-generated`
     // adds generated tiers, so there `stats()` is a superset (>=).
     let agg = cache::stats();
-    #[cfg(not(feature = "cgc-gen"))]
+    #[cfg(not(feature = "lie-generated"))]
     {
-        assert_eq!(total.entries, agg.entries, "base == aggregate (no cgc-gen)");
+        assert_eq!(
+            total.entries, agg.entries,
+            "base == aggregate (no lie-generated)"
+        );
         assert_eq!(total.bytes, agg.bytes);
     }
-    #[cfg(feature = "cgc-gen")]
+    #[cfg(feature = "lie-generated")]
     {
         assert!(
             total.entries <= agg.entries,

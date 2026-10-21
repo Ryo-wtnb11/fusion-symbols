@@ -12,14 +12,14 @@
 fusion-symbols = "0.5"
 ```
 
-That is the **base** build: exact rank-one Lie symbols, closed-form abelian,
-CU(1) and fermion-parity categories, and rank ≤ 4 tables, with small numeric
-dependencies and no linear-algebra stack. For higher-rank SU(N), SO(N),
-Spin(N) or Sp(2N), turn on `cgc-gen`:
+The default build enables `lie-generated` for higher-rank SU(N), SO(N),
+Spin(N) and Sp(2N), including the sequential dense backend. To omit generation,
+use the **base** build: exact rank-one Lie symbols, U(1), CU(1), Z_N,
+fermion parity, tables and products, without a linear-algebra stack:
 
 ```toml
 [dependencies]
-fusion-symbols = { version = "0.5", features = ["cgc-gen"] }
+fusion-symbols = { version = "0.5", default-features = false }
 ```
 
 There is no fixed MSRV; `fusion-symbols` builds and is tested on current stable Rust.
@@ -28,13 +28,13 @@ There is no fixed MSRV; `fusion-symbols` builds and is tested on current stable 
 
 | Feature | Gives you | Cost |
 |---|---|---|
-| *(default)* | `category`; exact rank-one `lie`; closed-form `abelian`, `group` (CU(1)), `fermion`; rank ≤ 4 `table`; `cache` | `num-bigint`, `num-rational`, `num-traits`, `num-complex` |
+| `default-features = false` | `category`; exact rank-one `lie`; closed-form `lie::{U1, CU1}`, `finite::ZN`, `fermion`; rank ≤ 4 `table`; `product`; `cache` | `num-bigint`, `num-rational`, `num-traits`, `num-complex` |
 | `anyonwiki-unitary` | `table`: 303 further categories of rank 5–7 | embedded data only |
-| `cgc-gen` | Higher-rank SU(N) (`fusion_symbols::lie`), SO(N)/Spin(N)/Sp(2N) (`fusion_symbols::lie`), and the `fusion_symbols::lie` global forms applied to them | pulls the sequential t4a-faer dense-linear-algebra backend |
+| `lie-generated` (default) | Higher-rank SU(N) (`fusion_symbols::lie`), SO(N)/Spin(N)/Sp(2N) (`fusion_symbols::lie`), and the `fusion_symbols::lie` global forms applied to them | pulls the sequential t4a-faer dense-linear-algebra backend |
 
 The split is mathematical, not organizational: SU(2) has closed-form
 coefficients and needs no matrix computation; higher-rank Lie coefficients
-are *constructed* numerically. Closed-form and table categories need no dense backend. If you only need SU(2), you never pull the backend.
+are *constructed* numerically. Closed-form and table categories need no dense backend. Use `default-features = false` to omit the backend.
 
 ## First calculation: SU(2) (no features)
 
@@ -54,7 +54,7 @@ so no label is ever a float. See
 The returned [`SignedSqrtRational`] is an *exact* value of the form
 `sign · sqrt(p/q)`; call `.to_f64()` when you want a number.
 
-## First calculation: SU(3) (`cgc-gen`)
+## First calculation: SU(3) (`lie-generated`)
 
 ```rust
 use fusion_symbols::{category::{FusionCategory}, lie::{GroupId, LieGroup}};
@@ -73,6 +73,8 @@ An SU(N) irrep is named by its `N-1` Dynkin labels. See
 Abelian, fermion, CU(1) and table categories use `category::FusionCategory`.
 Constructors validate objects, N = 0 is a value, and F/R return `Ok(0)` on
 inadmissible vertices. Only fusion can overflow U(1)/CU(1) labels.
+U(1) charge errors use `lie::U1Error`; cyclic constructor errors use
+`finite::ZNError` (`ZeroModulus`, `NonCanonicalCharge`).
 `CU1Irrep::new` retains `InvalidLabel` for invalid `(twice_charge, s)` pairs.
 `TableCategory::object(index)` alone reports an out-of-range table index.
 Foreign cyclic/table objects panic. Fusion-only tables return
@@ -122,10 +124,10 @@ residual functions in `category` and choose the tolerance.
 
 ## Caveats
 
-- With `cgc-gen` on, the coefficient caches may retain several hundred MiB by
+- With `lie-generated` on, the coefficient caches may retain several hundred MiB by
   default. If that matters, call `fusion_symbols::cache::configure_cache_budgets` once
   before first use — see [Resources](resources.md#bounding-cache-memory).
-- The generated (`cgc-gen`) surface is marked **unstable**: its shape may still
+- The generated (`lie-generated`) surface is marked **unstable**: its shape may still
   change. The base SU(2) surface is stable.
 
 ## Related API

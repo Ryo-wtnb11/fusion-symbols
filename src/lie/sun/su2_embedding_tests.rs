@@ -13,7 +13,7 @@
 //! -- so all magnitudes and all relative signs (the full ladder structure) are
 //! checked exactly.
 
-#![cfg(feature = "cgc-gen")]
+#![cfg(feature = "lie-generated")]
 
 use super::{cgc, Irrep};
 use crate::lie::su2::clebsch_gordan;

@@ -38,7 +38,7 @@ process-global, bounded, and FIFO.
 
 - **Base tiers** (SU(2): 3j, 6j, derived-F) are bounded by
   `cache::BASE_CACHE_MAX_BYTES` = 192 MiB, a static partition of 3 × 64 MiB.
-- **Generated tiers** (`cgc-gen`: SU(N) product / CGC / F, B/C/D product+CGC / F) are
+- **Generated tiers** (`lie-generated`: SU(N) product / CGC / F, B/C/D product+CGC / F) are
   bounded by `cache::GENERATED_CACHE_MAX_BYTES` = 640 MiB + 128 KiB.
 
 The existing `BcdCgc` tier holds both exact B/C/D products and CGC isometries;
@@ -82,7 +82,7 @@ let _ = report.removed_entries;
 reset();                               // all tiers: entries, bytes, counters to zero
 ```
 
-With `cgc-gen`, `generated_cache_stats()` reports the five generated tiers the
+With `lie-generated`, `generated_cache_stats()` reports the five generated tiers the
 same way.
 
 **Ownership rule.** `reset` and `trim_to` act on process-global state, so
@@ -142,10 +142,10 @@ against another implementation or auditing a value, not to learn the API.
 
 ## Caveats
 
-- The generated (`cgc-gen`) provider surface is marked **unstable**; its shape
+- The generated (`lie-generated`) provider surface is marked **unstable**; its shape
   may change. The base SU(2) surface is stable.
 - There is deliberately no single cross-feature cache constant: one number
-  spanning feature-gated tiers would change meaning with the `cgc-gen` flag.
+  spanning feature-gated tiers would change meaning with the `lie-generated` flag.
 - Selecting a linear-algebra backend is not public API. All dense work
   routes through one seam, executed on the CPU backend.
 
