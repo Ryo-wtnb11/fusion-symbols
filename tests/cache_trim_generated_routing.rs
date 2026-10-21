@@ -1,5 +1,5 @@
 //! Isolated process-global generated-tier trim routing contract.
-#![cfg(feature = "cgc-gen")]
+#![cfg(feature = "lie-generated")]
 
 #[path = "common/lie.rs"]
 mod lie_test;

@@ -8,6 +8,11 @@ production-data provenance, not a test oracle. It also writes per-symbol audit
 files to `tests/fixtures/anyonwiki-badbfe2-*check.txt`; those are gitignored
 and no test reads them.
 
+The public families are `lie` (positive-dimensional compact Lie groups,
+including closed-form U(1)/CU(1)) and `finite` (finite groups, currently Z_N),
+alongside `fermion`, `table` and `product`. Runtime generation is provided by
+`lie-generated` (enabled by default); `--no-default-features` tests the base build.
+
 ## Test oracles (binding)
 
 - **The expected value is readable from the test**: an exact formula (closed

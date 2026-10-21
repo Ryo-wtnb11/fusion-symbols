@@ -10,8 +10,9 @@ known difference and the reason recorded for it. Per-symbol provenance is in
 
 - **A standalone provider, not a sector interface.** There is no `Sector`
   trait or tensor engine. `category::FusionCategory` supplies mathematical
-  quantities and `FusionStyle`/`BraidingStyle` for every family: `lie`,
-  `abelian`, `group` (CU(1)), `fermion`, `table` and `product`;
+  quantities and `FusionStyle`/`BraidingStyle` for every family: `lie`
+  (positive-dimensional compact Lie groups, including U(1) and CU(1)),
+  `finite` (finite groups), `fermion`, `table` and `product`;
   `cache` controls resources. Tensor-network
   behaviour built on the symbols belongs to the consumer
   ([`AGENTS.md`](../AGENTS.md) "Boundaries";
@@ -22,7 +23,7 @@ known difference and the reason recorded for it. Per-symbol provenance is in
   ([`references_categories.md`](references_categories.md), "Derived
   quantities").
 - **More Lie groups, generated at run time.** SU(N), SU(N)/Z_k, PSU(N),
-  SO(N), Spin(N) and Sp(2N) live in this crate (`cgc-gen`), with CGC as a
+  SO(N), Spin(N) and Sp(2N) live in this crate (`lie-generated`), with CGC as a
   public output; TensorKitSectors provides SU(2) itself and leaves SU(N) to
   SUNRepresentations.jl. Reason: no existing library computes the full
   coefficient set for these groups on demand for any admissible labels;
@@ -73,9 +74,9 @@ known difference and the reason recorded for it. Per-symbol provenance is in
   ([`references_categories.md`](references_categories.md), abelian).
 - **U(1) charges are integer `i32`**, without `i32::MIN` and without
   half-integer charges. Reason: matches symtn; `i32::MIN` has no
-  representable dual (`src/abelian.rs` module docs).
+  representable dual (`src/lie/u1.rs` module docs).
 - **CU(1) `j` is stored as `twice_charge: u32`**, not `HalfInt`.
-  `CU1Irrep` constructors validate `s`; `group::CU1` supplies the category
+  `CU1Irrep` constructors validate `s`; `lie::CU1` supplies the category
   operations, keeping labels separate from their mathematical provider.
   (The full `u32` range, wider than symtn's codec, is recorded as a
   deliberate choice in [`references_categories.md`](references_categories.md),
@@ -93,7 +94,7 @@ known difference and the reason recorded for it. Per-symbol provenance is in
 
 - **Abelian and fermion-parity scalars are `f64`**, where TensorKitSectors declares `Int`.
   Reason: `f64` is the scalar type of the symtn providers these were ported
-  from, whose values they reproduce bit for bit (`src/abelian.rs` module
+  from, whose values they reproduce bit for bit (`src/lie/u1.rs` and `src/finite.rs` module
   docs).
 - **CU(1) inadmissible R is `+0.0`**, where TensorKitSectors returns `-0.0`
   on 30 recorded tuples. Reason: the crate-wide exact-zero contract, as in

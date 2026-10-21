@@ -109,7 +109,7 @@ braiding; the iterator keeps TensorKitSectors' source order and reports
 `CU1Error::TwiceChargeOutOfRange` if a charge sum exceeds `u32::MAX`.
 
 ```rust
-use fusion_symbols::{category::FusionCategory, group::{CU1, CU1Irrep}};
+use fusion_symbols::{category::FusionCategory, lie::{CU1, CU1Irrep}};
 
 let a = CU1Irrep::from_twice_charge(1);
 let channels: Vec<_> = CU1.fusion(&a, &a).unwrap().collect();
@@ -155,7 +155,7 @@ A Deligne product combines independent categories. For example, fU(1) is
 U(1) ⊠ fermion parity and fSU(2) is SU(2) ⊠ fermion parity:
 
 ```rust
-use fusion_symbols::{abelian::{U1, U1Irrep}, category::FusionCategory,
+use fusion_symbols::{lie::{U1, U1Irrep}, category::FusionCategory,
     fermion::{FermionParity, FermionParityIrrep}, product};
 let cat = product(U1, FermionParity);
 let odd = (U1Irrep::new(1).unwrap(), FermionParityIrrep::ODD);

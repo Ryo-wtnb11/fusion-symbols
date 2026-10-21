@@ -1,5 +1,5 @@
 //! Runnable copies of the Rust examples in the public guides.
-#![cfg(feature = "cgc-gen")]
+#![cfg(feature = "lie-generated")]
 
 /// `README.md`, Rust block 1.
 #[test]
@@ -228,7 +228,7 @@ fn fusion_4() {
 fn fusion_5() {
     use fusion_symbols::{
         category::FusionCategory,
-        group::{CU1Irrep, CU1},
+        lie::{CU1Irrep, CU1},
     };
 
     let a = CU1Irrep::from_twice_charge(1);
@@ -403,8 +403,8 @@ fn groups_6() {
 /// `docs/user-guide/recoupling.md`, Rust block 1.
 #[test]
 fn recoupling_1() {
-    use fusion_symbols::abelian::{ZNIrrep, ZN};
     use fusion_symbols::category::{FusionCategory, SymbolBlock};
+    use fusion_symbols::finite::{ZNIrrep, ZN};
 
     let category = ZN::new(3).unwrap();
     let one = ZNIrrep::from_canonical(1, 3).unwrap();

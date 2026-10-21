@@ -4,7 +4,7 @@
 //! # What this suite is
 //!
 //! The **drift detector** for the frozen spec: a change anywhere in the
-//! pipeline that moves a coefficient value fails here, in the default `cgc-gen`
+//! pipeline that moves a coefficient value fails here, in the default `lie-generated`
 //! test run. Under the freeze (`docs/gauge.md` §Status) such a change is a
 //! defect unless it ships as a spec correction with an epoch bump — and this is
 //! what makes it impossible to ship silently.
@@ -36,13 +36,13 @@
 //! numbers with
 //!
 //! ```text
-//! cargo test --features cgc-gen --test gauge_golden -- --ignored --nocapture print_golden
+//! cargo test --features lie-generated --test gauge_golden -- --ignored --nocapture print_golden
 //! ```
 //!
 //! and update this file in the same PR as the spec edit, the `epoch` bump, and
 //! the CHANGELOG breaking-change entry (`docs/gauge.md` §Status).
 
-#![cfg(feature = "cgc-gen")]
+#![cfg(feature = "lie-generated")]
 // The golden values are literals on purpose: they are the frozen data this
 // suite exists to pin. Rewriting one as `FRAC_1_SQRT_2` would hide a drift
 // that lands on a nearby constant, and reintroduces a computation where the

@@ -1,6 +1,6 @@
 //! SU(N) F-symbol generation cost across representative families, cold (full
 //! four-CGC contraction, CGC caches cleared) and warm (derived-f64 F cache
-//! hit). Not a CI gate; run with `cargo bench --features cgc-gen`.
+//! hit). Not a CI gate; run with `cargo bench --features lie-generated`.
 //!
 //! The cached-CGC cases isolate F recomputation (by trimming only its F cache)
 //! and uncached R contraction from CGC generation.

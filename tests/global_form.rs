@@ -5,10 +5,10 @@
 //! A global form only selects admissible labels; it changes no coefficient
 //! value (the cross-global-form section checks this).
 
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 #[path = "common/bcd.rs"]
 mod bcd_test;
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 #[path = "common/lie.rs"]
 mod lie_test;
 
@@ -278,7 +278,7 @@ fn admits_rejects_wrong_length_and_negative_labels() {
 // Equivalence with the rejection `bcd` already ships, and fusion closure
 // ---------------------------------------------------------------------------
 
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 mod against_bcd {
     use super::*;
     use crate::bcd_test;
@@ -469,7 +469,7 @@ fn sweep(r: usize, cap: i64) -> Vec<Vec<i64>> {
 // ---------------------------------------------------------------------------
 
 /// The A-series form-aware constructor, mirroring `bcd::Irrep::from_dynkin_in`.
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 mod sun_forms {
     use super::*;
     use crate::lie_test::{self};
@@ -477,7 +477,7 @@ mod sun_forms {
     use fusion_symbols::lie::LieError;
 
     /// `N`-ality `Σ i·aᵢ`, computed here independently of the library so the
-    /// tests are not checking `group::admits` against itself.
+    /// tests are not checking `src/lie/group.rs::admits` against itself.
     fn nality(dynkin: &[i64]) -> i64 {
         dynkin
             .iter()
@@ -651,7 +651,7 @@ mod sun_forms {
 /// (9) `PSp(2N)` has no spinors at all — `C_r` is simply connected — yet it
 /// rejects weights. The error must be the generic global-form violation, and
 /// must name the group that did the rejecting.
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 #[test]
 fn psp_rejection_uses_the_generic_not_admissible_error() {
     use fusion_symbols::lie::{LieError, LieGroup};
@@ -700,7 +700,7 @@ fn nonsensical_root_datum_admits_nothing() {
             );
         }
         // Both form-aware constructors inherit the rejection.
-        #[cfg(feature = "cgc-gen")]
+        #[cfg(feature = "lie-generated")]
         {
             let zero = vec![0i64; root_system.rank()];
             assert!(lie_test::irrep_in(&g, &zero).is_err());
@@ -723,7 +723,7 @@ fn nonsensical_root_datum_admits_nothing() {
 /// Equality here is **literal** (`==` on `f64` / on the entry vectors), not a
 /// tolerance: the code path is shared, so any difference at all would mean a
 /// second engine had appeared.
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 mod cross_form_coefficients {
     use super::*;
     use std::collections::hash_map::DefaultHasher;

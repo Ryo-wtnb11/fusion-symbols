@@ -4,7 +4,7 @@
 //! Mirrors `tests/su2_fingerprint.rs`, with the generated-family contract: equal
 //! bytes identify the convention / generation pipeline / tolerance policy, not
 //! byte-identical values (`docs/gauge_soN.md`).
-#![cfg(feature = "cgc-gen")]
+#![cfg(feature = "lie-generated")]
 
 #[path = "common/bcd.rs"]
 mod bcd_test;

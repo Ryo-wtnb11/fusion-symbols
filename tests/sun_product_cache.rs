@@ -2,7 +2,7 @@
 //!
 //! One sequential test owns the process-global reset policy for this binary.
 
-#![cfg(feature = "cgc-gen")]
+#![cfg(feature = "lie-generated")]
 
 #[path = "common/a1.rs"]
 mod a1;

@@ -1,7 +1,7 @@
 //! Fusion and recoupling data for symmetric tensors: the compact Lie groups
-//! SU(2), SU(N), SO(N), Spin(N) and Sp(2N) (irreducible representations,
-//! Clebsch–Gordan coefficients, 3j / 6j / F / R), the abelian groups and
-//! CU(1), fermion parity, and tabulated finite fusion categories.
+//! SU(2), SU(N), SO(N), Spin(N), Sp(2N), U(1) and CU(1), finite cyclic groups,
+//! fermion parity, and tabulated finite fusion categories (irreducible
+//! representations, Clebsch–Gordan coefficients, 3j / 6j / F / R).
 //!
 //! `fusion-symbols` is the successor of the `racah` crate (published up to
 //! 0.2.4). The Rust API uses category values under `fusion_symbols::`.
@@ -25,8 +25,8 @@
 //! assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
 //! ```
 //!
-//! Lie categories use validated Dynkin labels. A1 blocks are stored inline;
-//! A(r), r >= 2, uses cached generated blocks with `cgc-gen`:
+//! `LieGroup` categories use validated Dynkin labels. A1 blocks are stored inline;
+//! A(r), r >= 2, uses cached generated blocks with `lie-generated`:
 //!
 //! ```
 //! use fusion_symbols::{category::FusionCategory, lie::{su2::wigner_6j, GroupId, LieGroup}};
@@ -46,18 +46,18 @@
 //! |---|---|
 //! | Shared category contract, styles, scalar storage and identity residuals | [`category`] |
 //! | SU(2): exact 3j, 6j, CG evaluators; category F/R and Frobenius–Schur | [`lie::su2`] and [`lie::LieGroup`] |
-//! | SU(N), SU(N)/Z_k, PSU(N) — Gelfand–Tsetlin construction | [`lie::LieGroup`] (`cgc-gen`) |
-//! | SO(N), Spin(N), Sp(2r) — generator bootstrap, B/C/D series | [`lie::LieGroup`] (`cgc-gen`) |
+//! | SU(N), SU(N)/Z_k, PSU(N) — Gelfand–Tsetlin construction | [`lie::LieGroup`] (`lie-generated`) |
+//! | SO(N), Spin(N), Sp(2r) — generator bootstrap, B/C/D series | [`lie::LieGroup`] (`lie-generated`) |
 //! | Which highest weights a global form admits | [`lie::GroupId`] |
-//! | U(1), Z_N (including Z2) in closed form | [`abelian::U1`], [`abelian::ZN`] |
-//! | Other compact groups: CU(1) = U(1) ⋊ C = O(2), in closed form | [`group`] |
+//! | Positive-dimensional compact Lie groups U(1) and CU(1) = O(2), in closed form | [`lie::U1`], [`lie::CU1`] |
+//! | Finite cyclic groups Z_N (including Z2), in closed form | [`finite::ZN`] |
 //! | Fermion parity in closed form | [`fermion::FermionParity`] |
 //! | Finite multiplicity-free unitary categories (Fibonacci, Ising, …, rank ≤ 4; rank ≤ 7 with `anyonwiki-unitary`) from pinned AnyonWiki tables | [`table`] |
 //! | Ordered Deligne products, 2..=12 immediate factors | [`mod@product`] |
 //! | Cache ceilings, budgets, statistics | [`cache`] |
 //!
 //! SU(N) uses the same [`lie::LieGroup`] and [`lie::LieIrrep`] layer as A1.
-//! With `cgc-gen`, higher A-series fusion shares cached product lists, and
+//! With `lie-generated`, higher A-series fusion shares cached product lists, and
 //! [`category::GroupRepresentations::cgc`] returns [`lie::LieCgc`]. Empty
 //! vertices give zero blocks; genuine generation failures are opaque
 //! [`lie::LieError::Generation`] diagnostics with an error source.
@@ -65,7 +65,7 @@
 //! # Deligne products
 //!
 //! ```
-//! use fusion_symbols::{abelian::U1, category::FusionCategory,
+//! use fusion_symbols::{lie::U1, category::FusionCategory,
 //!     fermion::{FermionParity, FermionParityIrrep}, product};
 //! let cat = product(U1, FermionParity);
 //! let odd = (cat.factors().0.unit(), FermionParityIrrep::ODD);
@@ -74,11 +74,11 @@
 //! assert_eq!(three.dim(&three.unit()), 1.0);
 //! ```
 //!
-//! # Non-Lie families
+//! # Closed-form and tabulated categories
 //!
 //! These families use closed forms or pinned, provenance-tracked tables
 //! rather than runtime coefficient generation, and need no feature flag for
-//! the default catalog. [`abelian`], [`group`],
+//! the base catalog. [`lie::U1`], [`lie::CU1`], [`finite`],
 //! [`fermion`] and [`table`] expose their
 //! validated objects through [`category::FusionCategory`]: N = 0 is a value,
 //! F/R return zero for inadmissible vertices, and errors mean genuine failure
@@ -89,20 +89,21 @@
 //! and compare by uuid. Fusion-only tables return a braiding error from R and
 //! panic on twist. CU(1) fusion reports label overflow.
 //! Index order follows TensorKitSectors.jl (`F^{abc}_d[e, f]` with
-//! `e ∈ a ⊗ b`, `f ∈ b ⊗ c`; `R^{ab}_c`). Symbols in [`abelian`],
-//! [`group`] and [`fermion`] are `f64`; [`table`] uses
+//! `e ∈ a ⊗ b`, `f ∈ b ⊗ c`; `R^{ab}_c`). Closed-form symbols in [`lie`],
+//! [`finite`] and [`fermion`] are `f64`; [`table`] uses
 //! [`num_complex::Complex64`]. Closed forms use TensorKitSectors' gauge;
 //! [`table`] uses AnyonWiki's (gauge-equivalent, and for Fibonacci identical).
 //! Provenance: [`docs/references_categories.md`].
 //!
 //! # Layers
 //!
-//! - **base** (no feature): exact SU(2) — closed-form 3j/6j/CGC in
+//! - **base** (`default-features = false`): exact SU(2) — closed-form 3j/6j/CGC in
 //!   big-rational arithmetic with a single final rounding to floating point;
-//!   the shared [`category`] contract, closed-form [`abelian`], [`group`]
-//!   (CU(1)), [`fermion`], rank ≤ 4 [`table`] categories, and [`cache`].
+//!   the shared [`category`] contract, closed-form [`lie::U1`], [`lie::CU1`],
+//!   [`finite::ZN`], [`fermion`], rank ≤ 4 [`table`] categories, [`mod@product`]
+//!   and [`cache`].
 //! - **`anyonwiki-unitary`**: rank 5–7 [`table`] categories (embedded data only).
-//! - **`cgc-gen`**: runtime coefficient generation for SU(N) (Gelfand–Tsetlin
+//! - **`lie-generated`** (enabled by default): runtime coefficient generation for SU(N) (Gelfand–Tsetlin
 //!   construction), and SO(N)/Sp(2N) (defining-representation seeds plus a
 //!   family-generic decomposition loop). Dense factorizations and the CGC
 //!   contractions producing F/R route through t4a-faer with explicit `Par::Seq`
@@ -110,8 +111,8 @@
 //!   and backend selection is not public API.
 //!
 //! The boundary is mathematical, not organizational: SU(2) has closed forms and
-//! needs no matrix computation, so a consumer needing only SU(2) never pulls a
-//! linear-algebra stack.
+//! needs no matrix computation. Set `default-features = false` to omit runtime
+//! generation and the linear-algebra stack.
 //!
 //! # Exactness contract
 //!
@@ -160,11 +161,11 @@
 // The audit harness measures only allocations routed through Rust's System
 // allocator. Keeping it test-only avoids changing the library allocator
 // contract or attributing C/backend allocations to Racah.
-#[cfg(all(test, feature = "cgc-gen"))]
+#[cfg(all(test, feature = "lie-generated"))]
 #[global_allocator]
 static TEST_ALLOCATOR: audit_alloc::TrackingAllocator = audit_alloc::TrackingAllocator;
 
-#[cfg(all(test, feature = "cgc-gen"))]
+#[cfg(all(test, feature = "lie-generated"))]
 mod audit_alloc {
     use std::alloc::{GlobalAlloc, Layout, System};
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -241,29 +242,27 @@ mod audit_alloc {
 
 pub mod cache;
 
-/// Lie groups, validated irreps, and exact SU(2) evaluators.
 pub mod lie;
 
 mod exact;
 mod primefactor;
 
-#[cfg(all(test, feature = "cgc-gen"))]
+#[cfg(all(test, feature = "lie-generated"))]
 mod cache_audit;
-#[cfg(all(test, feature = "cgc-gen"))]
+#[cfg(all(test, feature = "lie-generated"))]
 mod cache_budget_pressure;
-#[cfg(all(test, feature = "cgc-gen"))]
+#[cfg(all(test, feature = "lie-generated"))]
 mod cache_trim_pressure;
 
 // Family-neutral contractions for generated Lie coefficients.
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 mod frcore;
 
 // Module docs are the files' inner `//!` docs: an outer `///` here would make
 // rustdoc resolve their intra-doc links in the crate-root scope.
-pub mod abelian;
 pub mod category;
 pub mod fermion;
-pub mod group;
+pub mod finite;
 pub mod table;
 
 pub mod product;

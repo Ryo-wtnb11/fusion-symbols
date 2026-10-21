@@ -21,8 +21,8 @@ encoding:
 | SU(2) | [`lie::LieIrrep`] | group tag plus an inline `u32`, the **doubled spin** `dj = 2j` |
 | SU(N) | [`lie::LieIrrep`] | `N-1` Dynkin labels (stored internally as a normalized weight) |
 | SO(N), Spin(N), Sp(2N) | [`lie::LieIrrep`] | `r` Dynkin labels plus the Cartan series `B`/`C`/`D` |
-| U(1), Z_N | `abelian::U1Irrep`, `abelian::ZNIrrep` | integer charge; cyclic labels carry their modulus |
-| CU(1) | `group::CU1Irrep` | twice charge `u32` and `s`: `(0,0)`, `(0,1)`, or `(q>0,2)` |
+| U(1), Z_N | `lie::U1Irrep`, `finite::ZNIrrep` | integer charge; cyclic labels carry their modulus |
+| CU(1) | `lie::CU1Irrep` | twice charge `u32` and `s`: `(0,0)`, `(0,1)`, or `(q>0,2)` |
 | Fermion parity | `fermion::FermionParityIrrep` | boolean parity |
 | Shipped categories | `table::TableObject` | validated one-based index and private catalog tag |
 
@@ -36,7 +36,7 @@ is worth reading once before anything else.
 
 CU(1) labels keep `CU1Irrep::new(twice_charge, s)?`,
 `CU1Irrep::from_twice_charge(q)`, `VACUUM` and `PSEUDOSCALAR`. Mathematical
-queries go through the `group::CU1` category and `category::FusionCategory`.
+queries go through the `lie::CU1` category and `category::FusionCategory`.
 
 Table labels come from their category, not from a public tuple constructor:
 

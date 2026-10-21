@@ -798,7 +798,7 @@ fn signedroot(coef: &Ratio<BigInt>) -> SignedSqrtRational {
 ///
 /// **Unstable: shape may change.** Cargo features cannot express instability
 /// tiers, so this rustdoc label is the marker.
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 pub fn fingerprint() -> &'static [u8] {
     // Spec version. Bump the trailing `epoch=N` (and the literal in
     // tests/sun_fingerprint.rs) only when docs/gauge.md is corrected, under the
@@ -1237,7 +1237,7 @@ mod sun_oracle_tests;
 #[path = "sun/sun_cgc_gauge_tests.rs"]
 mod sun_cgc_gauge_tests;
 
-#[cfg(all(test, feature = "cgc-gen"))]
+#[cfg(all(test, feature = "lie-generated"))]
 #[path = "sun/sun_fr_su2_tests.rs"]
 mod sun_fr_su2_tests;
 

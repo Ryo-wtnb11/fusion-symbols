@@ -25,7 +25,7 @@
 //! the gates below — including the ones that route through the defining rep —
 //! close.
 
-#![cfg(feature = "cgc-gen")]
+#![cfg(feature = "lie-generated")]
 
 #[path = "common/bcd.rs"]
 mod bcd_test;

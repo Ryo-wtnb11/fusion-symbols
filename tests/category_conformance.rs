@@ -4,10 +4,11 @@
 //! Fusion outcomes are enumerated by the category, including intermediate
 //! U(1) charges outside the finite input sample. Shape is determined by N.
 use fusion_symbols::{
-    abelian::{U1Irrep, ZNIrrep, U1, ZN},
     category::{BraidingStyle, FusionCategory, FusionStyle, Promote, Scalar, SymbolBlock},
     fermion::{FermionParity, FermionParityIrrep},
-    group::{CU1Irrep, CU1},
+    finite::{ZNIrrep, ZN},
+    lie::{CU1Irrep, CU1},
+    lie::{U1Irrep, U1},
     table::TableCategory,
 };
 use num_complex::Complex64;
@@ -246,7 +247,7 @@ fn so3_identities() {
     );
 }
 
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 #[test]
 fn su3_and_su4_identities() {
     use fusion_symbols::lie::{GroupId, LieGroup};
@@ -267,7 +268,7 @@ fn su3_and_su4_identities() {
     );
 }
 
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 mod bcd_conformance {
     use super::*;
     use fusion_symbols::lie::{GroupId, LieGroup};
@@ -343,7 +344,7 @@ fn product_identities() {
     conformance(ss.clone(), vec![ss.unit(), (half.clone(), half)]);
 }
 
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 #[test]
 fn product_multiplicity_residuals() {
     use fusion_symbols::{

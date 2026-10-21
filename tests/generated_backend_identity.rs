@@ -30,7 +30,7 @@
 //! `>= 2` channel in each family (the case where a divergent OM index order or
 //! sign would matter): SU(3) adjoint `(1,1) ⊗ (1,1)` (the `(1,1)` channel has
 //! `N = 2`) and D3 `(0,1,1) ⊗ (0,1,1)` (`docs/gauge_soN.md` §13, `N = 2`).
-#![cfg(feature = "cgc-gen")]
+#![cfg(feature = "lie-generated")]
 
 #[path = "common/lie.rs"]
 mod lie_test;

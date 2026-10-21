@@ -1,4 +1,4 @@
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 use fusion_symbols::category::FusionCategory;
 use fusion_symbols::lie::{GroupId, LieError, LieGroup};
 
@@ -16,7 +16,7 @@ fn excluded_rank_and_absent_catalog() {
         LieGroup::with_catalog_budget(GroupId::su(2).unwrap(), 0),
         Err(LieError::Unsupported { .. })
     ));
-    #[cfg(not(feature = "cgc-gen"))]
+    #[cfg(not(feature = "lie-generated"))]
     for id in [
         GroupId::spin(5).unwrap(),
         GroupId::sp(4).unwrap(),
@@ -25,13 +25,13 @@ fn excluded_rank_and_absent_catalog() {
         assert_eq!(
             LieGroup::new(id),
             Err(LieError::Unsupported {
-                requires: "cgc-gen"
+                requires: "lie-generated"
             })
         );
     }
 }
 
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 #[test]
 fn labels_weights_zero_blocks_and_catalog_budget() {
     use fusion_symbols::{
@@ -153,7 +153,7 @@ fn labels_weights_zero_blocks_and_catalog_budget() {
     assert_eq!(cat.catalog_stats().unwrap(), baseline);
 }
 
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 #[test]
 fn doubled_weight_overflow_is_a_label_error() {
     for (id, label) in [
@@ -172,7 +172,7 @@ fn doubled_weight_overflow_is_a_label_error() {
     }
 }
 
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 #[test]
 #[should_panic(expected = "foreign Lie object")]
 fn cover_object_is_foreign_to_quotient() {

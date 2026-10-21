@@ -5,12 +5,12 @@
 > It may contain errors — check it against the code and tests rather than
 > trusting it blindly.
 
-Revision `65f923657c28f0e6fbc91658313927520527f43b`; `cgc-gen`; crate-internal workload, so consumer revision is N/A. Measured with `rustc 1.96.0 (ac68faa2)`, macOS/aarch64, release test binary, and the test-only wrapper around `System`.
+Revision `65f923657c28f0e6fbc91658313927520527f43b`; `lie-generated`; crate-internal workload, so consumer revision is N/A. Measured with `rustc 1.96.0 (ac68faa2)`, macOS/aarch64, release test binary, and the test-only wrapper around `System`.
 
 Run:
 
 ```text
-RACAH_AUDIT_REVISION=65f923657c28f0e6fbc91658313927520527f43b cargo test --release --features cgc-gen --lib cache_audit::coefficient_cache_audit -- --ignored --nocapture
+RACAH_AUDIT_REVISION=65f923657c28f0e6fbc91658313927520527f43b cargo test --release --features lie-generated --lib cache_audit::coefficient_cache_audit -- --ignored --nocapture
 ```
 
 The audit adapts the repeated exact-symbol regime in `benches/wigner.rs::bench_repeated_labels`, the SU(N) channel selections in `benches/sun_cgc.rs::cases` and `benches/sun_fr.rs::cases`, and product collection in `benches/sun_product.rs::run_racah_generation_workload`. The concrete reduced audit generators are `src/cache_audit.rs::{su2,su3,su4}`, driven by `src/cache_audit.rs::coefficient_cache_audit`; they use one representative admissible SU(2), SU(3), and SU(4) case rather than reproducing each benchmark's complete case list. It records every base and generated tier as `[entries, charged bytes, hits, misses, evictions]`; raw rows are in [coefficient-cache-audit-trace.jsonl](coefficient-cache-audit-trace.jsonl). `cold` is an empty-cache phase, `warm` reruns it, and `reset_before_each_query` is the production-faithful no-reuse control. It is not called “cache disabled”: reset has the normal production semantics.
@@ -41,3 +41,6 @@ Public return allocation is measured by monotonic successful allocation requests
 5. Prime/factorial table policy: **recommend** retaining the new private observation; defer any bound/reset policy until workloads above the observed 122-row support table are measured.
 
 No persistent layer, R cache, cache tier, production instrumentation, policy/budget, or public API was added. Admission bypasses are not separately observable: SU(2) invalid/overflow requests bypass a tier before lookup; generated fallible input/generation also may not reach a tier; an oversized admitted entry follows the existing immediate-eviction path already counted in `misses`/`evictions`.
+
+The feature label in this page and its raw trace uses the current
+`lie-generated` name; the recorded revision used its former name.

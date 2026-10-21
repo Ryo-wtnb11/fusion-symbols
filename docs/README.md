@@ -21,9 +21,9 @@ symbol by symbol, plus the bibliography: [`references.md`](references.md).
 
 ## Module map
 
-`category` defines the shared contract; families live in `lie`, `abelian`,
-`group` (other compact groups: CU(1)), `fermion` and `table`. `product` is
-planned; `cache` provides resource controls. See the
+`category` defines the shared contract; families live in `lie`
+(positive-dimensional compact Lie groups, including U(1) and CU(1)), `finite`
+(finite groups, currently Z_N), `fermion` and `table`. `product` composes them; `cache` provides resource controls. See the
 [family table](overview.md#supported-groups) for features and label types.
 
 ## Which document answers which question

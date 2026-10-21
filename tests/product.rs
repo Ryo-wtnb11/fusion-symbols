@@ -1,8 +1,9 @@
 use fusion_symbols::{
-    abelian::{U1Irrep, U1, ZN},
     category::{BraidingStyle, FBlock, FusionCategory, FusionStyle, RBlock, SymbolBlock},
     fermion::{FermionParity, FermionParityIrrep as Parity},
+    finite::ZN,
     lie::{GroupId, LieGroup},
+    lie::{U1Irrep, U1},
     product,
     product::{Product, ProductError},
     table::TableCategory,
@@ -849,7 +850,7 @@ fn left_fold_and_unbraided_table_preflight() {
     assert!(std::panic::catch_unwind(|| cat.twist(&foreign)).is_err());
 }
 
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 #[test]
 fn su3_octet_multiplicity_uses_independent_gauge_literals() {
     // Signed SUNRepresentations.jl 0.4.0 literals, as recorded in

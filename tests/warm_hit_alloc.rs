@@ -4,7 +4,7 @@
 //! allocates the owned cache key (one small buffer per label), independent of
 //! the coefficient count.
 
-#![cfg(feature = "cgc-gen")]
+#![cfg(feature = "lie-generated")]
 
 #[path = "common/bcd.rs"]
 mod bcd_test;

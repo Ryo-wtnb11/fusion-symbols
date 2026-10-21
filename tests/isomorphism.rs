@@ -77,7 +77,7 @@
 //! carries `SU(2)` spins `(p/2, q/2)` (doubled spins `dj = p, q`), dimension
 //! `(p+1)(q+1)`, and is a tensor irrep iff `p + q` is even.
 
-#![cfg(feature = "cgc-gen")]
+#![cfg(feature = "lie-generated")]
 
 #[path = "common/lie.rs"]
 mod lie_test;

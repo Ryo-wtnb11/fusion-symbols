@@ -35,11 +35,11 @@ If you need explicit product-basis vectors instead, you want
 
 ## Abelian categories and fermion parity
 
-Import `FusionCategory` to query `abelian::{U1, ZN}` or
+Import `FusionCategory` to query `lie::U1`, `finite::ZN` or
 `fermion::FermionParity`. Labels retain their validating constructors:
 
 ```rust
-use fusion_symbols::abelian::{ZN, ZNIrrep};
+use fusion_symbols::finite::{ZN, ZNIrrep};
 use fusion_symbols::category::{FusionCategory, SymbolBlock};
 
 let category = ZN::new(3).unwrap();

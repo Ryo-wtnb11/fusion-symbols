@@ -13,7 +13,7 @@
 //!   by signed entries checked against SUNRepresentations.jl 0.4.0.
 //!
 //! Identities are gauge invariant; only the literals pin the gauge.
-#![cfg(feature = "cgc-gen")]
+#![cfg(feature = "lie-generated")]
 // Index loops mirror the tensor-index formulas above.
 #![allow(clippy::needless_range_loop)]
 

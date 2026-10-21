@@ -1,6 +1,6 @@
-# Provenance: `abelian`, `group`, `fermion` and `table` categories
+# Provenance: closed-form `lie`, `finite`, `fermion` and `table` categories
 
-## Abelian groups and fermion parity (`abelian` and `fermion` modules)
+## Abelian groups and fermion parity (`lie`, `finite` and `fermion` modules)
 
 | Field | Value |
 | --- | --- |
@@ -10,11 +10,11 @@
 | U(1) labels, dual, fusion | `src/irreps/u1irrep.jl`: `dual` (l. 30), `⊗` (l. 31). TKS stores a `HalfInt`; here integer `i32` charges without `i32::MIN` (as in symtn); half-integer charges are not representable |
 | Fermion parity | `src/fermions.jl`: `dual` (l. 34), `dim` (l. 35), `BraidingStyle = Fermionic()` (l. 39), `⊗` (l. 43), `Nsymbol` (l. 45), `Fsymbol` (l. 48), `Rsymbol` (l. 51), `twist` (l. 54); FS phase from the generic `src/sectors.jl:frobenius_schur_phase_from_Fsymbol` (l. 461) |
 | `dim`, bosonic twist | generic `src/sectors.jl:dim_from_Fsymbol` (UniqueFusion → 1, l. 429) and `twist_from_Rsymbol` (l. 646) |
-| Scalars | `f64` (exact ±1, 0); TKS declares `Int`. TKS values checked by hand in `src/abelian.rs::tests::matches_measured_tensorkitsectors_values` |
+| Scalars | `f64` (exact ±1, 0); TKS declares `Int`. TKS values checked by hand in `src/finite.rs::tests::matches_measured_tensorkitsectors_values` |
 | Ported implementation | [symtn](https://github.com/Ryo-wtnb11/symtn-rs) `symtn-sectors/src/abelian.rs` at `49d09dc4fc0825b29d547e63a70014221c0c5406`; two deliberate differences: an inadmissible F or R is `0.0` here (symtn returns `±1.0` unchecked), and U(1) `N` is the exact `0` where `a + b` leaves `i32` (symtn's checked N fails) |
 
 The public surface is `category::FusionCategory`, implemented by
-`abelian::{U1, ZN}` and `fermion::FermionParity`; the parity label is
+`lie::U1`, `finite::ZN` and `fermion::FermionParity`; the parity label is
 `fermion::FermionParityIrrep`. Z2 is `ZN::new(2)`. Foreign moduli panic before
 computation. Inadmissible symbols are zero; `Error` is `Infallible` for ZN
 and parity, while U(1) fusion reports label overflow. FS indicator is the FS
@@ -22,7 +22,7 @@ phase for self-dual objects and zero otherwise
 (`src/sectors.jl::frobenius_schur_indicator`). Generic identities are checked
 in `tests/category_conformance.rs::category_identities`.
 
-## CU(1) = U(1) ⋊ C (`group` module)
+## CU(1) = U(1) ⋊ C (`lie` module)
 
 | Field | Value |
 | --- | --- |
@@ -35,7 +35,7 @@ in `tests/category_conformance.rs::category_identities`.
 | TKS values | `tests/cu1_values.rs`: every F and R over `0±`, `2j ≤ 5` equals the dense recoupling of the `fusiontensor` Clebsch–Gordan tensors written in the test, plus literals checked against TKS 0.3.9 (Julia 1.11.6). Deliberate deviation: TKS `Rsymbol` gives `-0.0` on inadmissible `R^{ab}_{0-}` with charged `a` (`-convert(Float64, N)`, `N = 0`), this crate `+0.0` (the crate-wide exact-zero contract, as symtn) |
 | Ported implementation | [symtn](https://github.com/Ryo-wtnb11/symtn-rs) `symtn-sectors/src/cu1.rs` at `2a6c152315bb271dc5e56b5f1f034ca818ef999d`. Deliberate differences: labels span the full `u32` (symtn's codec stops at `u32::MAX - 1`, which symtn validates itself), so fusions summing to exactly `u32::MAX` succeed here; and `N` is exact everywhere (symtn's checked N fails above its bound). Only `CU1::fusion`, which must produce the labels, reports an overflow, above `u32::MAX` |
 
-The `group::CU1` category implements `FusionCategory` with real scalar symbols,
+The `lie::CU1` category implements `FusionCategory` with real scalar symbols,
 simple fusion and bosonic braiding. Labels retain their validated constructors;
 only fusion may fail on label overflow. The constructor still reports
 `CU1Error::InvalidLabel`. Values and fingerprint bytes are unchanged.

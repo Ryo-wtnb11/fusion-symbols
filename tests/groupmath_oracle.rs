@@ -7,7 +7,7 @@
 //! with no relabeling), and every decomposition satisfies the dimension sum
 //! rule `Σ_c N^c_{ab} dim c = dim a · dim b`. CGC values are a different gauge
 //! and are not compared.
-#![cfg(feature = "cgc-gen")]
+#![cfg(feature = "lie-generated")]
 
 #[path = "common/lie.rs"]
 mod lie_test;

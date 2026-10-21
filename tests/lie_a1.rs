@@ -19,11 +19,11 @@ fn labels_forms_and_rank_one_isomorphisms() {
         su.fusion(&max, &su.irrep(&[1]).unwrap()),
         Err(LieError::LabelOverflow)
     ));
-    #[cfg(not(feature = "cgc-gen"))]
+    #[cfg(not(feature = "lie-generated"))]
     assert!(matches!(
         LieGroup::new(GroupId::su(3).unwrap()),
         Err(LieError::Unsupported {
-            requires: "cgc-gen"
+            requires: "lie-generated"
         })
     ));
     let half = su.irrep(&[1]).unwrap();

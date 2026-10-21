@@ -13,7 +13,7 @@ mod lie_test;
 use a1::{exact_r, twist};
 use fusion_symbols::category::FusionCategory;
 
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 const TOL: f64 = 1e-10;
 
 #[test]
@@ -32,13 +32,13 @@ fn twist_matches_r_symbol_formula_up_to_j5() {
     }
 }
 
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 fn to_f64(d: num_bigint::BigInt) -> f64 {
     use num_traits::ToPrimitive;
     d.to_f64().unwrap()
 }
 
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 #[test]
 fn sun_twist_matches_r_symbol_formula() {
     use lie_test::{product as directproduct, r_symbol};
@@ -67,7 +67,7 @@ fn sun_twist_matches_r_symbol_formula() {
     }
 }
 
-#[cfg(feature = "cgc-gen")]
+#[cfg(feature = "lie-generated")]
 #[test]
 fn bcd_twist_matches_r_symbol_formula() {
     #[path = "common/bcd.rs"]

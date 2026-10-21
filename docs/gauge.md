@@ -80,7 +80,7 @@ correction**, and it requires, in the same change:
 Anything that moves a value without those four is a defect. `tests/gauge_golden.rs`
 is the tripwire that makes it fail loudly rather than ship: a small committed
 table of coefficient values asserted at `1e-12`, running in the default
-`cgc-gen` test run with no reference toolchain in the loop.
+`lie-generated` test run with no reference toolchain in the loop.
 
 **What is *not* a specification correction**, and so needs none of the above:
 anything that cannot move a returned value. Tightening the `TOL_ORTHO` /

@@ -1,6 +1,6 @@
 //! B/C/D F-symbol generation cost, cold (fresh catalog + full CGC sweep +
 //! four-CGC contraction) and warm (derived-f64 bcd F cache hit). Not a CI gate;
-//! run with `cargo bench --features cgc-gen`.
+//! run with `cargo bench --features lie-generated`.
 //!
 //! R is not benched separately: it is a single sparse join of two CGC, an order
 //! of magnitude cheaper than a four-CGC F contraction, and needs no cache.

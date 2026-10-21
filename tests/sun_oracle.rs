@@ -14,7 +14,7 @@
 //!   square roots, which close `[E_l, E_l^T] = H_l` exactly;
 //!
 //! plus a few values checked against SUNRepresentations.jl 0.4.0.
-#![cfg(feature = "cgc-gen")]
+#![cfg(feature = "lie-generated")]
 
 use std::collections::BTreeMap;
 

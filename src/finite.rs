@@ -1,19 +1,15 @@
-//! Closed-form bosonic categories [`U1`] and [`ZN`].
+//! Finite groups: closed-form cyclic categories [`ZN`] (including Z2).
 //!
 //! Labels are validated at construction. Symbols are exact `f64` zeros and
 //! ones, with unique fusion; inadmissible vertices give zero, not errors.
-//! `U1Irrep` excludes `i32::MIN` so every dual is representable.
 
 use crate::category::{BraidingStyle, FusionCategory, FusionStyle};
 use std::{convert::Infallible, num::NonZeroU32};
 
-/// An invalid abelian label or arithmetic overflow.
-///
-/// Cyclic constructors reject zero moduli and noncanonical charges; U(1)
-/// construction and fusion reject unrepresentable charges.
+/// An invalid cyclic modulus or noncanonical charge.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum AbelianError {
+pub enum ZNError {
     /// A charge outside the canonical range `0..modulus`.
     NonCanonicalCharge {
         /// Requested charge (never reduced).
@@ -23,30 +19,20 @@ pub enum AbelianError {
     },
     /// A `Z_N` modulus of zero.
     ZeroModulus,
-    /// A U(1) charge outside `i32::MIN + 1 ..= i32::MAX`, either requested
-    /// directly or produced by [`FusionCategory::fusion`].
-    U1ChargeOutOfRange {
-        /// The exact charge.
-        charge: i64,
-    },
 }
 
-impl std::fmt::Display for AbelianError {
+impl std::fmt::Display for ZNError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AbelianError::NonCanonicalCharge { charge, modulus } => {
+            ZNError::NonCanonicalCharge { charge, modulus } => {
                 write!(f, "charge {charge} is outside 0..{modulus}")
             }
-            AbelianError::ZeroModulus => write!(f, "Z_N modulus must be nonzero"),
-            AbelianError::U1ChargeOutOfRange { charge } => write!(
-                f,
-                "U(1) charge {charge} is outside i32::MIN + 1 ..= i32::MAX"
-            ),
+            ZNError::ZeroModulus => write!(f, "Z_N modulus must be nonzero"),
         }
     }
 }
 
-impl std::error::Error for AbelianError {}
+impl std::error::Error for ZNError {}
 
 /// An irrep of the cyclic group `Z_N`: a charge `n mod N`, with the modulus
 /// `N ≥ 1` carried by the label.
@@ -66,9 +52,9 @@ impl ZNIrrep {
     ///
     /// # Errors
     ///
-    /// [`AbelianError::ZeroModulus`] for `modulus == 0`.
-    pub fn new(charge: i64, modulus: u32) -> Result<Self, AbelianError> {
-        let modulus = NonZeroU32::new(modulus).ok_or(AbelianError::ZeroModulus)?;
+    /// [`ZNError::ZeroModulus`] for `modulus == 0`.
+    pub fn new(charge: i64, modulus: u32) -> Result<Self, ZNError> {
+        let modulus = NonZeroU32::new(modulus).ok_or(ZNError::ZeroModulus)?;
         // rem_euclid of an i64 by a positive u32 lies in 0..modulus.
         let charge = charge.rem_euclid(i64::from(modulus.get())) as u32;
         Ok(Self { modulus, charge })
@@ -79,10 +65,10 @@ impl ZNIrrep {
     /// # Errors
     /// Returns `ZeroModulus` for zero modulus, otherwise `NonCanonicalCharge`
     /// when `charge >= modulus`.
-    pub fn from_canonical(charge: u32, modulus: u32) -> Result<Self, AbelianError> {
-        let modulus = NonZeroU32::new(modulus).ok_or(AbelianError::ZeroModulus)?;
+    pub fn from_canonical(charge: u32, modulus: u32) -> Result<Self, ZNError> {
+        let modulus = NonZeroU32::new(modulus).ok_or(ZNError::ZeroModulus)?;
         if charge >= modulus.get() {
-            return Err(AbelianError::NonCanonicalCharge {
+            return Err(ZNError::NonCanonicalCharge {
                 charge,
                 modulus: modulus.get(),
             });
@@ -94,8 +80,8 @@ impl ZNIrrep {
     ///
     /// # Errors
     ///
-    /// [`AbelianError::ZeroModulus`] for `modulus == 0`.
-    pub fn unit(modulus: u32) -> Result<Self, AbelianError> {
+    /// [`ZNError::ZeroModulus`] for `modulus == 0`.
+    pub fn unit(modulus: u32) -> Result<Self, ZNError> {
         Self::new(0, modulus)
     }
 
@@ -118,51 +104,9 @@ impl ZNIrrep {
     }
 }
 
-/// An irrep of `U(1)`: an integer charge in `i32::MIN + 1 ..= i32::MAX`.
-///
-/// `i32::MIN` is excluded so that every label has a representable dual.
-/// TensorKitSectors' `U1Irrep` stores a `HalfInt`; half-integer charges are
-/// not representable here. `Ord` is numeric charge order, not
-/// TensorKitSectors' `isless` (which orders by `|q|` first).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct U1Irrep {
-    charge: i32,
-}
-
-impl U1Irrep {
-    /// The unit, charge `0`.
-    pub const UNIT: Self = Self { charge: 0 };
-
-    /// The irrep of the given charge.
-    ///
-    /// # Errors
-    ///
-    /// [`AbelianError::U1ChargeOutOfRange`] for `i32::MIN`.
-    pub fn new(charge: i32) -> Result<Self, AbelianError> {
-        Self::from_exact(i64::from(charge))
-    }
-
-    fn from_exact(charge: i64) -> Result<Self, AbelianError> {
-        match i32::try_from(charge) {
-            Ok(charge) if charge != i32::MIN => Ok(Self { charge }),
-            _ => Err(AbelianError::U1ChargeOutOfRange { charge }),
-        }
-    }
-
-    /// The charge.
-    pub const fn charge(self) -> i32 {
-        self.charge
-    }
-}
-
 #[cfg(test)]
 pub(crate) const LEGACY_PARITY_FINGERPRINT: &[u8] = b"fusion-symbols:abelian-z2:n=tks-irreps:f=tks-irreps:r=tks-irreps:dim=one:fs=tks-irreps-one:twist=one:scalar=f64:epoch=1";
-pub(crate) const U1_FINGERPRINT: &[u8] = b"fusion-symbols:abelian-u1:labels=i32-integer-no-min:n=exact:f=tks-irreps:r=tks-irreps:dim=one:fs=tks-irreps-one:twist=one:scalar=f64:epoch=1";
 const ZN_FINGERPRINT: &[u8] = b"fusion-symbols:abelian-zn:labels=u32-runtime-modulus:n=tks-irreps:f=tks-irreps:r=tks-irreps:dim=one:fs=tks-irreps-one:twist=one:scalar=f64:epoch=1";
-
-/// Integer-charge U(1), with validated labels and checked fusion arithmetic.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct U1;
 
 /// Cyclic bosonic category with validated, modulus-tagged objects.
 ///
@@ -176,9 +120,9 @@ pub struct ZN {
 
 impl ZN {
     /// Construct a cyclic category; zero modulus returns `ZeroModulus`.
-    pub fn new(modulus: u32) -> Result<Self, AbelianError> {
+    pub fn new(modulus: u32) -> Result<Self, ZNError> {
         Ok(Self {
-            modulus: NonZeroU32::new(modulus).ok_or(AbelianError::ZeroModulus)?,
+            modulus: NonZeroU32::new(modulus).ok_or(ZNError::ZeroModulus)?,
         })
     }
 
@@ -191,70 +135,6 @@ impl ZN {
         for a in objects {
             assert_eq!(a.modulus, self.modulus, "foreign cyclic object");
         }
-    }
-}
-
-impl FusionCategory for U1 {
-    type Object = U1Irrep;
-    type Scalar = f64;
-    type FSymbol = f64;
-    type RSymbol = f64;
-    type Fusion<'a> = std::iter::Once<U1Irrep>;
-    type Error = AbelianError;
-
-    fn fusion_style(&self) -> FusionStyle {
-        FusionStyle::Unique
-    }
-    fn braiding_style(&self) -> BraidingStyle {
-        BraidingStyle::Bosonic
-    }
-    fn unit(&self) -> U1Irrep {
-        U1Irrep::UNIT
-    }
-    fn dual(&self, a: &U1Irrep) -> U1Irrep {
-        U1Irrep { charge: -a.charge }
-    }
-    fn dim(&self, _a: &U1Irrep) -> f64 {
-        1.0
-    }
-    fn frobenius_schur_phase(&self, _a: &U1Irrep) -> f64 {
-        1.0
-    }
-    fn frobenius_schur_indicator(&self, a: &U1Irrep) -> f64 {
-        f64::from(u8::from(*a == self.dual(a)))
-    }
-    fn twist(&self, _a: &U1Irrep) -> f64 {
-        1.0
-    }
-    fn fusion<'a>(&'a self, a: &U1Irrep, b: &U1Irrep) -> Result<Self::Fusion<'a>, Self::Error> {
-        Ok(std::iter::once(U1Irrep::from_exact(
-            i64::from(a.charge) + i64::from(b.charge),
-        )?))
-    }
-    fn nsymbol(&self, a: &U1Irrep, b: &U1Irrep, c: &U1Irrep) -> u32 {
-        u32::from(i64::from(a.charge) + i64::from(b.charge) == i64::from(c.charge))
-    }
-    fn f_symbol(
-        &self,
-        a: &U1Irrep,
-        b: &U1Irrep,
-        c: &U1Irrep,
-        d: &U1Irrep,
-        e: &U1Irrep,
-        f: &U1Irrep,
-    ) -> Result<f64, Self::Error> {
-        Ok(f64::from(
-            self.nsymbol(a, b, e)
-                * self.nsymbol(e, c, d)
-                * self.nsymbol(b, c, f)
-                * self.nsymbol(a, f, d),
-        ))
-    }
-    fn r_symbol(&self, a: &U1Irrep, b: &U1Irrep, c: &U1Irrep) -> Result<f64, Self::Error> {
-        Ok(f64::from(self.nsymbol(a, b, c)))
-    }
-    fn authority_fingerprint(&self) -> &[u8] {
-        U1_FINGERPRINT
     }
 }
 
@@ -339,6 +219,7 @@ impl FusionCategory for ZN {
 mod tests {
     use super::*;
     use crate::fermion::{FermionParity, FermionParityIrrep};
+    use crate::lie::{U1Error, U1Irrep, U1};
 
     fn zn(charge: i64, modulus: u32) -> ZNIrrep {
         ZNIrrep::new(charge, modulus).unwrap()
@@ -349,23 +230,20 @@ mod tests {
 
     #[test]
     fn constructors_and_integer_extremes() {
-        assert_eq!(ZN::new(0), Err(AbelianError::ZeroModulus));
-        assert_eq!(ZNIrrep::new(3, 0), Err(AbelianError::ZeroModulus));
-        assert_eq!(ZNIrrep::unit(0), Err(AbelianError::ZeroModulus));
-        assert_eq!(
-            ZNIrrep::from_canonical(0, 0),
-            Err(AbelianError::ZeroModulus)
-        );
+        assert_eq!(ZN::new(0), Err(ZNError::ZeroModulus));
+        assert_eq!(ZNIrrep::new(3, 0), Err(ZNError::ZeroModulus));
+        assert_eq!(ZNIrrep::unit(0), Err(ZNError::ZeroModulus));
+        assert_eq!(ZNIrrep::from_canonical(0, 0), Err(ZNError::ZeroModulus));
         assert_eq!(
             ZNIrrep::from_canonical(3, 3),
-            Err(AbelianError::NonCanonicalCharge {
+            Err(ZNError::NonCanonicalCharge {
                 charge: 3,
                 modulus: 3
             })
         );
         assert_eq!(
             ZNIrrep::from_canonical(u32::MAX, 3),
-            Err(AbelianError::NonCanonicalCharge {
+            Err(ZNError::NonCanonicalCharge {
                 charge: u32::MAX,
                 modulus: 3
             })
@@ -388,7 +266,7 @@ mod tests {
         assert_eq!(zn(5, 1), ZNIrrep::unit(1).unwrap());
         assert_eq!(
             U1Irrep::new(i32::MIN),
-            Err(AbelianError::U1ChargeOutOfRange {
+            Err(U1Error::U1ChargeOutOfRange {
                 charge: i64::from(i32::MIN)
             })
         );
@@ -403,13 +281,13 @@ mod tests {
         let (max, min) = (u1(i32::MAX), u1(i32::MIN + 1));
         assert_eq!(
             U1.fusion(&max, &u1(1)).unwrap_err(),
-            AbelianError::U1ChargeOutOfRange {
+            U1Error::U1ChargeOutOfRange {
                 charge: i64::from(i32::MAX) + 1
             }
         );
         assert_eq!(
             U1.fusion(&min, &u1(-1)).unwrap_err(),
-            AbelianError::U1ChargeOutOfRange {
+            U1Error::U1ChargeOutOfRange {
                 charge: i64::from(i32::MIN)
             }
         );
