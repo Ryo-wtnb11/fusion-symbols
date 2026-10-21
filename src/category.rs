@@ -31,8 +31,12 @@ pub enum BraidingStyle {
     Anyonic,
 }
 
-mod sealed {
+pub(crate) mod sealed {
     pub trait Sealed {}
+    /// Proof, constructible only inside this crate, that every object passed
+    /// alongside it already passed the caller's validation.
+    #[derive(Clone, Copy)]
+    pub struct Validated(pub(crate) ());
     impl Sealed for f64 {}
     impl Sealed for num_complex::Complex64 {}
 }
@@ -262,6 +266,109 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     ) -> Result<Self::RSymbol, Self::Error>;
     /// Opaque convention bytes; compare by equality, never parse.
     fn authority_fingerprint(&self) -> &[u8];
+
+    // Crate-internal `__fusion_symbols_validated_*` entry points, not part of
+    // the public API. A product calls them after validating every leaf object
+    // (and, for F and R, establishing nonzero representable shapes); a nested
+    // product overrides them to skip re-validation and shape recomputation,
+    // which would otherwise repeat at every nesting level. The token is
+    // unnameable outside the crate, so they can be neither called nor
+    // overridden there; the prefix keeps them from colliding with downstream
+    // extension-trait methods.
+    #[doc(hidden)]
+    fn __fusion_symbols_validated_dual(
+        &self,
+        a: &Self::Object,
+        _: sealed::Validated,
+    ) -> Self::Object {
+        self.dual(a)
+    }
+    #[doc(hidden)]
+    fn __fusion_symbols_validated_frobenius_schur_phase(
+        &self,
+        a: &Self::Object,
+        _: sealed::Validated,
+    ) -> Self::Scalar {
+        self.frobenius_schur_phase(a)
+    }
+    #[doc(hidden)]
+    fn __fusion_symbols_validated_frobenius_schur_indicator(
+        &self,
+        a: &Self::Object,
+        _: sealed::Validated,
+    ) -> Self::Scalar {
+        self.frobenius_schur_indicator(a)
+    }
+    #[doc(hidden)]
+    fn __fusion_symbols_validated_twist(
+        &self,
+        a: &Self::Object,
+        _: sealed::Validated,
+    ) -> Self::Scalar {
+        self.twist(a)
+    }
+    #[doc(hidden)]
+    fn __fusion_symbols_validated_fusion<'a>(
+        &'a self,
+        a: &Self::Object,
+        b: &Self::Object,
+        _: sealed::Validated,
+    ) -> Result<Self::Fusion<'a>, Self::Error> {
+        self.fusion(a, b)
+    }
+    #[doc(hidden)]
+    fn __fusion_symbols_validated_nsymbol(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+        _: sealed::Validated,
+    ) -> u32 {
+        self.nsymbol(a, b, c)
+    }
+    #[doc(hidden)]
+    #[allow(clippy::too_many_arguments)]
+    fn __fusion_symbols_validated_f_symbol(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+        d: &Self::Object,
+        e: &Self::Object,
+        f: &Self::Object,
+        _: sealed::Validated,
+    ) -> Result<Self::FSymbol, Self::Error> {
+        // A leaf block is combined by its dimensions, so a block disagreeing
+        // with N would silently misplace entries; reject it here, once per leaf.
+        let block = self.f_symbol(a, b, c, d, e, f)?;
+        let n = [
+            self.nsymbol(a, b, e),
+            self.nsymbol(e, c, d),
+            self.nsymbol(b, c, f),
+            self.nsymbol(a, f, d),
+        ];
+        assert!(
+            block.dims() == n.map(|n| n as usize),
+            "F block shape disagrees with its N symbols"
+        );
+        Ok(block)
+    }
+    #[doc(hidden)]
+    fn __fusion_symbols_validated_r_symbol(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+        _: sealed::Validated,
+    ) -> Result<Self::RSymbol, Self::Error> {
+        let block = self.r_symbol(a, b, c)?;
+        let n = [self.nsymbol(a, b, c), self.nsymbol(b, a, c)];
+        assert!(
+            block.dims() == n.map(|n| n as usize),
+            "R block shape disagrees with its N symbols"
+        );
+        Ok(block)
+    }
 }
 
 /// Group categories that additionally provide Clebsch–Gordan data.

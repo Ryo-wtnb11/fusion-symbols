@@ -95,6 +95,10 @@ const DEFAULT_MAX_ENTRIES: usize = 1 << 20;
 /// a large working set while bounding the conservative charge of cache-owned
 /// entries, not allocator-live memory or RSS.
 const DEFAULT_MAX_BYTES: usize = 64 << 20;
+/// Strong and weak reference counts heading every `Arc` allocation; charged
+/// with each shared label or product payload so retained bytes stay conservative.
+#[cfg(feature = "lie-generated")]
+pub(crate) const ARC_COUNTS_BYTES: usize = 2 * std::mem::size_of::<usize>();
 
 /// Process-local retained-charge limits for coefficient-cache tiers.
 ///
@@ -1227,7 +1231,8 @@ pub(crate) mod bcd_cgc_cache {
             std::mem::size_of::<Self>()
                 + match self {
                     Self::Product(channels) => {
-                        std::mem::size_of_val(channels.as_ref())
+                        super::ARC_COUNTS_BYTES
+                            + std::mem::size_of_val(channels.as_ref())
                             + channels
                                 .iter()
                                 .map(|(c, _)| c.key_bytes() - std::mem::size_of::<Irrep>())
@@ -1587,7 +1592,8 @@ mod tests {
 
         let sun = SunIrrep::from_dynkin(&[1; 12]).unwrap();
         let sun_key: CgcKey = (sun.clone(), sun.clone(), sun);
-        let sun_irrep_bytes = std::mem::size_of::<SunIrrep>() + 13 * std::mem::size_of::<i64>();
+        let sun_irrep_bytes =
+            std::mem::size_of::<SunIrrep>() + ARC_COUNTS_BYTES + 13 * std::mem::size_of::<i64>();
         assert_eq!(sun_key.key_bytes(), 3 * sun_irrep_bytes);
 
         let bcd = BcdIrrep::from_dynkin(Series::C, &[1; 12]).unwrap();
@@ -1599,7 +1605,8 @@ mod tests {
             bcd.clone(),
             bcd,
         );
-        let bcd_irrep_bytes = std::mem::size_of::<BcdIrrep>() + 12 * std::mem::size_of::<i64>();
+        let bcd_irrep_bytes =
+            std::mem::size_of::<BcdIrrep>() + ARC_COUNTS_BYTES + 12 * std::mem::size_of::<i64>();
         assert_eq!(bcd_key.key_bytes(), 6 * bcd_irrep_bytes);
     }
 
@@ -1617,6 +1624,7 @@ mod tests {
         let b = SunIrrep::from_dynkin(&[1, 2]).unwrap();
         let key = SunProductKey::new(&a, &b);
         let key_bytes = 2 * std::mem::size_of::<SunIrrep>()
+            + 2 * ARC_COUNTS_BYTES
             + (a.rank() + b.rank()) * std::mem::size_of::<i64>();
         assert_eq!(key.key_bytes(), key_bytes);
 
@@ -1625,7 +1633,7 @@ mod tests {
         let product =
             SunProduct::from_map(BTreeMap::from([(trivial.clone(), 1), (adjoint.clone(), 2)]));
         let value_bytes = std::mem::size_of::<SunProduct>()
-            + 2 * std::mem::size_of::<usize>()
+            + 3 * ARC_COUNTS_BYTES
             + 2 * std::mem::size_of::<(SunIrrep, u32)>()
             + (trivial.rank() + adjoint.rank()) * std::mem::size_of::<i64>();
         assert_eq!(product.value_bytes(), value_bytes);
@@ -1853,10 +1861,11 @@ mod tests {
             .collect::<Arc<[_]>>();
         let value = BcdValue::Product(Arc::clone(&product));
         let expected = std::mem::size_of::<BcdValue>()
+            + ARC_COUNTS_BYTES
             + std::mem::size_of_val(product.as_ref())
             + product
                 .iter()
-                .map(|(c, _)| std::mem::size_of_val(c.two_partition()))
+                .map(|(c, _)| ARC_COUNTS_BYTES + std::mem::size_of_val(c.two_partition()))
                 .sum::<usize>();
         assert_eq!(value.value_bytes(), expected);
         let charge = entry_charge(&key, &value);
