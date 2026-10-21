@@ -44,6 +44,10 @@ foreign Lie, cyclic or table objects panic, and `contains` is the
 non-panicking membership check. N = 0 gives scalar zero or a block
 with a zero axis; U(1), rank-one Lie and CU(1) fusion overflow
 is a typed error. Closed-form symbols are `f64`, table symbols are `Complex64`.
+Two gauge certificates, `has_trivial_associator_gauge` (every admissible F is
+exactly `1`: Z_N, U(1), fermion parity, and untwisted pointed tables) and
+`has_canonical_unit` (unit-leg F are the identity: every built-in family),
+default to `false` and take the conjunction over product factors.
 Category identity includes the modulus or table uuid;
 authority fingerprints describe conventions (see the migration guide in
 [CHANGELOG](../CHANGELOG.md#unreleased) for the retired Z2 fingerprint).

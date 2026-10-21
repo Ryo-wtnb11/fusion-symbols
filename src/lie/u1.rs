@@ -135,6 +135,14 @@ impl FusionCategory for U1 {
     fn r_symbol(&self, a: &U1Irrep, b: &U1Irrep, c: &U1Irrep) -> Result<f64, Self::Error> {
         Ok(f64::from(self.nsymbol(a, b, c)))
     }
+    // F is the product of the four vertex N, so exactly `1` when admissible;
+    // the unit is the self-dual identity charge.
+    fn has_trivial_associator_gauge(&self) -> bool {
+        true
+    }
+    fn has_canonical_unit(&self) -> bool {
+        true
+    }
     fn authority_fingerprint(&self) -> &[u8] {
         U1_FINGERPRINT
     }

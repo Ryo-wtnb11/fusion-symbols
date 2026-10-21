@@ -277,6 +277,47 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     ) -> Result<u32, Self::Error> {
         Ok(self.nsymbol(a, b, c))
     }
+    /// Certificate that the associator is trivial in this category's gauge:
+    /// every admissible `F^{abc}_d[e,f]` (all four vertices nonzero) is the
+    /// `1 × 1 × 1 × 1` block holding exactly `1`. Inadmissible F stay zero.
+    ///
+    /// `true` lets a consumer replace every admissible F by `1` without
+    /// evaluating it. `false` claims nothing: it is the conservative default
+    /// for a category that does not override this method, and the value of
+    /// every category with an object of dimension other than `1` (where
+    /// `|F^{a ā a}_a[𝟙, 𝟙]| = 1 / d_a ≠ 1`).
+    ///
+    /// A gauge property, not a gauge-invariant one: a gauge-equivalent
+    /// category may differ. Costs O(1) per leaf category (a product takes the
+    /// conjunction of its factors) and evaluates no symbol or dimension.
+    fn has_trivial_associator_gauge(&self) -> bool {
+        false
+    }
+    /// Certificate that the unit is canonical in this category's gauge:
+    ///
+    /// - the unit `𝟙` is self-dual;
+    /// - `𝟙 ⊗ a` and `a ⊗ 𝟙` are `a` alone, with multiplicity one;
+    /// - the unitors are the identity on that unique vertex (this crate
+    ///   exposes no separate unitor data, so this is the convention the
+    ///   remaining condition is stated in);
+    /// - every admissible `F^{abc}_d[e,f]` with `a`, `b` or `c` equal to `𝟙`
+    ///   is the identity on the multiplicity spaces: the two vertices through
+    ///   `𝟙` have multiplicity one, the two others `n`, and the `n × n`
+    ///   block between them is the identity matrix.
+    ///
+    /// F with the coupled object `d = 𝟙`, or with `𝟙` only as an inner line
+    /// `e` or `f` (such as `F^{a ā a}_a[𝟙, 𝟙]`, which carries dimension and
+    /// Frobenius–Schur data), is not constrained.
+    ///
+    /// The values are those of the documented gauge; a family that computes
+    /// F in floating point returns them up to its documented accuracy.
+    /// `false` claims nothing and is the conservative default for a category
+    /// that does not override this method. Costs O(1) per leaf category (a
+    /// product takes the conjunction of its factors) and evaluates no symbol
+    /// or dimension.
+    fn has_canonical_unit(&self) -> bool {
+        false
+    }
     /// `F^{abc}_d[e,f]`; inadmissible vertices return zero storage. Logical
     /// axes are `[N(a,b,e), N(e,c,d), N(b,c,f), N(a,f,d)]`.
     /// Foreign objects panic; errors indicate genuine failure.

@@ -20,6 +20,17 @@ value/gauge rule noted below.
   still gives `Ok(0)`. Product F and R symbols use it to build their shapes, so
   a nested product whose multiplicity overflows now returns an error from
   `f_symbol` and `r_symbol` instead of panicking.
+- `FusionCategory::has_trivial_associator_gauge` and
+  `FusionCategory::has_canonical_unit` certify, without evaluating any symbol,
+  that in the category's documented gauge every admissible F is exactly `1`,
+  respectively that the unit is self-dual, fuses as `𝟙 ⊗ a = a ⊗ 𝟙 = a` once,
+  and every admissible F with `a`, `b` or `c` the unit is the identity on the
+  multiplicity spaces. Both default to `false`, which claims nothing; products
+  take the conjunction of their factors. `ZN`, `U1` and `FermionParity`
+  certify both; `CU1` and every `LieGroup` certify only the canonical unit;
+  each `TableCategory` reads both off its stored F at construction (every
+  shipped entry has a canonical unit; the untwisted pointed entries also have a
+  trivial associator).
 
 ### Performance
 

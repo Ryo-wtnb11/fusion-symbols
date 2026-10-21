@@ -240,6 +240,17 @@ impl FusionCategory for CU1 {
         };
         Ok(CU1Fusion(channels.into_iter().take(len)))
     }
+    /// `false`: the two-dimensional irreps make some admissible F differ from
+    /// `1` (`F^{jjj}_j[0+, 0+] = 1/2`).
+    fn has_trivial_associator_gauge(&self) -> bool {
+        false
+    }
+    /// `true`: `0+` is self-dual, `0+ ⊗ a = a ⊗ 0+ = a` (multiplicity free),
+    /// and [`CU1::f_symbol`] returns exactly `1` for every admissible F with
+    /// `a`, `b` or `c` equal to `0+` (`cu1irrep.jl:Fsymbol`'s first branch).
+    fn has_canonical_unit(&self) -> bool {
+        true
+    }
     /// Fusion multiplicity `N^{ab}_c ∈ {0, 1}` (`cu1irrep.jl:Nsymbol`), exact for
     /// every label triple: the charge sum is compared in `u64`, so a fusion that
     /// [`CU1::fusion`] cannot represent still has `N = 0` here.
