@@ -2,7 +2,9 @@
 //! number of leaf calls grows linearly with the number of leaf factors, for flat
 //! and nested products alike.
 use fusion_symbols::{
-    category::{BraidingStyle, FBlock, FusionCategory, FusionStyle, RBlock, SymbolBlock},
+    category::{
+        BraidingStyle, EnumerationError, FBlock, FusionCategory, FusionStyle, RBlock, SymbolBlock,
+    },
     product,
 };
 use std::cell::Cell;
@@ -18,6 +20,12 @@ fn take() -> [usize; 4] {
 }
 thread_local! { static CONTAINS: Cell<usize> = const { Cell::new(0) }; }
 thread_local! { static CERTIFICATES: Cell<usize> = const { Cell::new(0) }; }
+// Leaf enumeration and derived-dimension calls: object_count, object_at,
+// object_index, then sqrt_dim, inv_sqrt_dim and inv_dim together.
+thread_local! { static ENUMERATION: [Cell<usize>; 4] = const { [const { Cell::new(0) }; 4] }; }
+fn bump_enumeration(i: usize) {
+    ENUMERATION.with(|c| c[i].set(c[i].get() + 1));
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Counter;
@@ -106,6 +114,37 @@ impl FusionCategory for Counter {
         [a, b, c].into_iter().for_each(check);
         bump(3);
         Ok(RBlock::one(1.0))
+    }
+    // The derived dimensions keep the default's single `dim` call, so the A/B
+    // defaults still count three dimensions.
+    fn sqrt_dim(&self, a: &u8) -> f64 {
+        bump_enumeration(3);
+        self.dim(a)
+    }
+    fn inv_sqrt_dim(&self, a: &u8) -> f64 {
+        bump_enumeration(3);
+        self.dim(a)
+    }
+    fn inv_dim(&self, a: &u8) -> f64 {
+        bump_enumeration(3);
+        self.dim(a)
+    }
+    fn object_count(&self) -> Result<Option<u64>, EnumerationError> {
+        bump_enumeration(0);
+        Ok(Some(1))
+    }
+    fn object_at(&self, index: u64) -> Result<u8, EnumerationError> {
+        bump_enumeration(1);
+        if index == 0 {
+            Ok(0)
+        } else {
+            Err(EnumerationError::OutOfRange)
+        }
+    }
+    fn object_index(&self, a: &u8) -> Result<u64, EnumerationError> {
+        check(a);
+        bump_enumeration(2);
+        Ok(0)
     }
     fn authority_fingerprint(&self) -> &[u8] {
         b"counter"
@@ -417,4 +456,89 @@ fn certificates_default_to_false() {
     // A non-certifying leaf makes the conjunction false.
     let cat = product(Counter, Malformed);
     assert!(!cat.has_trivial_associator_gauge() && !cat.has_canonical_unit());
+}
+
+/// Leaf calls `[[object_count, object_at, object_index, derived dimension],
+/// [dim, nsymbol, braiding_style, other], contains]` for each enumeration and
+/// derived-dimension query.
+fn enumeration_costs<C: FusionCategory<Scalar = f64>>(
+    cat: &C,
+) -> [([usize; 4], [usize; 4], usize); 6] {
+    let u = cat.unit();
+    let mut out = [([0; 4], [0; 4], 0); 6];
+    let reset = || {
+        take();
+        CONTAINS.with(|c| c.set(0));
+        ENUMERATION.with(|c| c.each_ref().map(|x| x.replace(0)));
+    };
+    let read = || {
+        (
+            ENUMERATION.with(|c| c.each_ref().map(|x| x.replace(0))),
+            take(),
+            CONTAINS.with(|c| c.replace(0)),
+        )
+    };
+    reset();
+    assert_eq!(cat.object_count(), Ok(Some(1)));
+    out[0] = read();
+    assert_eq!(cat.object_at(0).as_ref(), Ok(&u));
+    out[1] = read();
+    assert_eq!(cat.object_index(&u), Ok(0));
+    out[2] = read();
+    assert_eq!(cat.sqrt_dim(&u), 1.0);
+    out[3] = read();
+    assert_eq!(cat.inv_sqrt_dim(&u), 1.0);
+    out[4] = read();
+    assert_eq!(cat.inv_dim(&u), 1.0);
+    out[5] = read();
+    out
+}
+
+/// Each query asks every leaf once: a product validates the whole object with
+/// one `contains` per leaf, and a nested product neither re-validates nor
+/// recomputes its factors' counts.
+fn enumeration_linear(k: usize) -> [([usize; 4], [usize; 4], usize); 6] {
+    [
+        ([k, 0, 0, 0], [0; 4], 0),       // object_count
+        ([k, k, 0, 0], [0; 4], 0),       // object_at
+        ([k, 0, k, 0], [0; 4], k),       // object_index
+        ([0, 0, 0, k], [k, 0, 0, 0], 0), // sqrt_dim
+        ([0, 0, 0, k], [k, 0, 0, 0], 0), // inv_sqrt_dim
+        ([0, 0, 0, k], [k, 0, 0, 0], 0), // inv_dim
+    ]
+}
+
+#[test]
+fn enumeration_and_derived_dimension_leaf_calls_are_linear() {
+    let c = Counter;
+    assert_eq!(
+        enumeration_costs(&product(c.clone(), c.clone())),
+        enumeration_linear(2)
+    );
+    assert_eq!(
+        enumeration_costs(&product![c.clone(), c.clone(), c.clone(), c.clone()]),
+        enumeration_linear(4)
+    );
+    let p2 = product(c.clone(), c.clone());
+    let p3 = product(p2.clone(), c.clone());
+    let p4 = product(p3.clone(), c.clone());
+    let p5 = product(p4.clone(), c.clone());
+    let p6 = product(p5.clone(), c.clone());
+    assert_eq!(enumeration_costs(&p3), enumeration_linear(3));
+    assert_eq!(enumeration_costs(&p6), enumeration_linear(6));
+    let right = product(c.clone(), product(c.clone(), product(c.clone(), c.clone())));
+    assert_eq!(enumeration_costs(&right), enumeration_linear(4));
+    let balanced = product![p2.clone(), product![c.clone(), p2.clone(), c.clone()], p2];
+    assert_eq!(enumeration_costs(&balanced), enumeration_linear(8));
+}
+
+#[test]
+fn nested_foreign_objects_panic_in_enumeration_and_derived_dimensions() {
+    let c = Counter;
+    let cat = product(product(c.clone(), c.clone()), c);
+    let bad = ((0, 1), 0);
+    assert!(std::panic::catch_unwind(|| cat.object_index(&bad)).is_err());
+    assert!(std::panic::catch_unwind(|| cat.sqrt_dim(&bad)).is_err());
+    assert!(std::panic::catch_unwind(|| cat.inv_sqrt_dim(&bad)).is_err());
+    assert!(std::panic::catch_unwind(|| cat.inv_dim(&bad)).is_err());
 }

@@ -3,7 +3,9 @@
 //! Labels exclude `i32::MIN` so every dual is representable. Symbols are
 //! exact `f64` zeros and ones; inadmissible vertices give zero, not errors.
 
-use crate::category::{BraidingStyle, FusionCategory, FusionStyle, GroupRepresentations, RBlock};
+use crate::category::{
+    BraidingStyle, EnumerationError, FusionCategory, FusionStyle, GroupRepresentations, RBlock,
+};
 
 /// An unrepresentable U(1) charge, requested directly or produced by fusion.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,6 +72,12 @@ impl U1Irrep {
 pub(crate) const U1_FINGERPRINT: &[u8] = b"fusion-symbols:abelian-u1:labels=i32-integer-no-min:n=exact:f=tks-irreps:r=tks-irreps:dim=one:fs=tks-irreps-one:twist=one:scalar=f64:epoch=1";
 
 /// Integer-charge U(1), with validated labels and checked fusion arithmetic.
+///
+/// Enumeration (frozen): charges `0, 1, −1, 2, −2, …`; charge `q > 0` has
+/// index `2q − 1` and charge `q ≤ 0` index `−2q`. The count is infinite;
+/// indices past the label range (`|q| > i32::MAX`) are
+/// [`EnumerationError::Overflow`]. This is TensorKitSectors' `U1Irrep` order
+/// restricted to its integer charges.
 ///
 /// Every irrep is one-dimensional, so [`GroupRepresentations::cgc`] is the
 /// single coefficient `⟨a; b | c⟩`: exactly `1.0` when `c = a + b` and `0.0`
@@ -169,6 +177,23 @@ impl FusionCategory for U1 {
     }
     fn has_canonical_unit(&self) -> bool {
         true
+    }
+    fn object_count(&self) -> Result<Option<u64>, EnumerationError> {
+        Ok(None)
+    }
+    fn object_at(&self, index: u64) -> Result<U1Irrep, EnumerationError> {
+        let half = i64::try_from(index / 2)
+            .ok()
+            .filter(|&h| h <= i64::from(i32::MAX))
+            .ok_or(EnumerationError::Overflow)?;
+        let charge = if index % 2 == 1 { half + 1 } else { -half };
+        U1Irrep::from_exact(charge).map_err(|_| EnumerationError::Overflow)
+    }
+    fn object_index(&self, a: &U1Irrep) -> Result<u64, EnumerationError> {
+        assert!(self.contains(a), "foreign U(1) object");
+        let q = i64::from(a.charge);
+        // |q| ≤ i32::MAX, so both forms fit.
+        Ok((if q > 0 { 2 * q - 1 } else { -2 * q }) as u64)
     }
     fn authority_fingerprint(&self) -> &[u8] {
         U1_FINGERPRINT

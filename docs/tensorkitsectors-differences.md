@@ -23,8 +23,11 @@ known difference and the reason recorded for it. Per-symbol provenance is in
   channel, instead of a scalar for multiplicity-free categories. Reason: the
   default derivation must build its result for every category, including one
   whose `RSymbol` is a block type this crate cannot construct.
-- **Quantities left to the consumer.** Other sector operations
-  TensorKitSectors derives generically are not provided. Reason: same
+- **Quantities left to the consumer.** Apart from object enumeration
+  (`values`, see [Object enumeration](#object-enumeration)) and the derived
+  dimensions `sqrt_dim`, `inv_sqrt_dim` and `inv_dim` (`sqrtdim`,
+  `invsqrtdim`, `inv(dim)`), other sector operations TensorKitSectors derives
+  generically are not provided. Reason: same
   boundary; only the symbols a module is indexed by are in scope
   ([`references_categories.md`](references_categories.md), "Derived
   quantities").
@@ -125,6 +128,56 @@ known difference and the reason recorded for it. Per-symbol provenance is in
   agree with the database's own values
   ([`references_categories.md`](references_categories.md), "Selection").
 
+## Object enumeration
+
+`FusionCategory::object_count`, `object_at` and `object_index` correspond to
+TensorKitSectors 0.3.10 `values(I)` with `length`, `getindex` and
+`findindex` (`sectors.jl::SectorValues`). The order of each category is a
+frozen contract, documented on the category type.
+
+| Category | Order (zero-based index) | Relation to the reference |
+|---|---|---|
+| `ZN(N)` | charges `0, …, N − 1` | `ZNIrrep{N}`, same order |
+| `FermionParity` | even, odd | `FermionParity`, same order |
+| `U1` | `0, 1, −1, 2, −2, …` | `U1Irrep` restricted to integer charges (below) |
+| `CU1` | `0+`, `0−`, then `twice_charge = 1, 2, …` | `CU1Irrep`, same order |
+| `LieGroup`, rank one | admitted doubled spins `dj`, increasing | `SU2Irrep` (`dj` = index); SO(3) keeps only even `dj` (fs convention) |
+| `LieGroup`, SU(N), N ≥ 3 | Dynkin labels by total, then lexicographic | SUNRepresentations.jl 0.4.0 `sector.jl::getindex` |
+| `TableCategory` | source order, index = source index − 1 | AnyonWiki order (below) |
+| `Product` | bounded Manhattan order of factor indices | `product.jl::getindex` (`to_manhattan_index − 1`), without flattening |
+
+- **Zero-based `u64` indices.** Julia indices are one-based. A finite count
+  above `u64::MAX` is `EnumerationError::Overflow` while individual indices
+  stay addressable; an infinite category reports `Ok(None)` even though its
+  labels have a machine range, and labels past it are `Overflow`. A product
+  count is infinite whenever a factor's is, even if another factor's count
+  overflows; a factor count above `u64::MAX`, including one an external
+  category can only report as `Overflow`, never limits a product index up to
+  `u64::MAX`, because such a bound excludes only tuples whose index is already
+  at least `2^64`.
+  TensorKitSectors' `SizeUnknown` iterator trait for large `ZNIrrep` is a
+  storage hint, not a missing count.
+- **U(1) is compressed to integer charges.** TensorKitSectors enumerates
+  `0, ½, −½, 1, −1, …`; the integer subsequence is reindexed densely, so
+  charge `q > 0` has index `2q − 1` and `q ≤ 0` has `−2q`. Reason: fs
+  labels are integer charges only.
+- **Ising's source order is `(I, ψ, σ)`**, TensorKitSectors' `IsingAnyon` is
+  `(I, σ, ψ)`. Fibonacci agrees (`(I, τ)`). Reason: table order is AnyonWiki's
+  frozen source order, never re-sorted.
+- **Products keep their nesting.** `⊠` flattens, so a nested fs product
+  enumerates differently from the flat one (`((1, 0), 0)` of `(U1 ⊠ U1) ⊠ U1`
+  has index 5, `(1, 0, 0)` of `U1 ⊠ U1 ⊠ U1` index 3). Unranking uses
+  exact inclusion–exclusion counts and binary searches instead of the
+  reference's sequential searches.
+- **Not enumerable.** Quotients of SU(N), N ≥ 3 (such as PSU(N) and
+  SU(N)/Z_k with `k > 1`) and the B, C and D series of rank at least two return
+  `EnumerationError::NotEnumerable`; no reference package enumerates them.
+  A product with such a factor is not enumerable either.
+- **Product derived dimensions are factorwise.** `sqrt_dim`, `inv_sqrt_dim`
+  and `inv_dim` of a product multiply the factor values left to right.
+  TensorKitSectors specializes only `dim` for products and takes
+  `sqrtdim`/`invsqrtdim` of that product; the values agree up to rounding.
+
 ## Deligne products
 
 - `product::Product<C>` retains 2..=12 immediate factors in a tuple. Explicit
@@ -160,8 +213,8 @@ and `sectors.jl` style `&` methods. Their relevant guards and assumptions map as
 | Single-sector symbol base cases | N/A: Rust accepts 2..=12 immediate factors and delegates leaf symbols to the factor authority. |
 
 No reference assertions are present on these product-symbol paths. TKS
-`fusiontensor`, value indexing/order-by-distance, generic units and flattening
-are outside the approved port. Factor generation retains its own verification
+`fusiontensor`, generic units and flattening are outside the approved port;
+value indexing is described in [Object enumeration](#object-enumeration). Factor generation retains its own verification
 gates; composition only consumes those authorities. Independent indexed
 oracles are in `tests/product.rs`; structural identities use
 `tests/category_conformance.rs::product_identities` and

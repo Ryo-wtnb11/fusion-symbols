@@ -3,7 +3,7 @@
 //! Labels are validated at construction. Symbols are exact `f64` zeros and
 //! ones, with unique fusion; inadmissible vertices give zero, not errors.
 
-use crate::category::{BraidingStyle, FusionCategory, FusionStyle, RBlock};
+use crate::category::{BraidingStyle, EnumerationError, FusionCategory, FusionStyle, RBlock};
 use std::{convert::Infallible, num::NonZeroU32};
 
 /// An invalid cyclic modulus or noncanonical charge.
@@ -109,6 +109,9 @@ pub(crate) const LEGACY_PARITY_FINGERPRINT: &[u8] = b"fusion-symbols:abelian-z2:
 const ZN_FINGERPRINT: &[u8] = b"fusion-symbols:abelian-zn:labels=u32-runtime-modulus:n=tks-irreps:f=tks-irreps:r=tks-irreps:dim=one:fs=tks-irreps-one:twist=one:scalar=f64:epoch=1";
 
 /// Cyclic bosonic category with validated, modulus-tagged objects.
+///
+/// Enumeration (frozen): the `N` charges `0, 1, …, N − 1`; the index of a
+/// charge is the charge itself.
 ///
 /// # Panics
 /// Every object-taking method except `contains` panics if any object's modulus differs from
@@ -236,6 +239,22 @@ impl FusionCategory for ZN {
     }
     fn has_canonical_unit(&self) -> bool {
         true
+    }
+    fn object_count(&self) -> Result<Option<u64>, EnumerationError> {
+        Ok(Some(u64::from(self.modulus())))
+    }
+    fn object_at(&self, index: u64) -> Result<ZNIrrep, EnumerationError> {
+        match u32::try_from(index) {
+            Ok(charge) if charge < self.modulus() => Ok(ZNIrrep {
+                modulus: self.modulus,
+                charge,
+            }),
+            _ => Err(EnumerationError::OutOfRange),
+        }
+    }
+    fn object_index(&self, a: &ZNIrrep) -> Result<u64, EnumerationError> {
+        self.validate(&[a]);
+        Ok(u64::from(a.charge))
     }
     fn authority_fingerprint(&self) -> &[u8] {
         ZN_FINGERPRINT

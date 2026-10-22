@@ -49,7 +49,7 @@
 //! tabulated in the crate's `docs/references_categories.md`; the
 //! machine-readable form is [`TableProvenance`].
 
-use crate::category::{BraidingStyle, FusionCategory, FusionStyle};
+use crate::category::{BraidingStyle, EnumerationError, FusionCategory, FusionStyle};
 use num_complex::Complex64;
 use std::{
     hash::{Hash, Hasher},
@@ -93,6 +93,11 @@ const ISING_UUID: &str = "37fa4e56-97c6-11f1-907a-eb6ab8e8bc11";
 /// checking capabilities.
 /// Inadmissible symbols are exact zero. On fusion-only entries, `r_symbol`
 /// returns [`TableError::NoBraiding`] and `twist` panics.
+///
+/// Enumeration (frozen): the source object order of [`Self::objects`]; the
+/// object with one-based source index `i` has enumeration index `i − 1`, and
+/// the count is [`Self::rank`]. Ising is therefore `(I, ψ, σ)`, unlike
+/// TensorKitSectors' `IsingAnyon` order `(I, σ, ψ)`.
 ///
 /// # Examples
 ///
@@ -503,6 +508,19 @@ impl FusionCategory for TableCategory {
     /// so the identity is `1`); `parse` already enforces the unit laws.
     fn has_canonical_unit(&self) -> bool {
         self.data.canonical_unit
+    }
+    fn object_count(&self) -> Result<Option<u64>, EnumerationError> {
+        Ok(Some(self.rank() as u64))
+    }
+    fn object_at(&self, index: u64) -> Result<TableObject, EnumerationError> {
+        if index < self.rank() as u64 {
+            Ok(self.at_index(index as usize))
+        } else {
+            Err(EnumerationError::OutOfRange)
+        }
+    }
+    fn object_index(&self, a: &TableObject) -> Result<u64, EnumerationError> {
+        Ok(self.index(a) as u64)
     }
     fn authority_fingerprint(&self) -> &[u8] {
         &self.data.fingerprint
