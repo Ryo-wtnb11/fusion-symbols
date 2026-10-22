@@ -7,6 +7,8 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-22
+
 ### Added
 
 - `lie::U1` implements `GroupRepresentations` with `Cgc = f64`: the single
@@ -679,7 +681,8 @@ SU(2) provider this rule is mechanized by `su2_authority_fingerprint()`: its
 epoch is bumped only on such a value-affecting release, so a fingerprint change
 and a breaking release are one reviewable event.
 
-[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.4.0...v0.4.1
