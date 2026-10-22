@@ -3,7 +3,7 @@
 //! Labels exclude `i32::MIN` so every dual is representable. Symbols are
 //! exact `f64` zeros and ones; inadmissible vertices give zero, not errors.
 
-use crate::category::{BraidingStyle, FusionCategory, FusionStyle};
+use crate::category::{BraidingStyle, FusionCategory, FusionStyle, GroupRepresentations};
 
 /// An unrepresentable U(1) charge, requested directly or produced by fusion.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,6 +70,17 @@ impl U1Irrep {
 pub(crate) const U1_FINGERPRINT: &[u8] = b"fusion-symbols:abelian-u1:labels=i32-integer-no-min:n=exact:f=tks-irreps:r=tks-irreps:dim=one:fs=tks-irreps-one:twist=one:scalar=f64:epoch=1";
 
 /// Integer-charge U(1), with validated labels and checked fusion arithmetic.
+///
+/// Every irrep is one-dimensional, so [`GroupRepresentations::cgc`] is the
+/// single coefficient `⟨a; b | c⟩`: exactly `1.0` when `c = a + b` and `0.0`
+/// otherwise, including when `a + b` leaves `i32` (as [`FusionCategory::nsymbol`]).
+///
+/// ```
+/// use fusion_symbols::{category::GroupRepresentations, lie::{U1, U1Irrep}};
+/// let q = |c| U1Irrep::new(c).unwrap();
+/// assert_eq!(U1.cgc(&q(2), &q(-5), &q(-3)), Ok(1.0));
+/// assert_eq!(U1.cgc(&q(2), &q(-5), &q(3)), Ok(0.0));
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct U1;
 
@@ -145,5 +156,59 @@ impl FusionCategory for U1 {
     }
     fn authority_fingerprint(&self) -> &[u8] {
         U1_FINGERPRINT
+    }
+}
+
+// The `1x1x1` CGC tensor with its unit multiplicity axis is one scalar; an
+// absent channel is the zero `1x1x1x0` block, represented by `0.0`.
+impl GroupRepresentations for U1 {
+    type Cgc = f64;
+    fn cgc(&self, a: &U1Irrep, b: &U1Irrep, c: &U1Irrep) -> Result<f64, U1Error> {
+        Ok(f64::from(self.nsymbol(a, b, c)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn q(charge: i32) -> U1Irrep {
+        U1Irrep::new(charge).unwrap()
+    }
+
+    #[test]
+    fn cgc_is_one_on_charge_conservation_and_zero_otherwise() {
+        for (a, b, c, expected) in [
+            (0, 0, 0, 1.0),
+            (3, -1, 2, 1.0),
+            (-4, -7, -11, 1.0),
+            (5, -5, 0, 1.0),
+            (3, -1, 1, 0.0),
+            (0, 0, 1, 0.0),
+            (2, 2, -4, 0.0),
+            // Extremes: sums at and beyond the i32 label range.
+            (i32::MAX, 0, i32::MAX, 1.0),
+            (i32::MAX - 1, 1, i32::MAX, 1.0),
+            (i32::MIN + 1, i32::MAX, 0, 1.0),
+            (i32::MIN + 1, -1, i32::MIN + 1, 0.0),
+            (i32::MAX, 1, i32::MIN + 1, 0.0),
+            (i32::MAX, i32::MAX, -2, 0.0),
+            (i32::MIN + 1, i32::MIN + 1, 2, 0.0),
+        ] {
+            assert_eq!(U1.cgc(&q(a), &q(b), &q(c)), Ok(expected), "{a} {b} {c}");
+        }
+    }
+
+    #[test]
+    fn cgc_agrees_with_nsymbol() {
+        let charges = [i32::MIN + 1, -3, -1, 0, 1, 2, 3, i32::MAX];
+        for &a in &charges {
+            for &b in &charges {
+                for &c in &charges {
+                    let (a, b, c) = (q(a), q(b), q(c));
+                    assert_eq!(U1.cgc(&a, &b, &c), Ok(f64::from(U1.nsymbol(&a, &b, &c))));
+                }
+            }
+        }
     }
 }
