@@ -919,3 +919,59 @@ mod cross_form_coefficients {
         assert_eq!(so.irrep(&[0, 1]), Err(LieError::NotAdmissible));
     }
 }
+
+// ---------------------------------------------------------------------------
+// Large labels — the congruences are computed mod k, never as a plain i64 sum
+// ---------------------------------------------------------------------------
+
+const MAX: i64 = i64::MAX; // 2^63 − 1 ≡ 1 (mod 2), ≡ 3 (mod 4), ≡ 1 (mod 3)
+
+#[test]
+fn a_series_nality_does_not_overflow() {
+    let psu3 = GroupId::psu(3).unwrap();
+    // κ = 1·a₁ + 2·a₂ with 2·(2^62 + 2) = 2^63 + 4 > i64::MAX.
+    // 2^62 = 4^31 ≡ 1 (mod 3), so 2^62 + 2 ≡ 0 and κ ≡ 0: admitted.
+    assert!(psu3.admits(&[0, (1 << 62) + 2]));
+    // 2^62 + 1 ≡ 2, κ ≡ 2·2 = 4 ≡ 1: the 3 class.
+    assert!(!psu3.admits(&[0, (1 << 62) + 1]));
+    // 2^63 = 2·2^62 ≡ 2, so MAX ≡ 1 and κ ≡ 1 + 2·1 = 3 ≡ 0.
+    assert!(psu3.admits(&[MAX, MAX]));
+    // κ ≡ 1 + 0 = 1.
+    assert!(!psu3.admits(&[MAX, 0]));
+}
+
+#[test]
+fn bcd_congruences_do_not_overflow() {
+    // B₂ = SO(5): a₂ even.
+    let so5 = GroupId::so(5).unwrap();
+    assert!(!so5.admits(&[0, MAX]));
+    assert!(so5.admits(&[MAX, MAX - 1]));
+
+    // C₃ = PSp(6): a₁ + a₃ even; MAX + MAX overflows as a plain sum.
+    let psp6 = GroupId::psp(6).unwrap();
+    assert!(psp6.admits(&[MAX, 0, MAX]));
+    assert!(!psp6.admits(&[MAX, 0, MAX - 1]));
+
+    // D₄ = SO(8): a₃ + a₄ even.
+    let so8 = GroupId::so(8).unwrap();
+    assert!(so8.admits(&[0, 0, MAX, MAX]));
+    assert!(!so8.admits(&[0, 0, MAX, MAX - 1]));
+
+    // D₄ half-spin forms: t = a₁, p = a₃ + t, q = a₄ + t (mod 2).
+    // [MAX, 0, MAX, 0]: t = 1, p = 1 + 1 ≡ 0, q = 0 + 1 = 1.
+    let label = [MAX, 0, MAX, 0];
+    assert!(GroupId::half_spin_plus(8).unwrap().admits(&label));
+    assert!(!GroupId::half_spin_minus(8).unwrap().admits(&label));
+    assert!(!GroupId::pso(8).unwrap().admits(&label));
+
+    // D₅ = PSO(10): κ = a₅ − a₄ + 2(a₁ + a₃) (mod 4).
+    let pso10 = GroupId::pso(10).unwrap();
+    // κ ≡ 3 − 3 + 2·(1 + 1) = 4 ≡ 0.
+    assert!(pso10.admits(&[MAX, 0, MAX, MAX, MAX]));
+    // κ ≡ 3 − 0 + 2·1 = 5 ≡ 1.
+    assert!(!pso10.admits(&[MAX, 0, 0, 0, MAX]));
+    assert_eq!(d_odd_central_class(&[MAX, 0, 0, 0, MAX]), 1);
+    // The public class accepts any i64: MIN = −2^63 ≡ 0 (mod 4), κ ≡ 3 − 0 = 3,
+    // where the plain difference MAX − MIN overflows.
+    assert_eq!(d_odd_central_class(&[0, 0, 0, i64::MIN, MAX]), 3);
+}
