@@ -37,6 +37,19 @@ pub(crate) mod sealed {
     /// alongside it already passed the caller's validation.
     #[derive(Clone, Copy)]
     pub struct Validated(pub(crate) ());
+    /// Object count, unbounded by `u64` so that a product nested in another
+    /// still bounds its coordinates, with a product's per-factor counts so
+    /// that unranking visits each leaf once.
+    pub struct ExactCount {
+        pub(crate) total: super::enumeration::Count,
+        pub(crate) factors: Vec<ExactCount>,
+    }
+    /// An object's exact enumeration index with its category's count, so that
+    /// a nested product ranks in one pass over its leaves.
+    pub struct Ranked {
+        pub(crate) count: super::enumeration::Count,
+        pub(crate) index: num_bigint::BigInt,
+    }
     impl Sealed for f64 {}
     impl Sealed for num_complex::Complex64 {}
 }
@@ -412,6 +425,71 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     }
     /// Opaque convention bytes; compare by equality, never parse.
     fn authority_fingerprint(&self) -> &[u8];
+    /// `√d_a`; foreign objects panic.
+    ///
+    /// The default is `self.dim(a).sqrt()`. A product multiplies its factors'
+    /// values left to right instead of taking the root of the product.
+    fn sqrt_dim(&self, a: &Self::Object) -> f64 {
+        self.dim(a).sqrt()
+    }
+    /// `1 / √d_a`; foreign objects panic.
+    ///
+    /// The default is `self.sqrt_dim(a).recip()`; a product multiplies its
+    /// factors' values left to right.
+    fn inv_sqrt_dim(&self, a: &Self::Object) -> f64 {
+        self.sqrt_dim(a).recip()
+    }
+    /// `1 / d_a`; foreign objects panic.
+    ///
+    /// The default is `self.dim(a).recip()`; a product multiplies its
+    /// factors' values left to right.
+    fn inv_dim(&self, a: &Self::Object) -> f64 {
+        self.dim(a).recip()
+    }
+    /// Exact number of objects, `Ok(None)` for a mathematically infinite
+    /// category.
+    ///
+    /// Enumeration is a zero-based bijection between objects and indices whose
+    /// order is a frozen part of each category's documented contract. It is
+    /// independent of the object type's `Ord` and of fusion-iterator order.
+    /// Equal category values enumerate identically.
+    ///
+    /// An infinite category returns `Ok(None)` even though its labels have a
+    /// finite machine range; [`Self::object_at`] reports labels past that
+    /// range as [`EnumerationError::Overflow`].
+    ///
+    /// # Errors
+    /// [`EnumerationError::NotEnumerable`] (the default) when this category
+    /// value does not provide enumeration; [`EnumerationError::Overflow`] for a
+    /// finite count above `u64::MAX`, while individual indices stay addressable.
+    fn object_count(&self) -> Result<Option<u64>, EnumerationError> {
+        Err(EnumerationError::NotEnumerable)
+    }
+    /// The object at a zero-based enumeration index; the inverse of
+    /// [`Self::object_index`].
+    ///
+    /// # Errors
+    /// [`EnumerationError::NotEnumerable`] (the default);
+    /// [`EnumerationError::OutOfRange`] at or past a finite count;
+    /// [`EnumerationError::Overflow`] when the object's label is not
+    /// representable.
+    fn object_at(&self, index: u64) -> Result<Self::Object, EnumerationError> {
+        let _ = index;
+        Err(EnumerationError::NotEnumerable)
+    }
+    /// The zero-based enumeration index of an object; the inverse of
+    /// [`Self::object_at`].
+    ///
+    /// # Errors
+    /// [`EnumerationError::NotEnumerable`] (the default);
+    /// [`EnumerationError::Overflow`] when the index exceeds `u64::MAX`.
+    ///
+    /// # Panics
+    /// Panics on a foreign object, before testing enumerability.
+    fn object_index(&self, a: &Self::Object) -> Result<u64, EnumerationError> {
+        assert!(self.contains(a), "foreign object");
+        Err(EnumerationError::NotEnumerable)
+    }
 
     // Crate-internal `__fusion_symbols_validated_*` entry points, not part of
     // the public API. A product calls them after validating every leaf object
@@ -421,6 +499,62 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     // unnameable outside the crate, so they can be neither called nor
     // overridden there; the prefix keeps them from colliding with downstream
     // extension-trait methods.
+    #[doc(hidden)]
+    fn __fusion_symbols_validated_sqrt_dim(&self, a: &Self::Object, _: sealed::Validated) -> f64 {
+        self.sqrt_dim(a)
+    }
+    #[doc(hidden)]
+    fn __fusion_symbols_validated_inv_sqrt_dim(
+        &self,
+        a: &Self::Object,
+        _: sealed::Validated,
+    ) -> f64 {
+        self.inv_sqrt_dim(a)
+    }
+    #[doc(hidden)]
+    fn __fusion_symbols_validated_inv_dim(&self, a: &Self::Object, _: sealed::Validated) -> f64 {
+        self.inv_dim(a)
+    }
+    #[doc(hidden)]
+    fn __fusion_symbols_validated_object_index(
+        &self,
+        a: &Self::Object,
+        t: sealed::Validated,
+    ) -> Result<sealed::Ranked, EnumerationError> {
+        let index = self.object_index(a)?.into();
+        let count = self.__fusion_symbols_exact_object_count(t)?.total;
+        Ok(sealed::Ranked { count, index })
+    }
+    // Not object-taking: the token only keeps it crate-internal. A product
+    // overrides it so that an enclosing product sees counts above `u64::MAX`.
+    #[doc(hidden)]
+    fn __fusion_symbols_exact_object_count(
+        &self,
+        _: sealed::Validated,
+    ) -> Result<sealed::ExactCount, EnumerationError> {
+        // A public count above `u64::MAX` is finite but unknown; see `Count`.
+        let total = match self.object_count() {
+            Ok(Some(n)) => enumeration::Count::Finite(n.into()),
+            Ok(None) => enumeration::Count::Infinite,
+            Err(EnumerationError::Overflow) => enumeration::Count::AboveU64,
+            Err(e) => return Err(e),
+        };
+        Ok(sealed::ExactCount {
+            total,
+            factors: Vec::new(),
+        })
+    }
+    // [`Self::object_at`] given this category's own exact count.
+    #[doc(hidden)]
+    fn __fusion_symbols_counted_object_at(
+        &self,
+        index: u64,
+        count: &sealed::ExactCount,
+        _: sealed::Validated,
+    ) -> Result<Self::Object, EnumerationError> {
+        let _ = count;
+        self.object_at(index)
+    }
     #[doc(hidden)]
     fn __fusion_symbols_validated_dual(
         &self,
@@ -566,7 +700,7 @@ fn vertex_scale<C: FusionCategory>(
     b: &C::Object,
     c: &C::Object,
 ) -> C::Scalar {
-    C::Scalar::from_f64(cat.dim(a).sqrt() * cat.dim(b).sqrt() / cat.dim(c).sqrt())
+    C::Scalar::from_f64(cat.sqrt_dim(a) * cat.sqrt_dim(b) / cat.sqrt_dim(c))
 }
 
 // The square `n × n` A or B block from row-major data (`N(a,b,c)` equals
@@ -594,6 +728,9 @@ pub trait GroupRepresentations: FusionCategory {
     ) -> Result<Self::Cgc, Self::Error>;
 }
 
+mod enumeration;
+pub use enumeration::EnumerationError;
+pub(crate) use enumeration::{rank, rank_checked, unrank, Count};
 mod residual;
 pub use residual::{f_unitarity_residual, hexagon_residual, pentagon_residual};
 

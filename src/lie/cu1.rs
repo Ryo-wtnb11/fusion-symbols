@@ -1,6 +1,6 @@
 //! Closed-form CU(1) coefficients.
 
-use crate::category::{BraidingStyle, FusionCategory, FusionStyle};
+use crate::category::{BraidingStyle, EnumerationError, FusionCategory, FusionStyle};
 
 /// An irrep of `CU(1)`, TensorKitSectors' `CU1Irrep(j, s)`, stored as
 /// `twice_charge = 2j` and `s`.
@@ -158,6 +158,11 @@ impl ExactSizeIterator for CU1Fusion {}
 /// validates that bound itself.
 ///
 /// Every validated CU(1) label belongs to this category.
+///
+/// Enumeration (frozen): `0+, 0−`, then the two-dimensional irreps by
+/// increasing `twice_charge`; `(twice_charge, 2)` has index
+/// `twice_charge + 1`. The count is infinite; indices past
+/// `u32::MAX + 1` are [`EnumerationError::Overflow`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct CU1;
 
@@ -385,6 +390,25 @@ impl FusionCategory for CU1 {
     /// Opaque authority fingerprint of the `CU(1)` provider. Same contract as
     /// [`crate::category::FusionCategory::authority_fingerprint`]: compare by equality only; the epoch
     /// is bumped exactly when a returned value or convention changes.
+    fn object_count(&self) -> Result<Option<u64>, EnumerationError> {
+        Ok(None)
+    }
+    fn object_at(&self, index: u64) -> Result<CU1Irrep, EnumerationError> {
+        match index {
+            0 => Ok(CU1Irrep::VACUUM),
+            1 => Ok(CU1Irrep::PSEUDOSCALAR),
+            _ => u32::try_from(index - 1)
+                .map(CU1Irrep::from_twice_charge)
+                .map_err(|_| EnumerationError::Overflow),
+        }
+    }
+    fn object_index(&self, a: &CU1Irrep) -> Result<u64, EnumerationError> {
+        assert!(self.contains(a), "foreign CU(1) object");
+        Ok(match a.twice_charge {
+            0 => u64::from(a.s),
+            q => u64::from(q) + 1,
+        })
+    }
     fn authority_fingerprint(&self) -> &[u8] {
         b"fusion-symbols:cu1:labels=u32-twice-charge-full:n=tks-cu1irrep-exact:f=tks-cu1irrep:r=tks-cu1irrep:dim=tks-cu1irrep:fs=tks-cu1irrep-one:twist=tks-rsymbol-sum-one:scalar=f64:epoch=1"
     }

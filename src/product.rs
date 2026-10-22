@@ -7,13 +7,29 @@
 //! intermediate queries are representable. No cross-factor fermionic sign,
 //! coefficient cache, or product Clebsch–Gordan capability is added.
 //!
+//! Enumeration (frozen) is the bounded Manhattan order of the immediate
+//! factors' enumeration indices `x`: by increasing `Σ x_j`, then ascending
+//! lexicographically, skipping tuples past a finite factor's count. This is
+//! TensorKitSectors' `to_manhattan_index − 1` over the immediate factors, so an
+//! explicitly nested product enumerates differently from the flat one. The
+//! count is the product of the factor counts, infinite if any factor is (even
+//! when another factor's count overflows `u64`). A factor whose count is above
+//! `u64::MAX` (reported as [`EnumerationError::Overflow`]) still bounds no
+//! addressable tuple, so every product index up to `u64::MAX` stays available.
+//! A product is enumerable only when every factor is
+//! ([`EnumerationError::NotEnumerable`] takes precedence over other factor
+//! errors). Derived dimensions ([`FusionCategory::sqrt_dim`] and its
+//! inverses) multiply the factor values left to right.
+//!
 //! Factor fusion iterators must be cloneable. The higher-ranked GAT bound on
 //! these implementations currently restricts factors to owned category types;
 //! arbitrary borrowed providers are not promised.
 use crate::category::{
-    sealed::Validated, BraidingStyle, FBlock, FusionCategory, FusionStyle, Promote, RBlock, Scalar,
-    Storage, SymbolBlock,
+    rank_checked, sealed::ExactCount, sealed::Ranked, sealed::Validated, unrank, BraidingStyle,
+    Count, EnumerationError, FBlock, FusionCategory, FusionStyle, Promote, RBlock, Scalar, Storage,
+    SymbolBlock,
 };
+use num_bigint::BigInt;
 use std::{
     convert::Infallible,
     fmt,
@@ -278,6 +294,21 @@ fn shape<S, const R: usize>(n: [u32; R]) -> Option<[usize; R]> {
     Some(dims)
 }
 
+// Every factor result, or one error: a non-enumerable factor makes the whole
+// product non-enumerable, whatever the other factors report.
+fn all_ok<T>(
+    results: impl IntoIterator<Item = Result<T, EnumerationError>>,
+) -> Result<Vec<T>, EnumerationError> {
+    let results: Vec<_> = results.into_iter().collect();
+    if results
+        .iter()
+        .any(|r| matches!(r, Err(EnumerationError::NotEnumerable)))
+    {
+        return Err(EnumerationError::NotEnumerable);
+    }
+    results.into_iter().collect()
+}
+
 fn storage<B: SymbolBlock<R>, const R: usize>(block: B) -> ([usize; R], Storage<B::Scalar>) {
     let dims = block.dims();
     (
@@ -369,6 +400,63 @@ macro_rules! impl_product {
             }
             fn dim(&self, a: &Self::Object) -> f64 {
                 let value = self.factors.0.dim(&a.0); $(let value = value * self.factors.$i.dim(&a.$i);)+ value
+            }
+            fn sqrt_dim(&self, a: &Self::Object) -> f64 {
+                let value = self.factors.0.sqrt_dim(&a.0); $(let value = value * self.factors.$i.sqrt_dim(&a.$i);)+ value
+            }
+            fn inv_sqrt_dim(&self, a: &Self::Object) -> f64 {
+                let value = self.factors.0.inv_sqrt_dim(&a.0); $(let value = value * self.factors.$i.inv_sqrt_dim(&a.$i);)+ value
+            }
+            fn inv_dim(&self, a: &Self::Object) -> f64 {
+                let value = self.factors.0.inv_dim(&a.0); $(let value = value * self.factors.$i.inv_dim(&a.$i);)+ value
+            }
+            fn object_count(&self) -> Result<Option<u64>, EnumerationError> {
+                match self.__fusion_symbols_exact_object_count(Validated(()))?.total {
+                    Count::Finite(n) => u64::try_from(n).map(Some).map_err(|_| EnumerationError::Overflow),
+                    Count::AboveU64 => Err(EnumerationError::Overflow),
+                    Count::Infinite => Ok(None),
+                }
+            }
+            fn object_at(&self, index: u64) -> Result<Self::Object, EnumerationError> {
+                let t = Validated(());
+                let count = self.__fusion_symbols_exact_object_count(t)?;
+                self.__fusion_symbols_counted_object_at(index, &count, t)
+            }
+            fn __fusion_symbols_counted_object_at(&self, index: u64, count: &ExactCount, t: Validated) -> Result<Self::Object, EnumerationError> {
+                let factors = &count.factors;
+                // Exact for every `index ≤ u64::MAX`, also with `AboveU64` factors (`Count::bound`).
+                let bounds: Vec<_> = factors.iter().map(|c| c.total.bound()).collect();
+                let x = unrank(&bounds, &BigInt::from(index)).ok_or(EnumerationError::OutOfRange)?;
+                // A coordinate never exceeds the index of its tuple.
+                let x = |j: usize| u64::try_from(&x[j]).map_err(|_| EnumerationError::Overflow);
+                Ok((self.factors.0.__fusion_symbols_counted_object_at(x(0)?, &factors[0], t)?,
+                    $(self.factors.$i.__fusion_symbols_counted_object_at(x($i)?, &factors[$i], t)?,)+))
+            }
+            fn object_index(&self, a: &Self::Object) -> Result<u64, EnumerationError> {
+                assert!(self.contains(a), "foreign product object");
+                let Ranked { index, .. } = self.__fusion_symbols_validated_object_index(a, Validated(()))?;
+                u64::try_from(index).map_err(|_| EnumerationError::Overflow)
+            }
+            fn __fusion_symbols_validated_sqrt_dim(&self, a: &Self::Object, t: Validated) -> f64 {
+                let value = self.factors.0.__fusion_symbols_validated_sqrt_dim(&a.0, t); $(let value = value * self.factors.$i.__fusion_symbols_validated_sqrt_dim(&a.$i, t);)+ value
+            }
+            fn __fusion_symbols_validated_inv_sqrt_dim(&self, a: &Self::Object, t: Validated) -> f64 {
+                let value = self.factors.0.__fusion_symbols_validated_inv_sqrt_dim(&a.0, t); $(let value = value * self.factors.$i.__fusion_symbols_validated_inv_sqrt_dim(&a.$i, t);)+ value
+            }
+            fn __fusion_symbols_validated_inv_dim(&self, a: &Self::Object, t: Validated) -> f64 {
+                let value = self.factors.0.__fusion_symbols_validated_inv_dim(&a.0, t); $(let value = value * self.factors.$i.__fusion_symbols_validated_inv_dim(&a.$i, t);)+ value
+            }
+            fn __fusion_symbols_exact_object_count(&self, t: Validated) -> Result<ExactCount, EnumerationError> {
+                let counts = all_ok([self.factors.0.__fusion_symbols_exact_object_count(t), $(self.factors.$i.__fusion_symbols_exact_object_count(t)),+])?;
+                Ok(ExactCount { total: Count::product(counts.iter().map(|c| &c.total)), factors: counts })
+            }
+            fn __fusion_symbols_validated_object_index(&self, a: &Self::Object, t: Validated) -> Result<Ranked, EnumerationError> {
+                let factors = all_ok([self.factors.0.__fusion_symbols_validated_object_index(&a.0, t), $(self.factors.$i.__fusion_symbols_validated_object_index(&a.$i, t)),+])?;
+                let (counts, x): (Vec<_>, Vec<_>) = factors.into_iter().map(|Ranked { count, index }| (count, index)).unzip();
+                // An index of at least 2^64 overflows the enclosing products too: a
+                // coordinate never exceeds the index of its tuple.
+                let index = rank_checked(&counts.iter().collect::<Vec<_>>(), &x).ok_or(EnumerationError::Overflow)?;
+                Ok(Ranked { count: Count::product(&counts), index })
             }
             fn frobenius_schur_phase(&self, a: &Self::Object) -> Self::Scalar {
                 self.dim(a);

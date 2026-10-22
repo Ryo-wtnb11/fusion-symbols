@@ -7,6 +7,30 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Added
+
+- Object enumeration on `FusionCategory`: `object_count` (exact count,
+  `None` when infinite), `object_at` and `object_index`, zero-based `u64`
+  indices that are mutual inverses, with the new
+  `category::EnumerationError { NotEnumerable, OutOfRange, Overflow }`. The
+  defaults return `NotEnumerable`; `object_index` still panics on a foreign
+  object first. Each order is a frozen contract documented on the category:
+  `ZN` charges, `FermionParity` even then odd, `U1` `0, 1, −1, 2, −2, …`,
+  `CU1` `0+, 0−` then increasing twice charge, rank-one `LieGroup` admitted
+  doubled spins (SO(3): `0, 2, 4, …`), SU(N) Dynkin labels by total then
+  lexicographically, `TableCategory` source order, and `Product` the bounded
+  Manhattan order of its immediate factors (TensorKitSectors
+  `to_manhattan_index − 1`, preserving nesting). Other Lie global forms and
+  the B, C and D series are `NotEnumerable`. Counts above `u64::MAX` are
+  `Overflow` while every index up to `u64::MAX` stays addressable, also for a
+  product factor (built-in or external) whose count overflows; an infinite
+  factor makes a product count `None` even then. Ranking is exact, with
+  binary-search unranking.
+- `FusionCategory::sqrt_dim`, `inv_sqrt_dim` and `inv_dim`, defaulting to
+  `dim(a).sqrt()`, `sqrt_dim(a).recip()` and `dim(a).recip()`. Products
+  multiply their factors' values left to right. The A and B symbol defaults
+  take their normalization from `sqrt_dim`, with unchanged values.
+
 ### Fixed
 
 - `GroupId::admits` and `d_odd_central_class` reduce each label modulo the

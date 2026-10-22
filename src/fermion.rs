@@ -1,9 +1,11 @@
 //! Fermion parity with unique fusion and the odd–odd braiding sign.
 
-use crate::category::{BraidingStyle, FusionCategory, FusionStyle};
+use crate::category::{BraidingStyle, EnumerationError, FusionCategory, FusionStyle};
 use std::convert::Infallible;
 
 /// Fermion-parity category; all validated parity labels belong to it.
+///
+/// Enumeration (frozen): `EVEN, ODD`, indices `0, 1`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FermionParity;
 
@@ -117,6 +119,19 @@ impl FusionCategory for FermionParity {
     }
     fn has_canonical_unit(&self) -> bool {
         true
+    }
+    fn object_count(&self) -> Result<Option<u64>, EnumerationError> {
+        Ok(Some(2))
+    }
+    fn object_at(&self, index: u64) -> Result<FermionParityIrrep, EnumerationError> {
+        match index {
+            0 => Ok(FermionParityIrrep::EVEN),
+            1 => Ok(FermionParityIrrep::ODD),
+            _ => Err(EnumerationError::OutOfRange),
+        }
+    }
+    fn object_index(&self, a: &FermionParityIrrep) -> Result<u64, EnumerationError> {
+        Ok(u64::from(a.odd))
     }
     fn authority_fingerprint(&self) -> &[u8] {
         FINGERPRINT

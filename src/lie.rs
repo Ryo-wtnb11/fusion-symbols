@@ -20,7 +20,9 @@ pub type FBlock = crate::category::FBlock<f64>;
 pub type RBlock = crate::category::RBlock<f64>;
 pub use group::*;
 
-use crate::category::{BraidingStyle, FusionCategory, FusionStyle, GroupRepresentations};
+use crate::category::{
+    BraidingStyle, EnumerationError, FusionCategory, FusionStyle, GroupRepresentations,
+};
 use num_bigint::BigInt;
 use std::collections::BTreeMap;
 
@@ -30,6 +32,18 @@ use std::collections::BTreeMap;
 /// use the canonical generator bootstrap. Clones share retained generators.
 /// Admissibility uses the caller's global form.
 /// Objects retain the full `GroupId` tag, including for isomorphic groups.
+///
+/// Enumeration (frozen), with an infinite count:
+///
+/// - rank one (A(1), B(1), C(1)): admitted doubled spins `dj` in increasing
+///   order, so index `dj` when every weight is admitted (SU(2), Spin(3),
+///   Sp(2)) and `dj / 2` for SO(3) (`dj = 0, 2, 4, …`); labels past `u32` are
+///   [`EnumerationError::Overflow`];
+/// - SU(N), `N ≥ 3`: Dynkin labels by increasing total `Σ aᵢ`, then
+///   ascending lexicographic order (SUNRepresentations.jl's order), so SU(3)
+///   starts `(0,0), (0,1), (1,0), (0,2), (1,1), (2,0)`;
+/// - every other global form and the B, C, D series of rank at least two:
+///   [`EnumerationError::NotEnumerable`].
 ///
 /// # Panics
 /// Every object-taking category method except `contains` panics on an object
@@ -111,6 +125,11 @@ impl Iterator for DynkinLabels<'_> {
 }
 
 impl ExactSizeIterator for DynkinLabels<'_> {}
+
+enum LieEnumeration {
+    RankOne { stride: u64 },
+    Dynkin,
+}
 
 /// Invalid labels, excluded representations, arithmetic failure, or absent capability.
 #[derive(Clone, Debug, PartialEq)]
@@ -335,6 +354,25 @@ impl LieGroup {
             #[cfg(feature = "lie-generated")]
             bcd: None,
         })
+    }
+    fn enumeration(&self) -> Result<LieEnumeration, EnumerationError> {
+        match self.group.root_system {
+            // The rank-one center is Z2: a form admits either every doubled
+            // spin or exactly the even ones.
+            RootSystem::A(1) | RootSystem::B(1) | RootSystem::C(1) => Ok(LieEnumeration::RankOne {
+                stride: if self.group.admits(&[1]) { 1 } else { 2 },
+            }),
+            // SU(N)/Z_1 admits every weight, as SU(N) does.
+            RootSystem::A(_)
+                if matches!(
+                    self.group.form,
+                    GlobalForm::SimplyConnected | GlobalForm::Quotient(CenterSubgroup::Zk(1))
+                ) =>
+            {
+                Ok(LieEnumeration::Dynkin)
+            }
+            _ => Err(EnumerationError::NotEnumerable),
+        }
     }
     fn label(&self, a: &LieIrrep) -> u32 {
         assert_eq!(self.group, a.group, "foreign Lie object");
@@ -712,6 +750,44 @@ impl FusionCategory for LieGroup {
     // orthonormality `Σ C_κ C_ν = δ_{κν}`: the identity, up to rounding.
     fn has_canonical_unit(&self) -> bool {
         true
+    }
+    fn object_count(&self) -> Result<Option<u64>, EnumerationError> {
+        self.enumeration()?;
+        Ok(None)
+    }
+    fn object_at(&self, index: u64) -> Result<LieIrrep, EnumerationError> {
+        let labels = match self.enumeration()? {
+            LieEnumeration::RankOne { stride } => {
+                let dj = index
+                    .checked_mul(stride)
+                    .and_then(|dj| u32::try_from(dj).ok())
+                    .ok_or(EnumerationError::Overflow)?;
+                vec![i64::from(dj)]
+            }
+            LieEnumeration::Dynkin => {
+                let bounds = vec![None; self.group.root_system.rank()];
+                crate::category::unrank(&bounds, &BigInt::from(index))
+                    .ok_or(EnumerationError::OutOfRange)?
+                    .into_iter()
+                    .map(|a| i64::try_from(a).map_err(|_| EnumerationError::Overflow))
+                    .collect::<Result<_, _>>()?
+            }
+        };
+        // The labels are nonnegative, of the right rank and admitted, so only
+        // `LieError::LabelOverflow` remains.
+        self.irrep(&labels).map_err(|_| EnumerationError::Overflow)
+    }
+    fn object_index(&self, a: &LieIrrep) -> Result<u64, EnumerationError> {
+        let dj = self.label(a);
+        match self.enumeration()? {
+            LieEnumeration::RankOne { stride } => Ok(u64::from(dj) / stride),
+            LieEnumeration::Dynkin => {
+                let bounds = vec![None; self.group.root_system.rank()];
+                let x: Vec<BigInt> = a.dynkin_labels().map(BigInt::from).collect();
+                u64::try_from(crate::category::rank(&bounds, &x))
+                    .map_err(|_| EnumerationError::Overflow)
+            }
+        }
     }
     fn authority_fingerprint(&self) -> &[u8] {
         #[cfg(feature = "lie-generated")]
