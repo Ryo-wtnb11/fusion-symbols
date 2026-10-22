@@ -433,21 +433,22 @@ impl GroupId {
                 if k == 0 || !(r + 1).is_multiple_of(k) {
                     return false;
                 }
-                let k = k as i64;
-                let nality: i64 = dynkin
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &a)| (i as i64 + 1) * a)
-                    .sum();
-                nality.rem_euclid(k) == 0
+                // Reduced per term: the plain sum overflows i64 for large
+                // labels. Every operand is < k ≤ usize::MAX, so the u128
+                // product and running sum cannot overflow.
+                let k = k as u128;
+                let nality = dynkin.iter().enumerate().fold(0u128, |acc, (i, &a)| {
+                    (acc + (i as u128 + 1) % k * (a as u128 % k)) % k
+                });
+                nality == 0
             }
             // B_r: [ω_i] = 0 for i < r, [ω_r] = z. SO(2r+1).
             (RootSystem::B(_), CenterSubgroup::Z2) => dynkin[r - 1] % 2 == 0,
             // C_r: [ω_i] = (i mod 2)·z. PSp(2r).
-            (RootSystem::C(_), CenterSubgroup::Z2) => odd_index_sum(dynkin) % 2 == 0,
+            (RootSystem::C(_), CenterSubgroup::Z2) => odd_index_parity(dynkin) == 0,
             // D_r: the vector (tensor) sublattice {0, v}. SO(2r), r-uniform.
             (RootSystem::D(_), CenterSubgroup::Z2 | CenterSubgroup::DVector) if r >= 2 => {
-                (dynkin[r - 2] + dynkin[r - 1]) % 2 == 0
+                parity(dynkin[r - 2]) == parity(dynkin[r - 1])
             }
             // D_r, r odd: PSO(2r) is the quotient by the full Z4.
             (RootSystem::D(_), CenterSubgroup::Z4) if r >= 3 && r % 2 == 1 => {
@@ -455,9 +456,9 @@ impl GroupId {
             }
             // D_r, r even: the two half-spin forms and PSO(2r).
             (RootSystem::D(_), sub) if r >= 2 && r.is_multiple_of(2) => {
-                let t = odd_index_sum(&dynkin[..r - 2]);
-                let p = (dynkin[r - 2] + t) % 2;
-                let q = (dynkin[r - 1] + t) % 2;
+                let t = odd_index_parity(&dynkin[..r - 2]);
+                let p = parity(dynkin[r - 2]) ^ t;
+                let q = parity(dynkin[r - 1]) ^ t;
                 match sub {
                     CenterSubgroup::DHalfSpinPlus => p == 0,
                     CenterSubgroup::DHalfSpinMinus => q == 0,
@@ -472,9 +473,15 @@ impl GroupId {
     }
 }
 
-/// `Σ_{i odd, 1-based} aᵢ` — the `i = 1, 3, 5, …` entries of `a`.
-fn odd_index_sum(dynkin: &[i64]) -> i64 {
-    dynkin.iter().step_by(2).sum()
+/// `a mod 2 ∈ {0, 1}`, also for negative `a`.
+fn parity(a: i64) -> i64 {
+    a.rem_euclid(2)
+}
+
+/// `Σ_{i odd, 1-based} aᵢ mod 2` over the `i = 1, 3, 5, …` entries, reduced
+/// per term so that large labels cannot overflow.
+fn odd_index_parity(dynkin: &[i64]) -> i64 {
+    dynkin.iter().step_by(2).fold(0, |t, &a| t ^ parity(a))
 }
 
 /// The `Z4` central class `κ(λ) ∈ {0,1,2,3}` of a `D_r` weight with `r` odd,
@@ -498,7 +505,10 @@ pub fn d_odd_central_class(dynkin: &[i64]) -> i64 {
 /// with the generator `c = [ω_r]` (see [`CenterSubgroup::Z4`]).
 fn d_odd_class(dynkin: &[i64]) -> i64 {
     let r = dynkin.len();
-    (dynkin[r - 1] - dynkin[r - 2] + 2 * odd_index_sum(&dynkin[..r - 2])).rem_euclid(4)
+    // Each term reduced mod 4 first: every operand is then in [0, 4).
+    (dynkin[r - 1].rem_euclid(4) - dynkin[r - 2].rem_euclid(4)
+        + 2 * odd_index_parity(&dynkin[..r - 2]))
+    .rem_euclid(4)
 }
 
 fn sp_rank(m: usize) -> Result<usize, GroupError> {

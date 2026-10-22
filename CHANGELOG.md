@@ -7,6 +7,12 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Fixed
+
+- `GroupId::admits` and `d_odd_central_class` reduce each label modulo the
+  center order before summing, so labels near `i64::MAX` no longer overflow
+  (a panic in debug builds, a wrong answer in release builds).
+
 ## [0.6.0] - 2026-10-22
 
 ### Added
