@@ -17,9 +17,15 @@ known difference and the reason recorded for it. Per-symbol provenance is in
   behaviour built on the symbols belongs to the consumer
   ([`AGENTS.md`](../AGENTS.md) "Boundaries";
   [overview: Out of scope](overview.md#out-of-scope-deliberately)).
-- **Quantities left to the consumer.** A/B symbols and other sector
-  operations TensorKitSectors derives generically are not provided. Reason:
-  same boundary; only the symbols a module is indexed by are in scope
+- **A/B symbols as `RBlock`.** `FusionCategory::a_symbol` and `b_symbol`
+  follow `Asymbol` / `Bsymbol` (including the abelian and product
+  specializations) but always return an `RBlock` matrix, empty for an absent
+  channel, instead of a scalar for multiplicity-free categories. Reason: the
+  default derivation must build its result for every category, including one
+  whose `RSymbol` is a block type this crate cannot construct.
+- **Quantities left to the consumer.** Other sector operations
+  TensorKitSectors derives generically are not provided. Reason: same
+  boundary; only the symbols a module is indexed by are in scope
   ([`references_categories.md`](references_categories.md), "Derived
   quantities").
 - **More Lie groups, generated at run time.** SU(N), SU(N)/Z_k, PSU(N),

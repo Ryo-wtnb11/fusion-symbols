@@ -1,7 +1,7 @@
 //! Ordered Deligne products of two through twelve immediate factors.
 //!
 //! Objects are tuples; explicit nesting is preserved. Fusion outcomes vary the
-//! first factor fastest. Each F/R multiplicity axis varies the last factor
+//! first factor fastest. Each F/R/A/B multiplicity axis varies the last factor
 //! fastest, with row-major block storage. Scalar promotion and multiplication
 //! fold left to right. Reassociation agrees up to floating-point tolerance where
 //! intermediate queries are representable. No cross-factor fermionic sign,
@@ -424,6 +424,28 @@ macro_rules! impl_product {
                 debug_assert_eq!(block.dims(), dims);
                 Ok(block)
             }
+            // Factor Kronecker products as for F and R (TensorKitSectors `product.jl`
+            // `Asymbol`/`Bsymbol`); braiding is not needed.
+            fn a_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<RBlock<Self::Scalar>, Self::Error> {
+                for a in [a, b, c] { self.dim(a); }
+                let t = Validated(());
+                let n = |x, y, z| self.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
+                let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(&self.__fusion_symbols_validated_dual(a, t), c, b)?]).ok_or(ProductError::Overflow)?;
+                if dims.contains(&0) { return Ok(RBlock { n: dims[0], data: Storage::Empty }); }
+                let block = self.__fusion_symbols_validated_a_symbol(a, b, c, t)?;
+                debug_assert_eq!(block.dims(), dims);
+                Ok(block)
+            }
+            fn b_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<RBlock<Self::Scalar>, Self::Error> {
+                for a in [a, b, c] { self.dim(a); }
+                let t = Validated(());
+                let n = |x, y, z| self.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
+                let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(c, &self.__fusion_symbols_validated_dual(b, t), a)?]).ok_or(ProductError::Overflow)?;
+                if dims.contains(&0) { return Ok(RBlock { n: dims[0], data: Storage::Empty }); }
+                let block = self.__fusion_symbols_validated_b_symbol(a, b, c, t)?;
+                debug_assert_eq!(block.dims(), dims);
+                Ok(block)
+            }
             fn __fusion_symbols_validated_dual(&self, a: &Self::Object, t: Validated) -> Self::Object {
                 (self.factors.0.__fusion_symbols_validated_dual(&a.0, t), $(self.factors.$i.__fusion_symbols_validated_dual(&a.$i, t),)+)
             }
@@ -469,6 +491,16 @@ macro_rules! impl_product {
             fn __fusion_symbols_validated_r_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> Result<Self::RSymbol, Self::Error> {
                 let (dims, data) = storage(self.factors.0.__fusion_symbols_validated_r_symbol(&a.0,&b.0,&c.0,t).map_err(ProductError::Factor0)?);
                 $(let (dims, data) = kron(dims, data, self.factors.$i.__fusion_symbols_validated_r_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?);)+
+                Ok(RBlock { n: dims[0], data })
+            }
+            fn __fusion_symbols_validated_a_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> Result<RBlock<Self::Scalar>, Self::Error> {
+                let (dims, data) = storage(self.factors.0.__fusion_symbols_validated_a_symbol(&a.0,&b.0,&c.0,t).map_err(ProductError::Factor0)?);
+                $(let (dims, data) = kron(dims, data, self.factors.$i.__fusion_symbols_validated_a_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?);)+
+                Ok(RBlock { n: dims[0], data })
+            }
+            fn __fusion_symbols_validated_b_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> Result<RBlock<Self::Scalar>, Self::Error> {
+                let (dims, data) = storage(self.factors.0.__fusion_symbols_validated_b_symbol(&a.0,&b.0,&c.0,t).map_err(ProductError::Factor0)?);
+                $(let (dims, data) = kron(dims, data, self.factors.$i.__fusion_symbols_validated_b_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?);)+
                 Ok(RBlock { n: dims[0], data })
             }
             fn authority_fingerprint(&self) -> &[u8] {

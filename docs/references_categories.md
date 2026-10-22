@@ -183,7 +183,8 @@ Anyonica 0.9.11.5 (doi:10.5281/zenodo.10686860).
 ### Derived quantities
 
 Derived from the shipped tables using the TensorKitSectors 0.3.9 formulas (A/B
-symbols are left to the consumer)
+symbols follow from F through the `FusionCategory::a_symbol` / `b_symbol`
+defaults, `sectors.jl:501-512` and `:543-552`)
 (`~/.julia/packages/TensorKitSectors/VuA9Z/src/sectors.jl`):
 
 | Quantity | Formula | TKS location |
