@@ -16,10 +16,9 @@
 //! recurse), not by Gelfand–Tsetlin: the symplectic chain `Sp(2r) ⊃ Sp(2r-2)`
 //! is not multiplicity-free, so no GT-type basis with practical closed-form
 //! ladder elements exists (and the multiplicity-free SO chains have no
-//! production-viable closed forms either). See [`docs/theory.pdf`] §8 for the
-//! rationale and [`docs/references.md`] for the port provenance.
+//! production-viable closed forms either). See [`docs/references.md`] for the
+//! algorithm sources and port provenance.
 //!
-//! [`docs/theory.pdf`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/theory.pdf
 //! [`docs/references.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/references.md
 //!
 //! # Published object and global form

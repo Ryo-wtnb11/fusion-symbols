@@ -1,53 +1,90 @@
-# fusion-symbols User Guide
+# Using the API
 
-> **AI-generated, for agentic coding.** This document was written by an AI agent
-> as reference material for AI agents (and humans) working on this repository.
-> It may contain errors — check it against the code and tests rather than
-> trusting it blindly.
+Install and feature selection: [README](../../README.md).
+Labels, validation and capabilities: [design](../overview.md).
+Per-item reference: [docs.rs](https://docs.rs/fusion-symbols).
 
-Task-oriented documentation: organized by *what you want to compute*, not by
-module. It assumes basic representation theory (you know what an irreducible
-representation and a tensor product are) and nothing about `fusion-symbols` internals.
+## Fusion and CGC
 
-For the exact semantics of one function or type, use the API reference on
-[docs.rs/fusion-symbols](https://docs.rs/fusion-symbols). For the mathematics, see
-[`../theory.pdf`](../theory.pdf). For the normative basis/sign/ordering
-conventions of returned values, see [`../gauge.md`](../gauge.md) and
-[`../gauge_soN.md`](../gauge_soN.md).
+Import `FusionCategory` for category operations and `GroupRepresentations`
+for Clebsch–Gordan coefficients (CGC). Fusion yields each outcome once;
+`nsymbol(a,b,c)` is the number of copies of `c` in `a ⊗ b`.
+This SU(3) example requires the default `lie-generated` feature:
 
-## Chapters
+```rust
+use fusion_symbols::{category::{FusionCategory, GroupRepresentations}, lie::{GroupId, LieGroup}};
+let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+let eight = cat.irrep(&[1, 1]).unwrap();
+assert_eq!(cat.nsymbol(&eight, &eight, &eight), 2);
+let c = cat.cgc(&eight, &eight, &eight).unwrap();
+assert_eq!(c.dims(), [8, 8, 8, 2]);
+assert!(c.at(0, 2, 0, 1) < 0.0);
+```
 
-| # | Chapter | Answers |
-|---|---|---|
-| 1 | [Getting started](getting-started.md) | Install, feature flags, first calculation, how errors work. |
-| 2 | [Representations](representations.md) | What an irrep is here, how to build one, Dynkin labels, doubled spins, dimensions, duals, Frobenius–Schur indicators. |
-| 3 | [Choosing a group](groups.md) | SU(2) vs SU(N) vs SO(N) vs Spin(N) vs Sp(2N), and the global forms (PSU, SO vs Spin) with admissibility. |
-| 4 | [Tensor products and fusion](fusion.md) | Decomposing `a ⊗ b`, reading fusion multiplicities `N^c_ab`. |
-| 5 | [Clebsch–Gordan coefficients](clebsch-gordan.md) | What `cgc` returns, index conventions, the multiplicity axis. |
-| 6 | [Recoupling: F- and R-symbols](recoupling.md) | What F and R mean, when you need them, block shapes and axis order. |
-| 7 | [Numerical behaviour and resources](resources.md) | Exact vs generated values, caches and how to bound them, gauge and reproducibility. |
+`LieCgc::dims()` is `[dim(a), dim(b), dim(c), N(a,b,c)]`;
+`at(m1,m2,m3,mu)` reads that coefficient and panics outside the axes.
+An absent channel has multiplicity axis zero. A1 indices ascend from the
+lowest magnetic weight; higher A-series indices use `LieIrrep::gt_patterns()`.
+B/C/D indices use the canonical sweep frame. The trailing copy order is gauge,
+fixed in [SU(N) §8](../gauge.md#8-outer-multiplicity-axis) and
+[B/C/D §9](../gauge_soN.md#9-outer-multiplicity-assignment).
 
-## Five-minute path
+Exact SU(2) evaluators under `lie::su2` return `SignedSqrtRational`:
+`sign * sqrt(p/q)`. Both spin and projection labels are doubled; the CG
+argument order is `(dj1, dm1, dj2, dm2, dj3, dm3)`. Convert with `to_f64()`.
 
-New here? Read [Getting started](getting-started.md), then the chapter for the
-object you need. Everything else is reference.
+## Symbol layout
 
-## Families
+`f_symbol(a,b,c,d,e,f)` is `F^{abc}_d[e,f]`, mapping the coupling
+`(a ⊗ b) ⊗ c → d` through `e` to `a ⊗ (b ⊗ c) → d` through `f`.
+`r_symbol(a,b,c)` is `R^{ab}_c`, exchanging the factors at a vertex.
+Their logical axes follow TensorKitSectors:
 
-Use `category::FusionCategory` for all families: `lie` for positive-dimensional
-compact Lie groups, including U(1) and CU(1); `finite` for finite groups
-(currently Z_N); `fermion` for parity; and `table` for pinned categories.
-`product` composes ordered Deligne products (see [Fusion](fusion.md#deligne-products));
-`cache` controls resources.
-
-## Worked paths by group
-
-| Group | Start at |
+| Symbol | Axes and lengths |
 |---|---|
-| SU(2) — spins, 3j/6j, CG | [Getting started § SU(2)](getting-started.md#first-calculation-su2-no-features) |
-| SU(N) — Dynkin labels, products, CGC | [Representations § SU(N)](representations.md#sun-dynkin-labels) → [Fusion](fusion.md) → [CGC](clebsch-gordan.md) |
-| SO(N) — tensor irreps | [Choosing a group § SO(N)](groups.md#son-and-sp2n-the-bcd-series) |
-| Spin(N) — spinor irreps | [Choosing a group § Spin(N)](groups.md#spinn-when-you-need-spinors) |
-| Sp(2N) | [Choosing a group § Sp(2N) naming](groups.md#sp2n-naming-rank-and-the-defining-dimension) |
-| PSU(N), SU(N)/Z_k, SO vs Spin | [Choosing a group § Global forms](groups.md#global-forms-and-admissibility) |
-| U(1), Z_N; CU(1); fermion parity; tabulated categories | [Representations](representations.md) → [Fusion](fusion.md) → [Recoupling](recoupling.md) |
+| F `[μ,ν,κ,λ]` | `[N(a,b,e), N(e,c,d), N(b,c,f), N(a,f,d)]` |
+| R `[μ,ν]` | `[N(a,b,c), N(b,a,c)]` |
+| A `[μ,ν]` | `[N(a,b,c), N(dual(a),c,b)]` |
+| B `[μ,ν]` | `[N(a,b,c), N(c,dual(b),a)]` |
+
+`category::SymbolBlock` exposes row-major storage through `dims`, `get` and
+`as_slice`. Logical shape comes from N: a bare scalar's storage axes remain
+all one even when its value is zero. Lie `FBlock`/`RBlock` provide `at` and
+`data`; zero axes are empty, all-one blocks store one scalar inline, and
+larger block clones share storage. A/B always return `category::RBlock`, even
+for scalar families, and need no braiding. The A formula uses the
+Frobenius–Schur *phase*, which differs from the indicator on non-self-dual objects;
+see `src/category.rs::FusionCategory::{a_symbol,b_symbol}`.
+
+For SU(3) `8 ⊗ 8 → 8`, all four F axes can have length 2; they cannot be
+interchanged. The dense F-move check is retained in
+`tests/doc_examples.rs::recoupling_5`; it need not be copied into
+consumer code. F/R conventions and contraction wiring are traced in
+[references](../references.md#family-generic-fr-core-and-gates).
+
+## Products
+
+```rust
+use fusion_symbols::{lie::{U1, U1Irrep}, category::FusionCategory,
+    fermion::{FermionParity, FermionParityIrrep}, product};
+let cat = product(U1, FermionParity);
+let odd = (U1Irrep::new(1).unwrap(), FermionParityIrrep::ODD);
+assert_eq!(cat.twist(&odd), -1.0);
+let three = product![U1, FermionParity, U1,];
+assert_eq!(three.dim(&three.unit()), 1.0);
+```
+
+Use `Product::new((a,b,...))` for 2..=12 factors, `product(a,b)` for two,
+and `product![...]` for 3..=12. `factors` borrows the tuple; `into_factors`
+returns it. `product(product(a,b),c)` keeps labels `((x,y),z)`, with different
+identity and enumeration from the flat product. Fusion is first-factor-fast;
+within each symbol axis, `i = i_left * n_right + i_right` is last-factor-fast.
+
+## Identity checks
+
+`category::{f_unitarity_residual,pentagon_residual,hexagon_residual}` return
+maximum absolute residuals, including multiplicity sums. Callers select the
+tolerance. These are consistency checks; signed independent coefficient
+oracles are needed to test a particular gauge. See
+[verification policy](../../tools/README.md#test-oracles-binding) and
+[resources](resources.md) for numerical and cache contracts.

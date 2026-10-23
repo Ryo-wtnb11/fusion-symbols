@@ -1,4 +1,4 @@
-//! Runnable copies of the Rust examples in the public guides.
+//! Runnable examples for the contracts in the public guides.
 #![cfg(feature = "lie-generated")]
 
 /// `README.md`, Rust block 1.
@@ -10,7 +10,7 @@ fn readme_1() {
     assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
 }
 
-/// `docs/overview.md`, Rust block 1.
+/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn overview_1() {
     use fusion_symbols::{
@@ -33,7 +33,7 @@ fn overview_1() {
     );
 }
 
-/// `docs/overview.md`, Rust block 2.
+/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn overview_2() {
     use fusion_symbols::{
@@ -53,7 +53,7 @@ fn overview_2() {
     assert!((block.at(0, 0, 0, 0) - 1.0).abs() < 1e-9);
 }
 
-/// `docs/overview.md`, Rust block 3.
+/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn overview_3() {
     use fusion_symbols::lie::{GroupId, LieGroup};
@@ -69,7 +69,7 @@ fn overview_3() {
         .is_err());
 }
 
-/// `docs/user-guide/clebsch-gordan.md`, Rust block 1.
+/// `docs/user-guide/README.md#fusion-and-cgc`.
 #[test]
 fn clebsch_gordan_1() {
     use fusion_symbols::lie::su2::clebsch_gordan;
@@ -79,7 +79,7 @@ fn clebsch_gordan_1() {
     assert!((cg.to_f64() - 0.5f64.sqrt()).abs() < 1e-15);
 }
 
-/// `docs/user-guide/clebsch-gordan.md`, Rust block 2.
+/// `docs/user-guide/README.md#fusion-and-cgc`.
 #[test]
 fn clebsch_gordan_2() {
     use fusion_symbols::{
@@ -98,7 +98,7 @@ fn clebsch_gordan_2() {
     assert!((c.at(0, 0, 0, 0) - 1.0).abs() < 1e-12);
 }
 
-/// `docs/user-guide/clebsch-gordan.md`, Rust block 3.
+/// `docs/user-guide/README.md#fusion-and-cgc`.
 #[test]
 fn clebsch_gordan_3() {
     use fusion_symbols::{
@@ -114,7 +114,7 @@ fn clebsch_gordan_3() {
     assert!(c.at(0, 2, 0, 1) < 0.0);
 }
 
-/// `docs/user-guide/clebsch-gordan.md`, Rust block 4.
+/// `docs/user-guide/README.md#fusion-and-cgc`.
 #[test]
 fn clebsch_gordan_4() {
     use fusion_symbols::{
@@ -131,7 +131,7 @@ fn clebsch_gordan_4() {
     assert_eq!((c.dims()[0] * c.dims()[1], c.dims()[2]), (25, 10)); // (dim(s1)·dim(s2), dim(s3))
 }
 
-/// `docs/user-guide/fusion.md`, Rust block 1.
+/// `docs/user-guide/README.md#fusion-and-cgc`.
 #[test]
 fn fusion_1() {
     use fusion_symbols::{
@@ -148,7 +148,7 @@ fn fusion_1() {
     assert_eq!(channels, vec![0, 2]);
 }
 
-/// `docs/user-guide/fusion.md`, Rust block 2.
+/// `docs/user-guide/README.md#fusion-and-cgc`.
 #[test]
 fn fusion_2() {
     use fusion_symbols::{
@@ -174,7 +174,7 @@ fn fusion_2() {
     assert_eq!(out[&cat.irrep(&[1, 1]).unwrap()], 1);
 }
 
-/// `docs/user-guide/fusion.md`, Rust block 3.
+/// `docs/user-guide/README.md#fusion-and-cgc`.
 #[test]
 fn fusion_3() {
     use fusion_symbols::{
@@ -195,7 +195,7 @@ fn fusion_3() {
     assert_eq!(out[&eight], 2); // the 8 appears twice in 8 ⊗ 8
 }
 
-/// `docs/user-guide/fusion.md`, Rust block 4.
+/// `docs/user-guide/README.md#fusion-and-cgc`.
 #[test]
 fn fusion_4() {
     use fusion_symbols::{
@@ -223,7 +223,7 @@ fn fusion_4() {
     }
 }
 
-/// `docs/user-guide/fusion.md`, Rust block 5.
+/// `docs/user-guide/README.md#fusion-and-cgc`.
 #[test]
 fn fusion_5() {
     use fusion_symbols::{
@@ -243,7 +243,7 @@ fn fusion_5() {
     );
 }
 
-/// `docs/user-guide/getting-started.md`, Rust block 1.
+/// `docs/overview.md#validation-and-errors`.
 #[test]
 fn getting_started_1() {
     use fusion_symbols::lie::su2::wigner_6j;
@@ -252,7 +252,7 @@ fn getting_started_1() {
     assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
 }
 
-/// `docs/user-guide/getting-started.md`, Rust block 2.
+/// `docs/overview.md#validation-and-errors`.
 #[test]
 fn getting_started_2() {
     use fusion_symbols::{
@@ -266,7 +266,7 @@ fn getting_started_2() {
     assert_eq!(cat.dual(&fund).dynkin(), vec![0, 1]); // the 3-bar
 }
 
-/// `docs/user-guide/getting-started.md`, Rust block 3.
+/// `docs/overview.md#validation-and-errors`.
 #[test]
 fn getting_started_3() {
     use fusion_symbols::lie::su2::{wigner_6j_checked, Su2Error};
@@ -281,7 +281,7 @@ fn getting_started_3() {
     ));
 }
 
-/// `docs/user-guide/groups.md`, Rust block 1.
+/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn groups_1() {
     use fusion_symbols::{
@@ -298,7 +298,7 @@ fn groups_1() {
     assert_eq!(channels, vec![0, 2, 4]);
 }
 
-/// `docs/user-guide/groups.md`, Rust block 2.
+/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn groups_2() {
     use fusion_symbols::{
@@ -320,7 +320,7 @@ fn groups_2() {
     assert_eq!(decomposition[&eight], 2);
 }
 
-/// `docs/user-guide/groups.md`, Rust block 3.
+/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn groups_3() {
     use fusion_symbols::{
@@ -346,7 +346,7 @@ fn groups_3() {
     assert_eq!(dims, vec!["1", "10", "14"]);
 }
 
-/// `docs/user-guide/groups.md`, Rust block 4.
+/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn groups_4() {
     use fusion_symbols::lie::{GroupId, LieGroup};
@@ -360,7 +360,7 @@ fn groups_4() {
     assert!(LieGroup::new(so5).unwrap().irrep(&[0, 1]).is_err());
 }
 
-/// `docs/user-guide/groups.md`, Rust block 5.
+/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn groups_5() {
     use fusion_symbols::{
@@ -387,7 +387,7 @@ fn groups_5() {
     assert_eq!(dims, vec!["1", "10", "5"]); // string sort
 }
 
-/// `docs/user-guide/groups.md`, Rust block 6.
+/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn groups_6() {
     use fusion_symbols::lie::{GroupId, LieGroup};
@@ -400,7 +400,7 @@ fn groups_6() {
     assert!(LieGroup::new(psu3).unwrap().irrep(&[1, 0]).is_err());
 }
 
-/// `docs/user-guide/recoupling.md`, Rust block 1.
+/// `docs/user-guide/README.md#symbol-layout`.
 #[test]
 fn recoupling_1() {
     use fusion_symbols::category::{FusionCategory, SymbolBlock};
@@ -418,7 +418,7 @@ fn recoupling_1() {
     assert_eq!(<f64 as SymbolBlock<4>>::dims(&zero), [1; 4]);
 }
 
-/// `docs/user-guide/recoupling.md`, Rust block 2.
+/// `docs/user-guide/README.md#symbol-layout`.
 #[test]
 fn recoupling_2() {
     use fusion_symbols::{
@@ -437,7 +437,7 @@ fn recoupling_2() {
     assert_eq!(r.at(0, 0), -1.0);
 }
 
-/// `docs/user-guide/recoupling.md`, Rust block 3.
+/// `docs/user-guide/README.md#symbol-layout`.
 #[test]
 fn recoupling_3() {
     use fusion_symbols::{
@@ -463,7 +463,7 @@ fn recoupling_3() {
     assert!((r.at(0, 0).abs() - 1.0).abs() < 1e-12);
 }
 
-/// `docs/user-guide/recoupling.md`, Rust block 4.
+/// `docs/user-guide/README.md#symbol-layout`.
 #[test]
 fn recoupling_4() {
     use fusion_symbols::{
@@ -483,7 +483,7 @@ fn recoupling_4() {
     assert!((block.at(0, 0, 0, 0) - 1.0).abs() < 1e-9);
 }
 
-/// `docs/user-guide/recoupling.md`, Rust block 5.
+/// `docs/user-guide/README.md#symbol-layout`.
 #[test]
 fn recoupling_5() {
     use fusion_symbols::{
@@ -590,7 +590,7 @@ fn recoupling_5() {
     assert!(worst < 1e-9, "F-move residual {worst}");
 }
 
-/// `docs/user-guide/recoupling.md`, Rust block 6.
+/// `docs/user-guide/README.md#symbol-layout`.
 #[test]
 fn recoupling_6() {
     use fusion_symbols::{
@@ -615,7 +615,7 @@ fn recoupling_6() {
     );
 }
 
-/// `docs/user-guide/representations.md`, Rust block 1.
+/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn representations_1() {
     use fusion_symbols::{category::FusionCategory, table::TableCategory};
@@ -626,7 +626,7 @@ fn representations_1() {
     assert_eq!(fib.fusion(&tau, &tau).unwrap().count(), 2);
 }
 
-/// `docs/user-guide/representations.md`, Rust block 2.
+/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn representations_2() {
     use fusion_symbols::{
@@ -641,7 +641,7 @@ fn representations_2() {
     assert_eq!(group.frobenius_schur_phase(&s), -1.0);
 }
 
-/// `docs/user-guide/representations.md`, Rust block 3.
+/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn representations_3() {
     use fusion_symbols::{
@@ -661,7 +661,7 @@ fn representations_3() {
     assert_eq!(cat.dual(&eight), eight); // the adjoint is self-dual
 }
 
-/// `docs/user-guide/representations.md`, Rust block 4.
+/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn representations_4() {
     use fusion_symbols::{
@@ -677,7 +677,7 @@ fn representations_4() {
     assert_eq!(cat.frobenius_schur_indicator(&v), 1.0); // real (orthogonal) self-duality
 }
 
-/// `docs/user-guide/representations.md`, Rust block 5.
+/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn representations_5() {
     use fusion_symbols::{
@@ -695,7 +695,7 @@ fn representations_5() {
     assert_eq!(cat.frobenius_schur_indicator(&five), 1.0);
 }
 
-/// `docs/user-guide/resources.md`, Rust block 1.
+/// `docs/user-guide/resources.md`.
 #[test]
 fn resources_1() {
     use fusion_symbols::cache::{
@@ -707,7 +707,7 @@ fn resources_1() {
     let _ = configure_cache_budgets(budgets);
 }
 
-/// `docs/user-guide/resources.md`, Rust block 2.
+/// `docs/user-guide/resources.md`.
 #[test]
 fn resources_2() {
     use fusion_symbols::cache::{base_cache_stats, reset, trim_to, CoefficientCacheTier};
@@ -723,7 +723,7 @@ fn resources_2() {
     reset(); // all tiers: entries, bytes, counters to zero
 }
 
-/// `docs/user-guide/resources.md`, Rust block 3.
+/// `docs/user-guide/resources.md`.
 #[test]
 fn resources_3() {
     use fusion_symbols::{
