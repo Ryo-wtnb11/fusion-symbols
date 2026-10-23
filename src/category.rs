@@ -37,6 +37,8 @@ pub(crate) mod sealed {
     /// alongside it already passed the caller's validation.
     #[derive(Clone, Copy)]
     pub struct Validated(pub(crate) ());
+    /// A returned block and the independently checked N axes to validate it against.
+    pub type SymbolWithAxes<B, const R: usize> = (B, [u32; R]);
     /// Object count, unbounded by `u64` so that a product nested in another
     /// still bounds its coordinates, with a product's per-factor counts so
     /// that unranking visits each leaf once.
@@ -495,8 +497,9 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     // the public API. A product calls them after validating every leaf object
     // (and, for F and R, establishing nonzero representable shapes); a nested
     // product overrides them to skip re-validation and shape recomputation,
-    // which would otherwise repeat at every nesting level. The token is
-    // unnameable outside the crate, so they can be neither called nor
+    // which would otherwise repeat at every nesting level. Symbol hooks return
+    // the block with its checked N axes; Product checks storage before indexing.
+    // The token is unnameable outside the crate, so they can be neither called nor
     // overridden there; the prefix keeps them from colliding with downstream
     // extension-trait methods.
     #[doc(hidden)]
@@ -627,21 +630,15 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         e: &Self::Object,
         f: &Self::Object,
         _: sealed::Validated,
-    ) -> Result<Self::FSymbol, Self::Error> {
-        // A leaf block is combined by its dimensions, so a block disagreeing
-        // with N would silently misplace entries; reject it here, once per leaf.
+    ) -> Result<sealed::SymbolWithAxes<Self::FSymbol, 4>, Self::Error> {
         let block = self.f_symbol(a, b, c, d, e, f)?;
         let n = [
-            self.nsymbol(a, b, e),
-            self.nsymbol(e, c, d),
-            self.nsymbol(b, c, f),
-            self.nsymbol(a, f, d),
+            self.try_nsymbol(a, b, e)?,
+            self.try_nsymbol(e, c, d)?,
+            self.try_nsymbol(b, c, f)?,
+            self.try_nsymbol(a, f, d)?,
         ];
-        assert!(
-            block.dims() == n.map(|n| n as usize),
-            "F block shape disagrees with its N symbols"
-        );
-        Ok(block)
+        Ok((block, n))
     }
     #[doc(hidden)]
     fn __fusion_symbols_validated_r_symbol(
@@ -650,14 +647,10 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         b: &Self::Object,
         c: &Self::Object,
         _: sealed::Validated,
-    ) -> Result<Self::RSymbol, Self::Error> {
+    ) -> Result<sealed::SymbolWithAxes<Self::RSymbol, 2>, Self::Error> {
         let block = self.r_symbol(a, b, c)?;
-        let n = [self.nsymbol(a, b, c), self.nsymbol(b, a, c)];
-        assert!(
-            block.dims() == n.map(|n| n as usize),
-            "R block shape disagrees with its N symbols"
-        );
-        Ok(block)
+        let n = [self.try_nsymbol(a, b, c)?, self.try_nsymbol(b, a, c)?];
+        Ok((block, n))
     }
     #[doc(hidden)]
     fn __fusion_symbols_validated_a_symbol(
@@ -666,14 +659,13 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         b: &Self::Object,
         c: &Self::Object,
         _: sealed::Validated,
-    ) -> Result<RBlock<Self::Scalar>, Self::Error> {
+    ) -> Result<sealed::SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
         let block = self.a_symbol(a, b, c)?;
-        let n = [self.nsymbol(a, b, c), self.nsymbol(&self.dual(a), c, b)];
-        assert!(
-            block.dims() == n.map(|n| n as usize),
-            "A block shape disagrees with its N symbols"
-        );
-        Ok(block)
+        let n = [
+            self.try_nsymbol(a, b, c)?,
+            self.try_nsymbol(&self.dual(a), c, b)?,
+        ];
+        Ok((block, n))
     }
     #[doc(hidden)]
     fn __fusion_symbols_validated_b_symbol(
@@ -682,14 +674,13 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         b: &Self::Object,
         c: &Self::Object,
         _: sealed::Validated,
-    ) -> Result<RBlock<Self::Scalar>, Self::Error> {
+    ) -> Result<sealed::SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
         let block = self.b_symbol(a, b, c)?;
-        let n = [self.nsymbol(a, b, c), self.nsymbol(c, &self.dual(b), a)];
-        assert!(
-            block.dims() == n.map(|n| n as usize),
-            "B block shape disagrees with its N symbols"
-        );
-        Ok(block)
+        let n = [
+            self.try_nsymbol(a, b, c)?,
+            self.try_nsymbol(c, &self.dual(b), a)?,
+        ];
+        Ok((block, n))
     }
 }
 

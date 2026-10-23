@@ -7,6 +7,28 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-23
+
+### Breaking
+
+- `category::EnumerationError`, `lie::LieError`, `lie::su2::ReggeError` and
+  `lie::su2::Su2Error` are now `#[non_exhaustive]`, completing the public
+  error-enum policy alongside `product::ProductError` below. Downstream
+  exhaustive matches must add a `_` arm; future error variants may be added
+  in 0.8.x patch releases.
+- `product::ProductError` is now `#[non_exhaustive]` and adds
+  `MalformedSymbolData { factor, expected, actual, storage_len }`. Downstream
+  matches must include a fallback arm.
+
+### Fixed
+
+- Product F/R/A/B composition checks each factor's axes against checked N
+  symbols and checks its row-major storage length before indexing. Malformed
+  blocks return the typed error instead of panicking, including equal-length
+  wrong shapes and truncated storage. Nested errors retain the factor path;
+  zero-channel shortcuts, coefficient values and gauges are unchanged. No
+  coefficient cache or extra coefficient copy is introduced.
+
 ## [0.7.0] - 2026-10-22
 
 ### Added
@@ -713,7 +735,8 @@ SU(2) provider this rule is mechanized by `su2_authority_fingerprint()`: its
 epoch is bumped only on such a value-affecting release, so a fingerprint change
 and a breaking release are one reviewable event.
 
-[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.5.0...v0.5.1

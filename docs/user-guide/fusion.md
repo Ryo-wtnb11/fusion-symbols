@@ -199,8 +199,20 @@ for an unbraided immediate factor, even if N is zero. Twist instead panics
 on absent braiding, as required by `FusionCategory::twist`. Factor errors
 retain their immediate index (`Factor0` through `Factor11`).
 
+Before composing a nonzero F/R/A/B block, Product checks each factor's
+storage axes against its checked N symbols and requires the exact row-major
+storage length. A mismatch returns
+`ProductError::MalformedSymbolData { factor, expected, actual, storage_len }`:
+`factor` is the zero-based immediate position, `expected` and `actual` are
+axis vectors (four for F, two for R/A/B), and `storage_len` is the number of
+scalars returned by `SymbolBlock::as_slice`. Equal element counts do not excuse
+incorrect axes. For a nested product, the enclosing `Factor0` .. `Factor11`
+variants retain the path to the malformed factor. Zero-channel queries skip
+factor symbol evaluation. `ProductError` is non-exhaustive; matches need a
+fallback arm.
+
 `nsymbol` reads all immediate multiplicities; a zero wins, otherwise a result
-above `u32::MAX` panics loudly. F/R calculate their own checked multiplicities,
+above `u32::MAX` panics loudly. F/R/A/B calculate their own checked multiplicities,
 shapes, element counts and byte layouts and return `ProductError::Overflow`;
 they do not call the product's panicking N method. A nested factor's own N
 query must still be representable. Objects from foreign category values panic

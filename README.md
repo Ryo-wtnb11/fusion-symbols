@@ -48,15 +48,18 @@ unstable in their rustdoc.
 This crate succeeds the [`racah`](https://crates.io/crates/racah) crate on
 crates.io (0.2.4), preserving its coefficient gauges under `fusion_symbols::`
 with a common category interface.
+Product F/R/A/B queries return `ProductError::MalformedSymbolData` for factor
+blocks with incorrect axes or storage lengths. `ProductError` is non-exhaustive.
+
 There are no Python bindings in this repository; the last release of the
 earlier bindings is `racah-py` 0.1.2 on PyPI (import name `racah`), which is no
 longer developed here (#130).
 
 ```toml
 [dependencies]
-fusion-symbols = "0.5"
+fusion-symbols = "0.8"
 # To omit generated Lie coefficients and the dense backend:
-# fusion-symbols = { version = "0.5", default-features = false }
+# fusion-symbols = { version = "0.8", default-features = false }
 ```
 
 ## Example
