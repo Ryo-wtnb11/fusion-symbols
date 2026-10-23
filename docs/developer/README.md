@@ -76,10 +76,12 @@ all-features and base-only test suites (including doctests) in parallel. The
 required `test` check succeeds only when every suite succeeds; `fmt`, `clippy`
 and `doc` remain independent checks. CI tests use optimization level 1 and debug
 information level 1, with debug assertions and overflow checks enabled; the
-local commands below use Cargo's default profiles. Non-blocking `coverage`
-still runs on every main push with its unchanged profile. Target caching is
-retained, but only main saves caches; superseded PR runs are cancelled while
-main runs are not.
+local commands below use Cargo's default profiles. Non-blocking
+[coverage](../../.github/workflows/coverage.yml) runs nightly at 15:17 UTC or
+via `workflow_dispatch`, only on `main`, with its unchanged profile. It updates
+the README coverage badge and Codecov report; these no longer refresh on every
+main push. Target caching is retained, but only main saves caches; superseded
+PR runs are cancelled while main runs are not.
 
 ```sh
 cargo fmt --all --check

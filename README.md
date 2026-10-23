@@ -3,7 +3,7 @@
 [![CI](https://github.com/Ryo-wtnb11/fusion-symbols/actions/workflows/ci.yml/badge.svg)](https://github.com/Ryo-wtnb11/fusion-symbols/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/fusion-symbols.svg)](https://crates.io/crates/fusion-symbols)
 [![docs.rs](https://img.shields.io/docsrs/fusion-symbols)](https://docs.rs/fusion-symbols)
-[![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Ryo-wtnb11/fusion-symbols/badges/badge.json)](https://github.com/Ryo-wtnb11/fusion-symbols/actions/workflows/ci.yml)
+[![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Ryo-wtnb11/fusion-symbols/badges/badge.json)](https://github.com/Ryo-wtnb11/fusion-symbols/actions/workflows/coverage.yml)
 [![codecov](https://codecov.io/gh/Ryo-wtnb11/fusion-symbols/graph/badge.svg)](https://codecov.io/gh/Ryo-wtnb11/fusion-symbols)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
