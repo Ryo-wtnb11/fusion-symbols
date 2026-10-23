@@ -13,6 +13,7 @@ use num_traits::{One, Signed, Zero};
 
 /// Failure to enumerate objects or represent an enumeration result.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum EnumerationError {
     /// This category value does not provide object enumeration.
     NotEnumerable,

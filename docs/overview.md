@@ -123,4 +123,16 @@ wins; otherwise overflow panics in `nsymbol` and is typed in `try_nsymbol`.
 F/R/A/B check their own multiplicities and layouts for typed overflow. Nested
 factor queries must themselves be representable. Fusion resets clone the
 initialized factor iterators; the current bound supports owned category types.
+
+Before composing a nonzero F/R/A/B block, Product checks each factor's
+storage axes against its checked N symbols and requires the exact row-major
+storage length. A mismatch returns
+`ProductError::MalformedSymbolData { factor, expected, actual, storage_len }`:
+`factor` is the zero-based immediate position, `expected` and `actual` are
+axis vectors (four for F, two for R/A/B), and `storage_len` is the number of
+scalars returned by `SymbolBlock::as_slice`. Equal element counts do not excuse
+incorrect axes. For a nested product, the enclosing `Factor0` .. `Factor11`
+variants retain the path to the malformed factor. Zero-channel queries skip
+factor symbol evaluation. `ProductError` is non-exhaustive; matches need a
+fallback arm.
 See `src/product.rs::Product` and `ProductError`.

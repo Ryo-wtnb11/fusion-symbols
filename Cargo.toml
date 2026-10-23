@@ -3,7 +3,7 @@
 # covers every symmetry family this crate provides.
 [package]
 name = "fusion-symbols"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Fusion and recoupling symbols for symmetric tensors: exact SU(2) recoupling, and runtime Clebsch-Gordan / F- / R-coefficient generation for SU(N), SO(N), and Sp(2N) (successor of the racah crate)"

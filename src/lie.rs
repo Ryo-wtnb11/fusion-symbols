@@ -133,6 +133,7 @@ enum LieEnumeration {
 
 /// Invalid labels, excluded representations, arithmetic failure, or absent capability.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum LieError {
     /// A coefficient generation failed.
     Generation(GenerationError),

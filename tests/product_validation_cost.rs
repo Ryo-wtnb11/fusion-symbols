@@ -6,6 +6,7 @@ use fusion_symbols::{
         BraidingStyle, EnumerationError, FBlock, FusionCategory, FusionStyle, RBlock, SymbolBlock,
     },
     product,
+    product::ProductError,
 };
 use std::cell::Cell;
 use std::convert::Infallible;
@@ -334,64 +335,34 @@ impl FusionCategory for Malformed {
     }
 }
 
-fn panic_message(result: std::thread::Result<()>) -> String {
-    let payload = result.expect_err("malformed leaf block must panic");
-    payload
-        .downcast_ref::<&str>()
-        .map(|s| s.to_string())
-        .or_else(|| payload.downcast_ref::<String>().cloned())
-        .unwrap_or_default()
-}
-
-// Not a debug assertion: a leaf block whose shape disagrees with its N symbols
-// would otherwise be combined into a wrong-shaped product block.
+// A malformed external leaf reports its immediate position through nesting.
 #[test]
-fn leaf_blocks_disagreeing_with_n_panic_in_every_build() {
-    for nested in [false, true] {
-        let flat = product(Counter, Malformed);
-        let deep = product(product(Counter, Malformed), Counter);
-        let f = |nested: bool| {
-            if nested {
-                let u = deep.unit();
-                deep.f_symbol(&u, &u, &u, &u, &u, &u).map(|_| ()).unwrap()
-            } else {
-                let u = flat.unit();
-                flat.f_symbol(&u, &u, &u, &u, &u, &u).map(|_| ()).unwrap()
+fn leaf_blocks_disagreeing_with_n_return_typed_errors() {
+    for symbol in ['F', 'R', 'A', 'B'] {
+        fn query<C: FusionCategory>(cat: &C, symbol: char) -> Result<(), C::Error> {
+            let u = cat.unit();
+            match symbol {
+                'F' => cat.f_symbol(&u, &u, &u, &u, &u, &u).map(|_| ()),
+                'R' => cat.r_symbol(&u, &u, &u).map(|_| ()),
+                'A' => cat.a_symbol(&u, &u, &u).map(|_| ()),
+                'B' => cat.b_symbol(&u, &u, &u).map(|_| ()),
+                _ => unreachable!(),
             }
-        };
-        let r = |nested: bool| {
-            if nested {
-                let u = deep.unit();
-                deep.r_symbol(&u, &u, &u).map(|_| ()).unwrap()
-            } else {
-                let u = flat.unit();
-                flat.r_symbol(&u, &u, &u).map(|_| ()).unwrap()
-            }
-        };
-        let message = panic_message(std::panic::catch_unwind(|| f(nested)));
-        assert!(message.contains("F block shape disagrees"), "{message}");
-        let message = panic_message(std::panic::catch_unwind(|| r(nested)));
-        assert!(message.contains("R block shape disagrees"), "{message}");
-        for a in [true, false] {
-            let message = panic_message(std::panic::catch_unwind(|| {
-                fn ab<C: FusionCategory>(cat: &C, a: bool) {
-                    let u = cat.unit();
-                    let block = if a {
-                        cat.a_symbol(&u, &u, &u)
-                    } else {
-                        cat.b_symbol(&u, &u, &u)
-                    };
-                    block.map(|_| ()).unwrap()
-                }
-                if nested {
-                    ab(&deep, a)
-                } else {
-                    ab(&flat, a)
-                }
-            }));
-            let want = if a { "A block shape" } else { "B block shape" };
-            assert!(message.contains(want), "{message}");
         }
+        let expected = ProductError::MalformedSymbolData {
+            factor: 1,
+            expected: vec![2; if symbol == 'F' { 4 } else { 2 }],
+            actual: vec![1; if symbol == 'F' { 4 } else { 2 }],
+            storage_len: 1,
+        };
+        assert_eq!(
+            query(&product(Counter, Malformed), symbol),
+            Err(expected.clone())
+        );
+        assert_eq!(
+            query(&product(product(Counter, Malformed), Counter), symbol),
+            Err(ProductError::Factor0(expected))
+        );
     }
 }
 

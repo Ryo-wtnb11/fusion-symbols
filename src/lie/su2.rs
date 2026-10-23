@@ -577,6 +577,7 @@ pub(crate) struct FKey {
 
 /// Why a 6j label set has no canonical Regge key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ReggeError {
     /// The label set is not an admissible 6j (a triangle parity or triangle
     /// inequality is violated), so the symbol is exactly zero and has no
@@ -979,8 +980,7 @@ impl ExactSizeIterator for A1Fusion {}
 ///
 /// Carried inside [`Su2Error::NotAdmissible`]. Marked `#[non_exhaustive]` so the
 /// checked layer can refine how it decomposes admissibility (adding a distinct
-/// reason) without that being a breaking change — which is why [`Su2Error`]
-/// itself stays at exactly two variants regardless of internal rule structure.
+/// reason) without that being a breaking change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum AdmissibilityViolation {
@@ -1034,8 +1034,8 @@ impl std::fmt::Display for AdmissibilityViolation {
 
 /// Error from a checked SU(2) representation or coefficient request.
 ///
-/// Exactly two variants by design (see [`AdmissibilityViolation`] for why the
-/// rule detail lives in a payload rather than in more variants):
+/// Admissibility rule details live in the [`AdmissibilityViolation`] payload.
+/// Matches must include a fallback arm for future error cases.
 ///
 /// * [`LabelOverflow`](Su2Error::LabelOverflow) — a doubled-spin label would
 ///   exceed the `u32` label space (the private rank-one fusion iterator uses it).
@@ -1043,6 +1043,7 @@ impl std::fmt::Display for AdmissibilityViolation {
 ///   forbidden. Distinct from an admissible request whose coefficient is an
 ///   accidental zero, which the checked functions return as `Ok(zero)`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Su2Error {
     /// The sum of two doubled spins overflows `u32`.
     LabelOverflow {
