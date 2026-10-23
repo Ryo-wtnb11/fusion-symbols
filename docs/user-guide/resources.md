@@ -1,161 +1,75 @@
-# 7. Numerical behaviour and resources
+# Resources and reproducibility
 
-> **AI-generated, for agentic coding.** This document was written by an AI agent
-> as reference material for AI agents (and humans) working on this repository.
-> It may contain errors — check it against the code and tests rather than
-> trusting it blindly.
+## Coefficient caches
 
-## Exact vs generated values
+Every coefficient-cache tier is process-global, FIFO and independently bounded
+(`src/cache.rs`). Default retained-entry charge caps are:
 
-`fusion-symbols` computes two different kinds of quantity, and it is worth knowing which
-one you are holding.
-
-| Quantity | Exactness |
+| Tiers | Aggregate cap |
 |---|---|
-| Labels, dimensions, duals, FS indicators, fusion multiplicities, weight multiplicities, basis orderings | **Exact** integer/rational arithmetic |
-| SU(2) coefficients (3j, 6j, CG, F, R) | **Exact** big-rational, rounded once at the end |
-| SU(N), SO(N), Sp(2N) coefficient values (CGC, F, R) | Verification-gated **floating point** |
+| SU(2) 3j, 6j, derived F | `BASE_CACHE_MAX_BYTES`: 192 MiB (3 × 64 MiB) |
+| SU(N) product / CGC / F, B/C/D product+CGC / F (`lie-generated`) | `GENERATED_CACHE_MAX_BYTES`: 640 MiB + 128 KiB |
 
-Concretely: `LieIrrep::dim_exact()` returns a `BigInt` and is never approximate;
-`GroupRepresentations::cgc(...)` returns `f64` values produced by a nullspace solve and a
-least-squares descent.
+The B/C/D product and CGC entries share `CoefficientCacheTier::BcdCgc`.
+Caps exclude container capacity, allocator metadata, transient/external clones,
+returned values and RSS. R uses cached CGC but has no separate cache.
 
-"Verification-gated" means internal CGC orthogonality and generator-consistency
-checks reject generation failures with typed errors. The generic
-`category::{f_unitarity_residual,pentagon_residual,hexagon_residual}` functions
-provide explicit identity checks; the caller chooses the tolerance.
-
-What is **not** promised: bit-identical values across machines or backend
-versions. Round-off at the last few ULP is inside the disclaimed tolerance
-class. What *is* promised is that no discrete choice moves: a sign flip, a
-reordered multiplicity copy, or a different basis order is a bug, never a
-tolerance event.
-
-## Bounding cache memory
-
-Coefficient generation is expensive, so `fusion-symbols` caches. The caches are
-process-global, bounded, and FIFO.
-
-- **Base tiers** (SU(2): 3j, 6j, derived-F) are bounded by
-  `cache::BASE_CACHE_MAX_BYTES` = 192 MiB, a static partition of 3 × 64 MiB.
-- **Generated tiers** (`lie-generated`: SU(N) product / CGC / F, B/C/D product+CGC / F) are
-  bounded by `cache::GENERATED_CACHE_MAX_BYTES` = 640 MiB + 128 KiB.
-
-The existing `BcdCgc` tier holds both exact B/C/D products and CGC isometries;
-its budget, statistics and trimming cover both.
-
-Those are ceilings on *retained entry charge*, not RSS: they exclude container
-capacity, allocator metadata, transient clones, and values you have taken out
-through the public API.
-
-If several hundred MiB is too much, set a smaller policy **once, before the
-first coefficient call**:
+Configure once, **before any cache operation or policy observation**:
 
 ```rust
 use fusion_symbols::cache::{configure_cache_budgets, CoefficientCacheBudgets, CoefficientCacheTier};
-
 let budgets = CoefficientCacheBudgets::default()
-    .with_limit(CoefficientCacheTier::SixJ, 1 << 20);   // 1 MiB of 6j
-let _ = configure_cache_budgets(budgets);
+    .with_limit(CoefficientCacheTier::SixJ, 1 << 20);
+configure_cache_budgets(budgets).unwrap();
 ```
 
-The policy is **one-shot and shrink-only**: the compiled defaults are also the
-maximum accepted caps, and configuration can only be applied before first use.
-A zero cap evaluates normally but retains nothing;
-`CoefficientCacheBudgets::disabled()` zeroes every tier. There are no presets,
-environment variables, or runtime reconfiguration. `cache_budgets()` reports the
-effective policy.
+Configuration is one-shot and shrink-only; defaults are the maximum caps.
+A zero cap computes normally without retaining entries;
+`CoefficientCacheBudgets::disabled()` zeroes all tiers. `cache_budgets()`
+observes the effective policy and therefore also freezes configuration.
 
-## Observing and releasing
+`base_cache_stats()` and, with generation enabled, `generated_cache_stats()`
+report entries, charge, hits, misses and evictions. Each tier snapshot is
+consistent under its lock; totals combine independent snapshots.
+`trim_to(tier,target)` removes oldest entries to the target charge;
+`reset()` clears all tiers and counters. Concurrent fills can change occupancy
+after either call. **The application owns this process-wide policy; libraries
+must not call reset or trim.** Neither operation promises to lower RSS.
 
-```rust
-use fusion_symbols::cache::{base_cache_stats, reset, trim_to, CoefficientCacheTier};
+## B/C/D generator catalogs
 
-let stats = base_cache_stats();
-let _ = stats.six_j.entries;          // per-tier entries / bytes / hits / misses / evictions
-let _ = stats.total();                // field-wise sum across the base tiers
+Each B/C/D `LieGroup` owns a generator catalog; clones share it. The default
+budget is 256 MiB. `LieGroup::with_catalog_budget(group,max_bytes)` sets a
+retained generator charge budget, separate from coefficient-cache limits.
+Materialization stages a whole canonical-parent chain before committing it;
+budget failure leaves committed entries unchanged. Temporary generation memory
+is not bounded by the retained-byte budget. See `src/lie/bcd/catalog.rs::ensure`.
 
-// Release one tier down to a target charge, oldest entries first.
-let report = trim_to(CoefficientCacheTier::SixJ, 0);
-let _ = report.removed_entries;
+`catalog_stats()` returns `Result<(usize,usize),LieError>` for `(bytes,budget)`,
+or `(0,0)` without a catalog. `reset_catalog()` re-seeds base representations
+and is a no-op for other groups. Both report a poisoned lock as
+`LieError::Generation`. Global coefficient caches survive catalog reset;
+warm CGC/F/R calls consult those caches before locking the catalog.
 
-reset();                               // all tiers: entries, bytes, counters to zero
-```
+## Exactness and fingerprints
 
-With `lie-generated`, `generated_cache_stats()` reports the five generated tiers the
-same way.
+Lie combinatorics and discrete conventions are exact. SU(2) closed forms
+round once; generated Lie coefficient values are verification-gated `f64`.
+Table values are offline binary64 projections; their dimensions are derived
+numerically from F. See [design](../overview.md#numerical-and-capability-contracts).
+No cross-process bit identity is promised for generated coefficients. Discrete
+sign, basis or multiplicity-order changes are not ordinary round-off.
 
-**Ownership rule.** `reset` and `trim_to` act on process-global state, so
-exactly one component in a process may own that policy — normally the
-application. **A library must not call them**, because it cannot know what other
-components depend on the cached values.
+Persist `FusionCategory::authority_fingerprint()` next to derived data and
+compare bytes on load; never parse them. The SU(2) fingerprint identifies
+values; generated-family fingerprints identify conventions, pipeline and
+tolerance policy, with numerical agreement established by gates and oracles.
+Generated fingerprint bytes and generated cache statistics/ceiling are marked
+unstable in rustdoc.
 
-Per-tier snapshots are consistent under their own tier lock; `total()` sums
-independent snapshots, so under concurrent fills it is only eventually
-consistent.
-
-## The B/C/D catalog is separate
-
-Each B/C/D `LieGroup` owns an internal generator catalog; clones share it.
-`LieGroup::with_catalog_budget(group, max_bytes)` sets its byte budget.
-`catalog_stats()` returns `Result<(usize, usize), LieError>` containing
-`(retained bytes, budget)`, or `(0, 0)` without a catalog. `reset_catalog()`
-re-seeds its base representations and is a no-op for other groups. Both methods
-report a poisoned lock as `LieError::Generation`. Global coefficient caches
-survive resets. Warm F/CGC/R calls consult those caches before locking the catalog.
-
-## Gauge and reproducibility
-
-A coefficient has no meaning without the convention that fixes its basis, sign,
-and ordering. `fusion-symbols` publishes every coefficient in one **fixed canonical
-gauge**, written down as a frozen normative specification. Most users never need
-the details; what you do need is:
-
-- **Same version, same numbers.** The gauge is not "whatever this build
-  outputs". A change that moves a coefficient value is a bug unless it ships as
-  an explicit specification correction with a fingerprint epoch bump and a
-  CHANGELOG breaking-change entry.
-- **You can checkpoint against it.** Each family exposes an opaque **authority
-  fingerprint**: `FusionCategory::authority_fingerprint()`. Persist the bytes next to anything you
-  derive from these coefficients, and on load compare for equality and reject
-  the derived data on mismatch. Compare only — never parse them.
-
-```rust
-use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieGroup}};
-let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-let fingerprint = group.authority_fingerprint();
-assert!(!fingerprint.is_empty());
-```
-
-The SU(2) fingerprint carries the strong contract: equal fingerprint ⇔ equal
-values. The generated-family fingerprints are deliberately weaker — equal
-fingerprints identify the same convention, generation pipeline, and tolerance
-policy, but do not assert byte-identical values. Numerical agreement there is
-established by the generation gates and the oracle suites, not by the
-fingerprint. Each family's epoch is independent: an SU(N) specification
-correction never invalidates SU(2)-derived state.
-
-The specifications themselves: [`../gauge.md`](../gauge.md) (base SU(2) and
-SU(N)) and [`../gauge_soN.md`](../gauge_soN.md) (SO(N)/Sp(2N)). They are
-normative reference documents, not tutorials — read them when you are comparing
-against another implementation or auditing a value, not to learn the API.
-
-## Caveats
-
-- The generated (`lie-generated`) provider surface is marked **unstable**; its shape
-  may change. The base SU(2) surface is stable.
-- There is deliberately no single cross-feature cache constant: one number
-  spanning feature-gated tiers would change meaning with the `lie-generated` flag.
-- Selecting a linear-algebra backend is not public API. All dense work
-  routes through one seam, executed on the CPU backend.
-
-## Related API
-
-- [`fusion_symbols::cache`]: `configure_cache_budgets`, `cache_budgets`,
-  `base_cache_stats`, `generated_cache_stats`, `trim_to`, `reset`,
-  `BASE_CACHE_MAX_BYTES`, `GENERATED_CACHE_MAX_BYTES`
-- [`fusion_symbols::category::FusionCategory::authority_fingerprint`]
-- Measurement evidence behind the defaults: [`../developer/`](../developer/README.md)
-
-[`fusion_symbols::cache`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/cache/index.html
-[`fusion_symbols::category::FusionCategory::authority_fingerprint`]: https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.authority_fingerprint
+A value-changing specification correction requires the spec edit, affected
+family's epoch bump, CHANGELOG breaking-change entry and regenerated golden
+values in one change. Ordinary prose or cache edits require no epoch bump.
+Fingerprint `racah:` prefixes remain permanent identifiers. Normative rules:
+[SU(2)/SU(N)](../gauge.md#status-frozen-normative-specification),
+[B/C/D](../gauge_soN.md#status-frozen-normative-specification).

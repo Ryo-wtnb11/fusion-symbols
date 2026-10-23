@@ -1,22 +1,5 @@
 # SO(N)/Sp(2N) decomposition-sweep gauge specification
 
-> **AI-generated, for agentic coding.** This document was written by an AI agent
-> as reference material for AI agents (and humans) working on this repository,
-> and its prose may contain errors. Its **gauge values are not commentary**:
-> they are the frozen normative specification of fusion-symbols' conventions, verified
-> by the golden tests. Code follows this document — where the two disagree, the
-> code is the bug.
-
-
-**Role in the documentation set.** This is a *specification*, not a tutorial:
-it is written to be checked against, not read through. If you are learning the
-library, start with the [User Guide](user-guide/README.md); if you want the
-mathematics, see [`theory.pdf`](theory.pdf); for per-item API semantics see
-[docs.rs](https://docs.rs/fusion-symbols). Come here when you are comparing fusion-symbols'
-values against another implementation, auditing a sign or an index order, or
-changing code that touches a coefficient value. Documentation map:
-[`docs/README.md`](README.md).
-
 This document specifies the **gauge** of the SO(N)/Sp(2N) Clebsch–Gordan
 isometries and projected generators produced by `LieGroup`'s internal B/C/D decomposition
 sweep (`src/lie/bcd/sweep.rs`) — the deterministic rules that fix the
@@ -44,42 +27,35 @@ coefficients as the in-repo tripwire (`src/lie/bcd/intertwiner_tests.rs` checks 
 generators and the isotypic projectors, which are by construction blind to
 exactly the coupled-side gauge this document fixes).
 
-The construction is a port of **QSpace v4** (Weichselbaum), revision `dd2cc7e`,
-`Source/clebsch_aux.cc:getSymmetryStates` (`:53-348`) and `findMaxWeight`
-(`:957-1045`), with the product-generator composition from
-`Source/clebsch.cc:6649-6656`. Every choice below cites the reference
-`file:line @ dd2cc7e`. A reader with this document and the reference source can
-re-derive the gauge without reading the Rust implementation.
+Reference: QSpace v4 revision `dd2cc7e`,
+`Source/clebsch_aux.cc::getSymmetryStates` (53–348), `findMaxWeight`
+(957–1045), and `Source/clebsch.cc` (6649–6656). Coefficients are `f64`;
+label combinatorics, ordering and discrete gauge choices are exact.
 
-Coefficient *values* are `f64` (as in QSpace's non-MPFR tier). What is exact and
-gauge-fixing is the *procedure*: the seed order, the operator-application order,
-the Gram–Schmidt order, the descending-weight sort and its tie-break, and the
-sign conventions are discrete facts; only the QR/matmul stages are floating
-point, and they are verification-gated (§10).
-
-Two deliberate racah deviations from QSpace, called out once here and again at
+Two deliberate fusion-symbols deviations from QSpace, called out once here and again at
 their sites:
 
 1. **PositiveDiagonal QR gauge** (§4a): the column orthonormalization uses
    the **positive-diagonal** QR gauge, a *tightening* of QSpace's
    unspecified `OrthoNormalizeColsQR` sign, fixing the sign of each retained
    orthonormal direction deterministically.
-2. **Unconditional block sign convention** (§8): racah applies
+2. **Unconditional block sign convention** (§8): fusion-symbols applies
    `rangeSignConvention` to every block; QSpace applies it only when the
    weight-sort permutation is nontrivial (the `:304` call sits inside
    `if (!P.isIdentityPerm())`, `clebsch_aux.cc:297-305 @ dd2cc7e`).
 
 Both are value-affecting gauge choices and therefore part of this contract.
 
----
-
 ## 0. Notation
 
 - A B/C/D group is one of `B_r = SO(2r+1)`, `C_r = Sp(2r)`, `D_r = SO(2r)`; `r`
   is the rank. It carries `r` simple-root **raising** operators `Sp[i]`
-  (`i = 0…r-1`) and `r` mutually Frobenius-orthogonal integer **Cartan**
+  (`i = 0…r-1`) and `r` mutually Frobenius-orthogonal **Cartan**
   operators `Sz[j]` (`j = 0…r-1`), in QSpace's basis (not Chevalley) — see
-  `src/lie/bcd/seeds.rs` and its gauge notes.
+  `src/lie/bcd/seeds.rs` and its gauge notes. Their eigenvalues are integers
+  for tensor irreps and half-integers for B/D spinor irreps (§6, §16.2).
+  Seed records are integers; `src/lie/bcd/sweep.rs::Generators::from_seed`
+  applies their exact Cartan scale (1 for defining seeds, 1/2 for spinor seeds).
 - `Sp[i]†` (conjugate transpose; real here, so plain transpose) is the
   corresponding **lowering** operator.
 - An irrep `c` is labelled by its integer Dynkin label `a = (a_0,…,a_{r-1})`,
@@ -94,8 +70,6 @@ Both are value-affecting gauge choices and therefore part of this contract.
   (`crate::lie`); it never changes a coefficient value.
 - The CGC of a coupled multiplet is the isometry `V`, a real `d1·d2 × d3`
   column-major matrix; each column is one coupled state.
-
----
 
 ## 1. Input and the Kronecker convention (gauge)
 
@@ -125,8 +99,6 @@ its diagonal is `Sz_a[j][m_a] + Sz_b[j][m_b]` at the composite index.
 Generator-count guards (QSpace `clebsch_aux.cc:85,90 @ dd2cc7e`): `nz ≠ 0`,
 `np ≤ nz`, and `np = nz = r` — else `InvalidGeneratorCounts` generation diagnostic.
 
----
-
 ## 2. Seed selection (per multiplet)
 
 Reference: `clebsch_aux.cc:105-116 @ dd2cc7e`. The sweep tiles the `D = d1·d2`
@@ -148,8 +120,6 @@ ambiguous — `SeedNotWeightVector` generation diagnostic (QSpace `sameUptoFac` 
 `clebsch_aux.cc:126-129 @ dd2cc7e`; QSpace's `sameUptoFac` returns 0 when the
 vectors *are* parallel, so the abort fires when they are **not**).
 
----
-
 ## 3. Raise to the maximum weight
 
 Reference: `clebsch_aux.cc:134-142 @ dd2cc7e`. Repeatedly apply the raising
@@ -157,8 +127,6 @@ operators in **ascending index order** `Sp[0], Sp[1], …`; whenever
 `Sp[i] v` is non-negligible (`‖·‖ > EPS_SWEEP`), replace `v` by the normalized
 result. Iterate until a full pass raises nothing. The result is the multiplet's
 highest-weight (MW) vector.
-
----
 
 ## 4. Sweep down (the descent)
 
@@ -215,74 +183,28 @@ thin unpivoted QR of the original selected columns `a[:, S]`, with each
 R diagonal made positive by folding its sign into Q. These columns have full
 column rank by construction, so the positive-diagonal QR is unique and
 independent of backend Householder choices. Empty selection returns zero columns.
-This is the deliberate racah tightening of QSpace's unspecified
+This is the deliberate fusion-symbols tightening of QSpace's unspecified
 `OrthoNormalizeColsQR` sign convention.
 
-*The defect this corrects (`epoch = 2` → `3`, issue #150).* The old rule
+*The defect this corrects (`epoch = 2` → `3`).* The old rule
 factored all input columns, made the R diagonal nonnegative (leaving exact
 zero unflipped), and retained Q columns whose R-row norm exceeded `CG_EPS1`.
 A dependent middle column can shift an independent direction off the diagonal;
 then a zero or round-off diagonal does not fix that direction's sign. The
 assertion that descent dependencies were always trailing was false.
 
-Measured example: the canonical-parent descent for `D_3 (0,2,2)` supplies a
-`100 × 5` input. Its in-order CGS2 residual norms are approximately
-`[1.414214, 0.816497, 1.290994, 9.88e-32, 1.414214]`. The old backend’s
-positive-diagonal R has diagonal
-`[1.414214, 0.816497, 1.290994, 5.78e-33, 0]` and row norms
-`[1.414214, 1.414214, 1.290994, 1.414214, 0]`: it retains Q columns
-`[0,1,2,3]`, but the last direction is fixed by `R[3,4] = -sqrt(2)`,
-not the negligible `R[3,3]`. It chooses `-e_7`; the corrected rule selects
-original columns `[0,1,2,4]` and chooses `+e_7`. This is raw multiplet
-column 23, sorted canonical column 31, and changes the aligned adjoint-product
-CGC copy 0 entry 7055 from `-1` to `+1` (all indices zero-based).
+The correction is pinned by
+`tests/gauge_golden.rs::d3_epoch3_independent_column_qr_golden` and the independent
+rule check `src/lie/bcd/linalg.rs::tests::d3_epoch3_qr_uses_independent_input_columns`.
 
-The old/new comparison set comprises the defining self-products for
-`B_2,B_3,B_4,C_2,C_3,C_4,D_3,D_4`, plus the `D_3 (0,1,1)` adjoint
-self-product, all their CGC channels and R blocks, and
-`F(a,a,a;a | 1,1)` for each product. At absolute difference `> 1e-12`,
-**only** `D_3 (0,1,1) ⊗ (0,1,1) → (0,2,2)`, copy 0, changes:
-33 nonzero entries reverse sign, at flattened column-major indices
-`7055, 7956, 7970, 8859, 8871, 8915, 10449, 10491, 11844, 12686, 12770,
-13137, 13151, 13221, 13235, 14052, 14096, 14124, 14136, 15447, 15489,
-16363, 16405, 16814, 16870, 17051, 17277, 17291, 17742, 18208, 18659,
-18673, 18899`. Maximum absolute change is `2`. B and C have zero changed
-entries, as do the D defining products; no compared F/R entry changes.
-Channel sets, multiplicities, shapes and OM indices are unchanged; this
-channel's sign pattern changes. This finite comparison is not a claim that
-other products coupling through corrected canonical frames cannot change.
-
-This ships under [`gauge.md`, "Status"](gauge.md#status-frozen-normative-specification):
-this amendment, the B/C/D `epoch = 3` bump, the new frozen value in
-`tests/gauge_golden.rs::d3_epoch3_independent_column_qr_golden`, and the CHANGELOG
-breaking-change entry belong to one change. SU(2)/SU(N) epochs are unchanged.
-The independent rule check is
-`src/lie/bcd/linalg.rs::tests::d3_epoch3_qr_uses_independent_input_columns`:
-it captures the actual descent input, independently selects columns by CGS2,
-and certifies the returned positive-diagonal thin QR without stored values.
-
-**Round-off-neutrality note (Gram–Schmidt order and the second pass).** Within
-pass 1, `U`, `V`, and the current level `Vi` are mutually orthonormal subspaces,
-so the three `x ← x − Q(Qᵀx)` projections **commute**: their order changes the
-result only at the floating-point round-off floor (`~1e-13` here), not the
-gauge. Likewise the **second** orthonormalization (pass 2 + its QR) is a
-numerical-cleanup no-op once pass 1 has converged — it re-projects vectors that
-are already orthogonal, shifting values by `~1e-13`. Both are faithful ports of
-QSpace and are kept for numerical robustness, but neither is value-affecting:
-they are round-off-neutral gauge choices (the analogue of `docs/gauge.md` §4a's
-value-neutral reduced-column-echelon tie rule), so no CGC value oracle can — or
-should — distinguish them. The *order* is nonetheless documented above so the
-procedure is fully specified.
-
----
+The documented projection order and second orthonormalization pass preserve
+robustness; on converged orthonormal subspaces they affect only round-off.
 
 ## 5. Global orthogonality gate
 
 Reference: `clebsch_aux.cc:251-257 @ dd2cc7e`. After the sweep, `UᵀU` must equal
 the identity within `EPS_VERIFY` (QSpace `isIdentityMatrix(eps2)`); else
 `NotOrthonormal` generation diagnostic.
-
----
 
 ## 6. Generator projection and Cartan snapping
 
@@ -314,8 +236,6 @@ in `f64` (the projected `Sp` are generally irrational, so the exact integer
 `check_commutators` does not apply directly): `[Sz_j, Sp_i] = d_{i,j} Sp_i` and
 `[Sp_i, Sp_i†] ∈ span(Sz)`, worst residual `≤ EPS_SWEEP` — else
 `CommutatorResidual` generation diagnostic.
-
----
 
 ## 7. findMaxWeight: sort, tie-break, Dynkin conversion, uniqueness
 
@@ -361,8 +281,6 @@ artifact, **not** a mathematical constraint — **N/A** here (same disposition a
 from the seed layer (`ExcludedRank` generation diagnostic), so the sweep never receives such
 generators.
 
----
-
 ## 8. Sign convention
 
 Reference: `signFirstVal`/`rangeSignConvention` (`clebsch_aux.cc:26-51 @
@@ -373,21 +291,9 @@ order) is **positive**; if it is negative, negate the whole block. This is
 they land on integers (FixRational, `:307`); genuinely irrational entries are
 left as-is.
 
-**Deliberate racah deviation #2 (unconditional block sign).** QSpace applies
-`rangeSignConvention` only when the descending-weight sort actually permuted the
-block: the `:304` call sits inside `if (!P.isIdentityPerm())`
-(`clebsch_aux.cc:297-305 @ dd2cc7e`), so a block already in descending-weight
-order (identity permutation) keeps whatever whole-block sign the QR/descent
-happened to produce. racah instead applies the sign convention to **every**
-block, unconditionally. Rationale: a uniform, permutation-independent gauge is
-more predictable, and the QSpace conditionality appears accidental (the sign of
-a coupled block should not depend on whether its states happened to be generated
-already sorted). Consequence for a comparison with QSpace: on
-identity-permutation blocks the two implementations may differ by a whole-block
-sign; those are expected and are absorbed by a signed-permutation
-alignment, not treated as defects.
-
----
+Unlike QSpace's conditional call inside `if (!P.isIdentityPerm())`
+(`clebsch_aux.cc:297-305`), this block-sign rule applies unconditionally,
+including blocks already in descending-weight order.
 
 ## 9. Outer-multiplicity assignment
 
@@ -395,8 +301,6 @@ Reference: `clebsch_aux.cc:331-345 @ dd2cc7e`. Blocks that share the same highes
 weight (same discovered irrep) receive `(index, size)`: `index = 0, 1, …` in
 **discovery (sweep) order**, and `size` = the number of such blocks. A
 multiplicity-free irrep gets `(0, 1)`.
-
----
 
 ## 10. Exact-multiplicity production gate
 
@@ -412,8 +316,6 @@ computes `expected` from the defining label via `directproduct`.
 This is fusion-symbols' addition over QSpace, which has no exact multiplicity gate (it only
 warns on discovered outer multiplicity, `:341`).
 
----
-
 ## 11. Tolerance tier (QSpace CG_EPS ladder)
 
 Named constants (`src/lie/bcd/sweep.rs`), with provenance:
@@ -426,43 +328,37 @@ Named constants (`src/lie/bcd/sweep.rs`), with provenance:
 | `EPS_MW_UNIQUE` | `1e-8` | `clebsch_aux.cc:1035` (`recDiff2 > 1e-8`) | max-weight uniqueness |
 | `FIXRATIONAL_TOL` | `1e-6` | see below | integer-snap tolerance for Cartan eigenvalues and Dynkin conversions |
 
-The QSpace non-MPFR ladder is `CG_EPS1 = 1e-10`, `CG_EPS2 = 1e-12`,
-`CG_SKIP_DEPS1 = 1e-12`, `CG_SKIP_DEPS2 = 1e-14` (`clebsch.hh:224-246`). QSpace's
-`FixRational` snaps within `CG_SKIP_DEPS1 = 1e-12` at its working precision;
-here, in plain `f64` with a round-off floor `~1e-13`, `FIXRATIONAL_TOL = 1e-6` is
-sized well above the floor and far below the minimum integer gap (1) of a Cartan
-eigenvalue, so it snaps every genuine integer while a real non-integer (a defect)
-stays outside it. It is **integer-target only** — applied to Cartan eigenvalues
-and the (integer) Dynkin-conversion quotients, never to general CGC entries
-(which are irrational). Tightening any tolerance that cannot move a returned
-value is *not* a breaking release; loosening one that can, is.
+QSpace's non-MPFR ladder is `CG_EPS1 = 1e-10`, `CG_EPS2 = 1e-12`,
+`CG_SKIP_DEPS1 = 1e-12`, `CG_SKIP_DEPS2 = 1e-14` (`clebsch.hh:224-246`).
+Here `FIXRATIONAL_TOL` snaps Cartans to their carrier grid (§6), Dynkin
+quotients to integers (§7), and CGC entries only to nearby integers (§8).
+Tightening a verification-only tolerance is not a gauge change; changing a
+value-fixing cut or snap requires the specification-correction rule.
 
-**Reference tolerance-regime deviations.** Three racah tolerance choices differ
+**Reference tolerance-regime deviations.** Three fusion-symbols tolerance choices differ
 in *regime* (not just value) from QSpace; none moves a discovered label or
 multiplicity, but each is recorded for any comparison with QSpace:
 
 1. **Descent overlap guards are stricter/absolute.** QSpace's `U`-overlap abort
    fires at `x·x > eps` with `x = aMax(Uᵀvi)`, i.e. a **max-overlap `> 1e-4`**;
    its `V`-overlap abort is **norm-relative** (`√(‖Vᵀvi‖²/‖vi‖²) > eps`,
-   `clebsch_aux.cc:176-194 @ dd2cc7e`). racah uses a single **absolute**
+   `clebsch_aux.cc:176-194 @ dd2cc7e`). fusion-symbols uses a single **absolute**
    threshold `EPS_SWEEP = 1e-8` on the max-overlap for both guards — strictly
    tighter. For a faithful sweep both residuals are `~0`, so the choice only
    affects *how loudly a defective generator set fails*, never a valid result.
 2. **"Skip if already inside `Vi`" is realized differently.** QSpace early-skips
    a lowering operator whose image already lies in the current level `Vi`
-   (`|1 − √(‖Viᵀvi‖²/‖vi‖²)| < eps`, `clebsch_aux.cc:165-169`). racah has no
+   (`|1 − √(‖Viᵀvi‖²/‖vi‖²)| < eps`, `clebsch_aux.cc:165-169`). fusion-symbols has no
    early test; it projects out `Vi` unconditionally and lets `skip_tiny_cols`
    drop the now-zero columns — **equivalent outcome, different mechanism** (a
    fully-redundant block becomes zero and is dropped either way).
 3. **FixRational is integer-only vs denominator-bounded rational.** QSpace's
    `FixRational` is continued-fraction **rational** snapping (mode `'r'`,
    denominator `≤ 1024`, tol `~1e-12`; `clebsch_aux.cc:410-425`), applied to the
-   CGC entries too. racah snaps **integers only** (§6), leaving irrational CGC
-   entries untouched. Consequence: an exact half-integer (or other small-rational)
+   CGC entries too. fusion-symbols snaps CGC entries **to integers only** (§8); Cartans use
+   the carrier grid (§6). Consequence: an exact half-integer (or other small-rational)
    CGC entry that QSpace would snap may differ from fusion-symbols' value by `≤ 1e-12` —
    below every gate tolerance.
-
----
 
 ## 12. Numerical seams (backend)
 
@@ -484,12 +380,9 @@ analogue of `GroupRepresentations::cgc`'s `cref`, which `docs/gauge.md` §10 lik
 plain code rather than routing through a factorization kernel. The
 `t4a-faer` crates.io semver requirement is in `Cargo.toml`.
 
-The contract is *value agreement within the verification tolerances*, and (on a
-single-threaded run) **bitwise reproducibility** across runs — the sweep is
-deterministic end to end, pinned by the determinism test. Cross-process bit
-identity is not promised (the backend's reductions are not bit-reproducible).
-
----
+The contract is value agreement within verification tolerances. The determinism
+test pins repeated runs in one process; cross-process bit identity is not
+promised because backend reductions may vary.
 
 ## 13. Verification (independent oracles)
 
@@ -511,24 +404,11 @@ identity is not promised (the backend's reductions are not bit-reproducible).
 A change that moves any observed value beyond these oracles' tolerances is, by
 definition of this document, a breaking release.
 
----
-
 ## 14. The canonical-parent rule (internal generator catalog)
 
-Sections 1–13 fix the gauge of **one** decomposition of **one** product `a ⊗ b`.
-But an irrep `c` appears in *many* products, and its projected generators
-`R.Sp`/`R.Sz` (§6) — which fix `c`'s basis — are read off from whichever product
-was decomposed. If the catalog stored `c`'s generators from "whichever product
-was decomposed first", the gauge would depend on **query order**. This section
-specifies the rule that removes that dependence: each non-base irrep's generators
-come from **one** canonical parent product, chosen by a deterministic total order
-over the exact decomposition data (the exact B/C/D product decomposition). This rule IS gauge — it is part of the semantic-version
-contract in the same way §§1–13 are.
-
-Implementation: `src/lie/bcd/catalog.rs`. A reader with this section and the exact
-`directproduct`
-(§0, `src/lie/bcd.rs`) can re-derive every catalog gauge choice without reading the
-Rust.
+An irrep's generator frame comes from one canonical parent, not the first
+product queried. This is a gauge rule implemented in
+`src/lie/bcd/catalog.rs::{canonical_parent,build_into}`.
 
 ### 14.1 The well-order `≺` on irreps
 
@@ -540,37 +420,11 @@ box(c)  = Σ_i |2λ_i|                             (doubled ε-basis box count)
 c₁ ≺ c₂ ⟺ ( box(c₁), dim(c₁), dynkin(c₁) ) <lex ( box(c₂), dim(c₂), dynkin(c₂) )
 ```
 
-The box count is **doubled** so that it is an integer for a spinor's
-half-integer weight as well (`box(V) = 2`, `box(ω_r) = r`, and "remove a box" is
-`box ↦ box − 2`). Doubling is a uniform rescaling of the earlier `Σ_i |λ_i|`, so
-`≺` restricted to the tensor irreps — and therefore every parent it selects
-there — is **unchanged**.
-
-i.e. compare the box count first, then the exact Weyl dimension, then the integer
-Dynkin label read left to right. All three components are exact decomposition data; no
-float, no discovery order.
-
-**Why box count is primary, not dimension.** `dim` alone is **not** a sound
-primary key: `dim` is *not* monotone in the last (sign-carrying) D-series
-partition coordinate. Concretely for `D₃ = SO(6)`, partition `(1,1,0)` (the
-adjoint `(0,1,1)`) has dim **15**, while `(1,1,±1)` (the chirality pair
-`(0,0,2)`/`(0,2,0)`) has dim **10** — adding a box to the last coordinate *lowers*
-the dimension. Under a dim-first order the chirality label `(0,0,2)` would have an
-**empty** admissible-parent set (every factor of `dim < 10` fails to reproduce it,
-and the box-removed `(0,1,1)` has *larger* dim so is not `≺` it) — a real hole,
-caught by the reviewer. Box count fixes this: removing a box strictly lowers
-`box`, so the box-removed parent is always `≺` its child (§14.4), for all three
-series including D chirality.
-
-**`≺` is a well-order** (no infinite strictly-descending chain). Proof: along any
-descending chain the box counts are non-increasing non-negative integers, so they
-are eventually constant at some `m`. At a fixed box count `m` and fixed rank there
-are only **finitely many** irreps (each `|λ_i| ≤ m`, so the partition is drawn
-from a finite box), and the `(dim, dynkin)`-lexicographic order is a strict total
-order on that finite set, which has no infinite descending chain. ∎ (Only
-`box`-monotonicity, not the false `dim`-monotonicity, is used.)
-
-Well-foundedness is what makes the on-demand recursion (§14.3) terminate.
+All comparisons are exact. The doubled count handles both tensor and spinor
+weights: `box(V) = 2`, `box(ω_r) = r`. Removing a tensor box reduces it by 2.
+Box count is primary because dimension need not decrease on removing a box
+in D-series chiral weights. At fixed rank and box count the label set is finite,
+so `≺` is a well-order.
 
 ### 14.2 The canonical parent
 
@@ -589,7 +443,7 @@ The trivial and defining reps are seeded into the catalog at construction; a
 spinor base case is seeded the first time it is asked for, so a catalog that is
 only ever asked for tensor irreps builds no spinor matrices at all.
 
-**Base-case frame (normative; corrected in `epoch = 2`, issue #90).** *Every*
+**Base-case frame (normative; corrected in `epoch = 2`).** *Every*
 catalog entry, base cases included, is stored in the sweep's **descending-weight
 frame** (§7). The trivial rep is 1-dimensional and its frame is unique. The
 defining seed's native state order is QSpace's `Setup_*` order, which is **not**
@@ -600,40 +454,13 @@ whole catalog, and therefore the §15 coherence guard and the intertwiner
 alignment apply to a base case exactly as they do to any other block: **nothing
 is exempt from them.**
 
-*The defect this corrects (`epoch = 1` → `2`).* Through `epoch = 1` the defining
-seed was stored in the raw `Setup_*` order, while every *rediscovery* of the
-same irrep inside a product was produced in the descending-weight order, and
-the internal CGC-assembly operation exempted the base cases from both the coherence
-guard and the alignment — so the two frames were silently mixed inside a single
-contraction. It was a *frame mismatch*, not a rotation the guard was blind to:
-with the exemption removed, `epoch = 1` reports it explicitly as
-`BasisIncoherent { irrep: [1,0], product: ([0,0],[1,0]), residual: 2.0 }`.
-Measured consequences on `epoch = 1` (no spinor involved): the `B_2` vector
-pentagon residual `0.285_239_560_970_874_55` and the `D_3` vector pentagon
-residual `0.129_099_444_873_580_74` (both must close to `~1e-12`), and
-`B_2 F(1, v, v; adj | v, adj) = 0.0` where F-unitarity forces `1.0`. `C_r`'s
-`Setup_SpN` order happens *already* to be descending-weight, so the correction
-moves **no** `C` value; it moves `B`/`D` values wherever the defining rep enters
-a product or a coupled channel — including, transitively, every irrep whose
-canonical-parent chain passes through the defining rep, and hence the `Spin(N)`
-coefficients coupling into those irreps. That is a value move, so it ships as a
-specification correction under [`gauge.md`, "Status"](gauge.md#status-frozen-normative-specification):
-this amendment, the `epoch = 2` bump, the regenerated `tests/gauge_golden.rs`
-values, and the CHANGELOG breaking-change entry, in the same change.
+The epoch-2 correction removed the defining seed's raw `Setup_*` frame and
+base-case coherence exemptions, which had mixed incompatible frames in F/R.
 
-**Candidate-set restriction (class-indexed).** Let `[c] ∈ P/Q` be the central
-class of `c`. If `[c]` lies in the **tensor sublattice** (`{0}` for `B_r`/`C_r`,
-`{0, v}` for `D_r`), the candidate set of condition 1 below is further
-restricted to irreps of the tensor sublattice. Otherwise it is the full
-`≺`-below set of the cover. Consequently the frame of a tensor irrep is computed
-**without reference to any spinor irrep**. This is a deliberate restriction, not
-a consequence of `≺`; it is what makes a coefficient a function of the irrep
-alone and not of the form it was queried through, and it is what keeps
-the tensor-irrep values independent of the spinor sector. (Letting the parent
-search range over the whole cover would move values — the measured `Spin(5)`
-diagnostic shows the `SO(5)` adjoint's canonical parent moving from `(V,V)`,
-pair key `dim_a+dim_b = 10`, to `(4,4)`, pair key `8` — so it would be an
-epoch-bumping specification correction.) Every other (`non-base`) irrep
+**Candidate-set restriction.** For a tensor irrep (integer ε-basis weight),
+only tensor irreps are candidate factors. For a spinor, both classes are
+candidates. Tensor frames therefore do not depend on the spinor sector.
+Every other (`non-base`) irrep
 `c` has a **canonical parent pair** `(a, b)`, defined as the minimum, under the
 **pair order**
 
@@ -654,21 +481,9 @@ factor first wins. `c`'s generators are then the projected generators (§6) of t
 `c`-block produced by decomposing `a ⊗ b` (the outer-multiplicity-0 copy when
 `N^c_{ab} > 1`; §14.5 states precisely in what sense the copies agree).
 
-**Two separate orders, by design.** The **candidate set** (condition 1) is filtered
-by the box-count-first well-order `≺` (§14.1) — that is what makes the recursion
-terminate and the existence proof valid. The **selection** among admissible pairs
-uses the dimension-based `key(a,b)` above — box count is irrelevant to numerical
-stability, whereas total dimension is (smaller product space ⇒ balanced split ⇒
-shallow chain ⇒ less round-off). Under the box-count-first candidate order the
-D₃ chirality labels `(0,0,2)`/`(0,2,0)` have the admissible parent
-`(defining, (0,1,1))`.
-
-**Admissibility.** The **admissibility condition (1)**, `a ≺ c ∧ b ≺ c` under the
-box-count-first `≺`, is the precise, computable-from-`directproduct` statement of
-"already catalog-reachable"; §14.4 proves it is both non-empty and well-founded.
-The alternative anchoring "always take `a` = defining" is not used: it forces `depth ~ box(c)` (one box per
-level, §14.6), maximizing chain-depth error accumulation, whereas the `dim_a+dim_b` minimizer favors **balanced** splits and
-shallow chains (measured: C2 `Sym⁶`, dim 84, has depth 3, not 5).
+The box-first order filters candidates and makes recursion well-founded;
+the dimension-based pair key chooses among them. Neither order depends on
+query order or numerical residuals.
 
 ### 14.3 On-demand recursion (materialization)
 
@@ -685,43 +500,16 @@ materialize(c):
     harvest the resulting blocks           # §14.5
 ```
 
-Because each recursive call is on a **strictly `≺`-smaller** irrep and `≺` is a
-well-order, the recursion terminates — it cannot descend forever, and it bottoms
-out at the base cases (the `≺`-minimal irreps). This replaces QSpace's fixed-pass
-`dmax` enumeration (the bootstrap loop around `getSymmetryStates`,
-`clebsch.cc:6649-6773 @ dd2cc7e`): racah does **not** enumerate a fixed sequence
-of product passes up to a dimension cap; it materializes exactly the chain a query
-needs, in an order fixed by `≺` rather than by a pass counter — so the gauge is
-query-order-independent **structurally**, not procedurally.
+Recursion descends strictly in `≺` and ends at base cases. This replaces
+QSpace's fixed-pass, dimension-capped bootstrap (`clebsch.cc:6649-6773`).
 
 ### 14.4 Existence (every non-base irrep has a canonical parent)
 
-The candidate set (pairs meeting conditions 1–2 of §14.2) is **non-empty** for
-every non-base `c`, so the minimum exists. Argument: every tensor irrep of
-`SO(N)`/`Sp(2N)` lives in a tensor power of the defining (vector) rep `V`;
-this argument covers the tensor class (§0), and the spinor class is covered by
-the spinor branch below. For non-trivial tensor `c`, the product `V ⊗ c` contains a component `b`
-obtained by **removing one box** from `c`'s highest weight (lowering the absolute
-value of one part of the partition by 1). Then `box(b) = box(c) − 1 < box(c)`, so
-`b ≺ c` under the box-count-first order — **regardless of `dim(b)`** (this is the
-crux: `dim(b)` may exceed `dim(c)`, as for `D₃` `b=(0,1,1)` dim 15 vs `c=(0,0,2)`
-dim 10, and a dim-first order would wrongly exclude it). The defining rep has
-`box(V)=1`, and for any non-base `c` (`box(c) ≥ 2`) we have `box(V)=1 < box(c)`, so
-`V ≺ c`. By Frobenius reciprocity `N^c_{V,b} = N^b_{V*,c} = N^b_{V,c} ≥ 1` (`V` is
-self-dual), so `c ∈ V ⊗ b`. Thus `(V, b)` satisfies conditions 1–2, and the
-candidate set is non-empty. The actual canonical parent is the `key`-minimum over
-this non-empty finite set, which may be a more balanced pair than `(V, b)`. ∎
-
-**Spinor branch.** For a spinor `c` that is not a base case, write
-`λ = μ + ω` with `ω` the fundamental spinor of `c`'s chirality and `μ` a
-non-zero integer partition (this is what "not a base case" means: `box(c) > r`).
-Removing one box from `μ` gives a dominant spinor `b` with
-`box(b) = box(c) − 2 < box(c)`, so `b ≺ c`; and `box(V) = 2 ≤ box(c) − r < box(c)`
-for every rank in scope, so `V ≺ c`. `V` is in `c`'s candidate set because the
-restriction clause above does not apply to a spinor `c`. By Frobenius
-reciprocity (`V` self-dual, as in the tensor argument) `c ∈ V ⊗ b`, so `(V, b)`
-is admissible and the candidate set is non-empty. The `≺`-minimal spinors are
-exactly the base cases of §14.2. ∎
+The candidate set is nonempty for a non-base irrep: removing one tensor box
+provides a smaller parent through the self-dual defining representation and
+Frobenius reciprocity. The same reduction applies to non-base spinors, ending
+at a fundamental spinor. Use the doubled count of §14.1 throughout.
+For background see [Fulton–Harris](references.md#bibliography).
 
 The search is finite and computable from `directproduct` alone: enumerate the finite set
 `{ x : x ≺ c }` (contained in the irreps with `box(x) ≤ box(c)`, obtained by a
@@ -750,89 +538,38 @@ This is what makes the stored gauge independent of which product happened to be
 decomposed — a second product that rediscovers `c'` finds it already present and
 **never** writes.
 
-**Deviation-by-design from QSpace's cross-copy check
-(`clebsch.cc:6710-6718 @ dd2cc7e`).** QSpace, lacking a canonical-parent rule,
-reaches the same coupled irrep `J` from multiple products and reconciles the
-copies at runtime: it compares the freshly projected generators `G` against the
-stored `G0` with `normDiff(G,G0,1e-10)` and aborts on disagreement, and it may
-**replace** the stored copy when the new one has a smaller commutator error
-(`e2 ≤ 0.5·e0 ⇒ saveR=2`, the "replacing RStore" branch). fusion-symbols' canonical-parent
-rule makes a second *written* copy **structurally impossible**, so there is
-nothing to reconcile and nothing to replace — the replacement branch has no
-analogue. Where a non-canonical product *rediscovers* an already-stored `c'`, racah
-keeps only a **debug-assert-class** check: the rediscovered block's Cartan (weight)
-spectrum, compared as a **multiset** of per-state weight vectors, must match the
-stored generators' (cheap, loud, `debug_assert`). The comparison is a multiset,
-not state-by-state, because only the weight *content* is gauge-independent, not the
-state *order*: a stored **base-case** entry (the defining seed, whose native
-basis is *not* the sweep's descending-weight order, §6/§7) carries the same weights
-in a different order than a fresh sweep block — a state-by-state check would false-
-positive there. QSpace's error-driven replacement is deliberately dropped: the
-canonical parent — not "whichever copy is numerically cleaner this run" — fixes the
-gauge, so the stored copy must never depend on runtime residuals.
-
-**On "the copies agree" (the OM ≥ 2 and rediscovery claim).** What is asserted is
-the multiset above, which is a theorem: the projected `Sz` eigenvalues of any block
-labelled `c` are exactly the weight system of the irrep `c` (§6 gates each `R.Sz`
-diagonal and integer-snaps it; the weight system is an intrinsic, gauge-independent
-invariant of `c`). The *full* generator matrices `R.Sp`/`R.Sz` of two copies are
-**not** claimed bitwise-equal in general — that would require the descending-weight
-gauge (§7) plus the sign convention (§8) to pin every ladder sign uniquely, which
-holds for multiplicity-free weight systems but is not proven for degenerate ones.
-racah does not depend on that stronger statement: query-order independence follows
-structurally from the canonical **factor** bases (`a`, `b` are materialized from
-their own canonical parents), and the stored `c` generators come from `c`'s *one*
-canonical parent — never reconciled against another copy. The multiset check is the
-honest, provable sanity gate; the stronger per-matrix agreement is left unclaimed.
+QSpace may replace stored generators by a numerically cleaner rediscovery
+(`clebsch.cc:6710-6718`). Here the canonical parent fixes the stored copy;
+rediscovery never replaces it. A loud `debug_assert` compares the Cartan weight
+multisets, not complete generator matrices. Returning CGC additionally requires
+the canonical-frame alignment and coherence gate of §15, including base cases.
+Full generator matrices of unaligned copies are not claimed identical.
 
 ### 14.6 Atomicity of the byte budget
 
-The catalog is byte-bounded. A materialization that would exceed the budget fails
-with a typed error **before any commit**, leaving no partial chain. The mechanism
-is **compute-fully-then-commit**: the whole chain's new generator sets are
-assembled in a staging buffer (reading committed entries and the staging buffer,
-appending only what is missing), the staging buffer's total byte charge is added
-to the current retained bytes, and only if the sum is within budget are the staged
-entries committed; otherwise the staging buffer is discarded untouched. Because
-the chain is a deterministic function of `c` (§14.2–14.5), the failed request is
-reproducible and the committed state is exactly what it was before the call. Incremental
-commit-as-you-go is not used because it could leave a half-registered chain on
-the entry that overflows.
+Materialize the whole missing chain into a staging buffer. Commit all new
+generator sets only if their total charge plus retained charge fits the budget;
+otherwise discard the staging buffer and return a typed error. No partial
+chain is committed. This bounds retained charge, not transient memory.
 
 ### 14.7 What the catalog does NOT own
 
-CGC/F/R **values** are not stored in the catalog: `cgc(a,b,c)` returns
-the isometry to the caller and does not cache it here. The catalog owns only
-generator **sets** and a byte counter. The generators are `f64` (§12); a chain of
-depth `d` accumulates round-off across `d` sweeps, but each sweep re-gates the
-commutator relations at `≤ EPS_SWEEP` (§6), so a stored set's residual is bounded.
-Measured accumulation stays deep below the gate (C2 symmetric powers: depth-3 sets
-have worst commutator residual `~10⁻¹⁴`).
-
----
+The catalog retains generator sets and their byte charge. CGC and F values
+are cached in separate process-global coefficient caches; catalog reset does
+not invalidate those caches. R is recomputed from cached CGC on every query
+(`src/lie/bcd/fr.rs::r_symbol`); it has no separate cache. Every materialized
+generator set passes the commutator gate at `EPS_SWEEP`.
 
 ## 15. Intertwiner alignment of rediscovered frames (this IS gauge)
 
-Reference: issue #29.
-This section is the re-derivation-standard specification of the rung that turns a
-rediscovered coupled block's frame into the **canonical** frame before its CGC is
-returned. It is gauge: it deterministically fixes the frame of every coupled
-multiplet, so a value-affecting change here is a breaking release.
+Before returning CGC, align rediscovered coupled frames to the stored
+canonical frame. This alignment is part of the gauge.
 
 ### 15.1 The problem it fixes
 
-The sweep gauge (§6–§8) is intrinsic in exact arithmetic but analytically
-**ill-conditioned**: a near-rank-deficient weight space (QR conditioning) can leave a coupled multiplet in an O(1)-**rotated** frame
-between two embeddings of the same irrep. The projected generators then carry the
-correct weight *system* (§6 gates each `R.Sz` to the intrinsic, gauge-independent
-weight multiset) but differ from the stored canonical generators by an orthogonal
-rotation inside each degenerate weight space. the generator coherence residual (the
-restored QSpace `normDiff` guard, `clebsch.cc:6710-6718 @ dd2cc7e`) measures that
-rotation: a well-conditioned embedding agrees to `~1e-15`; a rotated one is O(1)
-(e.g. the D3 `84 = (0,2,2)` at residual 3.65). Because the precondition is analytic
-(frame conditioning), not combinatorial, no OM/label predicate can pre-select the
-rotated channels — the frame must be *measured and repaired*, exactly as the
-reference measured it.
+Numerical decomposition can rotate a degenerate weight space between
+embeddings of the same irrep. Weight multisets alone cannot detect that frame
+mismatch. Generator coherence must be checked on every returned coupled copy.
 
 ### 15.2 The alignment
 
@@ -865,26 +602,16 @@ A · W_S  =  W_T · B ,   A = R_can[i]ᵀ|_{T,S},   B = R_block[i]ᵀ|_{T,S}
 Stacking `C = A·W_S` and `B` over all `(i, S)`, `W_T` is the orthogonal
 **Procrustes** solution of `W_T·B = C`, i.e. `W_T = U·Vᵀ` from `SVD(C·Bᵀ)`.
 
-Why this does **not** reintroduce the QR near-tie sensitivity: the
-tempting-but-wrong justification is "`C·Bᵀ` is orthogonal up to noise, singular
-values `≈ 1`". That is false — `C·Bᵀ = W_T·(B·Bᵀ)` has *ladder-sized* singular
-values (the squared singular values of the stacked lowering map). The correct
-argument: `B·Bᵀ` is symmetric PSD, so the orthogonal polar factor of `C·Bᵀ` is
-**exactly** `W_T`, and `U·Vᵀ` recovers that polar factor. Unlike the QR near-tie
-danger class there are **no discrete choices** here (no rank cuts, pivots, or
-keep/drop): `U·Vᵀ` is a *continuous* function of the data near nonsingular `B·Bᵀ`,
-and the target frame is the fixed canonical one, so platform noise perturbs `W_T`
-only at round-off scale. A genuinely singular `B·Bᵀ` (the only conditioning
-hazard) surfaces as a loud post-alignment residual failure (§15.5), never a silent
-wrong value. Processing weight spaces in descending-weight order guarantees every
-source `S` (strictly higher weight) is solved before its target.
+Process weight spaces in descending-weight order, with the highest-weight
+block `+1`. The polar factor is unique for nonsingular `B·Bᵀ`; a numerical
+failure must remain a post-alignment coherence error (§15.5).
 
 ### 15.4 Uniqueness / the `±1` (D-odd chirality included)
 
 The commutant of an irrep in the real-matrix ladder basis is `ℝ·I` for all three
 series and both chiralities of the D-odd spinor-tensor labels: complex-type
 Frobenius–Schur structure lives in the compact-unitary picture and creates no
-`SO(2)` rung in the real ladder basis. So
+`SO(2)` freedom in the real ladder basis. So
 `W` is determined up to the single global sign, which §8 pins. There is no
 continuous gauge freedom left to fix beyond the per-degenerate-space orthogonal
 block the ladder already determines.
@@ -905,27 +632,19 @@ path so no stored value is perturbed.
 
 When `N^c_{ab} ≥ 2`, alignment runs **per copy**: each copy's coupled-side frame is
 rotated onto the canonical `R_can` independently, so all copies share one carrier
-frame and every four-CGC contraction over the shared `c` leg is coherent (this is
-what unblocks the OM≥2 batteries). The OM *index* order is the catalog's existing
-discovery-order convention (§9). The residual freedom of the O(N) multiplicity-space
+frame and every four-CGC contraction over the shared `c` leg is coherent.
+The OM *index* order is the discovery order (§9). The residual freedom of the O(N) multiplicity-space
 mixing is **not** further canonicalized here: the F/R self-consistency gates and the
 gauge-invariant isotypic projector `P = Σ_μ C_μ C_μᵀ` are both invariant under it,
 and a full canonical multiplicity gauge is not specified.
-This is the one alignment freedom this rung deliberately does not pin.
-
----
+The discovery order (§9) remains normative; alignment adds no multiplicity-space
+rotation rule.
 
 ## 16. The spinor base cases (`Spin(N)`)
 
-Sections 1–15 fix the gauge of everything the bootstrap *computes*. This section
-fixes the remaining input: the generator matrices of the second base case, the
-fundamental spinors, which no product can produce. Every choice below is
-value-affecting and therefore part of the frozen contract; the pinned values are
-in `tests/gauge_golden.rs` (`Spin(5)`, `Spin(6)`, `Spin(7)`, `Spin(10)` CGC and
-a `Spin(6)` F block). Implementation: the Clifford seed construction in `src/lie/bcd/seeds.rs`.
-
-`C_r = Sp(2r)` is simply connected and has no spinor sector; this section is
-about `B_r` and `D_r` only.
+The B/D fundamental spinors are additional base cases, implemented in
+`src/lie/bcd/seeds.rs::spinor_seeds`. Their state and generator conventions
+are value-fixing. C-series has no spinor sector.
 
 ### 16.1 Carrier and index order
 
@@ -954,17 +673,12 @@ the Cartan columns read in reverse, i.e. descending in `(λ_1,…,λ_r)`, i.e.
 descending in the bit-reversed occupation string. A spinor's weights are
 non-degenerate, so there are no ties and §7's tie-break never fires.
 
-Building the spinor seed in the sweep's own order means a spinor rediscovered
-inside a product presents the same frame as the stored seed, so the §15
-coherence guard and the intertwiner alignment apply to a spinor base case
-exactly as they do to any non-base irrep — it is not exempted from them. Since
-`epoch = 2` (issue #90) the same is true of the QSpace-ported defining seed,
-whose native `Setup_*` order is *not* descending-weight and which is therefore
-put through one sweep pass over its own carrier (§14.2): there is exactly one
-frame convention in the specification, and no base-case exemption anywhere.
+Spinor and defining seeds both enter the catalog in the sweep frame; neither
+is exempt from canonical-frame coherence checks (§14.2, §15).
 
 ### 16.2 Generators
 
+The following formulas use one-based mode and generator indices.
 With `c_k`, `c_k†` the Jordan–Wigner fermion operators of mode `k`
 (`c_k|n⟩ = (−1)^{Σ_{l<k} n_l} n_k |n − e_k⟩`, and the adjoint for `c_k†`), on
 QSpace's node order (`Sp[i]` carries the simple root `α_{r-i}` for `i < r` and
@@ -981,16 +695,9 @@ Sp[r] = c†_{r-1} c†_r             (D_r,     root ε_{r-1} + ε_r)
 The Jordan–Wigner sign convention is part of the gauge: it fixes the sign of
 every seed entry, hence of every spinor coefficient downstream.
 
-**The `1/√2`.** `src/lie/bcd/seeds.rs` records that no *defining* seed needs an
-irrational entry. The `B_r` spinor seed does, in exactly one generator, and the
-value is forced rather than chosen: QSpace's short-root `Sp[r]` satisfies
-`[Sp_r, Sp_r†] = Sz_1 = ½ α_r^∨` — read off the defining seed, where the
-`α_r`-string is a spin-1 triplet with matrix elements `√2` and QSpace's entries
-are `1`. In the spinor the same string is a doublet with matrix elements `1`, so
-the entry must be `1/√2`. It is stored as the exact **squared** rational scale
-`Seed::raising_scale2`, which keeps the self-check exact: the scale cancels in
-`[Sz_j, Sp_i] = d_{i,j} Sp_i` and enters `[Sp_i, Sp_i†] = Σ_k f_{i,k} Sz_k` only
-quadratically. The Cartan scale `½` is carried the same way.
+The B short-root scale gives `[Sp_r, Sp_r†] = Sz_1`. It is carried as the
+exact squared rational `Seed::raising_scale2 = 1/2`; the Cartan scale is `1/2`.
+Jordan–Wigner signs and these scales are part of the gauge.
 
 ### 16.3 Verification gate
 
@@ -1005,19 +712,8 @@ describes.
 
 ### 16.4 Fingerprint
 
-`FusionCategory::authority_fingerprint()` gains **no new tag** for the spinor sector, and
-the spinor sector by itself moves no `epoch` (the current `epoch` is `3`
-after the §4a QR correction of issue #150; epoch `2` corrected the
-§14.2 base-case frame in issue #90).
-
-The tag list is normative and its bytes are contractually stable: the
-fingerprint "changes exactly with a specification correction" (`src/lie/bcd.rs`,
-consumer contract). Adding a `spinor=` tag would change the bytes without a
-specification correction, and would force every consumer holding persisted
-`SO(N)`/`Sp(2N)` coefficients — every one of which is byte-identical across the
-§16 change — to treat them as invalid. Nothing an earlier version could produce
-moves, and no earlier version could produce a spinor coefficient at all, so the
-existing bytes remain a truthful answer to the question the fingerprint exists
-to answer ("was this derived data produced under the same conventions?"). A
-later change to §16 *would* move spinor values, and that is an ordinary
-epoch-bumping specification correction at that time.
+The existing tag list in `src/lie/bcd.rs::bcd_authority_fingerprint` covers the
+spinor sector without an extra spinor tag. The current epoch is 3 (independent
+column QR); epoch 2 corrected base-case frames. A value-changing spinor
+specification correction requires the same family epoch bump as any other
+B/C/D correction. Fingerprint `racah:` prefixes are permanent identifiers.

@@ -142,9 +142,7 @@
 //!
 //! - [User Guide] — task-oriented: pick a group, build irreps, fuse, get CGC,
 //!   get F/R, bound the caches. Start here if you are new.
-//! - [`docs/theory.pdf`] — a self-contained note on the objects this API
-//!   computes (irreps, fusion multiplicities, CGC and gauge, recoupling, the
-//!   two constructions, the exactness contract).
+//! - [`docs/overview.md`] — design, labels, capabilities and error contracts.
 //! - [`docs/gauge.md`] / [`docs/gauge_soN.md`] — the frozen normative gauge
 //!   specifications. Reference documents, not tutorials.
 //! - [`docs/references.md`] — porting provenance (`file:symbol`-level) and the
@@ -152,7 +150,7 @@
 //!
 //! [User Guide]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/user-guide/README.md
 //! [guide-resources]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/user-guide/resources.md
-//! [`docs/theory.pdf`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/theory.pdf
+//! [`docs/overview.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/overview.md
 //! [`docs/references.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/references.md
 //! [`docs/references_categories.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/references_categories.md
 //! [`docs/gauge.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/gauge.md

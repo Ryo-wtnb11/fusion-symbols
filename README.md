@@ -7,62 +7,44 @@
 [![codecov](https://codecov.io/gh/Ryo-wtnb11/fusion-symbols/graph/badge.svg)](https://codecov.io/gh/Ryo-wtnb11/fusion-symbols)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-Symmetry data for symmetric-tensor libraries in Rust, inspired by
-TensorKitSectors.jl.
+Representation and fusion-category data in Rust, inspired by
+[TensorKitSectors.jl](https://github.com/QuantumKitHub/TensorKitSectors.jl):
+labels, fusion multiplicities, dimensions, duals, Frobenius–Schur data,
+Clebsch–Gordan coefficients (CGC), and F/R symbols.
 
-For each supported symmetry, fusion-symbols provides only the sector data:
-which sectors exist, how they fuse, and their recoupling data (dimensions,
-duals, Frobenius–Schur data, F- and R-symbols, twists, Clebsch–Gordan
-coefficients), in TensorKitSectors.jl conventions. Tensors and tensor
-operations are not part of fusion-symbols; symtn is the first consumer.
+This is a standalone mathematical provider. Consumers own tensors and tensor
+operations. Intentional differences include runtime generation for higher-rank
+Lie groups, explicit category values, validated Rust labels, bounded caches,
+and a frozen coefficient gauge. Tables retain AnyonWiki's gauge. See
+[differences from TensorKitSectors](docs/tensorkitsectors-differences.md).
 
-Unlike TensorKitSectors, it is a standalone provider with no tensor engine
-behind it.
-Differences in detail are listed in docs/.
+## Supported families
 
-## Status
-
-The modules follow the mathematical classification: `lie` contains
-positive-dimensional compact Lie groups; `finite` contains finite groups.
-Base entries also work with `default-features = false`.
-
-| Module | Supported data | Feature |
-|---|---|---|
-| `category` | Shared `FusionCategory` contract, styles, scalar blocks and identity residuals | default |
-| `lie` | SU(2), SO(3), Spin(3), Sp(2), PSU(2) through `LieGroup`; exact evaluators in `lie::su2` | default |
-| `lie` | SU(N), SU(N)/Z_k, PSU(N), SO(N), Spin(N), Sp(2N) and their supported global forms | `lie-generated` (default) |
-| `lie` | Closed-form U(1) and CU(1) = U(1) ⋊ C = O(2), via `U1`, `CU1` | base |
-| `finite` | Finite cyclic groups Z_N (including Z2) via `ZN` | base |
-| `fermion` | Fermion parity via `FermionParity`, with `FermionParityIrrep` labels | default |
-| `table` | 74 unitary multiplicity-free AnyonWiki categories of rank ≤ 4, including Fibonacci and Ising | default |
-| `table` | 303 further AnyonWiki categories of rank 5–7 | `anyonwiki-unitary` |
-| `product` | Ordered Deligne products of 2..=12 immediate factors, with explicit nesting | default |
-| `cache` | Coefficient-cache budgets, statistics, reset and trimming | default; generated tiers with `lie-generated` |
-
-The exact SU(2) evaluators live under `lie::su2`; category operations use
-`lie::LieGroup` and `category::FusionCategory`. In the `lie-generated` surface, the
-fingerprint bytes of the generated families (SU(N), SO/Spin/Sp),
-`cache::GENERATED_CACHE_MAX_BYTES` and `cache::GeneratedCacheStats` are marked
-unstable in their rustdoc.
-
-This crate succeeds the [`racah`](https://crates.io/crates/racah) crate on
-crates.io (0.2.4), preserving its coefficient gauges under `fusion_symbols::`
-with a common category interface.
-There are no Python bindings in this repository; the last release of the
-earlier bindings is `racah-py` 0.1.2 on PyPI (import name `racah`), which is no
-longer developed here (#130).
+| Module | Provides |
+|---|---|
+| `category` | Shared `FusionCategory` contract, symbol blocks, identity residuals |
+| `lie` | Exact rank-one symbols; U(1), CU(1) = O(2); generated SU(N), SO(N), Spin(N), Sp(2r) and supported global forms |
+| `finite`, `fermion` | Cyclic groups Z_N; fermion parity |
+| `table` | 74 unitary multiplicity-free AnyonWiki categories of rank ≤ 4, including Fibonacci and Ising |
+| `product` | Ordered Deligne products of 2..=12 immediate factors, preserving nesting |
+| `cache` | Coefficient-cache budgets, statistics, reset and trimming |
 
 ```toml
 [dependencies]
-fusion-symbols = "0.5"
-# To omit generated Lie coefficients and the dense backend:
-# fusion-symbols = { version = "0.5", default-features = false }
+fusion-symbols = "0.7"
+# Omit generated Lie coefficients and the dense backend:
+# fusion-symbols = { version = "0.7", default-features = false }
 ```
+
+`lie-generated` is enabled by default and uses sequential t4a-faer kernels;
+the caller owns parallelism. `anyonwiki-unitary` adds 303 table categories of
+rank 5–7 without a new dependency. See the [design](docs/overview.md) for
+labels, capabilities and error contracts.
 
 ## Example
 
-Exact SU(2) 6j (no features). Spins are doubled (`dj = 2j`), so `2` means
-spin 1; `{1 1 1; 1 1 1} = 1/6`:
+Exact SU(2) 6j, available without default features. Spins are doubled
+(`dj = 2j`), so `2` means spin 1:
 
 ```rust
 use fusion_symbols::lie::su2::wigner_6j;
@@ -73,20 +55,15 @@ assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
 
 ## Documentation
 
-- [Overview](docs/overview.md): supported groups, feature flags, more
-  examples, exactness and verification status.
-- [Differences from TensorKitSectors.jl](docs/tensorkitsectors-differences.md).
-- [User Guide](docs/user-guide/README.md), task by task.
-- API reference: [docs.rs](https://docs.rs/fusion-symbols).
-- [Theory](docs/theory.pdf) ([source](docs/theory.tex)).
-- Gauge specification (normative, frozen): [`docs/gauge.md`](docs/gauge.md),
-  [`docs/gauge_soN.md`](docs/gauge_soN.md).
-- Provenance: [`docs/references.md`](docs/references.md),
-  [`docs/references_categories.md`](docs/references_categories.md).
-- Developer docs: [`docs/developer/`](docs/developer/README.md),
-  [`AGENTS.md`](AGENTS.md), [`tools/README.md`](tools/README.md).
-
-Documentation index: [`docs/README.md`](docs/README.md).
+- [Design and contracts](docs/overview.md), [using the API](docs/user-guide/README.md),
+  [resources and reproducibility](docs/user-guide/resources.md).
+- [API reference](https://docs.rs/fusion-symbols).
+- Frozen gauge specifications: [SU(2)/SU(N)](docs/gauge.md),
+  [SO(N)/Spin(N)/Sp(2r)](docs/gauge_soN.md).
+- [Algorithm references](docs/references.md),
+  [closed-form and table conventions](docs/references_categories.md).
+- [Contributor checks](docs/developer/README.md), [policy](AGENTS.md),
+  [test-oracle rules](tools/README.md).
 
 ## Acknowledgments
 

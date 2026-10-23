@@ -1,22 +1,5 @@
 # Coefficient gauge specification (base SU(2) and SU(N))
 
-> **AI-generated, for agentic coding.** This document was written by an AI agent
-> as reference material for AI agents (and humans) working on this repository,
-> and its prose may contain errors. Its **gauge values are not commentary**:
-> they are the frozen normative specification of fusion-symbols' conventions, verified
-> by the golden tests. Code follows this document — where the two disagree, the
-> code is the bug.
-
-
-**Role in the documentation set.** This is a *specification*, not a tutorial:
-it is written to be checked against, not read through. If you are learning the
-library, start with the [User Guide](user-guide/README.md); if you want the
-mathematics, see [`theory.pdf`](theory.pdf); for per-item API semantics see
-[docs.rs](https://docs.rs/fusion-symbols). Come here when you are comparing fusion-symbols'
-values against another implementation, auditing a sign or an index order, or
-changing code that touches a coefficient value. Documentation map:
-[`docs/README.md`](README.md).
-
 This document specifies the **gauge** of the coefficients this crate returns —
 the deterministic rules that fix the otherwise free basis, sign, and ordering of
 every coefficient. It covers the base SU(2) family (§12) and the SU(N) family
@@ -27,35 +10,11 @@ every coefficient. It covers the base SU(2) family (§12) and the SU(N) family
 
 **This document is the authority. The code is an implementation of it.**
 
-That direction is the whole point, so it is worth stating without hedging.
-A gauge that means "whatever the current code outputs" gives a consumer nothing:
-every internal refactor — a rewritten loop with a different iteration order, a
-swapped-in factorization kernel with a different pivot, a "tidied"
-multiplicity-column order — silently redefines the gauge, and a consumer's
-checkpointed coefficients quietly stop matching what the crate now produces,
-with no signal anywhere. Under this freeze the arrow points the other way:
-
-- The rules below **define** the coefficient values. A build that returns a
-  value contradicting a rule here has a **bug** — by definition, not by
-  judgement. The right fix is to restore the specified value, not to redefine
-  the gauge to match the new output.
-- The rules below are **complete for value-fixing purposes**. Every discrete
-  choice that can move a returned value (basis order, column order, pivot rule,
-  tie-break, sign convention, rank cut, descent order, multiplicity-axis order,
-  the value-fixing tolerance tier) is stated here. A choice the implementation
-  makes that is *not* stated here is not gauge, and is free to change.
-- Several rules are **implicit in the implementation** — fixed by an inherited
-  iteration order or by a comparison operator rather than by anything that looks
-  like a convention. Those are called out at the point of use with the phrase
-  *implicit in the code, normative here*. Implicitness is exactly what makes them
-  easy to break by accident, so being written down is the only protection they
-  have.
-- The **authority fingerprints are the version of this specification**, not a
-  label for the current build's output. `FusionCategory::authority_fingerprint()`
-  changes only when the specification it cites is corrected.
-- The fingerprint strings keep their `racah:` prefix **permanently**: they are
-  identifiers, not a crate name. The rename to `fusion-symbols` does not change
-  them, and no later change should "fix" the prefix.
+Every discrete choice that fixes values is normative below. A conflicting
+coefficient is a bug; restore the specified value rather than redefine the
+gauge. Authority fingerprints version this specification, not a build's output.
+These rules are complete for value-fixing purposes; implementation choices not
+specified here are not gauge. Their `racah:` prefixes remain permanent identifiers.
 
 ### Operational rule for changing a value
 
@@ -67,8 +26,8 @@ correction**, and it requires, in the same change:
    the defect it corrects stated — what the old rule got wrong, not merely what
    the new rule says.
 2. **A fingerprint bump.** The affected family's `epoch=N` tag incremented in
-   `lie/su2.rs::fingerprint` / `lie/sun.rs::fingerprint` /
-   `lie/bcd.rs::bcd_authority_fingerprint`, and the pinned literal in the matching
+   `src/lie/su2.rs::fingerprint` / `src/lie/sun.rs::fingerprint` /
+   `src/lie/bcd.rs::bcd_authority_fingerprint`, and the pinned literal in the matching
    `tests/*_fingerprint.rs` updated in the same PR. Epochs are per-family and
    independent: correcting the SU(N) spec never invalidates SU(2)- or
    B/C/D-derived consumer state.
@@ -77,29 +36,16 @@ correction**, and it requires, in the same change:
    coefficients are stale.
 4. **Regenerated golden values** (`tests/gauge_golden.rs`) in the same commit.
 
-Anything that moves a value without those four is a defect. `tests/gauge_golden.rs`
-is the tripwire that makes it fail loudly rather than ship: a small committed
-table of coefficient values asserted at `1e-12`, running in the default
-`lie-generated` test run with no reference toolchain in the loop.
+A value change without these four steps is a defect. `tests/gauge_golden.rs`
+pins representative signed coefficients at `1e-12`.
 
-**What is *not* a specification correction**, and so needs none of the above:
-anything that cannot move a returned value. Tightening the `TOL_ORTHO` /
-`TOL_LADDER` verification gates (§9), reorganizing code, changing the dense
-backend (§10), changing cache behaviour, and editing prose are ordinary changes.
-
-The contract is *value agreement within the oracle tolerance*, not cross-process
-bit-identity — see the next paragraph. Two builds under the same specification
-version may differ by a few ULPs; that is not a spec deviation.
-
----
-
-The contract is *value agreement within the oracle tolerance*, not cross-process
-bit-identity: backend kernels and SIMD dispatch can vary across machines,
-so two independent generations of the same coupling can differ by a few ULPs
-(within a single process the cache serializes all readers to one winner value).
+Prose, cache and implementation changes that preserve specified values require
+no epoch bump. Verification-only tolerances may be tightened without changing
+the gauge. The contract is agreement within oracle tolerance, not cross-process
+bit identity: independent dense-backend generations may differ by a few ULPs.
 
 **§1–§11 specify the SU(N) family** — the coefficients produced by
-`fusion_symbols::GroupRepresentations::cgc` and the F/R symbols contracted from them. The construction is
+`fusion_symbols::category::GroupRepresentations::cgc` and the F/R symbols contracted from them. The construction is
 a port of **SUNRepresentations.jl v0.4.0** (`src/`). Every choice below cites the
 reference `file:symbol` and its implementing function in this crate. A reader
 with this document and the reference source can re-derive the gauge without
@@ -110,8 +56,6 @@ end-to-end after the exact ladder matrices). What is exact and gauge-fixing is
 the *procedure*: the combinatorial basis order, the pivot/sign rules, and the
 descent order are discrete facts; only the final linear-algebra solve is
 floating point, and it is verification-gated.
-
----
 
 ## 0. Notation
 
@@ -124,8 +68,6 @@ floating point, and it is verification-gated.
   `m3 ∈ [0,d3)`, `μ ∈ [0,N)`. Indices `m` are 0-based positions in the GT basis
   order (§1); `μ` is the outer-multiplicity (trailing) axis (§8).
 
----
-
 ## 1. GT basis order (the load-bearing basis)
 
 The magnetic indices `m1, m2, m3` index the **Gelfand–Tsetlin pattern basis** in
@@ -136,14 +78,9 @@ the reference iteration order.
   admissible second rows `I[i+1]:I[i]` with the **last** sub-row entry varying
   fastest, recursing into `GTPatternIterator{N-1}` as the inner (faster) loop;
   pattern data is stored top row (`l = N`) first.
-- Port: `LieIrrep::gt_patterns` (`src/lie/sun.rs`), pinned index-for-index against an
+- Port: `src/lie.rs::LieIrrep::gt_patterns`, backed by `src/lie/sun.rs::Irrep::patterns`, pinned index-for-index against an
   in-test enumeration of this rule and the SUNRepresentations SU(3) adjoint
   basis (`tests/sun_oracle.rs`), and re-verified by the signed CGC values (§11).
-- *Implicit in the code, normative here*: nothing in `patterns` announces itself
-  as a convention — the order is whatever the recursive enumeration emits. It
-  nonetheless indexes every returned coefficient, so a rewritten enumeration that
-  emits the same *set* of patterns in a different order permutes `m1, m2, m3` and
-  is a specification deviation, not a refactor.
 - The highest-weight pattern (all rows equal to the top-row prefix) is the
   **last** basis index `d3 − 1`; this is where the highest-weight block is
   stored (`clebschgordan.jl:highest_weight_CGC`, `CGC[m1m2, d3, α]`).
@@ -155,8 +92,6 @@ The pattern **weight** used throughout is `gtpatterns.jl:weight(m)`: the
 The weight offset `wshift = ⌊(Σλ(s1) + Σλ(s2) − Σλ(s3)) / N⌋` maps an `s1`
 weight to the matching `s2` weight at fixed total: `w2 = w3 − w1 + wshift`
 (`clebschgordan.jl:highest_weight_CGC`; port `cgc.rs:Ctx::new`).
-
----
 
 ## 2. Highest-weight system
 
@@ -183,8 +118,6 @@ and the gauge consume, so it is part of the gauge. Rows are the distinct raised
 targets `(l, m1′, m2′)`, sorted and deduplicated (their order does not affect
 the nullspace).
 
----
-
 ## 3. Nullspace: tolerance and rank rule
 
 Reference: `clebschgordan.jl:_nullspace!`, called with `atol = TOL_NULLSPACE`.
@@ -210,8 +143,6 @@ nullspace = copy(SVD.Vt[indstart:end, :]')  # trailing right-singular vectors
 **Multiplicity gate.** `#{nullspace vectors} == directproduct(s1, s2)[s3]` must
 hold (`clebschgordan.jl` `@assert N123 == directproduct(s1, s2)[s3]`); a
 mismatch is the typed error `GenerationError (nullspace dimension mismatch)` (never silent).
-
----
 
 ## 4. Gauge canonicalization: `gaugefix! = first ∘ qrpos! ∘ cref!`
 
@@ -267,8 +198,6 @@ QR and folds each negative R-diagonal sign into Q; zero stays unflipped.
 
 The gauge-fixed highest-weight block is scattered into `C[·, ·, d3−1, μ]`.
 
----
-
 ## 5. Lower-weight descent: order and solve
 
 Reference: `clebschgordan.jl:lower_weight_CGC!`. Port: `cgc.rs:lower_weight_cgc`.
@@ -290,22 +219,16 @@ Reference: `clebschgordan.jl:lower_weight_CGC!`. Port: `cgc.rs:lower_weight_cgc`
   QR least squares in `linalg.rs::lstsq` (§10). Contributions accumulate into
   `C[·, ·, m3, α]`.
 
----
-
 ## 6. Purge
 
 Reference: `clebschgordan.jl:purge!`, `atol = TOL_PURGE = 1.0e-14`: drop every
 stored coefficient with `|v| ≤ 1e-14`. Port: `cgc.rs:purge`.
-
----
 
 ## 7. Trivial couplings
 
 Reference: `clebschgordan.jl:trivial_CGC`. `1 ⊗ s → s` gives `C[0, m, m, 0] = 1`;
 `s ⊗ 1 → s` gives `C[m, 0, m, 0] = 1` (identity embeddings, no linear algebra).
 Port: `cgc.rs:trivial_cgc`.
-
----
 
 ## 8. Outer-multiplicity axis
 
@@ -314,16 +237,11 @@ Port: `cgc.rs:trivial_cgc`.
   `qrpos!`). Their order on the
   trailing axis `μ` is therefore the column order that block produces — it is
   *not* an independent convention and cannot be chosen per column.
-  *Implicit in the code, normative here*: no line assigns `μ` indices; they fall
-  out of `cref`'s pivot walk. Sorting, reversing, or otherwise "normalizing" the
-  multiplicity columns is a specification deviation.
+  Reordering the columns changes the specification.
 - This is the same ordering SUNRepresentations produces (its 4th CGC index).
   The signed oracle (§11) checks OM ≥ 2 channels **including the `μ` order**, so
   a divergent column order would fail the oracle. (The
-  consumer-facing multiplicity order is pinned to TensorKit `[μ,ν,κ,λ]`; that is a
-  downstream adapter concern, outside this crate.)
-
----
+  F-block axis order is `[μ,ν,κ,λ]`; see the [API guide](user-guide/README.md#symbol-layout).)
 
 ## 9. Generation gates (typed, never silent)
 
@@ -339,17 +257,12 @@ violation is a typed `lie::GenerationError`, never a silently degraded coefficie
   highest-weight parent must reproduce the descended coefficients; residual
   `> TOL_LADDER` → `GenerationError (ladder inconsistency)`.
 
-`TOL_ORTHO = TOL_LADDER = 1e-9` are **not** reference constants; they are sized
-well above the f64 SVD/QR/descent round-off floor (`~√dim · eps ≈ 1e-14`) and
-far below any coefficient of interest, so a genuine gauge/algebra defect trips
-them while faithful round-off does not. Tightening them is not a gauge change
-(it cannot alter a returned value), so it is not a breaking release.
+`TOL_ORTHO = TOL_LADDER = 1e-9` are verification tolerances, not value-fixing
+reference constants. Tightening them does not change the gauge.
 
 Proven-unreachable invariant violations (e.g. a missing raised GT pattern when
 its ladder coefficient is nonzero) `panic` in every build (`src/lie/sun.rs::Irrep::creation`),
 per the crate's error discipline — those are not tolerance events.
-
----
 
 ## 10. Numerical seams (backend)
 
@@ -368,8 +281,6 @@ The crates.io semver requirement is in `Cargo.toml`. `cref!` is **not** a
 factorization kernel — it is the gauge algorithm itself and is ported directly
 in `cgc.rs` (§4a).
 
----
-
 ## 11. Verification (independent oracles)
 
 - **SU(2) embedding** (`src/lie/sun/su2_embedding_tests.rs::su2_randomized_sweep_matches_exact`): N = 2 CGC vs the crate's exact
@@ -387,8 +298,6 @@ correction under the four-step rule in **Status** above.
 
 The in-repo drift tripwire is `tests/gauge_golden.rs` (§Status); its SU(3)
 rows are checked against SUNRepresentations.jl v0.4.0.
-
----
 
 ## 12. The base SU(2) family
 
