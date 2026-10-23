@@ -435,7 +435,7 @@ Behaviour and persisted-data changes:
 
   The crate's `*_checked` twins are deliberately **not** bound: nothing has yet needed
   to distinguish "zero because forbidden" from "zero because zero". New User Guide
-  section in [`docs/user-guide/python.md`](docs/user-guide/python.md), executed by
+  section in [`docs/user-guide/python.md`](https://github.com/Ryo-wtnb11/fusion-symbols/blob/62c1ae46833c555ef488135635f8763052d32145/docs/user-guide/python.md), executed by
   `racah-py/tests/test_doc_examples.py`.
 
   The cost figure above is the **cold** path and is recorded here rather than asserted:
@@ -448,12 +448,12 @@ Behaviour and persisted-data changes:
   quickstart cannot rot silently.
 
 - **`racah-py` 0.1.1 — real Python documentation.** The wheel now ships full
-  type stubs ([`racah-py/racah.pyi`](racah-py/racah.pyi)) with per-function
+  type stubs ([`racah-py/racah.pyi`](https://github.com/Ryo-wtnb11/fusion-symbols/blob/62c1ae46833c555ef488135635f8763052d32145/racah-py/racah.pyi)) with per-function
   docstrings (precise NumPy types, array shapes, the CGC/F/R multiplicity-axis
   semantics, raised exceptions) plus the `py.typed` marker, so
   `mypy`/`ty`/IDEs resolve the typed surface. Every PyO3 function and method
   carries a matching `__doc__`. New User Guide chapter
-  [`docs/user-guide/python.md`](docs/user-guide/python.md): install from PyPI,
+  [`docs/user-guide/python.md`](https://github.com/Ryo-wtnb11/fusion-symbols/blob/62c1ae46833c555ef488135635f8763052d32145/docs/user-guide/python.md): install from PyPI,
   quickstart, worked CGC and F-symbol examples with the multiplicity axes in
   NumPy code, and the fingerprint/epoch contract for Python consumers.
   Documentation and packaging only — no behavior, value or fingerprint change.
@@ -561,7 +561,7 @@ tests and CI.
 - **`racah-py`**: PyO3/maturin Python bindings for the SU(N) surface, built as
   a workspace member with `cgc-gen` always on. Import name `racah`,
   distribution `racah-py`; abi3-py312 wheels are built by the `wheels`
-  workflow. See [`racah-py/README.md`](racah-py/README.md).
+  workflow. See [`racah-py/README.md`](https://github.com/Ryo-wtnb11/fusion-symbols/blob/62c1ae46833c555ef488135635f8763052d32145/racah-py/README.md).
 - **Coverage badges** — self-hosted llvm-cov badge branch plus Codecov
   integration ([#93](https://github.com/Ryo-wtnb11/fusion-symbols/pull/93)).
 - **`CITATION.cff`**, README badges and a Citation section

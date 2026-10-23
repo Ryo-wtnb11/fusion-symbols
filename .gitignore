@@ -9,7 +9,7 @@ Cargo.lock
 __pycache__/
 .pytest_cache/
 
-# LaTeX build artifacts (docs/theory.tex); the built theory.pdf IS committed.
+# LaTeX build artifacts.
 docs/*.aux
 docs/*.log
 docs/*.out
