@@ -71,6 +71,16 @@ as internal consistency gates.
 
 ## Local checks
 
+In [CI](../../.github/workflows/ci.yml), `test_suites` runs the complete default,
+all-features and base-only test suites (including doctests) in parallel. The
+required `test` check succeeds only when every suite succeeds; `fmt`, `clippy`
+and `doc` remain independent checks. CI tests use optimization level 1 and debug
+information level 1, with debug assertions and overflow checks enabled; the
+local commands below use Cargo's default profiles. Non-blocking `coverage`
+still runs on every main push with its unchanged profile. Target caching is
+retained, but only main saves caches; superseded PR runs are cancelled while
+main runs are not.
+
 ```sh
 cargo fmt --all --check
 RUSTFLAGS="-D warnings" cargo clippy --all-targets
