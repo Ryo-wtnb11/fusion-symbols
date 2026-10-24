@@ -12,7 +12,7 @@
 | Fermion parity | `src/fermions.jl`: `dual` (l. 34), `dim` (l. 35), `BraidingStyle = Fermionic()` (l. 39), `⊗` (l. 43), `Nsymbol` (l. 45), `Fsymbol` (l. 48), `Rsymbol` (l. 51), `twist` (l. 54); FS phase from the generic `src/sectors.jl:frobenius_schur_phase_from_Fsymbol` (l. 461) |
 | `dim`, bosonic twist | generic `src/sectors.jl:dim_from_Fsymbol` (UniqueFusion → 1, l. 429) and `twist_from_Rsymbol` (l. 646) |
 | Scalars | `f64` (exact ±1, 0); TKS declares `Int`. TKS values checked by hand in `src/finite.rs::tests::matches_measured_tensorkitsectors_values` |
-| Ported implementation | [symtn](https://github.com/Ryo-wtnb11/symtn-rs) `symtn-sectors/src/abelian.rs` at `49d09dc4fc0825b29d547e63a70014221c0c5406`; two deliberate differences: an inadmissible F or R is `0.0` here (symtn returns `±1.0` unchecked), and U(1) `N` is the exact `0` where `a + b` leaves `i32` (symtn's checked N fails) |
+| Overflow | U(1) `N` is the exact `0` where `a + b` leaves `i32`; only fusion, which must produce the label, reports the overflow |
 
 The public surface is `category::FusionCategory`, implemented by
 `lie::U1`, `finite::ZN` and `fermion::FermionParity`; `lie::U1` also
@@ -34,8 +34,8 @@ in `tests/category_conformance.rs::category_identities`.
 | `dim`, scalars | `dim` (l. 107); `fusionscalartype` / `braidingscalartype` `Float64` (l. 110-111) |
 | `Nsymbol`, `Fsymbol`, `Rsymbol`, FS phase | `Nsymbol` (l. 115), `Fsymbol` (l. 125), `Rsymbol` (l. 215), `frobenius_schur_phase` (l. 254); `BraidingStyle(::AbstractIrrep) = Bosonic()` (`irreps.jl` l. 17) |
 | Twist | no override; generic `src/sectors.jl:twist_from_Rsymbol` (l. 647), which is `1` for every label |
-| TKS values | `tests/cu1_values.rs`: every F and R over `0±`, `2j ≤ 5` equals the dense recoupling of the `fusiontensor` Clebsch–Gordan tensors written in the test, plus literals checked against TKS 0.3.9. Deliberate deviation: TKS `Rsymbol` gives `-0.0` on inadmissible `R^{ab}_{0-}` with charged `a` (`-convert(Float64, N)`, `N = 0`), this crate `+0.0` (the crate-wide exact-zero contract, as symtn) |
-| Ported implementation | [symtn](https://github.com/Ryo-wtnb11/symtn-rs) `symtn-sectors/src/cu1.rs` at `2a6c152315bb271dc5e56b5f1f034ca818ef999d`. Deliberate differences: labels span the full `u32` (symtn's codec stops at `u32::MAX - 1`, which symtn validates itself), so fusions summing to exactly `u32::MAX` succeed here; and `N` is exact everywhere (symtn's checked N fails above its bound). Only `CU1::fusion`, which must produce the labels, reports an overflow, above `u32::MAX` |
+| TKS values | `tests/cu1_values.rs`: every F and R over `0±`, `2j ≤ 5` equals the dense recoupling of the `fusiontensor` Clebsch–Gordan tensors written in the test, plus literals checked against TKS 0.3.9. Deliberate deviation: TKS `Rsymbol` gives `-0.0` on inadmissible `R^{ab}_{0-}` with charged `a` (`-convert(Float64, N)`, `N = 0`), this crate `+0.0` (the crate-wide exact-zero contract) |
+| Label range | Labels span the full `u32`, so fusions summing to exactly `u32::MAX` succeed, and `N` is exact everywhere. Only `CU1::fusion`, which must produce the labels, reports an overflow, above `u32::MAX`. A consumer with a narrower label encoding validates its own bound |
 
 The `lie::CU1` category implements `FusionCategory` with real scalar symbols,
 simple fusion and bosonic braiding. Labels retain their validated constructors;

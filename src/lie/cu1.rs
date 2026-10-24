@@ -150,12 +150,11 @@ impl ExactSizeIterator for CU1Fusion {}
 /// contracts them densely).
 /// One deliberate signed-zero difference: TensorKitSectors' `Rsymbol` returns
 /// `-0.0` for an inadmissible `R^{ab}_{0-}` with charged `a` (it negates the
-/// zero `N`); here every inadmissible symbol is `+0.0`, as in symtn and the
-/// other families of this crate.
+/// zero `N`); here every inadmissible symbol is `+0.0`, as in the other
+/// families of this crate.
 ///
-/// Label domain: `twice_charge = 2j` is any `u32`. A consumer whose own
-/// encoding is narrower (symtn's sector codec stops at `u32::MAX - 1`)
-/// validates that bound itself.
+/// Label domain: `twice_charge = 2j` is any `u32`. A consumer with a narrower
+/// label encoding validates its own bound.
 ///
 /// Every validated CU(1) label belongs to this category.
 ///

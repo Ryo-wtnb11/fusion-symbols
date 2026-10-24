@@ -16,10 +16,9 @@
 /// previously-built fingerprints compare unequal: cached recoupling data
 /// computed under the old projection must not be reused under the new one.
 ///
-/// Minted for this crate and named for its source. symtn's
-/// `tenet-category-data/projection/2026-07-27` (CategoryData.jl decimals,
-/// parsed) maps to it with every value bit-identical; only the source and the
-/// identity are new.
+/// Minted for this crate and named for its source: the AnyonWiki tables at the
+/// pinned commit, projected to `f64` on 2026-10-16. Values are the
+/// CategoryData.jl decimals, parsed.
 pub const PROJECTION_EPOCH: &str = "fusion-symbols/tables/anyonwiki-badbfe2/projection/2026-10-16";
 
 /// Immutable lineage of one shipped category table.

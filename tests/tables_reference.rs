@@ -14,8 +14,7 @@
 //! 2. **Consistency checks** over every shipped entry: unitarity, triangle,
 //!    pentagon, hexagon and the ribbon relation. They are never generators.
 //!
-//! The planar tensor workflow of the original symtn file needs a tensor
-//! engine and stays with the consumer. A/B symbols are checked in
+//! Planar tensor workflows need a tensor engine and are out of scope here. A/B symbols are checked in
 //! `tests/ab_symbols.rs`.
 
 use fusion_symbols::category::FusionCategory;
