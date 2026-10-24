@@ -520,14 +520,13 @@ impl Irrep {
     /// positive roots as a `Ratio<BigInt>` (the product is integral). This
     /// reproduces the QSpace values `wdim_B/C/D` (`clebsch_aux.cc:458–559`).
     pub fn dim(&self) -> BigInt {
-        let r = self.rank();
-        let two_rho = two_rho(self.series, r);
+        let roots = root_data(self.series, self.rank());
         let mut acc = Ratio::<BigInt>::one();
-        for alpha in positive_roots(self.series, r) {
+        for alpha in &roots.positive_roots {
             // ⟨λ+ρ,α⟩ / ⟨ρ,α⟩ = (2⟨λ,α⟩ + ⟨2ρ,α⟩) / ⟨2ρ,α⟩ — all integers,
             // and `2⟨λ,α⟩ = ⟨2λ,α⟩` is read straight off the stored weight.
-            let two_lam = dot(&self.two_weight, &alpha);
-            let two_rho_a = dot(&two_rho, &alpha);
+            let two_lam = dot(&self.two_weight, alpha);
+            let two_rho_a = dot(&roots.two_rho, alpha);
             acc *= Ratio::new(BigInt::from(two_lam + two_rho_a), BigInt::from(two_rho_a));
         }
         acc.to_integer()
@@ -587,7 +586,10 @@ impl Irrep {
         }
         // ⟨2λ, 2ρ^∨⟩ = 2⟨λ, 2ρ^∨⟩; the exponent is the half of it (an integer
         // for every self-dual λ, tensor or spinor).
-        let twice = dot(&self.two_weight, &two_rho_vee(self.series, self.rank()));
+        let twice = dot(
+            &self.two_weight,
+            &root_data(self.series, self.rank()).two_rho_vee,
+        );
         debug_assert_eq!(twice % 2, 0, "⟨λ,2ρ^∨⟩ must be an integer");
         if (twice / 2).rem_euclid(2) == 0 {
             1
@@ -635,7 +637,10 @@ impl Irrep {
             .collect()
     }
     pub(crate) fn frobenius_schur_phase(&self) -> f64 {
-        let twice = dot(&self.two_weight, &two_rho_vee(self.series, self.rank()));
+        let twice = dot(
+            &self.two_weight,
+            &root_data(self.series, self.rank()).two_rho_vee,
+        );
         if (twice / 2).rem_euclid(2) == 0 {
             1.0
         } else {
@@ -733,6 +738,32 @@ fn two_partition_to_dynkin(series: Series, two_lam: &[i64]) -> Vec<i64> {
 /// carried as their ε-coefficient vectors, e.g. `2e_i` as a `2` in slot `i`).
 fn dot(u: &[i64], v: &[i64]) -> i64 {
     u.iter().zip(v).map(|(a, b)| a * b).sum()
+}
+
+struct RootData {
+    two_rho: Vec<i64>,
+    positive_roots: Vec<Vec<i64>>,
+    two_rho_vee: Vec<i64>,
+}
+
+fn root_data(series: Series, rank: usize) -> Arc<RootData> {
+    use std::sync::{LazyLock, Mutex};
+    // Immutable group data: at most one entry per constructed (series, rank),
+    // O(rank^3) integers each, independent of the number of irreps or queries.
+    type RootSystems = BTreeMap<(Series, usize), Arc<RootData>>;
+    static ROOTS: LazyLock<Mutex<RootSystems>> = LazyLock::new(|| Mutex::new(BTreeMap::new()));
+    ROOTS
+        .lock()
+        .expect("poisoned root data")
+        .entry((series, rank))
+        .or_insert_with(|| {
+            Arc::new(RootData {
+                two_rho: two_rho(series, rank),
+                positive_roots: positive_roots(series, rank),
+                two_rho_vee: two_rho_vee(series, rank),
+            })
+        })
+        .clone()
 }
 
 /// `2ρ` (twice the Weyl vector, integer-valued) in the ε-basis:
