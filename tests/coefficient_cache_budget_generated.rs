@@ -48,4 +48,10 @@ fn disabled_policy_preserves_sun_product_value_without_retention() {
     assert_eq!(stats.entries, 0);
     assert_eq!(stats.bytes, 0);
     assert_eq!(stats.evictions, 1);
+    // LieGroup dual lookups obey this same zero budget, including reverse keys.
+    for (cat, a) in [(&cat, &three), (&bcd, &v)] {
+        assert_eq!(cat.dual(&cat.dual(a)), *a);
+        let stats = generated_cache_stats().total();
+        assert_eq!((stats.entries, stats.bytes), (0, 0));
+    }
 }

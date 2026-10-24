@@ -4,6 +4,7 @@
 //! Coefficient generation is the expensive step, so `fusion-symbols` caches: the base
 //! SU(2) tiers (3j, 6j, derived-F) keyed by canonical Regge classes, and — with
 //! `lie-generated` — five generated tiers (SU(N) product / CGC / F, B/C/D product+CGC / F).
+//! The SU(N) product and B/C/D product+CGC tiers also retain `LieGroup` dual lookups.
 //! Every tier is process-global, FIFO, and independently bounded.
 //!
 //! # What a consumer needs from this module
@@ -116,7 +117,7 @@ pub struct CoefficientCacheBudgets {
     /// Derived SU(2) F-symbol retained-charge cap.
     derived_f_bytes: usize,
     #[cfg(feature = "lie-generated")]
-    /// SU(N) product retained-charge cap.
+    /// SU(N) product and dual-lookup retained-charge cap.
     sun_product_bytes: usize,
     #[cfg(feature = "lie-generated")]
     /// SU(N) CGC retained-charge cap.
@@ -125,7 +126,7 @@ pub struct CoefficientCacheBudgets {
     /// SU(N) F-symbol retained-charge cap.
     sun_f_bytes: usize,
     #[cfg(feature = "lie-generated")]
-    /// Shared B/C/D exact-product and CGC retained-charge cap.
+    /// Shared B/C/D exact-product, CGC and Lie dual-lookup retained-charge cap.
     bcd_cgc_bytes: usize,
     #[cfg(feature = "lie-generated")]
     /// B/C/D F-symbol retained-charge cap.
@@ -143,7 +144,7 @@ pub enum CoefficientCacheTier {
     /// Derived SU(2) F-symbol tier.
     DerivedF,
     #[cfg(feature = "lie-generated")]
-    /// SU(N) product tier.
+    /// SU(N) product and dual-lookup tier.
     SunProduct,
     #[cfg(feature = "lie-generated")]
     /// SU(N) CGC tier.
@@ -152,7 +153,7 @@ pub enum CoefficientCacheTier {
     /// SU(N) F-symbol tier.
     SunF,
     #[cfg(feature = "lie-generated")]
-    /// B/C/D exact-product and CGC tier.
+    /// B/C/D exact-product and CGC tier, also retaining Lie dual lookups.
     BcdCgc,
     #[cfg(feature = "lie-generated")]
     /// B/C/D F-symbol tier.
@@ -1054,7 +1055,7 @@ pub(crate) fn cache_cgc(
     &cgc_cache::CACHE_CGC
 }
 
-/// Bounded exact SU(N) tensor-product tier (`lie-generated`).
+/// Bounded exact SU(N) tensor-product and dual-lookup tier (`lie-generated`).
 ///
 /// The unordered irrep pair is a complete key after `sun::directproduct`
 /// rejects rank mismatch. Values are sorted shared channel slices: this crate's
@@ -1063,6 +1064,8 @@ pub(crate) fn cache_cgc(
 /// this exact value. The cache computes outside the lock and rechecks on write,
 /// like the coefficient tiers; concurrent misses may duplicate exact work but
 /// publish one value.
+/// `LieGroup` dual keys reuse singleton slices under this same budget and
+/// lifecycle, without growing coefficient keys or values.
 #[cfg(feature = "lie-generated")]
 mod sun_product_cache {
     use super::FifoCache;
@@ -1177,7 +1180,7 @@ pub(crate) fn cache_bcd_f(
     &bcd_f_cache::CACHE_BCD_F
 }
 
-/// Bounded, byte-accounted B/C/D exact-product and CGC value tier.
+/// Bounded, byte-accounted B/C/D exact-product, CGC and Lie dual-lookup tier.
 ///
 /// Private key/value variants share the existing `BcdCgc` byte budget, FIFO
 /// eviction, statistics, trim and reset controls. Exact products are shared
@@ -1188,13 +1191,15 @@ pub(crate) fn cache_bcd_f(
 ///
 /// Generator catalogs belong to individual `LieGroup` values and are shared
 /// by clones. Resetting one does not invalidate these global cached values.
+/// `LieGroup` dual lookups share this tier's budget and lifecycle. Their private
+/// keys fit inside the existing shell; values reuse singleton product slices.
 #[cfg(feature = "lie-generated")]
 pub(crate) mod bcd_cgc_cache {
     use super::{CacheCharge, CacheKeyCharge, FifoCache};
     use crate::lie::bcd::{CatalogCgc, Irrep};
     use std::sync::{Arc, LazyLock};
 
-    /// Canonical cache key: the three B/C/D irrep labels.
+    /// Product pairs, CGC triples, or one dual-lookup label.
     ///
     /// **No [`GroupId`](crate::lie::GroupId), deliberately.**
     /// A global form gates *which* highest weights may be requested; it never
@@ -1211,6 +1216,7 @@ pub(crate) mod bcd_cgc_cache {
     pub(crate) enum BcdKey {
         Product(Irrep, Irrep),
         Cgc(Irrep, Irrep, Irrep),
+        Dual(Irrep),
     }
     impl CacheKeyCharge for BcdKey {
         fn key_bytes(&self) -> usize {
@@ -1218,6 +1224,7 @@ pub(crate) mod bcd_cgc_cache {
                 + match self {
                     Self::Product(a, b) => a.key_bytes() + b.key_bytes(),
                     Self::Cgc(a, b, c) => a.key_bytes() + b.key_bytes() + c.key_bytes(),
+                    Self::Dual(a) => a.key_bytes(),
                 }
         }
     }
@@ -1608,6 +1615,31 @@ mod tests {
         let bcd_irrep_bytes =
             std::mem::size_of::<BcdIrrep>() + ARC_COUNTS_BYTES + 12 * std::mem::size_of::<i64>();
         assert_eq!(bcd_key.key_bytes(), 6 * bcd_irrep_bytes);
+    }
+
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn dual_keys_preserve_existing_entry_sizes() {
+        use super::bcd_cgc_cache::{BcdKey, BcdValue};
+        use crate::lie::bcd::{Irrep as BcdIrrep, Series};
+        use crate::lie::sun::{Irrep as SunIrrep, SunProductKey};
+        use std::{mem::size_of, sync::Arc};
+
+        // Original Product/Cgc layouts, before adding dual-key variants.
+        assert_eq!(size_of::<SunProductKey>(), 2 * size_of::<SunIrrep>());
+        assert_eq!(size_of::<BcdKey>(), 3 * size_of::<BcdIrrep>());
+        assert_eq!(size_of::<BcdValue>(), size_of::<Arc<[(BcdIrrep, u32)]>>());
+
+        let sun = SunIrrep::from_dynkin(&[1, 0]).unwrap();
+        assert_eq!(
+            SunProductKey::Dual(sun).key_bytes(),
+            size_of::<SunProductKey>() + ARC_COUNTS_BYTES + 3 * size_of::<i64>()
+        );
+        let bcd = BcdIrrep::from_dynkin(Series::D, &[0, 2, 0]).unwrap();
+        assert_eq!(
+            BcdKey::Dual(bcd.clone()).key_bytes(),
+            size_of::<BcdKey>() + bcd.key_bytes()
+        );
     }
 
     #[cfg(feature = "lie-generated")]

@@ -371,6 +371,9 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// [`Self::RSymbol`] type, so the default works for every category; a
     /// `1 × 1` block is stored inline without allocation. The default
     /// evaluates that F; a category may override it with the same values.
+    /// With warm Lie caches and inline dimension arithmetic, only the returned
+    /// coefficient buffer allocates (nothing for an inline block). Products also
+    /// allocate factor blocks and their per-query Kronecker composition buffers.
     /// Errors are those of F.
     ///
     /// # Panics

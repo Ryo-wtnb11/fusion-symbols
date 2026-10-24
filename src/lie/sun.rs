@@ -178,26 +178,26 @@ pub(crate) struct Irrep {
     weight: Arc<[i64]>,
 }
 
-/// Order-normalized key for one SU(N) tensor-product decomposition.
+/// Order-normalized product pair, or one label for a LieGroup dual lookup.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct SunProductKey {
-    left: Irrep,
-    right: Irrep,
+pub(crate) enum SunProductKey {
+    Product(Irrep, Irrep),
+    Dual(Irrep),
 }
 
 impl SunProductKey {
     pub(crate) fn new(a: &Irrep, b: &Irrep) -> Self {
         let (left, right) = if a <= b { (a, b) } else { (b, a) };
-        Self {
-            left: left.clone(),
-            right: right.clone(),
-        }
+        Self::Product(left.clone(), right.clone())
     }
 }
 
 impl crate::cache::CacheKeyCharge for SunProductKey {
     fn key_bytes(&self) -> usize {
-        self.left.key_bytes().saturating_add(self.right.key_bytes())
+        match self {
+            Self::Product(a, b) => a.key_bytes().saturating_add(b.key_bytes()),
+            Self::Dual(a) => std::mem::size_of::<Self>().saturating_add(a.weight_bytes()),
+        }
     }
 }
 

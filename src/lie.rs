@@ -53,6 +53,9 @@ pub struct LieGroup {
     group: GroupId,
     #[cfg(feature = "lie-generated")]
     catalog: Option<std::sync::Arc<std::sync::Mutex<bcd::CanonicalCatalog>>>,
+    // At most one retained rank-sized unit label per group instance.
+    #[cfg(feature = "lie-generated")]
+    unit: std::sync::OnceLock<LieIrrep>,
 }
 
 impl std::fmt::Debug for LieGroup {
@@ -76,7 +79,8 @@ impl std::hash::Hash for LieGroup {
 }
 
 /// A validated representation, including its group's identity. Rank-one
-/// labels are stored inline, without allocation.
+/// labels are stored inline, without allocation. Higher-rank clones share their
+/// weight buffer; warm duals reuse a budgeted group-side lookup.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LieIrrep {
     group: GroupId,
@@ -232,6 +236,7 @@ impl LieGroup {
                 let series = bcd_series(group.root_system).expect("B/C/D root system");
                 return Ok(Self {
                     group,
+                    unit: std::sync::OnceLock::new(),
                     catalog: Some(std::sync::Arc::new(std::sync::Mutex::new(
                         bcd::CanonicalCatalog::new(series, group.root_system.rank())?,
                     ))),
@@ -246,6 +251,7 @@ impl LieGroup {
             #[cfg(feature = "lie-generated")]
             return Ok(Self {
                 group,
+                unit: std::sync::OnceLock::new(),
                 catalog: None,
             });
             #[cfg(not(feature = "lie-generated"))]
@@ -265,6 +271,8 @@ impl LieGroup {
             group,
             #[cfg(feature = "lie-generated")]
             catalog: None,
+            #[cfg(feature = "lie-generated")]
+            unit: std::sync::OnceLock::new(),
         })
     }
     /// Construct a B/C/D group with a byte budget for retained generators.
@@ -277,6 +285,7 @@ impl LieGroup {
             if group.root_system != RootSystem::D(2) && group.root_system.rank() >= 2 {
                 return Ok(Self {
                     group,
+                    unit: std::sync::OnceLock::new(),
                     catalog: Some(std::sync::Arc::new(std::sync::Mutex::new(
                         bcd::CanonicalCatalog::with_budget(
                             series,
@@ -531,8 +540,12 @@ impl FusionCategory for LieGroup {
         #[cfg(feature = "lie-generated")]
         if self.group.root_system.rank() >= 2 {
             return self
-                .irrep(&vec![0; self.group.root_system.rank()])
-                .expect("unit is admissible");
+                .unit
+                .get_or_init(|| {
+                    self.irrep(&vec![0; self.group.root_system.rank()])
+                        .expect("unit is admissible")
+                })
+                .clone();
         }
         LieIrrep {
             group: self.group,
@@ -550,21 +563,50 @@ impl FusionCategory for LieGroup {
     }
     fn dual(&self, a: &LieIrrep) -> LieIrrep {
         self.label(a);
+        // Dual keys store one label in the tiers' existing shared slice layout.
+        #[cfg(feature = "lie-generated")]
+        use crate::cache::{
+            bcd_cgc_cache::{BcdKey, BcdValue},
+            cache_bcd_cgc, cache_sun_product,
+        };
         #[cfg(feature = "lie-generated")]
         if let Some(x) = &a.bcd {
+            let tier = cache_bcd_cgc();
+            let key = BcdKey::Dual(x.clone());
+            let value = tier.get(&key).unwrap_or_else(|| {
+                let dual = x.dual();
+                tier.insert(
+                    BcdKey::Dual(dual.clone()),
+                    BcdValue::Product(std::sync::Arc::from([(x.clone(), 1)])),
+                );
+                tier.insert(key, BcdValue::Product(std::sync::Arc::from([(dual, 1)])))
+            });
+            let BcdValue::Product(dual) = value else {
+                unreachable!("dual key stores a dual")
+            };
             return LieIrrep {
                 group: self.group,
                 dj: 0,
                 generated: None,
-                bcd: Some(x.dual()),
+                bcd: Some(dual[0].0.clone()),
             };
         }
         #[cfg(feature = "lie-generated")]
         if let Some(x) = &a.generated {
+            let tier = cache_sun_product();
+            let key = sun::SunProductKey::Dual(x.clone());
+            let value = tier.get(&key).unwrap_or_else(|| {
+                let dual = x.dual();
+                tier.insert(
+                    sun::SunProductKey::Dual(dual.clone()),
+                    sun::SunProduct::from_map(BTreeMap::from([(x.clone(), 1)])),
+                );
+                tier.insert(key, sun::SunProduct::from_map(BTreeMap::from([(dual, 1)])))
+            });
             return LieIrrep {
                 group: self.group,
                 dj: 0,
-                generated: Some(x.dual()),
+                generated: Some(value.channel(0).clone()),
                 bcd: None,
             };
         }

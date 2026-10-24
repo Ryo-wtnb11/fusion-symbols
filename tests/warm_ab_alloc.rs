@@ -1,0 +1,201 @@
+//! Warm leaf A/B allocate only their returned block; products retain factor composition.
+#![cfg(feature = "lie-generated")]
+
+use fusion_symbols::{
+    cache,
+    category::FusionCategory,
+    lie::{GroupId, LieGroup},
+    product,
+};
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+struct Counting;
+static CALLS: AtomicUsize = AtomicUsize::new(0);
+static BYTES: AtomicUsize = AtomicUsize::new(0);
+unsafe impl GlobalAlloc for Counting {
+    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
+        CALLS.fetch_add(1, Relaxed);
+        BYTES.fetch_add(l.size(), Relaxed);
+        unsafe { System.alloc(l) }
+    }
+    unsafe fn alloc_zeroed(&self, l: Layout) -> *mut u8 {
+        CALLS.fetch_add(1, Relaxed);
+        BYTES.fetch_add(l.size(), Relaxed);
+        unsafe { System.alloc_zeroed(l) }
+    }
+    unsafe fn realloc(&self, p: *mut u8, l: Layout, s: usize) -> *mut u8 {
+        CALLS.fetch_add(1, Relaxed);
+        BYTES.fetch_add(s, Relaxed);
+        unsafe { System.realloc(p, l, s) }
+    }
+    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
+        unsafe { System.dealloc(p, l) }
+    }
+}
+#[global_allocator]
+static GLOBAL: Counting = Counting;
+
+fn measure<T>(f: impl FnOnce() -> T) -> ((usize, usize), T) {
+    let before = (CALLS.load(Relaxed), BYTES.load(Relaxed));
+    let result = f();
+    (
+        (
+            CALLS.load(Relaxed) - before.0,
+            BYTES.load(Relaxed) - before.1,
+        ),
+        result,
+    )
+}
+
+// Each non-inline Arc<[f64]> owns two reference counts and its coefficient payload.
+fn buffers(lengths: &[usize]) -> (usize, usize) {
+    let allocated = lengths.iter().filter(|&&n| n > 1);
+    (
+        allocated.clone().count(),
+        allocated
+            .map(|&n| std::mem::size_of::<[AtomicUsize; 2]>() + n * std::mem::size_of::<f64>())
+            .sum(),
+    )
+}
+
+fn check<C: FusionCategory<Scalar = f64>>(
+    name: &str,
+    cat: &C,
+    a: &C::Object,
+    b: &C::Object,
+    c: &C::Object,
+    composition_buffers: &[usize],
+) -> usize {
+    let mut elements = 0;
+    for is_a in [true, false] {
+        let query = || {
+            if is_a {
+                cat.a_symbol(a, b, c)
+            } else {
+                cat.b_symbol(a, b, c)
+            }
+            .unwrap()
+        };
+        let cold = query();
+        elements = cold.data().len();
+        let base = cache::base_cache_stats().total();
+        let generated = cache::generated_cache_stats().total();
+        let (allocation, warm) = measure(query);
+        let expected = buffers(if composition_buffers.is_empty() {
+            std::slice::from_ref(&elements)
+        } else {
+            composition_buffers
+        });
+        println!(
+            "{name} {}: {}/{}, elements {elements}",
+            if is_a { "A" } else { "B" },
+            allocation.0,
+            allocation.1
+        );
+        assert_eq!(
+            allocation,
+            expected,
+            "{name} {}",
+            if is_a { "A" } else { "B" }
+        );
+        assert_eq!(warm, cold);
+        assert!(warm
+            .data()
+            .iter()
+            .zip(cold.data())
+            .all(|(a, b)| a.to_bits() == b.to_bits()));
+        let base_warm = cache::base_cache_stats().total();
+        let generated_warm = cache::generated_cache_stats().total();
+        assert_eq!(
+            base_warm.misses, base.misses,
+            "{name}: no base regeneration"
+        );
+        assert_eq!(
+            generated_warm.misses, generated.misses,
+            "{name}: no generated re-sweep"
+        );
+        assert!(base_warm.hits + generated_warm.hits > base.hits + generated.hits);
+    }
+    for object in [a, b, c] {
+        let ((calls, bytes), (dim, phase)) =
+            measure(|| (cat.dim(object), cat.frobenius_schur_phase(object)));
+        println!("{name} dim/FS: {calls}/{bytes}");
+        assert_eq!((calls, bytes), (0, 0), "{name}: warm dimension and phase");
+        assert_eq!(
+            (dim, phase),
+            (cat.dim(object), cat.frobenius_schur_phase(object))
+        );
+        assert_eq!(measure(|| cat.dual(object)).0, (0, 0), "{name}: dual");
+    }
+    assert_eq!(measure(|| cat.unit()).0, (0, 0), "{name}: unit");
+    elements
+}
+
+// Counters are process-global: keep all allocation checks in one test.
+#[test]
+fn warm_ab_allocate_only_leaf_blocks_and_product_composition() {
+    let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+    let oct = su3.irrep(&[1, 1]).unwrap();
+    let n = check("SU3", &su3, &oct, &oct, &oct, &[]);
+    let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+    let half = su2.irrep(&[1]).unwrap();
+    let one = su2.irrep(&[2]).unwrap();
+    check("SU2", &su2, &half, &one, &half, &[]);
+    let sp4 = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
+    let v = sp4.irrep(&[1, 0]).unwrap();
+    let adj = sp4.irrep(&[2, 0]).unwrap();
+    check("Sp4", &sp4, &v, &adj, &v, &[]);
+
+    let p = product(su3.clone(), su3.clone());
+    let x = (oct.clone(), oct.clone());
+    // Two leaf blocks, a storage copy of the first, and their kron buffer.
+    let nn = check("SU3xSU3", &p, &x, &x, &x, &[n, n, n, n * n]);
+    let p = product(p, su3);
+    let x = (x, oct);
+    // Inner two leaves/storage/kron, outer leaf, copy of inner block, outer kron.
+    check(
+        "(SU3xSU3)xSU3",
+        &p,
+        &x,
+        &x,
+        &x,
+        &[n, n, n, nn, n, nn, nn * n],
+    );
+
+    // Complex SU(N) and odd-D chiral labels must also dualize without rebuilding.
+    for (id, labels) in [
+        (GroupId::su(3).unwrap(), &[1, 0][..]),
+        (GroupId::su(4).unwrap(), &[1, 0, 0][..]),
+        (GroupId::spin(5).unwrap(), &[0, 1][..]),
+        (GroupId::spin(6).unwrap(), &[0, 0, 1][..]),
+        (GroupId::so(6).unwrap(), &[0, 2, 0][..]),
+    ] {
+        let cat = LieGroup::new(id).unwrap();
+        let a = cat.irrep(labels).unwrap();
+        let dual = cat.dual(&a);
+        cat.dim(&a);
+        cat.frobenius_schur_phase(&a);
+        assert_eq!(measure(|| cat.dual(&a)).0, (0, 0));
+        let (allocation, back) = measure(|| cat.dual(&dual));
+        assert_eq!(allocation, (0, 0));
+        assert_eq!(back, a);
+        assert_eq!(
+            measure(|| (cat.dim(&a), cat.frobenius_schur_phase(&a))).0,
+            (0, 0)
+        );
+    }
+
+    // Dual labels belong to the shared tier, so its lifecycle releases them.
+    let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+    let a = cat.irrep(&[1, 0]).unwrap();
+    let dual = cat.dual(&a);
+    let trimmed = cache::trim_to(cache::CoefficientCacheTier::SunProduct, 0);
+    assert!(trimmed.removed_entries > 0);
+    assert_eq!(trimmed.remaining_charged_bytes, 0);
+    assert_eq!(cat.dual(&a), dual);
+    assert_eq!(measure(|| cat.dual(&a)).0, (0, 0));
+    cache::reset();
+    assert_eq!(cache::generated_cache_stats().sun_product.entries, 0);
+    assert_eq!(cat.dual(&a), dual);
+    assert_eq!(measure(|| cat.dual(&a)).0, (0, 0));
+}

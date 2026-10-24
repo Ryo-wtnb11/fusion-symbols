@@ -40,7 +40,16 @@ and half-spin naming conventions are fixed in [references](references.md#global-
 Objects retain the full group tag, including isomorphic groups.
 
 `LieIrrep::dynkin_labels` reads labels without allocation; `dynkin` collects
-them. `dim_exact` returns `BigInt`; the category's `dim` returns `f64`.
+them. Clones share weight buffers without allocation. Warm duals reuse shared
+labels in the existing `SunProduct` / `BcdCgc` tiers, charged to their byte
+budgets and subject to their FIFO eviction, trim and reset controls. Each irrep
+retains only its own weight; coefficient cache keys keep their existing charge.
+The unit is memoized per group. `dim_exact` returns `BigInt`; the category's
+`dim` returns `f64`.
+B/C/D dimensions and Frobenius–Schur data reuse immutable root data: one
+process-lifetime entry per constructed `(series, rank)`, with O(rank³) integers,
+independent of the number of labels or queries. Exact big-integer arithmetic
+can still allocate for large dimensions.
 `weight_multiplicities` uses Dynkin coordinates. `gt_patterns` gives the
 Gelfand–Tsetlin basis for A-series rank ≥ 2, and `None` for A1 and B/C/D.
 
@@ -115,6 +124,10 @@ Fusion varies the first factor fastest; each F/R/A/B multiplicity axis varies
 the last factor fastest. Scalar promotion and multiplication fold left to right.
 Reassociation agrees to floating-point tolerance where intermediate queries are
 representable. Products add neither a coefficient cache nor CGC capability.
+With inline dimension arithmetic, warm leaf A/B queries allocate only their
+returned coefficient buffer (zero for empty or inline blocks).
+Product A/B, like F, compose factor blocks on
+each query and also allocate their storage copies and Kronecker buffers.
 
 All factors' objects are validated before capability or shape checks. R reports
 `ProductError::NoBraiding { factor }` even when N = 0; twist panics on absent
