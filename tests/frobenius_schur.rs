@@ -35,8 +35,7 @@ fn labels(n: usize, max: i64) -> Vec<Vec<i64>> {
 }
 
 /// `frobenius_schur_phase(SUNIrrep{N}(d))` from SUNRepresentations 0.4.0 with
-/// TensorKitSectors 0.3.9 (Julia 1.11.6, TeNeT `tools/sun-table-gen`
-/// environment), each equal to `dim(a) * Fsymbol(a, dual(a), a, a, one, one)`.
+/// TensorKitSectors 0.3.9 (Julia 1.11.6), each equal to `dim(a) * Fsymbol(a, dual(a), a, a, one, one)`.
 #[test]
 fn phase_matches_sunrepresentations() {
     let reference: &[(&[i64], f64)] = &[
