@@ -7,6 +7,22 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-24
+
+### Performance
+
+- Warm `a_symbol`/`b_symbol` on Lie groups allocate only the returned block
+  (SU(3) 8⊗8→8: 5 → 1 allocation; Sp(4) 4⊗10→4: 22 → 0). Duals are looked up
+  in the existing budgeted SU(N) product and B/C/D tiers, the group unit is
+  memoized, and B/C/D root data is computed once per (series, rank). Cache
+  entry sizes and charges are unchanged; values are bit-identical (#177).
+  Products still compose factor blocks per query (#179).
+
+### Documentation
+
+- Docs state this crate's own contracts instead of comparing with a
+  downstream consumer (#178).
+
 ## [0.8.0] - 2026-10-23
 
 ### Breaking
@@ -735,7 +751,8 @@ SU(2) provider this rule is mechanized by `su2_authority_fingerprint()`: its
 epoch is bumped only on such a value-affecting release, so a fingerprint change
 and a breaking release are one reviewable event.
 
-[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.5.1...v0.6.0
