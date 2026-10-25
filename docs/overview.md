@@ -17,7 +17,7 @@ CGC are the separate `GroupRepresentations` capability, read through `CgcBlock`.
 | `finite::ZN` | `ZNIrrep`: charge and runtime nonzero `u32` modulus | Base |
 | `fermion::FermionParity` | `FermionParityIrrep`: even or odd | Base |
 | `table::TableCategory` | Tagged `TableObject`, source index `1..=rank`, unit = 1 | Rank ≤ 4 in base; rank 5–7 with `anyonwiki-unitary` |
-| `product::Product` | Ordered tuples, preserving explicit nesting | Base |
+| `product::Product` | Ordered tuples or homogeneous vectors, preserving explicit nesting | Base |
 
 Base means available with `default-features = false`. `lie-generated` is on by
 default; all dense dependencies are behind it. `anyonwiki-unitary` embeds more
@@ -161,13 +161,16 @@ Finite counts can overflow while individual indices remain addressable.
 The frozen orders and unavailable enumerations are listed in the
 [TensorKitSectors comparison](tensorkitsectors-differences.md#object-enumeration).
 
-Products have 2..=12 immediate factors. Nesting and trivial factors are retained;
+Tuple products have 2..=12 immediate factors; `Product<Vec<C>>` accepts any
+number of homogeneous factors, including zero (the trivial category) and one.
+Vector objects must have exactly as many entries as factors; other lengths are
+foreign. Nesting and trivial factors are retained;
 objects, N, dimensions, duals, Frobenius–Schur data and twists compose factorwise.
 Charge/spin and parity labels are independent, with no extra cross-factor sign.
 Fusion varies the first factor fastest; each F/R/A/B multiplicity axis varies
 the last factor fastest. Scalar promotion and multiplication fold left to right.
 Reassociation agrees to floating-point tolerance where intermediate queries are
-representable. Products of `GroupRepresentations` provide lazy tuple CGCs,
+representable. Products of `GroupRepresentations` provide lazy tuple or vector CGCs,
 with the last factor fastest on each magnetic and multiplicity axis. Combined
 axis overflow returns `ProductError::Overflow`. Products add no coefficient cache.
 With inline dimension arithmetic, warm leaf A/B queries allocate only their
@@ -182,6 +185,10 @@ wins; otherwise overflow panics in `nsymbol` and is typed in `try_nsymbol`.
 F/R/A/B check their own multiplicities and layouts for typed overflow. Nested
 factor queries must themselves be representable. Fusion resets clone the
 initialized factor iterators; the current bound supports owned category types.
+Runtime fusion uses checked mixed-radix front/back indices, implements
+`ExactSizeIterator` when the factors do, and `DoubleEndedIterator` when the
+factors do. It checks the outcome count for `usize` overflow before iteration.
+Runtime factor failures use `ProductError::Factor { index, source }`.
 
 Before composing a nonzero F/R/A/B block, Product checks each factor's
 storage axes against its checked N symbols and requires the exact row-major
@@ -191,7 +198,8 @@ storage length. A mismatch returns
 axis vectors (four for F, two for R/A/B), and `storage_len` is the number of
 scalars returned by `SymbolBlock::as_slice`. Equal element counts do not excuse
 incorrect axes. For a nested product, the enclosing `Factor0` .. `Factor11`
-variants retain the path to the malformed factor. Zero-channel queries skip
+variants (tuples) or `Factor { index, source }` (runtime products) retain the
+path to the malformed factor. Zero-channel queries skip
 factor symbol evaluation. `ProductError` is non-exhaustive; matches need a
 fallback arm.
 See `src/product.rs::Product` and `ProductError`.

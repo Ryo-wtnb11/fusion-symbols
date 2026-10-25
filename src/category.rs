@@ -715,9 +715,9 @@ pub(crate) fn rank2_block<S: Scalar>(
 /// Clebsch–Gordan block with axes `[dim(a), dim(b), dim(c), N(a,b,c)]`;
 /// an absent channel has multiplicity axis 0.
 ///
-/// Tuples of 2..=12 blocks represent lazy Kronecker products: the last factor
-/// varies fastest on every axis. Their `dims` may panic if a hand-built tuple's
-/// combined axis overflows `usize`; blocks returned by `Product::cgc` are checked.
+/// Tuples of 2..=12 blocks and vectors of any length represent lazy Kronecker
+/// products: the last factor varies fastest on every axis. Their `dims` may panic
+/// if a combined axis overflows `usize`; blocks returned by `Product::cgc` are checked.
 pub trait CgcBlock {
     /// Axis lengths, with multiplicity last.
     fn dims(&self) -> [usize; 4];

@@ -65,8 +65,9 @@ exact counts and binary searches instead of the reference's sequential search.
 
 ## Deligne products
 
-`Product` retains 2..=12 immediate factors, explicit nesting and trivial
-factors; TKS `⊠` flattens and absorbs `Trivial`. Thus nested and flat labels,
+`Product` retains tuple factors (2..=12) or homogeneous vector factors (any
+length), explicit nesting and trivial factors; TKS `⊠` flattens and absorbs
+`Trivial`. Thus nested and flat labels,
 fingerprints and enumerations differ. For example, index 5 of `(U1 ⊠ U1) ⊠ U1`
 is `((1,0),0)`, while index 3 of the flat product is `(1,0,0)`.
 
@@ -76,8 +77,8 @@ Julia arrays. Scalar promotion/multiplication and derived dimensions fold
 left to right; TKS derives square roots/inverses from the product dimension,
 which may differ by rounding. Fermionic R/twist multiply factorwise without a
 cross-factor sign or imposed parity/charge relation. Products of
-`GroupRepresentations` provide lazy tuple CGCs through `CgcBlock`, with the last
-factor fastest on all four axes; they add no coefficient cache.
+`GroupRepresentations` provide lazy tuple or vector CGCs through `CgcBlock`,
+with the last factor fastest on all four axes; they add no coefficient cache.
 Initialized fusion iterators reset by cloning;
 the current higher-ranked bound supports owned providers.
 
@@ -89,14 +90,15 @@ and `sectors.jl` style `&` methods. Their relevant guards and assumptions map as
 
 | Reference guard or invariant | Rust mapping |
 |---|---|
-| `SectorTuple`, same sector type `I` for symbol inputs | Compile-time tuple/object types and factor `dim` preflight; foreign labels panic loudly. |
+| `SectorTuple`, same sector type `I` for symbol inputs | Compile-time tuple/object types and factor `dim` preflight; vector lengths must equal the factor count. Foreign labels panic loudly. |
+| Runtime Cartesian indices and lazy CGC axes fit their public index types | Fusion checks the product length for `usize` overflow; CGC checks each axis, without imposing a dense element-count limit. Empty products use one scalar entry. |
 | `unit` rejects `GenericUnit` | N/A: `category::FusionCategory::unit` requires one simple unit. |
 | Scalar `_kron_promote` fills the logical N-derived shape | Logical axes queried independently of `SymbolBlock::dims`; zero axes skip values, all-one axes stay inline. |
 | `_kron` assumes matching ranks and valid Cartesian indices | Fixed block ranks and per-axis decoding; shape/count/byte overflow is a typed `Overflow`. |
-| Julia product iteration can restart each component | Clone initialized `Fuse` iterators; nonempty reset is a documented loud-panic invariant. A valid clone preserves the initialized iterator sequence. |
+| Julia product iteration can restart each component | Clone initialized iterators; nonempty reset is a documented loud-panic invariant. A valid clone preserves the initialized iterator sequence. |
 | Styles restrict braiding and symbol availability | R capability errors and twist panic after full preflight; no special-case branch bypasses validation. |
 | Julia multiplicity/product arithmetic fits its representation | Checked Rust arithmetic, zero-wins N, documented `nsymbol` panic or typed `try_nsymbol`/F/R `Overflow`. |
-| Single-sector symbol base cases | N/A: Rust accepts 2..=12 immediate factors and delegates leaf symbols to the factor authority. |
+| Single-sector symbol base cases | Singleton vectors delegate symbols to the factor authority; the empty vector supplies the scalar identity. Tuples accept 2..=12 factors. |
 
 No reference assertions are present on these product-symbol paths. TKS
 generic units and flattening are outside the approved port;

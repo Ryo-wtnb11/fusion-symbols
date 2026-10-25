@@ -96,6 +96,44 @@ fn generated_cache_resource_contract() {
     let g = cache::generated_cache_stats();
     assert!(g.bcd_f.hits >= 1, "second F block hits the BCD F tier");
 
+    // Product only assembles handles/blocks: warm factor queries must not sweep.
+    use fusion_symbols::{
+        category::{FusionCategory, GroupRepresentations},
+        lie::{GroupId, LieGroup},
+        product::Product,
+    };
+    let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+    let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+    let a = vec![
+        su3.irrep(&[1, 1], &[]).unwrap(),
+        su2.irrep(&[2], &[]).unwrap(),
+    ];
+    let runtime = Product::new(vec![su3, su2]);
+    let query = || {
+        runtime.fusion(&a, &a).unwrap().for_each(drop);
+        runtime.f_symbol(&a, &a, &a, &a, &a, &a).unwrap();
+        runtime.r_symbol(&a, &a, &a).unwrap();
+        runtime.a_symbol(&a, &a, &a).unwrap();
+        runtime.b_symbol(&a, &a, &a).unwrap();
+        runtime.cgc(&a, &a, &a).unwrap();
+    };
+    query();
+    let cold = cache::generated_cache_stats();
+    query();
+    let warm = cache::generated_cache_stats();
+    for (cold, warm) in [
+        (cold.sun_product, warm.sun_product),
+        (cold.sun_cgc, warm.sun_cgc),
+        (cold.sun_f, warm.sun_f),
+    ] {
+        assert_eq!(
+            cold.misses, warm.misses,
+            "warm runtime product re-swept a factor"
+        );
+        assert_eq!(cold.entries, warm.entries);
+        assert!(warm.hits > cold.hits);
+    }
+
     // ---- aggregate retained-charge cap and total() coherence ----
     let g = cache::generated_cache_stats();
     let total = g.total();

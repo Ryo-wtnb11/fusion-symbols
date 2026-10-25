@@ -54,7 +54,7 @@
 //! | Finite cyclic groups Z_N (including Z2), in closed form | [`finite::ZN`] |
 //! | Fermion parity in closed form | [`fermion::FermionParity`] |
 //! | Finite multiplicity-free unitary categories (Fibonacci, Ising, …, rank ≤ 4; rank ≤ 7 with `anyonwiki-unitary`) from pinned AnyonWiki tables | [`table`] |
-//! | Ordered Deligne products, 2..=12 immediate factors | [`mod@product`] |
+//! | Ordered Deligne products, tuples or runtime-length vectors | [`mod@product`] |
 //! | Cache ceilings, budgets, statistics | [`cache`] |
 //!
 //! SU(N) uses the same [`lie::LieGroup`] and [`lie::LieIrrep`] layer as A1.
