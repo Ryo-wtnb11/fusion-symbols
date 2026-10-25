@@ -371,3 +371,13 @@ fn product_multiplicity_residuals() {
     close(hexagon_residual(&cat, &u, &o, &o).unwrap(), 0.0);
     close(pentagon_residual(&cat, &u, &u, &o, &o).unwrap(), 0.0);
 }
+
+#[test]
+fn composite_lie_identities() {
+    use fusion_symbols::lie::{GroupId, LieGroup};
+    for id in [GroupId::spin(4).unwrap(), GroupId::so(4).unwrap()] {
+        let cat = LieGroup::new(id).unwrap();
+        let labels = vec![cat.unit(), cat.irrep(&[1, 1], &[]).unwrap()];
+        conformance(cat, labels);
+    }
+}

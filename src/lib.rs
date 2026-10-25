@@ -47,6 +47,7 @@
 //! |---|---|
 //! | Shared category contract, styles, scalar storage and identity residuals | [`category`] |
 //! | SU(2): exact 3j, 6j, CG evaluators; category F/R and Frobenius–Schur | [`lie::su2`] and [`lie::LieGroup`] |
+//! | D₂ forms; semisimple products and central quotients | [`lie::LieGroup`] (union of factor features) |
 //! | SU(N), SU(N)/Z_k, PSU(N) — Gelfand–Tsetlin construction | [`lie::LieGroup`] (`lie-generated`) |
 //! | SO(N), Spin(N), Sp(2r) — generator bootstrap, B/C/D series | [`lie::LieGroup`] (`lie-generated`) |
 //! | Which highest weights a global form admits | [`lie::GroupId`] |

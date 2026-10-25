@@ -49,13 +49,15 @@ and independent of object `Ord` or fusion-iterator order.
 | Rank-one Lie | Admitted doubled spins increasing; SO(3)/PSU(2) skip odd labels |
 | SU(N), N ≥ 3, simply connected | Dynkin labels by increasing total, then lexicographic (SUNRepresentations 0.4.0 order) |
 | Tables | Source index minus one; Ising `(I,ψ,σ)`, whereas TKS uses `(I,σ,ψ)` |
+| Composite Lie covers (including Spin(4)) | Product order over ordered simple covers; D₂ expands to α₁ then α₂ |
 | Products | Bounded Manhattan order: increasing sum of immediate factor indices, then lexicographic, skipping finite bounds |
 
 Indices are `u64`, not Julia's one-based indices. Infinite categories return
 `Ok(None)` despite machine-limited labels; unrepresentable labels/indices are
 `EnumerationError::Overflow`. Finite counts above `u64::MAX` can overflow
 without preventing individual queries. SU(N) quotients (N ≥ 3, nontrivial
-quotient) and higher-rank B/C/D return `NotEnumerable`.
+quotient), higher-rank simple B/C/D, and every composite Lie quotient return
+`NotEnumerable`. Composite covers also require every simple factor to enumerate.
 
 A product is enumerable only if every factor is; `NotEnumerable` takes
 precedence over other factor errors. The product count is infinite if any
@@ -111,3 +113,28 @@ oracles are in `tests/product.rs`; structural identities use
 `tests/category_conformance.rs::product_identities` and
 `tests/category_conformance.rs::product_multiplicity_residuals`. Composition allocation checks are in
 `tests/product_alloc.rs::warm_product_composition_allocates_nothing`.
+
+## Composite Lie restriction: guard inventory
+
+`src/lie.rs::{coefficient_roots,LieGroup::irrep,LieGroup::factor_labels}`
+validate engine availability and outward group identity before Product queries.
+`src/lie.rs::LieGroup::composite_label` reattaches the complete datum; quotient
+fusion closure follows from `ν−λ−μ ∈ Q ⊆ X`, rather than filtering channels.
+No new numerical generator or reference coefficient routine is ported.
+
+| Reference constraint | Mapping |
+|---|---|
+| TKS `product.jl::SectorTuple` common label type and factor order | Private factor labels plus the existing foreign-object panic at the outward GroupId boundary |
+| TKS Cartesian shape/storage assumptions | Existing `src/product.rs::ProductError::checked_block`, checked N/axis/storage arithmetic; malformed data retain their indexed source chain |
+| Restartable product iterators | Existing `src/product.rs::{advance,restarted}` clone initialized iterators; changed replay is a documented loud-panic invariant |
+| Machine integer representability | Product overflow maps to `LieError::LabelOverflow`; infallible weight multiplicities panic on checked `u64` multiplication overflow |
+| Root datum has Q contained in X | Existing `src/lie/group.rs::GroupId::new` typed lattice validation; admission precedes engine label construction |
+| Canonical generator resources | Shared `src/lie/bcd/catalog.rs::CanonicalCatalog::seed_requirement` preflights checked seed totals before composite catalogs are allocated |
+| Numerical generation/verification | Existing simple-factor gates run unchanged, including special cases; Kronecker orthogonality and identities follow from the factor identities, verified by `tests/category_conformance.rs::composite_lie_identities` |
+| CU1 constructor, SUN UInt8 labels, and new dimension/generator ports | N/A: no such constructor or numerical routine is ported here |
+
+D₂'s convention is α₁ then α₂ in the exact A₁ gauge. N/F/R/A/B and CGCs use
+Product's factor order, with the last factor fastest on each coefficient axis;
+fusion still varies the first factor fastest. Composite fingerprints use
+Product framing of factor fingerprints. Quotienting adds no gauge change and
+needs no epoch bump; equal fingerprints do not equate outward group identities.

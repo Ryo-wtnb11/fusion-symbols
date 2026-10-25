@@ -1364,7 +1364,7 @@ pub(super) mod sweep;
 // The canonical catalog (append-only generator ownership) sits on top of
 // the sweep, so it shares the `lie-generated` feature gate.
 #[cfg(feature = "lie-generated")]
-mod catalog;
+pub(super) mod catalog;
 #[cfg(feature = "lie-generated")]
 pub use catalog::{CanonicalCatalog, CatalogCgc, CatalogError};
 
