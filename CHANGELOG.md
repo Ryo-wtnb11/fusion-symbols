@@ -7,6 +7,22 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Fixed
+
+- `GroupId::admits` no longer panics on degenerate public root data
+  (`B(0)` with `Z2`); `LieGroup::new` returns `NotAdmissible` (#184).
+- `LieGroup::new` / `with_catalog_budget` no longer abort on huge ranks: the
+  zero-weight check allocates nothing, unaddressable SU(N) returns
+  `LabelOverflow`, and B/C/D seeds are checked before allocation (#187).
+- `GroupError::UnsupportedRank` docs list a rejected `half_spin_plus` example (#186).
+
+### Changed
+
+- The B/C/D catalog byte budget now charges the trivial and defining seeds:
+  `with_catalog_budget(group, 0)` returns `LieError::Generation`, and with the
+  default 256 MiB budget `LieGroup::new` rejects B/C/D ranks whose defining
+  generators exceed it (roughly rank 200); raise the budget for larger ranks.
+
 ## [0.8.1] - 2026-10-24
 
 ### Performance

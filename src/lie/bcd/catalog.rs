@@ -101,13 +101,14 @@ pub enum CatalogError {
         /// Dynkin label of the requested coupled irrep `c`.
         c: Vec<i64>,
     },
-    /// The recursive materialization of a request would push the catalog's
+    /// Construction or recursive materialization would push the catalog's
     /// retained generator bytes past its budget. Reported **before** any commit,
     /// so no partial chain is ever observable.
     BudgetExceeded {
         /// The byte budget.
         limit: usize,
-        /// The bytes that would be retained after committing this request.
+        /// The bytes that would be retained after committing this request;
+        /// `usize::MAX` if the construction charge overflows.
         needed: usize,
     },
     /// The decomposition sweep (or a product-generator composition) failed while
@@ -294,7 +295,23 @@ impl CanonicalCatalog {
     }
 
     /// Build a catalog with an explicit byte budget (see [`new`](Self::new)).
+    /// Rejects base seeds exceeding the budget (or overflowing byte arithmetic)
+    /// with [`CatalogError::BudgetExceeded`] before any rank-sized allocation.
     pub fn with_budget(series: Series, r: usize, max_bytes: usize) -> Result<Self, CatalogError> {
+        // Preserve the seed layer's excluded-rank errors before checking its charge.
+        if r >= series.min_rank() {
+            let needed = r
+                .checked_mul(2)
+                .and_then(|d| d.checked_add(usize::from(series == Series::B)))
+                .and_then(|d| gen_bytes_for(r, d))
+                .and_then(|defining| gen_bytes_for(r, 1)?.checked_add(defining));
+            if needed.is_none_or(|needed| needed > max_bytes) {
+                return Err(CatalogError::BudgetExceeded {
+                    limit: max_bytes,
+                    needed: needed.unwrap_or(usize::MAX),
+                });
+            }
+        }
         let mut cat = CanonicalCatalog {
             series,
             rank: r,
@@ -612,10 +629,15 @@ impl CanonicalCatalog {
 /// `f64` coefficient buffers, plus a fixed shell. This is a conservative charge
 /// of catalog-owned generator entries, not allocator RSS or map scaffolding.
 fn gen_bytes(g: &Generators) -> usize {
-    let d = g.dim();
-    let r = g.rank();
-    let f = std::mem::size_of::<f64>();
-    r * (d * d + d) * f + std::mem::size_of::<Generators>()
+    gen_bytes_for(g.rank(), g.dim()).unwrap_or(usize::MAX)
+}
+
+fn gen_bytes_for(r: usize, d: usize) -> Option<usize> {
+    d.checked_mul(d)?
+        .checked_add(d)?
+        .checked_mul(r)?
+        .checked_mul(std::mem::size_of::<f64>())?
+        .checked_add(std::mem::size_of::<Generators>())
 }
 
 // ---- the canonical parent rule (docs/gauge_soN.md §14) ---------------------

@@ -514,3 +514,46 @@ fn golden_canonical_parent_table() {
         );
     }
 }
+
+#[test]
+fn construction_checks_seed_budget_before_materialization() {
+    // r*(d*d+d+2)*8 for (r,d)=(2,5),(2,4),(3,6), plus two shells.
+    for (series, r, buffers) in [
+        (Series::B, 2, 512),
+        (Series::C, 2, 352),
+        (Series::D, 3, 1056),
+    ] {
+        let needed = buffers + 2 * std::mem::size_of::<Generators>();
+        for limit in [0, needed - 1] {
+            assert!(matches!(CanonicalCatalog::with_budget(series, r, limit),
+                Err(CatalogError::BudgetExceeded { limit: got_limit, needed: got_needed })
+                    if got_limit == limit && got_needed == needed));
+        }
+        let cat = CanonicalCatalog::with_budget(series, r, needed).unwrap();
+        assert_eq!(cat.bytes(), needed);
+    }
+    for series in [Series::B, Series::C, Series::D] {
+        assert!(matches!(
+            CanonicalCatalog::new(series, usize::MAX),
+            Err(CatalogError::BudgetExceeded {
+                needed: usize::MAX,
+                ..
+            })
+        ));
+        assert!(matches!(
+            CanonicalCatalog::with_budget(series, usize::MAX, usize::MAX),
+            Err(CatalogError::BudgetExceeded {
+                limit: usize::MAX,
+                needed: usize::MAX
+            })
+        ));
+        #[cfg(target_pointer_width = "64")]
+        assert!(matches!(
+            CanonicalCatalog::with_budget(series, 1usize << 40, usize::MAX),
+            Err(CatalogError::BudgetExceeded {
+                limit: usize::MAX,
+                needed: usize::MAX
+            })
+        ));
+    }
+}

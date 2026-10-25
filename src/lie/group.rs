@@ -244,7 +244,14 @@ pub struct GroupId {
 #[non_exhaustive]
 pub enum GroupError {
     /// The requested rank or matrix dimension is outside the range for which
-    /// the family is defined (e.g. `so(2)`, `sp(3)`, `half_spin_plus(12)`).
+    /// the family is defined (e.g. `so(2)`, `sp(3)`, `half_spin_plus(10)`).
+    ///
+    /// ```
+    /// use fusion_symbols::lie::{GroupError, GroupId};
+    /// for result in [GroupId::so(2), GroupId::sp(3), GroupId::half_spin_plus(10)] {
+    ///     assert!(matches!(result, Err(GroupError::UnsupportedRank { .. })));
+    /// }
+    /// ```
     UnsupportedRank {
         /// The constructor that rejected, e.g. `"so"`.
         family: &'static str,
@@ -394,12 +401,35 @@ impl GroupId {
         })
     }
 
+    // Every central character of the zero weight is trivial when the pairing exists.
+    pub(super) fn admits_zero(&self) -> bool {
+        let r = self.root_system.rank();
+        match (self.root_system, self.form) {
+            (_, GlobalForm::SimplyConnected) => true,
+            (RootSystem::A(_), GlobalForm::Quotient(CenterSubgroup::Zk(k))) => {
+                k != 0 && r.checked_add(1).is_some_and(|n| n.is_multiple_of(k))
+            }
+            (RootSystem::B(_), GlobalForm::Quotient(CenterSubgroup::Z2)) => r >= 1,
+            (RootSystem::C(_), GlobalForm::Quotient(CenterSubgroup::Z2)) => true,
+            (RootSystem::D(_), GlobalForm::Quotient(sub)) => match sub {
+                CenterSubgroup::Z2 | CenterSubgroup::DVector => r >= 2,
+                CenterSubgroup::Z4 => r >= 3 && r % 2 == 1,
+                CenterSubgroup::DHalfSpinPlus
+                | CenterSubgroup::DHalfSpinMinus
+                | CenterSubgroup::DFull => r >= 2 && r.is_multiple_of(2),
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
     /// Whether `dynkin` is a genuine representation of this group.
     ///
     /// `dynkin` is the dominant integral weight in Bourbaki numbering. Returns
     /// `false` for a label of the wrong length, a label with a negative
     /// component, and for a [`CenterSubgroup`] that is not a subgroup of this
-    /// root system's center (the named constructors never build one).
+    /// root system's center (the named constructors never build one). Quotient
+    /// formulas needing absent Dynkin indices return `false`, including at rank zero.
     ///
     /// Admissibility is closed under fusion and duality, so this only needs
     /// calling at construction.
@@ -443,7 +473,7 @@ impl GroupId {
                 nality == 0
             }
             // B_r: [ω_i] = 0 for i < r, [ω_r] = z. SO(2r+1).
-            (RootSystem::B(_), CenterSubgroup::Z2) => dynkin[r - 1] % 2 == 0,
+            (RootSystem::B(_), CenterSubgroup::Z2) if r >= 1 => dynkin[r - 1] % 2 == 0,
             // C_r: [ω_i] = (i mod 2)·z. PSp(2r).
             (RootSystem::C(_), CenterSubgroup::Z2) => odd_index_parity(dynkin) == 0,
             // D_r: the vector (tensor) sublattice {0, v}. SO(2r), r-uniform.
@@ -540,4 +570,45 @@ fn half_spin_root_system(n: usize) -> Result<RootSystem, GroupError> {
         });
     }
     Ok(RootSystem::D(n / 2))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zero_admission_matches_materialized_labels() {
+        use CenterSubgroup::*;
+        let forms = [Z2, Z4, DVector, DHalfSpinPlus, DHalfSpinMinus, DFull]
+            .into_iter()
+            .chain((0..=10).map(Zk))
+            .map(GlobalForm::Quotient)
+            .chain([GlobalForm::SimplyConnected]);
+        for form in forms {
+            let roots = (0..=8)
+                .flat_map(|r| {
+                    [
+                        RootSystem::A(r),
+                        RootSystem::B(r),
+                        RootSystem::C(r),
+                        RootSystem::D(r),
+                    ]
+                })
+                .chain([
+                    RootSystem::G2,
+                    RootSystem::F4,
+                    RootSystem::E6,
+                    RootSystem::E7,
+                    RootSystem::E8,
+                ]);
+            for root_system in roots {
+                let group = GroupId { root_system, form };
+                assert_eq!(
+                    group.admits_zero(),
+                    group.admits(&vec![0; root_system.rank()]),
+                    "{group:?}"
+                );
+            }
+        }
+    }
 }
