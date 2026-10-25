@@ -8,21 +8,21 @@
 | Z2, Z_N, U(1): `Nsymbol`, `Fsymbol`, `Rsymbol`, FS phase | `src/irreps/irreps.jl`: `Nsymbol` (l. 57), `Fsymbol` (l. 58), `frobenius_schur_phase(::AbelianIrrep)` (l. 62), `Rsymbol` (l. 65); `BraidingStyle(::AbstractIrrep) = Bosonic()` (l. 17) |
 | Z_N labels, dual, fusion | `src/irreps/znirrep.jl`: `ZNIrrep{N}(n) = mod(n, N)` (l. 24), `dual` (l. 82), `⊗` (l. 83). The modulus is a runtime `u32` carried by both `ZN` and `ZNIrrep`, not a type parameter. `new` reduces charges; `from_canonical` rejects noncanonical charges without reduction |
 | U(1) labels, dual, fusion | `src/irreps/u1irrep.jl`: `dual` (l. 30), `⊗` (l. 31). TKS stores a `HalfInt`; here integer `i32` charges without `i32::MIN`; half-integer charges are not representable |
-| U(1) and Z_N CGC | `src/irreps/irreps.jl`: `fusiontensor(::AbelianIrrep, …)` (l. 67) returns `fill(Nabc, (1, 1, 1, Nabc))`; `U1` and `ZN` return that one scalar as `f64` through `CgcBlock`, and an absent channel (TKS's empty `1x1x1x0` array) is `0.0` |
+| U(1) and Z_N CGC | `src/irreps/irreps.jl`: `fusiontensor(::AbelianIrrep, …)` (l. 67) returns `fill(Nabc, (1, 1, 1, Nabc))`; U(1) through `LieGroup` and `ZN` expose scalar blocks through `CgcBlock`; an absent channel has shape `1x1x1x0` |
 | Fermion parity | `src/fermions.jl`: `dual` (l. 34), `dim` (l. 35), `BraidingStyle = Fermionic()` (l. 39), `⊗` (l. 43), `Nsymbol` (l. 45), `Fsymbol` (l. 48), `Rsymbol` (l. 51), `twist` (l. 54); FS phase from the generic `src/sectors.jl:frobenius_schur_phase_from_Fsymbol` (l. 461) |
 | `dim`, bosonic twist | generic `src/sectors.jl:dim_from_Fsymbol` (UniqueFusion → 1, l. 429) and `twist_from_Rsymbol` (l. 646) |
-| Scalars | `f64` (exact ±1, 0); TKS declares `Int`. TKS values checked by hand in `src/finite.rs::tests::matches_measured_tensorkitsectors_values` |
-| Overflow | U(1) `N` is the exact `0` where `a + b` leaves `i32`; only fusion, which must produce the label, reports the overflow |
+| Scalars | `f64` (exact ±1, 0); TKS declares `Int`. TKS values checked by hand in `src/finite.rs::tests::matches_measured_tensorkitsectors_values` (Z2, Z_N) and `tests/lie_torus.rs::u1_values_bounds_and_fingerprint` (U(1)) |
+| Overflow | U(1) fusion and fallible N/F/R/A/B/CGC report `LieError::LabelOverflow` when the sum leaves the symmetric charge range; infallible N panics |
 
-The public surface is `category::FusionCategory`, implemented by
-`lie::U1`, `finite::ZN` and `fermion::FermionParity`; `lie::U1` and `finite::ZN` also
+U(1) uses `lie::LieGroup` and the shared `category::FusionCategory` surface,
+alongside `finite::ZN` and `fermion::FermionParity`. `LieGroup` and `ZN` also
 implement `category::GroupRepresentations`. The parity label is
 `fermion::FermionParityIrrep`. Z2 is `ZN::new(2)`. Foreign moduli panic before
 computation. Inadmissible symbols are zero; `Error` is `Infallible` for ZN
 and parity, while U(1) fusion reports label overflow. FS indicator is the FS
 phase for self-dual objects and zero otherwise
-(`src/sectors.jl::frobenius_schur_indicator`). Generic identities are checked
-in `tests/category_conformance.rs::category_identities`.
+(`src/sectors.jl::frobenius_schur_indicator`). U(1) values are checked in `tests/lie_torus.rs::u1_values_bounds_and_fingerprint`;
+identities use `tests/category_conformance.rs::conformance`.
 
 ## CU(1) = U(1) ⋊ C (`lie` module)
 

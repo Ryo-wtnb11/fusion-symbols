@@ -92,6 +92,7 @@ struct Datum {
 pub struct GroupId(Arc<Datum>);
 
 impl PartialEq for GroupId {
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0) || self.0 == other.0
     }
@@ -270,6 +271,8 @@ impl GroupId {
     }
 
     /// Standard rank-`rank` torus, with integer charges. Requires rank ≥ 1.
+    /// Executes through [`super::LieGroup`] with charges in `-i32::MAX..=i32::MAX`.
+    /// Standard tori enumerate in Product order; nonstandard torus lattices do not.
     pub fn torus(rank: usize) -> Result<Self, GroupError> {
         if rank == 0 {
             return Err(GroupError::UnsupportedRank {
@@ -282,6 +285,9 @@ impl GroupId {
 
     /// U(n), with `q ≡ Σ i·aᵢ (mod n)` under `(S,z) ↦ zS`.
     /// Fundamental charge is +1, determinant charge is n; U(1) is a torus.
+    /// Executes through [`super::LieGroup`]: U(1) and U(2) in the base build,
+    /// N ≥ 3 with `lie-generated`. U(1) enumerates 0,1,−1,…; N ≥ 2 returns
+    /// [`EnumerationError::NotEnumerable`](crate::category::EnumerationError::NotEnumerable).
     pub fn u(n: usize) -> Result<Self, GroupError> {
         if n == 0 {
             return Err(GroupError::UnsupportedRank {

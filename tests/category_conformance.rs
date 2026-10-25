@@ -3,12 +3,12 @@
 //! frobenius_schur_phase_from_Fsymbol and twist_from_Rsymbol.
 //! Fusion outcomes are enumerated by the category, including intermediate
 //! U(1) charges outside the finite input sample. Shape is determined by N.
+use crate::common::lie::{torus, u1_irrep};
 use fusion_symbols::{
     category::{BraidingStyle, FusionCategory, FusionStyle, Promote, Scalar, SymbolBlock},
     fermion::{FermionParity, FermionParityIrrep},
     finite::{ZNIrrep, ZN},
     lie::{CU1Irrep, CU1},
-    lie::{U1Irrep, U1},
     table::TableCategory,
 };
 use num_complex::Complex64;
@@ -140,11 +140,11 @@ fn conformance<C: FusionCategory>(cat: C, labels: Vec<C::Object>) {
 
 #[test]
 fn category_identities() {
-    assert_eq!(U1.fusion_style(), FusionStyle::Unique);
-    assert_eq!(U1.braiding_style(), BraidingStyle::Bosonic);
+    assert_eq!(torus().fusion_style(), FusionStyle::Unique);
+    assert_eq!(torus().braiding_style(), BraidingStyle::Bosonic);
     assert_eq!(FermionParity.fusion_style(), FusionStyle::Unique);
     assert_eq!(FermionParity.braiding_style(), BraidingStyle::Fermionic);
-    conformance(U1, (-3..=3).map(|q| U1Irrep::new(q).unwrap()).collect());
+    conformance(torus(), (-3..=3).map(|q| u1_irrep(q).unwrap()).collect());
     for n in [2, 3, 5] {
         assert_eq!(ZN::new(n).unwrap().fusion_style(), FusionStyle::Unique);
         assert_eq!(ZN::new(n).unwrap().braiding_style(), BraidingStyle::Bosonic);
@@ -327,12 +327,12 @@ fn product_identities() {
         product,
     };
     let parity = FermionParityIrrep::ODD;
-    let fu1 = product(U1, FermionParity);
+    let fu1 = product(torus(), FermionParity);
     conformance(
         fu1,
         vec![
-            (U1.unit(), FermionParityIrrep::EVEN),
-            (U1Irrep::new(1).unwrap(), parity),
+            (torus().unit(), FermionParityIrrep::EVEN),
+            (u1_irrep(1).unwrap(), parity),
         ],
     );
     let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
@@ -380,4 +380,17 @@ fn composite_lie_identities() {
         let labels = vec![cat.unit(), cat.irrep(&[1, 1], &[]).unwrap()];
         conformance(cat, labels);
     }
+}
+
+#[test]
+fn u2_identities() {
+    use fusion_symbols::lie::{GroupId, LieGroup};
+    let cat = LieGroup::new(GroupId::u(2).unwrap()).unwrap();
+    let labels = vec![
+        cat.unit(),
+        cat.irrep(&[1], &[1]).unwrap(),
+        cat.irrep(&[1], &[-1]).unwrap(),
+        cat.irrep(&[0], &[2]).unwrap(),
+    ];
+    conformance(cat, labels);
 }

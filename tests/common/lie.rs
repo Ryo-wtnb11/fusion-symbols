@@ -117,3 +117,10 @@ pub fn entries(cgc: &fusion_symbols::lie::LieCgc) -> Vec<Entry> {
     }
     entries
 }
+
+pub fn torus() -> LieGroup {
+    LieGroup::new(GroupId::u(1).unwrap()).unwrap()
+}
+pub fn u1_irrep(q: i32) -> Result<LieIrrep, LieError> {
+    torus().irrep(&[], &[i64::from(q)])
+}

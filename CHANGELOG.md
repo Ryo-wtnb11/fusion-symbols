@@ -9,6 +9,11 @@ value/gauge rule noted below.
 
 ### Breaking
 
+- Removed public `lie::{U1,U1Irrep,U1Error}`. Use
+  `LieGroup::new(GroupId::u(1))`, `irrep(&[], &[q])`, and `charges()`;
+  charge failures are `LieError::LabelOverflow`. Fallible symbols report charge-sum
+  overflow too; infallible `nsymbol` panics. CU(1) = O(2) is unchanged.
+
 - `GroupId` now stores a validated ordered root datum and canonical row-HNF
   character lattice. Public `root_system`/`form` fields, `GlobalForm`, and
   `CenterSubgroup` are removed; use `root_systems()` and lattice constructors.
@@ -16,7 +21,7 @@ value/gauge rule noted below.
   equal, including SU(n)/Z1 versus SU(n), and the former D-odd Z2/DVector
   spellings. Different root presentations remain distinct.
 - `GroupId::admits` and `LieGroup::irrep` take separate Dynkin-label and charge
-  slices. Pass `&[]` for all currently executable groups. Classification rejects
+  slices. Pass `&[]` when there are no torus coordinates. Classification rejects
   invalid ranks and unaddressable dense lattice sizes before engine setup.
 - Named quotient moduli must fit `i64`: `psu(n)` and `u(n)` return
   `GroupError::SizeOverflow` for n > `i64::MAX`. Named lattices are stored
@@ -28,6 +33,13 @@ value/gauge rule noted below.
   move to that trait: import `CgcBlock` and use `at([m1, m2, m3, mu])`.
 
 ### Added
+
+- `LieGroup` executes U(1), Tᵗ, U(N), semisimple×torus quotients, and the
+  trivial group. U(2) works without default features; U(N) for N ≥ 3 requires
+  `lie-generated`. Standard U(1) labels and scalar queries allocate nothing and
+  retain the old arithmetic, enumeration, and authority fingerprint. Composite
+  covers enumerate via Product iff all factors do; composite quotients return
+  `NotEnumerable`. Added a compile-checked torus Criterion benchmark.
 
 - `LieGroup` executes D₂ forms (Spin(4), SO(4), PSO(4), half-spin lattices),
   ordered semisimple products, and arbitrary central quotients of executable
@@ -46,8 +58,8 @@ value/gauge rule noted below.
   classify connected compact groups, including torus-coupled lattices and
   exceptional quotients, with exact admission. New errors are `InvalidLattice`
   and `SizeOverflow`; normalization uses exact big-integer arithmetic.
-- `LieGroup::group_id` borrows its datum; `LieIrrep::charges` returns an empty
-  exact-size iterator. Existing coefficient values, gauges, fingerprints, and
+- `LieGroup::group_id` borrows its datum; `LieIrrep::charges` returns an allocation-free
+  exact-size iterator over torus coordinates. Existing coefficient values, gauges, fingerprints, and
   single-factor enumeration orders are unchanged.
 
 - The common `category::CgcBlock` contract, scalar CGCs for `finite::ZN`, and

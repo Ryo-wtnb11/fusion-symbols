@@ -433,8 +433,7 @@ fn checked_composite_n_overflow_and_zero_wins() {
 fn unsupported_composite_precedence() {
     for (roots, torus, requires) in [
         (vec![B(1 << 20), G2], 0, "G2 coefficient engine"),
-        (vec![G2, A(1)], 1, "torus"),
-        (vec![], 0, "trivial group"),
+        (vec![G2, A(1)], 1, "G2 coefficient engine"),
     ] {
         let group = GroupId::cover(&roots, torus).unwrap();
         assert_eq!(
