@@ -9,11 +9,12 @@
 //! and `ν` inner; where the reference prints `±1.0000000000000002` the exact
 //! value `±1` is written. Unitarity of A and B is checked separately as a
 //! formula-independent structural property.
+use crate::common::lie::{torus, u1_irrep};
 
 use fusion_symbols::{
     category::{FusionCategory, RBlock, Scalar},
     finite::{ZNIrrep, ZN},
-    lie::{CU1Irrep, GroupId, LieGroup, U1Irrep, CU1, U1},
+    lie::{CU1Irrep, GroupId, LieGroup, CU1},
     product::product,
     table::TableCategory,
 };
@@ -125,10 +126,10 @@ fn cu1_charged_sectors_match_tensorkitsectors() {
 #[test]
 fn abelian_groups_return_n() {
     // TensorKitSectors `irreps.jl` (AbelianIrrep): A = B = N.
-    let q = |c| U1Irrep::new(c).unwrap();
-    assert_eq!(entry(U1.a_symbol(&q(2), &q(-3), &q(-1)).unwrap()), 1.0);
-    assert_eq!(entry(U1.b_symbol(&q(2), &q(-3), &q(-1)).unwrap()), 1.0);
-    assert_eq!(U1.a_symbol(&q(2), &q(-3), &q(1)).unwrap().dim(), 0);
+    let q = |c| u1_irrep(c).unwrap();
+    assert_eq!(entry(torus().a_symbol(&q(2), &q(-3), &q(-1)).unwrap()), 1.0);
+    assert_eq!(entry(torus().b_symbol(&q(2), &q(-3), &q(-1)).unwrap()), 1.0);
+    assert_eq!(torus().a_symbol(&q(2), &q(-3), &q(1)).unwrap().dim(), 0);
     let z3 = ZN::new(3).unwrap();
     let objects: Vec<_> = (0..3).map(|k| ZNIrrep::new(k, 3).unwrap()).collect();
     assert_unitary(&z3, &objects);
@@ -567,12 +568,12 @@ mod su3 {
         assert_block(a.data(), &i_j, "A (8,15) rotated");
 
         // SU(3) × U(1): the U(1) factor contributes a 1 × 1 one.
-        let q = product(cat.clone(), U1);
+        let q = product(cat.clone(), torus());
         let b = q
             .b_symbol(
-                &(f15.clone(), U1Irrep::new(1).unwrap()),
-                &(f15b.clone(), U1Irrep::new(-1).unwrap()),
-                &(s27.clone(), U1Irrep::new(0).unwrap()),
+                &(f15.clone(), u1_irrep(1).unwrap()),
+                &(f15b.clone(), u1_irrep(-1).unwrap()),
+                &(s27.clone(), u1_irrep(0).unwrap()),
             )
             .unwrap();
         assert_block(b.data(), &B_15, "B (15,1)");

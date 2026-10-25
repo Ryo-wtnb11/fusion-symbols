@@ -44,12 +44,12 @@ and independent of object `Ord` or fusion-iterator order.
 |---|---|
 | `ZN(N)` | Charges `0,…,N−1` |
 | `FermionParity` | Even, odd |
-| `U1` | `0,1,−1,2,−2,…`; integer subsequence of TKS's `0,½,−½,1,−1,…`, reindexed densely |
+| U(1) through `LieGroup` | `0,1,−1,2,−2,…`; integer subsequence of TKS's `0,½,−½,1,−1,…`, reindexed densely |
 | `CU1` | `0+`, `0−`, then `twice_charge = 1,2,…` |
 | Rank-one Lie | Admitted doubled spins increasing; SO(3)/PSU(2) skip odd labels |
 | SU(N), N ≥ 3, simply connected | Dynkin labels by increasing total, then lexicographic (SUNRepresentations 0.4.0 order) |
 | Tables | Source index minus one; Ising `(I,ψ,σ)`, whereas TKS uses `(I,σ,ψ)` |
-| Composite Lie covers (including Spin(4)) | Product order over ordered simple covers; D₂ expands to α₁ then α₂ |
+| Composite Lie covers (including Spin(4)) | Product order over ordered simple covers then torus charges; D₂ expands to α₁ then α₂ |
 | Products | Bounded Manhattan order: increasing sum of immediate factor indices, then lexicographic, skipping finite bounds |
 
 Indices are `u64`, not Julia's one-based indices. Infinite categories return
@@ -57,7 +57,7 @@ Indices are `u64`, not Julia's one-based indices. Infinite categories return
 `EnumerationError::Overflow`. Finite counts above `u64::MAX` can overflow
 without preventing individual queries. SU(N) quotients (N ≥ 3, nontrivial
 quotient), higher-rank simple B/C/D, and every composite Lie quotient return
-`NotEnumerable`. Composite covers also require every simple factor to enumerate.
+`NotEnumerable`. Composite covers also require every factor to enumerate.
 
 A product is enumerable only if every factor is; `NotEnumerable` takes
 precedence over other factor errors. The product count is infinite if any
@@ -70,7 +70,7 @@ exact counts and binary searches instead of the reference's sequential search.
 `Product` retains tuple factors (2..=12) or homogeneous vector factors (any
 length), explicit nesting and trivial factors; TKS `⊠` flattens and absorbs
 `Trivial`. Thus nested and flat labels,
-fingerprints and enumerations differ. For example, index 5 of `(U1 ⊠ U1) ⊠ U1`
+fingerprints and enumerations differ. For example, index 5 of `(U(1) ⊠ U(1)) ⊠ U(1)`
 is `((1,0),0)`, while index 3 of the flat product is `(1,0,0)`.
 
 Fusion varies the first factor fastest, each F/R/A/B multiplicity axis the
@@ -138,3 +138,21 @@ Product's factor order, with the last factor fastest on each coefficient axis;
 fusion still varies the first factor fastest. Composite fingerprints use
 Product framing of factor fingerprints. Quotienting adds no gauge change and
 needs no epoch bump; equal fingerprints do not equate outward group identities.
+
+### Connected torus integration guards
+
+The arithmetic authority remains `src/lie/u1.rs::{U1Irrep::from_exact,U1::fusion,U1::dual}`.
+The adapter `src/lie.rs::{LieGroup::irrep,LieGroup::try_nsymbol}` maps the symmetric
+i32 charge domain and sum representability to typed `LieError::LabelOverflow`;
+`LieGroup::nsymbol` documents its loud panic. Excluding MIN proves dual negation safe.
+`LieGroup::label` checks full datum identity before every symbol shortcut.
+`LieGroup::composite_label` asserts lattice closure: root containment and additive
+charges keep every fusion outcome admitted. Ordered cover factors and Product's
+checked shape/storage/multiplicity guards are reused unchanged. Torus F/R/CGC
+blocks use the same fallible charge gates as fusion; A/B call those gates too.
+The closed forms are exact zeros and ones, so numerical generation gates are
+vacuous; tensor products and lattice restriction preserve factor identities.
+There is no new numerical or external constructor port (additional SUN/CU1
+reference guards are N/A). Warm generated calls are checked directly with
+`src/lie.rs::tests::torus_composites_warm_calls_do_not_generate` and the existing
+`src/lie/sun/cgc.rs::GENERATIONS` counter.

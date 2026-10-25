@@ -1,11 +1,12 @@
 //! `has_trivial_associator_gauge` and `has_canonical_unit` are checked three
 //! ways: a literal per-category expectation, a direct reading of F over a
 //! bounded label set for every `true`, and a literal F entry for every `false`.
+use crate::common::lie::{torus, u1_irrep};
 use fusion_symbols::{
     category::{FusionCategory, Scalar, SymbolBlock},
     fermion::{FermionParity, FermionParityIrrep},
     finite::{ZNIrrep, ZN},
-    lie::{CU1Irrep, GroupId, LieGroup, U1Irrep, CU1, U1},
+    lie::{CU1Irrep, GroupId, LieGroup, CU1},
     product,
     table::TableCategory,
 };
@@ -24,8 +25,8 @@ fn zn(n: u32) -> (ZN, Vec<ZNIrrep>) {
         .collect();
     (ZN::new(n).unwrap(), objects)
 }
-fn u1_irreps() -> Vec<U1Irrep> {
-    (-2..=2).map(|q| U1Irrep::new(q).unwrap()).collect()
+fn u1_irreps() -> Vec<fusion_symbols::lie::LieIrrep> {
+    (-2..=2).map(|q| u1_irrep(q).unwrap()).collect()
 }
 fn parities() -> Vec<FermionParityIrrep> {
     vec![FermionParityIrrep::EVEN, FermionParityIrrep::ODD]
@@ -155,7 +156,7 @@ fn hand_stated_certificates() {
     assert_eq!(certificates(&ZN::new(1).unwrap()), (true, true));
     assert_eq!(certificates(&ZN::new(2).unwrap()), (true, true));
     assert_eq!(certificates(&ZN::new(7).unwrap()), (true, true));
-    assert_eq!(certificates(&U1), (true, true));
+    assert_eq!(certificates(&torus()), (true, true));
     assert_eq!(certificates(&FermionParity), (true, true));
     assert_eq!(certificates(&CU1), (false, true));
     assert_eq!(certificates(&su2()), (false, true));
@@ -187,8 +188,8 @@ fn abelian_true_certificates_hold_in_f() {
         assert!(assert_trivial_associator(&cat, &objects) > 0);
         assert!(assert_canonical_unit(&cat, &objects, 0.0) > 0);
     }
-    assert!(assert_trivial_associator(&U1, &u1_irreps()) > 0);
-    assert!(assert_canonical_unit(&U1, &u1_irreps(), 0.0) > 0);
+    assert!(assert_trivial_associator(&torus(), &u1_irreps()) > 0);
+    assert!(assert_canonical_unit(&torus(), &u1_irreps(), 0.0) > 0);
     assert!(assert_trivial_associator(&FermionParity, &parities()) > 0);
     assert!(assert_canonical_unit(&FermionParity, &parities(), 0.0) > 0);
 }
@@ -357,19 +358,22 @@ fn generated_trivial_associator_counterexample() {
 fn products_take_the_conjunction() {
     let z2 = ZN::new(2).unwrap();
     let fib = TableCategory::fibonacci();
-    assert_eq!(certificates(&product(z2, U1)), (true, true));
-    assert_eq!(certificates(&product![z2, U1, FermionParity]), (true, true));
-    assert_eq!(certificates(&product(U1, CU1)), (false, true));
+    assert_eq!(certificates(&product(z2, torus())), (true, true));
+    assert_eq!(
+        certificates(&product![z2, torus(), FermionParity]),
+        (true, true)
+    );
+    assert_eq!(certificates(&product(torus(), CU1)), (false, true));
     assert_eq!(certificates(&product(su2(), fib.clone())), (false, true));
     // Nested: one non-trivial leaf anywhere decides the conjunction.
     let inner = product(z2, FermionParity);
-    assert_eq!(certificates(&product(inner, U1)), (true, true));
+    assert_eq!(certificates(&product(inner, torus())), (true, true));
     assert_eq!(
-        certificates(&product(U1, product(z2, product(FermionParity, CU1)))),
+        certificates(&product(torus(), product(z2, product(FermionParity, CU1)))),
         (false, true)
     );
     assert_eq!(
-        certificates(&product![product(z2, U1), U1, product(fib, z2)]),
+        certificates(&product![product(z2, torus()), torus(), product(fib, z2)]),
         (false, true)
     );
 }

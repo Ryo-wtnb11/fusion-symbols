@@ -20,6 +20,7 @@ mod groupmath_oracle;
 mod isomorphism;
 mod lie_composite;
 mod lie_overflow;
+mod lie_torus;
 mod membership;
 mod oracle;
 mod product;

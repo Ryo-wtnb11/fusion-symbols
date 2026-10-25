@@ -10,7 +10,7 @@ use crate::category::{
 /// An unrepresentable U(1) charge, requested directly or produced by fusion.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum U1Error {
+pub(crate) enum U1Error {
     /// A U(1) charge outside `i32::MIN + 1 ..= i32::MAX`, either requested
     /// directly or produced by [`FusionCategory::fusion`].
     U1ChargeOutOfRange {
@@ -39,7 +39,7 @@ impl std::error::Error for U1Error {}
 /// not representable here. `Ord` is numeric charge order, not
 /// TensorKitSectors' `isless` (which orders by `|q|` first).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct U1Irrep {
+pub(crate) struct U1Irrep {
     charge: i32,
 }
 
@@ -56,7 +56,7 @@ impl U1Irrep {
         Self::from_exact(i64::from(charge))
     }
 
-    fn from_exact(charge: i64) -> Result<Self, U1Error> {
+    pub(super) fn from_exact(charge: i64) -> Result<Self, U1Error> {
         match i32::try_from(charge) {
             Ok(charge) if charge != i32::MIN => Ok(Self { charge }),
             _ => Err(U1Error::U1ChargeOutOfRange { charge }),
@@ -83,14 +83,8 @@ pub(crate) const U1_FINGERPRINT: &[u8] = b"fusion-symbols:abelian-u1:labels=i32-
 /// single coefficient `⟨a; b | c⟩`: exactly `1.0` when `c = a + b` and `0.0`
 /// otherwise, including when `a + b` leaves `i32` (as [`FusionCategory::nsymbol`]).
 ///
-/// ```
-/// use fusion_symbols::{category::GroupRepresentations, lie::{U1, U1Irrep}};
-/// let q = |c| U1Irrep::new(c).unwrap();
-/// assert_eq!(U1.cgc(&q(2), &q(-5), &q(-3)), Ok(1.0));
-/// assert_eq!(U1.cgc(&q(2), &q(-5), &q(3)), Ok(0.0));
-/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct U1;
+pub(crate) struct U1;
 
 impl FusionCategory for U1 {
     type Object = U1Irrep;
@@ -134,6 +128,10 @@ impl FusionCategory for U1 {
     }
     fn nsymbol(&self, a: &U1Irrep, b: &U1Irrep, c: &U1Irrep) -> u32 {
         u32::from(i64::from(a.charge) + i64::from(b.charge) == i64::from(c.charge))
+    }
+    #[inline]
+    fn try_nsymbol(&self, a: &U1Irrep, b: &U1Irrep, c: &U1Irrep) -> Result<u32, U1Error> {
+        Ok(u32::from(self.fusion(a, b)?.next() == Some(*c)))
     }
     fn f_symbol(
         &self,

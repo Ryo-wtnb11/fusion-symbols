@@ -2,11 +2,12 @@
 //! hand-evaluated from TensorKitSectors 0.3.10 (`sectors.jl`, `product.jl`,
 //! `auxiliary.jl::to_manhattan_index`) and SUNRepresentations 0.4.0
 //! (`sector.jl::getindex`), restricted to fusion-symbols' label domains.
+use crate::common::lie::{torus, u1_irrep};
 use fusion_symbols::{
     category::{EnumerationError, FusionCategory},
     fermion::{FermionParity, FermionParityIrrep as Parity},
     finite::{ZNIrrep, ZN},
-    lie::{CU1Irrep, GroupId, LieGroup, U1Irrep, CU1, U1},
+    lie::{CU1Irrep, GroupId, LieGroup, CU1},
     product,
     product::Product,
     table::TableCategory,
@@ -26,8 +27,8 @@ fn round_trip<C: FusionCategory>(cat: &C, n: u64) {
 fn zn(charge: u32, modulus: u32) -> ZNIrrep {
     ZNIrrep::from_canonical(charge, modulus).unwrap()
 }
-fn q(charge: i32) -> U1Irrep {
-    U1Irrep::new(charge).unwrap()
+fn q(charge: i32) -> fusion_symbols::lie::LieIrrep {
+    u1_irrep(charge).unwrap()
 }
 fn lie(group: GroupId) -> LieGroup {
     LieGroup::new(group).unwrap()
@@ -57,14 +58,14 @@ fn cyclic_and_parity_orders() {
 
 #[test]
 fn u1_order_and_label_range() {
-    assert_eq!(U1.object_count(), Ok(None));
-    assert_eq!(first(&U1, 5), [q(0), q(1), q(-1), q(2), q(-2)]);
-    assert_eq!(U1.object_index(&q(i32::MAX)), Ok(4_294_967_293));
-    assert_eq!(U1.object_index(&q(-i32::MAX)), Ok(4_294_967_294));
-    assert_eq!(U1.object_at(4_294_967_294), Ok(q(-i32::MAX)));
-    assert_eq!(U1.object_at(4_294_967_295), Err(Overflow));
-    assert_eq!(U1.object_at(u64::MAX), Err(Overflow));
-    round_trip(&U1, 100);
+    assert_eq!(torus().object_count(), Ok(None));
+    assert_eq!(first(&torus(), 5), [q(0), q(1), q(-1), q(2), q(-2)]);
+    assert_eq!(torus().object_index(&q(i32::MAX)), Ok(4_294_967_293));
+    assert_eq!(torus().object_index(&q(-i32::MAX)), Ok(4_294_967_294));
+    assert_eq!(torus().object_at(4_294_967_294), Ok(q(-i32::MAX)));
+    assert_eq!(torus().object_at(4_294_967_295), Err(Overflow));
+    assert_eq!(torus().object_at(u64::MAX), Err(Overflow));
+    round_trip(&torus(), 100);
 }
 
 #[test]
@@ -181,7 +182,7 @@ fn foreign_leaf_objects_panic() {
     assert!(panics(|| {
         let _ = z2.object_index(&zn(0, 3));
     }));
-    let p = product(product(z2, U1), z2);
+    let p = product(product(z2, torus()), z2);
     assert!(panics(|| {
         let _ = p.object_index(&((zn(0, 2), q(0)), zn(1, 3)));
     }));
@@ -219,13 +220,13 @@ fn bounded_products_follow_manhattan_order() {
     assert_eq!(p.object_at(6), Err(OutOfRange));
     round_trip(&p, 6);
     // Bounds (2, ∞): U(1) component indices 0, 1, 2, 3 are charges 0, 1, -1, 2.
-    let p = product(z(2), U1);
+    let p = product(z(2), torus());
     assert_eq!(p.object_count(), Ok(None));
     let want = [(0, 0), (0, 1), (1, 0), (0, -1), (1, 1), (0, 2), (1, -1)];
     assert_eq!(first(&p, 7), want.map(|(a, b)| (zn(a, 2), q(b))));
     round_trip(&p, 200);
     // Three unbounded factors.
-    let p = product![U1, U1, U1];
+    let p = product![torus(), torus(), torus()];
     assert_eq!(p.object_count(), Ok(None));
     let want = [
         (0, 0, 0),
@@ -242,14 +243,14 @@ fn bounded_products_follow_manhattan_order() {
 #[test]
 fn explicit_nesting_changes_the_index() {
     assert_eq!(
-        product![U1, U1, U1].object_index(&(q(1), q(0), q(0))),
+        product![torus(), torus(), torus()].object_index(&(q(1), q(0), q(0))),
         Ok(3)
     );
-    let nested = product(product(U1, U1), U1);
+    let nested = product(product(torus(), torus()), torus());
     assert_eq!(nested.object_index(&((q(1), q(0)), q(0))), Ok(5));
     assert_eq!(nested.object_at(5), Ok(((q(1), q(0)), q(0))));
     round_trip(&nested, 200);
-    let right = product(FermionParity, product(ZN::new(3).unwrap(), U1));
+    let right = product(FermionParity, product(ZN::new(3).unwrap(), torus()));
     round_trip(&right, 200);
 }
 
@@ -314,7 +315,7 @@ fn counts_above_u64_keep_indices_addressable() {
 fn products_with_a_non_enumerable_factor_are_not_enumerable() {
     #[cfg(feature = "lie-generated")]
     {
-        let p = product(U1, lie(GroupId::psu(3).unwrap()));
+        let p = product(torus(), lie(GroupId::psu(3).unwrap()));
         assert_eq!(p.object_count(), Err(NotEnumerable));
         assert_eq!(p.object_at(0), Err(NotEnumerable));
         assert_eq!(p.object_index(&p.unit()), Err(NotEnumerable));
@@ -322,12 +323,12 @@ fn products_with_a_non_enumerable_factor_are_not_enumerable() {
     // NotEnumerable wins over a factor's label overflow.
     #[cfg(feature = "lie-generated")]
     {
-        let p = product(U1, lie(GroupId::psu(3).unwrap()));
+        let p = product(torus(), lie(GroupId::psu(3).unwrap()));
         assert_eq!(p.object_at(u64::MAX), Err(NotEnumerable));
     }
     // (0, 2^32 - 1) opens shell 2^32 - 1, at index C(2^32, 2); its second
     // component is past U(1)'s labels.
-    let p = product(U1, U1);
+    let p = product(torus(), torus());
     assert_eq!(p.object_at(9_223_372_034_707_292_160), Err(Overflow));
     assert_eq!(
         p.object_at(9_223_372_034_707_292_159),
@@ -470,12 +471,12 @@ fn external_counts_above_u64_keep_product_indices_addressable() {
     assert_eq!(direct.object_index(&past), Err(Overflow));
     assert_eq!(outer.object_index(&past), Err(Overflow));
     // An infinite factor dominates an overflowing count.
-    assert_eq!(product(wrapped.clone(), U1).object_count(), Ok(None));
+    assert_eq!(product(wrapped.clone(), torus()).object_count(), Ok(None));
     assert_eq!(
-        product![U1, wrapped.clone(), ZN::new(2).unwrap()].object_count(),
+        product![torus(), wrapped.clone(), ZN::new(2).unwrap()].object_count(),
         Ok(None)
     );
-    let p = product(wrapped, U1);
+    let p = product(wrapped, torus());
     let b = p.object_at(1 << 40).unwrap();
     assert_eq!(p.object_index(&b), Ok(1 << 40));
 }

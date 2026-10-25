@@ -260,7 +260,7 @@ fn exceptional_classification_uses_bourbaki_roots() {
 }
 
 #[test]
-fn tori_trivial_and_exceptional_data_remain_unsupported() {
+fn tori_trivial_data_and_exceptional_engine_boundary() {
     let empty = GroupId::new(&[], 0, &[]).unwrap();
     assert!(empty.admits(&[], &[]));
     assert!(empty.character_lattice().is_empty());
@@ -282,9 +282,6 @@ fn tori_trivial_and_exceptional_data_remain_unsupported() {
     assert!(coupled.admits(&[1, 1], &[]));
     assert!(!coupled.admits(&[1, 0], &[]));
     for (g, requires) in [
-        (empty, "trivial group"),
-        (GroupId::u(2).unwrap(), "torus"),
-        (GroupId::torus(1).unwrap(), "torus"),
         (GroupId::cover(&[G2], 0).unwrap(), "G2 coefficient engine"),
         (GroupId::cover(&[F4], 0).unwrap(), "F4 coefficient engine"),
         (GroupId::cover(&[E7], 0).unwrap(), "E7 coefficient engine"),

@@ -47,11 +47,11 @@
 //! |---|---|
 //! | Shared category contract, styles, scalar storage and identity residuals | [`category`] |
 //! | SU(2): exact 3j, 6j, CG evaluators; category F/R and Frobenius–Schur | [`lie::su2`] and [`lie::LieGroup`] |
-//! | D₂ forms; semisimple products and central quotients | [`lie::LieGroup`] (union of factor features) |
+//! | U(N), tori, D₂ forms; semisimple×torus products and central quotients | [`lie::LieGroup`] (union of factor features) |
 //! | SU(N), SU(N)/Z_k, PSU(N) — Gelfand–Tsetlin construction | [`lie::LieGroup`] (`lie-generated`) |
 //! | SO(N), Spin(N), Sp(2r) — generator bootstrap, B/C/D series | [`lie::LieGroup`] (`lie-generated`) |
 //! | Which highest weights a global form admits | [`lie::GroupId`] |
-//! | Positive-dimensional compact Lie groups U(1) and CU(1) = O(2), in closed form | [`lie::U1`], [`lie::CU1`] |
+//! | Positive-dimensional compact Lie groups U(1) and CU(1) = O(2), in closed form | U(1) through [`lie::LieGroup`], [`lie::CU1`] |
 //! | Finite cyclic groups Z_N (including Z2), in closed form | [`finite::ZN`] |
 //! | Fermion parity in closed form | [`fermion::FermionParity`] |
 //! | Finite multiplicity-free unitary categories (Fibonacci, Ising, …, rank ≤ 4; rank ≤ 7 with `anyonwiki-unitary`) from pinned AnyonWiki tables | [`table`] |
@@ -67,12 +67,12 @@
 //! # Deligne products
 //!
 //! ```
-//! use fusion_symbols::{lie::U1, category::FusionCategory,
+//! use fusion_symbols::{finite::ZN, category::FusionCategory,
 //!     fermion::{FermionParity, FermionParityIrrep}, product};
-//! let cat = product(U1, FermionParity);
+//! let cat = product(ZN::new(2).unwrap(), FermionParity);
 //! let odd = (cat.factors().0.unit(), FermionParityIrrep::ODD);
 //! assert_eq!(cat.twist(&odd), -1.0);
-//! let three = product![U1, FermionParity, U1];
+//! let three = product![ZN::new(2).unwrap(), FermionParity, ZN::new(2).unwrap()];
 //! assert_eq!(three.dim(&three.unit()), 1.0);
 //! ```
 //!
@@ -80,7 +80,7 @@
 //!
 //! These families use closed forms or pinned, provenance-tracked tables
 //! rather than runtime coefficient generation, and need no feature flag for
-//! the base catalog. [`lie::U1`], [`lie::CU1`], [`finite`],
+//! the base catalog. U(1) through [`lie::LieGroup`], [`lie::CU1`], [`finite`],
 //! [`fermion`] and [`table`] expose their
 //! validated objects through [`category::FusionCategory`]: N = 0 is a value,
 //! F/R return zero for inadmissible vertices, and errors mean genuine failure
@@ -101,7 +101,7 @@
 //!
 //! - **base** (`default-features = false`): exact SU(2) — closed-form 3j/6j/CGC in
 //!   big-rational arithmetic with a single final rounding to floating point;
-//!   the shared [`category`] contract, closed-form [`lie::U1`], [`lie::CU1`],
+//!   the shared [`category`] contract, closed-form U(1) through [`lie::LieGroup`], [`lie::CU1`],
 //!   [`finite::ZN`], [`fermion`], rank ≤ 4 [`table`] categories, [`mod@product`]
 //!   and [`cache`].
 //! - **`anyonwiki-unitary`**: rank 5–7 [`table`] categories (embedded data only).

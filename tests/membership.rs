@@ -1,10 +1,11 @@
 //! `contains` is the non-panicking membership pre-check: it accepts exactly the
 //! objects the other queries accept and rejects foreign ones without panicking.
+use crate::common::lie::{torus, u1_irrep};
 use fusion_symbols::{
     category::FusionCategory,
     fermion::{FermionParity, FermionParityIrrep},
     finite::{ZNIrrep, ZN},
-    lie::{CU1Irrep, GroupId, LieGroup, U1Irrep, CU1, U1},
+    lie::{CU1Irrep, GroupId, LieGroup, CU1},
     product,
     table::TableCategory,
 };
@@ -17,7 +18,7 @@ fn leaf_categories_accept_own_and_reject_foreign_objects() {
     assert!(!z2.contains(&ZNIrrep::new(1, 3).unwrap()) && !z3.contains(&z2.unit()));
 
     for q in [0, 1, -7, i32::MAX, i32::MIN + 1] {
-        assert!(U1.contains(&U1Irrep::new(q).unwrap()));
+        assert!(torus().contains(&u1_irrep(q).unwrap()));
     }
     for a in [
         CU1Irrep::VACUUM,
@@ -66,26 +67,26 @@ fn generated_lie_groups_reject_other_groups() {
 fn products_reject_a_foreign_component_in_any_position() {
     let z2 = ZN::new(2).unwrap();
     let z3 = ZN::new(3).unwrap();
-    let cat = product![z2, U1, z2];
+    let cat = product![z2, torus(), z2];
     let u = cat.unit();
     assert!(cat.contains(&u));
     assert!(cat.contains(&(
         ZNIrrep::new(1, 2).unwrap(),
-        U1Irrep::new(5).unwrap(),
+        u1_irrep(5).unwrap(),
         ZNIrrep::new(1, 2).unwrap()
     )));
-    assert!(!cat.contains(&(z3.unit(), u.1, u.2)));
-    assert!(!cat.contains(&(u.0, u.1, z3.unit())));
+    assert!(!cat.contains(&(z3.unit(), u.1.clone(), u.2)));
+    assert!(!cat.contains(&(u.0, u.1.clone(), z3.unit())));
 
     let fib = TableCategory::fibonacci();
-    let nested = product(product(z2, fib.clone()), product(U1, z2));
+    let nested = product(product(z2, fib.clone()), product(torus(), z2));
     let u = nested.unit();
     assert!(nested.contains(&u));
     let ising = TableCategory::ising();
-    assert!(!nested.contains(&((z3.unit(), u.0 .1), u.1)));
-    assert!(!nested.contains(&((u.0 .0, ising.unit()), u.1)));
-    assert!(!nested.contains(&(u.0, (u.1 .0, z3.unit()))));
+    assert!(!nested.contains(&((z3.unit(), u.0 .1), u.1.clone())));
+    assert!(!nested.contains(&((u.0 .0, ising.unit()), u.1.clone())));
+    assert!(!nested.contains(&(u.0, (u.1 .0.clone(), z3.unit()))));
     // A rejected object would panic in every other query; `contains` did not.
-    let foreign = (u.0, (u.1 .0, z3.unit()));
+    let foreign = (u.0, (u.1 .0.clone(), z3.unit()));
     assert!(std::panic::catch_unwind(|| nested.dim(&foreign)).is_err());
 }

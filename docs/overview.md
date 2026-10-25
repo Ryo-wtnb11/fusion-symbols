@@ -14,7 +14,9 @@ CGC are the separate `GroupRepresentations` capability, read through `CgcBlock`.
 | `lie::LieGroup`: SO(N)/Spin(N), N ≥ 5; Sp(2r), r ≥ 2; supported quotients | Rank-many nonnegative Dynkin labels | `lie-generated` |
 | `lie::LieGroup`: D₂ forms (Spin(4), SO(4), PSO(4), half-spin lattices) | Two ordered A₁ Dynkin labels | Base |
 | `lie::LieGroup`: semisimple products and central quotients | Concatenated factor Dynkin labels, restricted to the character lattice | Union of factor features |
-| `lie::U1` | `U1Irrep`: integer `i32` charge, excluding `i32::MIN` | Base |
+| `lie::LieGroup`: U(1), Tᵗ, and torus quotients | Ordered integer charges in `-i32::MAX..=i32::MAX` | Base |
+| `lie::LieGroup`: U(N), semisimple×torus quotients | Dynkin labels then torus charges, restricted to the character lattice | Base for U(2); otherwise union of factor features |
+| `lie::LieGroup`: trivial group | Empty Dynkin and charge slices | Base |
 | `lie::CU1` = O(2) | `CU1Irrep`: `(twice_charge, s)` = `(0,0)`, `(0,1)`, or `(q>0,2)` | Base |
 | `finite::ZN` | `ZNIrrep`: charge and runtime nonzero `u32` modulus | Base |
 | `fermion::FermionParity` | `FermionParityIrrep`: even or odd | Base |
@@ -56,13 +58,15 @@ sizes or unrepresentable HNF entries return typed `GroupError`s.
 `torus(t)` classifies the standard positive-rank torus; `u(n)` imposes
 `q ≡ Σ i·aᵢ (mod n)`. General constructors also classify coupled products,
 the empty datum, and exceptional central quotients. These classifications
-execute through `LieGroup::new` exactly when there is no torus and every
+execute through `LieGroup::new` exactly when every
 root-system block has an engine (including D₂'s two A₁ factors). Arbitrary
 intermediate character lattices restrict objects without changing cover
 coefficients or removing fusion outcomes: `ν−λ−μ ∈ Q ⊆ X` proves closure.
-Composites delegate to `Product<Vec<LieGroup>>` of ordered simple covers;
-single non-D₂ factors retain their original evaluator. Tori, the trivial
-group, and exceptional blocks return specific `LieError::Unsupported` errors.
+Composites delegate to `Product<Vec<LieGroup>>` of ordered simple covers then
+rank-one torus covers. Single non-D₂ factors retain their original evaluator;
+standard U(1) stores its charge inline and uses private closed-form arithmetic.
+The trivial group executes as an empty Product. Exceptional blocks return
+specific `LieError::Unsupported` errors.
 Generated factors still require `lie-generated`. B/C/D seed totals are checked
 against the aggregate catalog budget before allocating generators (see
 [resources](user-guide/resources.md#bcd-generator-catalogs)).
@@ -73,8 +77,26 @@ canonical lattice, so SU(n)/Z1 equals SU(n). Distinct root presentations such
 as B1/C1/A1, D3/A3, and D2/[A1,A1] remain distinct. `LieGroup::group_id` borrows
 the classification datum. `LieGroup::irrep(dynkin, charges)` checks lengths and
 nonnegative Dynkin labels, then lattice admission, then engine integer limits.
-Every current engine requires an empty charge slice; `LieIrrep::charges` is
-an empty allocation-free exact-size iterator.
+`LieIrrep::charges` reads the signed torus coordinates in order through an
+allocation-free exact-size iterator; `dynkin()` remains semisimple-only.
+Charges outside `-i32::MAX..=i32::MAX`, including `i32::MIN`, return `LabelOverflow`.
+U(1) label construction, clone, fusion iteration, and symbol/CGC queries allocate
+nothing. U(1) enumerates `0,1,−1,2,−2,…`, preserving its authority bytes.
+
+Migration from the removed public `lie::{U1,U1Irrep,U1Error}`:
+
+```rust
+use fusion_symbols::lie::{GroupId, LieGroup};
+let u1 = LieGroup::new(GroupId::u(1).unwrap()).unwrap();
+let a = u1.irrep(&[], &[3]).unwrap();
+assert_eq!(a.charges().collect::<Vec<_>>(), [3]);
+```
+
+Labels are `Clone` rather than `Copy`; replace `U1Irrep::UNIT` with `u1.unit()`
+(after importing `FusionCategory`). CGCs are now `LieCgc` blocks read through
+`CgcBlock`, rather than a bare `f64`.
+Charge overflow is now `LieError::LabelOverflow`, including fallible symbols;
+infallible `nsymbol` panics on arithmetic overflow.
 
 `LieIrrep::dynkin_labels` reads labels without allocation; `dynkin` collects
 them. Clones share weight buffers without allocation. Warm duals reuse shared
@@ -89,7 +111,7 @@ B/C/D dimensions and Frobenius–Schur data reuse immutable root data: one
 process-lifetime entry per constructed `(series, rank)`, with O(rank³) integers,
 independent of the number of labels or queries. Exact big-integer arithmetic
 can still allocate for large dimensions.
-`weight_multiplicities` uses Dynkin coordinates. `gt_patterns` gives the
+`weight_multiplicities` uses Dynkin coordinates followed by torus charges. `gt_patterns` gives the
 Gelfand–Tsetlin basis for A-series rank ≥ 2, and `None` for A1, B/C/D, and composites.
 
 Classification validates root ranks, basis shape, full rank, and root
@@ -173,9 +195,9 @@ The frozen orders and unavailable enumerations are listed in the
 [TensorKitSectors comparison](tensorkitsectors-differences.md#object-enumeration).
 
 Composite Lie groups enumerate only when their lattice is the full cover
-lattice and all simple factors enumerate. They use Product's Manhattan order
-over those factors, with D₂ expanded in α₁, α₂ order. Every composite quotient
-returns `NotEnumerable`, including SO(4) and separable quotient lattices.
+lattice and all factors enumerate. They use Product's Manhattan order
+over semisimple factors then torus charges, with D₂ expanded in α₁, α₂ order. Every composite quotient
+returns `NotEnumerable`, including U(N) for N ≥ 2, SO(4), and nonstandard torus lattices.
 
 Tuple products have 2..=12 immediate factors; `Product<Vec<C>>` accepts any
 number of homogeneous factors, including zero (the trivial category) and one.
@@ -189,7 +211,7 @@ Reassociation agrees to floating-point tolerance where intermediate queries are
 representable. Products of `GroupRepresentations` provide lazy tuple or vector CGCs,
 with the last factor fastest on each magnetic and multiplicity axis. Combined
 axis overflow returns `ProductError::Overflow`. Products add no coefficient cache.
-With inline dimension arithmetic, warm leaf A/B queries allocate only their
+With inline dimension arithmetic, warm single-factor A/B queries allocate only their
 returned coefficient buffer (zero for empty or inline blocks).
 Product A/B, like F, compose factor blocks on
 each query and also allocate their storage copies and Kronecker buffers.

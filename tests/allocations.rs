@@ -11,3 +11,5 @@ mod lie_generated_label_alloc;
 mod product_alloc;
 mod warm_ab_alloc;
 mod warm_hit_alloc;
+
+mod torus_alloc;
