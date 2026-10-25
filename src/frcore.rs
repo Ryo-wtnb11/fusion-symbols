@@ -67,6 +67,7 @@ pub(crate) trait Family {
     type Irrep: Clone + Eq + Hash;
     /// The family's error type, surfaced unchanged by the core.
     type Error;
+    fn overflow() -> Self::Error;
 
     /// `N^c_{ab}`, the fusion multiplicity of `a ⊗ b → c`. Errors on an
     /// ill-posed pairing (mixed rank/series/group) per the family's contract.
@@ -130,6 +131,7 @@ pub(crate) fn f_block_raw<F: Family>(
         return Ok(FBlock::zeros(dims));
     }
 
+    let len = crate::lie::checked_size(dims).map_err(|_| F::overflow())?;
     let cab = fam.cgc_entries(a, b, e)?; // A[ma,mb,me,μ]
     let cecd = fam.cgc_entries(e, c, d)?; // B slice at m_d=0: [me,mc,ν]
     let cbcf = fam.cgc_entries(b, c, f)?; // C[mb,mc,mf,κ]
@@ -198,7 +200,7 @@ pub(crate) fn f_block_raw<F: Family>(
     }
 
     // Step 3: F[μ,ν,κ,λ] = Σ_{ma,mb,mc} AB[(ma,mb,mc),(μ,ν)] · CD[(ma,mb,mc),(κ,λ)].
-    let mut data = vec![0.0; dims[0] * dims[1] * dims[2] * dims[3]];
+    let mut data = vec![0.0; len];
     let mut ab_keys: Vec<_> = ab.keys().copied().collect();
     ab_keys.sort_unstable();
     for key in ab_keys {
@@ -209,10 +211,10 @@ pub(crate) fn f_block_raw<F: Family>(
             for &(kappa, lambda, vcd) in cdlist {
                 let idx = FBlock::flat(
                     dims,
-                    mu as usize,
-                    nu as usize,
-                    kappa as usize,
-                    lambda as usize,
+                    usize::try_from(mu).map_err(|_| F::overflow())?,
+                    usize::try_from(nu).map_err(|_| F::overflow())?,
+                    usize::try_from(kappa).map_err(|_| F::overflow())?,
+                    usize::try_from(lambda).map_err(|_| F::overflow())?,
                 );
                 data[idx] += vab * vcd;
             }
@@ -247,6 +249,7 @@ pub(crate) fn r_block_raw<F: Family>(
     }
     debug_assert_eq!(n1, n2, "N^c_ab == N^c_ba");
 
+    let len = crate::lie::checked_size([n1, n1]).map_err(|_| F::overflow())?;
     let cab = fam.cgc_entries(a, b, c)?; // A[ma,mb,mc,μ]
     let cba = fam.cgc_entries(b, a, c)?; // B[mb,ma,mc,ν]
 
@@ -265,7 +268,7 @@ pub(crate) fn r_block_raw<F: Family>(
         }
     }
 
-    let mut data = vec![0.0; n1 * n1];
+    let mut data = vec![0.0; len];
     let mut keys: Vec<_> = a_map.keys().copied().collect();
     keys.sort_unstable();
     for key in keys {
@@ -274,7 +277,8 @@ pub(crate) fn r_block_raw<F: Family>(
         };
         for &(mu, va) in &a_map[&key] {
             for &(nu, vb) in blist {
-                data[mu as usize * n1 + nu as usize] += va * vb;
+                data[usize::try_from(mu).map_err(|_| F::overflow())? * n1
+                    + usize::try_from(nu).map_err(|_| F::overflow())?] += va * vb;
             }
         }
     }

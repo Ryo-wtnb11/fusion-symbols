@@ -282,7 +282,8 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     ///
     /// The default returns `Ok(self.nsymbol(a, b, c))`, which is exact for a
     /// category whose `nsymbol` cannot overflow. A category that composes
-    /// multiplicities, such as [`crate::product::Product`], overrides it.
+    /// multiplicities, such as [`crate::product::Product`], or generates them,
+    /// such as [`crate::lie::LieGroup`], overrides it.
     /// It costs the same as `nsymbol`.
     fn try_nsymbol(
         &self,
@@ -699,7 +700,10 @@ fn vertex_scale<C: FusionCategory>(
 
 // The square `n × n` A or B block from row-major data (`N(a,b,c)` equals
 // `N(ā,c,b)` and `N(c,b̄,a)` by Frobenius reciprocity).
-fn rank2_block<S: Scalar>(n: usize, data: impl ExactSizeIterator<Item = S>) -> RBlock<S> {
+pub(crate) fn rank2_block<S: Scalar>(
+    n: usize,
+    data: impl ExactSizeIterator<Item = S>,
+) -> RBlock<S> {
     assert_eq!(
         data.len(),
         n * n,

@@ -26,11 +26,19 @@ pub(crate) struct Dense {
 
 impl Dense {
     pub fn zeros(rows: usize, cols: usize) -> Self {
-        Dense {
+        Self::try_zeros(rows, cols)
+            .expect("callers check growing shapes; other shapes are bounded by allocated matrices")
+    }
+    pub fn try_zeros(rows: usize, cols: usize) -> Result<Self, SweepError> {
+        Ok(Dense {
             rows,
             cols,
-            data: vec![0.0; rows * cols],
-        }
+            data: vec![
+                0.0;
+                crate::lie::checked_size([rows, cols])
+                    .map_err(|_| SweepError::LabelOverflow)?
+            ],
+        })
     }
 
     #[inline]
@@ -67,10 +75,19 @@ impl Dense {
     }
 
     /// Append the columns of `other` (same `rows`) to the right.
+    #[cfg(test)]
     pub fn cat_cols(&mut self, other: &Dense) {
+        self.try_cat_cols(other)
+            .expect("test matrices have representable concatenated dimensions");
+    }
+    pub fn try_cat_cols(&mut self, other: &Dense) -> Result<(), SweepError> {
         debug_assert_eq!(self.rows, other.rows, "cat_cols row mismatch");
+        let cols = crate::lie::checked_count(self.cols, other.cols)
+            .map_err(|_| SweepError::LabelOverflow)?;
+        crate::lie::checked_size([self.rows, cols]).map_err(|_| SweepError::LabelOverflow)?;
         self.data.extend_from_slice(&other.data);
-        self.cols += other.cols;
+        self.cols = cols;
+        Ok(())
     }
 
     /// A view of `self` keeping only the columns in `keep` (in order).
@@ -156,6 +173,7 @@ fn dense(a: MatRef<'_, f64>) -> Dense {
 /// `A · B` (plain matmul), routed through the t4a-faer sequential kernels.
 pub(crate) fn matmul(a: &Dense, b: &Dense) -> Result<Dense, SweepError> {
     debug_assert_eq!(a.cols, b.rows, "matmul inner-dim mismatch");
+    crate::lie::checked_size([a.rows, b.cols]).map_err(|_| SweepError::LabelOverflow)?;
     if a.rows == 0 || b.cols == 0 || a.cols == 0 {
         return Ok(Dense::zeros(a.rows, b.cols));
     }
@@ -251,7 +269,7 @@ pub(crate) fn qr_positive_q(a: &Dense, tol: f64) -> Result<Dense, SweepError> {
             for x in &mut r.data {
                 *x /= norm;
             }
-            basis.cat_cols(&r);
+            basis.try_cat_cols(&r)?;
         }
     }
     if keep.is_empty() {
@@ -430,5 +448,26 @@ mod tests {
         for i in 0..4 {
             assert!((w.data[i] - rot.data[i]).abs() < 1e-12);
         }
+    }
+}
+
+#[cfg(test)]
+mod arithmetic_tests {
+    use super::*;
+    #[test]
+    fn matrix_growth_bounds() {
+        assert!(matches!(
+            Dense::try_zeros(usize::MAX, 2),
+            Err(SweepError::LabelOverflow)
+        ));
+        let mut empty = Dense {
+            rows: 0,
+            cols: usize::MAX,
+            data: vec![],
+        };
+        assert_eq!(
+            empty.try_cat_cols(&Dense::zeros(0, 1)),
+            Err(SweepError::LabelOverflow)
+        );
     }
 }

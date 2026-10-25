@@ -9,6 +9,11 @@ value/gauge rule noted below.
 
 ### Fixed
 
+- Generated Lie fusion arithmetic now checks label and weight sums, dimensions,
+  multiplicities and integer conversions. `LieGroup::try_nsymbol`, fusion and
+  F/R/A/B/CGC propagate `LieError::LabelOverflow`; infallible `nsymbol` reports
+  failure with a clear panic. Coefficient values and gauge epochs are unchanged (#185).
+
 - `GroupId::admits` no longer panics on degenerate public root data
   (`B(0)` with `Z2`); `LieGroup::new` returns `NotAdmissible` (#184).
 - `LieGroup::new` / `with_catalog_budget` no longer abort on huge ranks: the

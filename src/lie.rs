@@ -110,12 +110,12 @@ impl Iterator for DynkinLabels<'_> {
         if let Some(a) = &self.irrep.bcd {
             let w = a.two_partition();
             return Some(if i + 1 < w.len() {
-                ((i128::from(w[i]) - i128::from(w[i + 1])) / 2) as i64
+                bcd::half_sum(w[i], -w[i + 1])
             } else {
                 match a.series() {
                     bcd::Series::B => w[i],
                     bcd::Series::C => w[i] / 2,
-                    bcd::Series::D => ((i128::from(w[i - 1]) + i128::from(w[i])) / 2) as i64,
+                    bcd::Series::D => bcd::half_sum(w[i - 1], w[i]),
                 }
             });
         }
@@ -145,7 +145,7 @@ pub enum LieError {
     InvalidLabel,
     /// The group's global form excludes this weight.
     NotAdmissible,
-    /// A label or its internal weight encoding exceeds the integer or buffer size range.
+    /// A label, weight, dimension or multiplicity exceeds the integer range.
     LabelOverflow,
     /// The named capability is unavailable.
     Unsupported {
@@ -174,6 +174,9 @@ impl std::error::Error for GenerationError {
 #[cfg(feature = "lie-generated")]
 impl From<sun::SunError> for LieError {
     fn from(error: sun::SunError) -> Self {
+        if error == sun::SunError::LabelOverflow {
+            return Self::LabelOverflow;
+        }
         Self::Generation(GenerationError(std::sync::Arc::new(error)))
     }
 }
@@ -189,6 +192,13 @@ impl From<bcd::BcdError> for LieError {
 #[cfg(feature = "lie-generated")]
 impl From<bcd::CatalogError> for LieError {
     fn from(error: bcd::CatalogError) -> Self {
+        match &error {
+            bcd::CatalogError::Label(bcd::BcdError::LabelOverflow)
+            | bcd::CatalogError::Sweep(bcd::sweep::SweepError::LabelOverflow) => {
+                return Self::LabelOverflow
+            }
+            _ => {}
+        }
         Self::Generation(GenerationError(std::sync::Arc::new(error)))
     }
 }
@@ -204,7 +214,9 @@ impl std::fmt::Display for LieError {
             Self::Generation(error) => error.fmt(f),
             Self::InvalidLabel => f.write_str("expected rank-many nonnegative Dynkin labels"),
             Self::NotAdmissible => f.write_str("weight is not admitted by this global form"),
-            Self::LabelOverflow => f.write_str("label or weight exceeds the integer range"),
+            Self::LabelOverflow => {
+                f.write_str("a label, weight, dimension or multiplicity exceeds the integer range")
+            }
             Self::Unsupported { requires } => write!(f, "unsupported capability: {requires}"),
         }
     }
@@ -216,6 +228,39 @@ impl std::error::Error for LieError {
             _ => None,
         }
     }
+}
+
+fn checked_dimension(value: impl TryInto<usize>) -> Result<usize, LieError> {
+    value.try_into().map_err(|_| LieError::LabelOverflow)
+}
+pub(crate) fn checked_size<const N: usize>(dims: [usize; N]) -> Result<usize, LieError> {
+    if dims.contains(&0) {
+        return Ok(0);
+    }
+    let size = dims
+        .into_iter()
+        .try_fold(1usize, |n, d| n.checked_mul(d))
+        .ok_or(LieError::LabelOverflow)?;
+    if size > isize::MAX as usize / std::mem::size_of::<f64>() {
+        return Err(LieError::LabelOverflow);
+    }
+    Ok(size)
+}
+
+fn checked_count(a: usize, b: usize) -> Result<usize, LieError> {
+    a.checked_add(b).ok_or(LieError::LabelOverflow)
+}
+fn a1_dimension(dj: u32) -> Result<usize, LieError> {
+    checked_count(checked_dimension(dj)?, 1)
+}
+fn a1_projection(m: i64, dj: i64) -> Result<i64, LieError> {
+    m.checked_mul(2)
+        .and_then(|m| m.checked_sub(dj))
+        .ok_or(LieError::LabelOverflow)
+}
+
+fn checked_projection(value: i64) -> Result<i32, LieError> {
+    i32::try_from(value).map_err(|_| LieError::LabelOverflow)
 }
 
 impl LieGroup {
@@ -235,7 +280,8 @@ impl LieGroup {
         {
             #[cfg(feature = "lie-generated")]
             {
-                let series = bcd_series(group.root_system).expect("B/C/D root system");
+                let series = bcd_series(group.root_system)
+                    .expect("the enclosing match restricts the root system to B/C/D");
                 return Ok(Self {
                     group,
                     unit: std::sync::OnceLock::new(),
@@ -323,7 +369,7 @@ impl LieGroup {
     pub fn reset_catalog(&self) -> Result<(), LieError> {
         #[cfg(feature = "lie-generated")]
         if let Some(cat) = &self.catalog {
-            cat.lock().map_err(|_| poisoned_catalog())?.reset();
+            cat.lock().map_err(|_| poisoned_catalog())?.try_reset()?;
         }
         Ok(())
     }
@@ -445,6 +491,7 @@ impl LieIrrep {
         BigInt::from(u64::from(self.dj) + 1)
     }
     /// Weight multiplicities in Dynkin coordinates, in ascending coordinate order.
+    /// Panics if an intermediate weight or multiplicity is unrepresentable.
     pub fn weight_multiplicities(&self) -> BTreeMap<Vec<i64>, u64> {
         #[cfg(feature = "lie-generated")]
         if let Some(a) = &self.bcd {
@@ -454,11 +501,15 @@ impl LieIrrep {
         if let Some(a) = &self.generated {
             let mut weights = BTreeMap::new();
             for p in a.patterns() {
-                let rowsum = |l| (1..=l).map(|k| p.get(k, l)).sum::<i64>();
-                let w: Vec<_> = (1..=p.rank()).map(|l| rowsum(l) - rowsum(l - 1)).collect();
-                *weights
+                let w = sun::cgc::pattern_weight(&p, p.rank()).expect(
+                    "infallible weight_multiplicities failed: GT row sum or weight exceeds i64",
+                );
+                let count = weights
                     .entry(w.windows(2).map(|x| x[0] - x[1]).collect())
-                    .or_insert(0) += 1;
+                    .or_insert(0u64);
+                *count = count
+                    .checked_add(1)
+                    .expect("weight counts are bounded by the allocated GT pattern count");
             }
             return weights;
         }
@@ -516,7 +567,8 @@ impl LieCgc {
             return c
                 .entries()
                 .binary_search_by_key(&key, |e| {
-                    [e.m1 as usize, e.m2 as usize, e.m3 as usize, e.mu as usize]
+                    [e.m1, e.m2, e.m3, e.mu].map(|i| usize::try_from(i)
+                        .expect("generated sparse indices came from this allocation's usize basis indices"))
                 })
                 .map_or(0.0, |i| c.entries()[i].value);
         }
@@ -551,7 +603,7 @@ impl FusionCategory for LieGroup {
                 .unit
                 .get_or_init(|| {
                     self.irrep(&vec![0; self.group.root_system.rank()])
-                        .expect("unit is admissible")
+                        .expect("zero Dynkin labels have zero weight and are admitted by the constructed group")
                 })
                 .clone();
         }
@@ -704,26 +756,31 @@ impl FusionCategory for LieGroup {
             inner: FusionInner::A1(inner),
         })
     }
+    /// Panics if generated fusion arithmetic overflows or generation fails.
+    /// Use [`Self::try_nsymbol`] to receive the typed error.
     fn nsymbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> u32 {
+        self.try_nsymbol(a, b, c)
+            .expect("Lie fusion arithmetic failed; use try_nsymbol for a typed error")
+    }
+    /// Generated fusion checks label/weight sums and multiplicities, returning
+    /// [`LieError::LabelOverflow`] on overflow. Rank-one N is always zero or one.
+    fn try_nsymbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<u32, LieError> {
         self.label(a);
         self.label(b);
         self.label(c);
         #[cfg(feature = "lie-generated")]
         if let (Some(a), Some(b), Some(c)) = (&a.generated, &b.generated, &c.generated) {
-            return sun::shared_directproduct(a, b)
-                .expect("validated product labels")
-                .multiplicity(c);
+            return Ok(sun::shared_directproduct(a, b)?.multiplicity(c));
         }
         #[cfg(feature = "lie-generated")]
         if let (Some(a), Some(b), Some(c)) = (&a.bcd, &b.bcd, &c.bcd) {
-            return bcd::shared_directproduct(a, b)
-                .expect("validated product labels")
+            return Ok(bcd::shared_directproduct(a, b)?
                 .iter()
                 .find(|(x, _)| x == c)
-                .map_or(0, |(_, n)| *n);
+                .map_or(0, |(_, n)| *n));
         }
         let (a, b, c) = (a.dj, b.dj, c.dj);
-        u32::from(su2::triangle_ok(a, b, c))
+        Ok(u32::from(su2::triangle_ok(a, b, c)))
     }
     fn f_symbol(
         &self,
@@ -748,7 +805,9 @@ impl FusionCategory for LieGroup {
             [a, b, c, d, e, f].map(|x| x.bcd.as_ref())
         {
             return bcd::f_symbol(
-                self.catalog.as_ref().expect("BCD catalog"),
+                self.catalog
+                    .as_ref()
+                    .expect("B/C/D objects are constructed only with a B/C/D catalog"),
                 a,
                 b,
                 c,
@@ -776,7 +835,14 @@ impl FusionCategory for LieGroup {
         }
         #[cfg(feature = "lie-generated")]
         if let (Some(a), Some(b), Some(c)) = (&a.bcd, &b.bcd, &c.bcd) {
-            return bcd::r_symbol(self.catalog.as_ref().expect("BCD catalog"), a, b, c);
+            return bcd::r_symbol(
+                self.catalog
+                    .as_ref()
+                    .expect("B/C/D objects are constructed only with a B/C/D catalog"),
+                a,
+                b,
+                c,
+            );
         }
         let (a, b, c) = (self.label(a), self.label(b), self.label(c));
         Ok(if su2::triangle_ok(a, b, c) {
@@ -784,6 +850,33 @@ impl FusionCategory for LieGroup {
         } else {
             RBlock::zeros(0)
         })
+    }
+    fn a_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock, LieError> {
+        let n = checked_dimension(self.try_nsymbol(a, b, c)?)?;
+        checked_size([n, n])?;
+        if n == 0 {
+            return Ok(RBlock::zeros(0));
+        }
+        let f = self.f_symbol(&self.dual(a), a, b, b, &self.unit(), c)?;
+        let kappa = self.frobenius_schur_phase(a);
+        let scale = self.sqrt_dim(a) * self.sqrt_dim(b) / self.sqrt_dim(c);
+        Ok(crate::category::rank2_block(
+            n,
+            f.data().iter().map(|&x| scale * (kappa * x)),
+        ))
+    }
+    fn b_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock, LieError> {
+        let n = checked_dimension(self.try_nsymbol(a, b, c)?)?;
+        checked_size([n, n])?;
+        if n == 0 {
+            return Ok(RBlock::zeros(0));
+        }
+        let f = self.f_symbol(a, b, &self.dual(b), a, c, &self.unit())?;
+        let scale = self.sqrt_dim(a) * self.sqrt_dim(b) / self.sqrt_dim(c);
+        Ok(crate::category::rank2_block(
+            n,
+            f.data().iter().map(|&x| scale * x),
+        ))
     }
     /// `false`: every group has an irrep of dimension `d > 1`, whose
     /// `|F^{a ā a}_a[𝟙, 𝟙]| = 1/d` (SU(2): `F^{½½½}_½[0, 0] = -1/2`).
@@ -870,9 +963,9 @@ impl GroupRepresentations for LieGroup {
         #[cfg(feature = "lie-generated")]
         if let (Some(a), Some(b), Some(c)) = (&a.bcd, &b.bcd, &c.bcd) {
             let dims = [
-                usize::try_from(a.dim()).expect("tractable dimension"),
-                usize::try_from(b.dim()).expect("tractable dimension"),
-                usize::try_from(c.dim()).expect("tractable dimension"),
+                checked_dimension(a.dim())?,
+                checked_dimension(b.dim())?,
+                checked_dimension(c.dim())?,
                 bcd::fr::mult(a, b, c)?,
             ];
             return Ok(LieCgc {
@@ -883,7 +976,9 @@ impl GroupRepresentations for LieGroup {
                     None
                 } else {
                     Some(bcd::fr::cached_cgc(
-                        self.catalog.as_ref().expect("BCD catalog"),
+                        self.catalog
+                            .as_ref()
+                            .expect("B/C/D objects are constructed only with a B/C/D catalog"),
                         a,
                         b,
                         c,
@@ -899,25 +994,37 @@ impl GroupRepresentations for LieGroup {
             });
         }
         let dims = [
-            a as usize + 1,
-            b as usize + 1,
-            c as usize + 1,
+            a1_dimension(a)?,
+            a1_dimension(b)?,
+            a1_dimension(c)?,
             usize::from(su2::triangle_ok(a, b, c)),
         ];
         let mut data = Vec::new();
         if dims[3] != 0 {
-            data.resize(dims.iter().product(), 0.0);
+            data.resize(checked_size(dims)?, 0.0);
             for m1 in 0..=a {
-                let dm1 = 2 * i64::from(m1) - i64::from(a);
+                let dm1 = a1_projection(i64::from(m1), i64::from(a))?;
                 for m2 in 0..=b {
-                    let dm2 = 2 * i64::from(m2) - i64::from(b);
-                    let dm3 = dm1 + dm2;
+                    let dm2 = a1_projection(i64::from(m2), i64::from(b))?;
+                    let dm3 = dm1.checked_add(dm2).ok_or(LieError::LabelOverflow)?;
                     // Triangle parity makes (dm3 + c) even; only this projection can be nonzero.
                     if dm3.abs() <= i64::from(c) {
-                        let m3 = ((dm3 + i64::from(c)) / 2) as usize;
-                        data[(m1 as usize * dims[1] + m2 as usize) * dims[2] + m3] =
-                            su2::clebsch_gordan(a, dm1 as i32, b, dm2 as i32, c, dm3 as i32)
-                                .to_f64();
+                        let m3 = checked_dimension(
+                            dm3.checked_add(i64::from(c))
+                                .ok_or(LieError::LabelOverflow)?
+                                / 2,
+                        )?;
+                        data[(checked_dimension(m1)? * dims[1] + checked_dimension(m2)?)
+                            * dims[2]
+                            + m3] = su2::clebsch_gordan(
+                            a,
+                            checked_projection(dm1)?,
+                            b,
+                            checked_projection(dm2)?,
+                            c,
+                            checked_projection(dm3)?,
+                        )
+                        .to_f64();
                     }
                 }
             }
@@ -1071,5 +1178,81 @@ fn bcd_series(root: RootSystem) -> Option<bcd::Series> {
         RootSystem::C(_) => Some(bcd::Series::C),
         RootSystem::D(_) => Some(bcd::Series::D),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod arithmetic_tests {
+    use super::*;
+
+    #[test]
+    fn dimension_and_buffer_bounds() {
+        assert_eq!(
+            checked_dimension(usize::MAX as u128 + 1),
+            Err(LieError::LabelOverflow)
+        );
+        assert_eq!(checked_count(usize::MAX, 1), Err(LieError::LabelOverflow));
+        assert_eq!(
+            checked_projection(i64::from(i32::MAX) + 1),
+            Err(LieError::LabelOverflow)
+        );
+        assert_eq!(
+            checked_projection(i64::from(i32::MIN) - 1),
+            Err(LieError::LabelOverflow)
+        );
+        assert_eq!(
+            a1_projection(i64::MAX / 2 + 1, 0),
+            Err(LieError::LabelOverflow)
+        );
+        assert_eq!(a1_projection(0, i64::MIN), Err(LieError::LabelOverflow));
+        assert_eq!(checked_dimension(-1i64), Err(LieError::LabelOverflow));
+        assert_eq!(checked_size([usize::MAX, 2]), Err(LieError::LabelOverflow));
+        assert_eq!(
+            checked_size([isize::MAX as usize / 8 + 1]),
+            Err(LieError::LabelOverflow)
+        );
+        assert_eq!(checked_size([usize::MAX, 2, 0]), Ok(0));
+        assert_eq!(
+            a1_dimension(u32::MAX),
+            checked_dimension(u64::from(u32::MAX) + 1)
+        );
+    }
+
+    #[test]
+    fn rank_one_n_stays_exact_when_fusion_labels_overflow() {
+        let cat = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+        let a = cat.irrep(&[i64::from(u32::MAX)]).unwrap();
+        let b = cat.irrep(&[1]).unwrap();
+        let c = cat.irrep(&[i64::from(u32::MAX) - 1]).unwrap();
+        assert_eq!(cat.try_nsymbol(&a, &b, &c), Ok(1));
+        assert!(matches!(cat.fusion(&a, &b), Err(LieError::LabelOverflow)));
+        let a = cat.irrep(&[i64::from(i32::MAX)]).unwrap();
+        assert!(matches!(
+            cat.cgc(&a, &a, &cat.unit()),
+            Err(LieError::LabelOverflow)
+        ));
+    }
+
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn nested_generation_overflow_is_not_wrapped() {
+        assert_eq!(
+            LieError::from(sun::SunError::LabelOverflow),
+            LieError::LabelOverflow
+        );
+        assert_eq!(
+            LieError::from(bcd::BcdError::LabelOverflow),
+            LieError::LabelOverflow
+        );
+        assert_eq!(
+            LieError::from(bcd::CatalogError::Label(bcd::BcdError::LabelOverflow)),
+            LieError::LabelOverflow
+        );
+        assert_eq!(
+            LieError::from(bcd::CatalogError::Sweep(
+                bcd::sweep::SweepError::LabelOverflow
+            )),
+            LieError::LabelOverflow
+        );
     }
 }

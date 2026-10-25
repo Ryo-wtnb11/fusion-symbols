@@ -261,7 +261,7 @@ violation is a typed `lie::GenerationError`, never a silently degraded coefficie
 reference constants. Tightening them does not change the gauge.
 
 Proven-unreachable invariant violations (e.g. a missing raised GT pattern when
-its ladder coefficient is nonzero) `panic` in every build (`src/lie/sun.rs::Irrep::creation`),
+its ladder coefficient is nonzero) `panic` in every build (`src/lie/sun.rs::Irrep::try_creation`),
 per the crate's error discipline — those are not tolerance events.
 
 ## 10. Numerical seams (backend)

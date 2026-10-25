@@ -40,22 +40,24 @@ struct BcdFamily<'a> {
 impl Family for BcdFamily<'_> {
     type Irrep = Irrep;
     type Error = LieError;
+    fn overflow() -> LieError {
+        LieError::LabelOverflow
+    }
     fn mult(&mut self, a: &Irrep, b: &Irrep, c: &Irrep) -> Result<usize, LieError> {
         mult(a, b, c)
     }
 
     fn cgc_entries(&mut self, a: &Irrep, b: &Irrep, c: &Irrep) -> Result<Vec<MEntry>, LieError> {
-        Ok(sparse_entries(
-            a,
-            cached_product_cgc(self.cat, a, b, c)?.as_ref(),
-        ))
+        sparse_entries(a, cached_product_cgc(self.cat, a, b, c)?.as_ref())
     }
 }
 pub(crate) fn mult(a: &Irrep, b: &Irrep, c: &Irrep) -> Result<usize, LieError> {
-    Ok(super::shared_directproduct(a, b)?
-        .iter()
-        .find(|(x, _)| x == c)
-        .map_or(0, |(_, n)| *n as usize))
+    super::super::checked_dimension(
+        super::shared_directproduct(a, b)?
+            .iter()
+            .find(|(x, _)| x == c)
+            .map_or(0, |(_, n)| *n),
+    )
 }
 pub(crate) fn cached_cgc(
     cat: &Mutex<CanonicalCatalog>,
@@ -110,13 +112,17 @@ fn cached_product_cgc(
             wanted = Some(stored);
         }
     }
-    Ok(wanted.expect("nonempty CGC channel checked by caller"))
+    Ok(wanted.expect("the sweep passed its exact support gate for this nonempty channel"))
 }
 
-fn sparse_entries(s1: &Irrep, cgc: &CatalogCgc) -> Vec<MEntry> {
+fn magnetic_index(value: usize) -> Result<u32, LieError> {
+    u32::try_from(value).map_err(|_| LieError::LabelOverflow)
+}
+
+fn sparse_entries(s1: &Irrep, cgc: &CatalogCgc) -> Result<Vec<MEntry>, LieError> {
     let (rows, d3) = cgc.copy_shape();
     // d1 = dim(s1); the row index is m1 + d1·m2 (first factor fast).
-    let d1 = usize::try_from(s1.dim()).expect("irrep dim fits usize for tractable ranks");
+    let d1 = super::super::checked_dimension(s1.dim())?;
     let mult = cgc.multiplicity();
     let mut out = Vec::new();
     for mu in 0..mult {
@@ -129,17 +135,17 @@ fn sparse_entries(s1: &Irrep, cgc: &CatalogCgc) -> Vec<MEntry> {
                 let v = copy[col * rows + row];
                 if v != 0.0 {
                     out.push(MEntry {
-                        m1: (row % d1) as u32,
-                        m2: (row / d1) as u32,
-                        m3: col as u32,
-                        mu: mu as u32,
+                        m1: magnetic_index(row % d1)?,
+                        m2: magnetic_index(row / d1)?,
+                        m3: magnetic_index(col)?,
+                        mu: magnetic_index(mu)?,
                         value: v,
                     });
                 }
             }
         }
     }
-    out
+    Ok(out)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -177,3 +183,16 @@ pub fn r_symbol(
 }
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod arithmetic_tests {
+    use super::*;
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn sparse_index_bound() {
+        assert_eq!(
+            magnetic_index(u32::MAX as usize + 1),
+            Err(LieError::LabelOverflow)
+        );
+    }
+}

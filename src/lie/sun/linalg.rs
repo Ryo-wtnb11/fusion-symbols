@@ -77,12 +77,16 @@ pub(crate) struct Mat {
 }
 
 impl Mat {
-    pub fn zeros(rows: usize, cols: usize) -> Self {
-        Mat {
+    pub fn try_zeros(rows: usize, cols: usize) -> Result<Self, SunError> {
+        Ok(Mat {
             rows,
             cols,
-            data: vec![0.0; rows * cols],
-        }
+            data: vec![
+                0.0;
+                crate::lie::checked_size([rows, cols])
+                    .map_err(|_| SunError::LabelOverflow)?
+            ],
+        })
     }
 
     #[inline]
@@ -113,12 +117,14 @@ pub(crate) fn nullspace(a: &Mat, atol: f64) -> Result<Mat, SunError> {
     // whole space as its nullspace -> the n x n identity. Also avoids handing a
     // 0-row matrix to full SVD.
     if a.rows == 0 || n == 0 {
-        let mut id = Mat::zeros(n, n);
+        let mut id = Mat::try_zeros(n, n)?;
         for i in 0..n {
             id.data[i + i * n] = 1.0;
         }
         return Ok(id);
     }
+    crate::lie::checked_size([a.rows, a.rows]).map_err(|_| SunError::LabelOverflow)?;
+    crate::lie::checked_size([n, n]).map_err(|_| SunError::LabelOverflow)?;
     let mut u = FaerMat::zeros(a.rows, a.rows);
     let mut v = FaerMat::zeros(n, n);
     let mut sv = Diag::zeros(a.rows.min(n));
@@ -144,7 +150,7 @@ pub(crate) fn nullspace(a: &Mat, atol: f64) -> Result<Mat, SunError> {
     let rank = sv.iter().filter(|&&x| x > atol).count();
     let k = n - rank;
     // Nullspace vector alpha is column (rank + alpha) of the full V.
-    let mut ns = Mat::zeros(n, k);
+    let mut ns = Mat::try_zeros(n, k)?;
     for alpha in 0..k {
         let t = rank + alpha;
         for j in 0..n {
@@ -316,5 +322,23 @@ mod tests {
         assert_eq!((x.rows, x.cols), (2, 1));
         assert!((x.at(0, 0) - 2.0).abs() < 1e-9);
         assert!((x.at(1, 0) + 1.0).abs() < 1e-9);
+    }
+}
+
+#[cfg(test)]
+mod arithmetic_tests {
+    use super::*;
+    #[test]
+    fn matrix_dimension_bound() {
+        assert!(matches!(
+            Mat::try_zeros(usize::MAX, 2),
+            Err(SunError::LabelOverflow)
+        ));
+        let a = Mat {
+            rows: 0,
+            cols: usize::MAX,
+            data: vec![],
+        };
+        assert!(matches!(nullspace(&a, 1e-13), Err(SunError::LabelOverflow)));
     }
 }

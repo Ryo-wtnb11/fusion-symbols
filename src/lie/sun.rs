@@ -62,7 +62,7 @@ use num_traits::{One, Signed, Zero};
 use super::GtPattern;
 use crate::exact::SignedSqrtRational;
 
-mod cgc;
+pub(super) mod cgc;
 mod fr;
 mod linalg;
 
@@ -76,6 +76,8 @@ pub use fr::{f_symbol, r_symbol, FBlock};
 /// carry an `f64` residual for diagnostics.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum SunError {
+    /// Integer arithmetic or narrowing exceeded its range.
+    LabelOverflow,
     /// A rank-0 label (empty weight / empty Dynkin for `N = 1` is a single
     /// zero, so a genuinely empty slice is rejected here).
     EmptyLabel,
@@ -132,6 +134,10 @@ pub(crate) enum SunError {
 impl fmt::Display for SunError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            SunError::LabelOverflow => write!(
+                f,
+                "a label, weight, dimension or multiplicity exceeds the integer range"
+            ),
             SunError::EmptyLabel => write!(f, "SU(N) irrep label must be non-empty"),
             SunError::NotNonincreasing { weight } => {
                 write!(f, "SU(N) weight is not nonincreasing: {weight:?}")
@@ -264,7 +270,7 @@ impl crate::cache::CacheCharge for SunProduct {
                 self.0
                     .iter()
                     .map(|(irrep, _)| irrep.weight_bytes())
-                    .sum::<usize>(),
+                    .fold(0usize, usize::saturating_add),
             )
     }
 }
@@ -298,7 +304,16 @@ impl Irrep {
             }
         }
         let last = weight[weight.len() - 1];
-        let norm: Arc<[i64]> = weight.iter().map(|x| x - last).collect();
+        weight[0].checked_sub(last).ok_or(SunError::LabelOverflow)?;
+        // Keep the exact-length iterator so Arc fills its allocation directly.
+        let norm: Arc<[i64]> = weight
+            .iter()
+            .map(|x| {
+                x.checked_sub(last).expect(
+                    "nonincreasing weights bound every difference by the checked first-minus-last",
+                )
+            })
+            .collect();
         Ok(Irrep { weight: norm })
     }
 
@@ -315,7 +330,7 @@ impl Irrep {
         }
         // Suffix sums, emitted front to back so the exact-length iterator fills
         // the shared allocation directly.
-        let mut suffix: i64 = dynkin.iter().sum();
+        let mut suffix = weight_sum(dynkin)?;
         let weight = dynkin
             .iter()
             .map(|&a| {
@@ -381,7 +396,8 @@ impl Irrep {
     pub fn dual(&self) -> Irrep {
         let mut d = self.dynkin();
         d.reverse();
-        Irrep::from_dynkin(&d).expect("reversed nonnegative Dynkin label is valid")
+        Irrep::from_dynkin(&d)
+            .expect("reversing nonnegative Dynkin labels preserves their representable sum")
     }
 
     /// The Frobenius–Schur phase $\kappa_a = \operatorname{sign} F^{a\bar a a}_a[1, 1]$
@@ -421,7 +437,11 @@ impl Irrep {
             .weight
             .windows(2)
             .enumerate()
-            .filter(|&(i, w)| (w[0] - w[1]) % 2 != 0 && !((i + 1) * (n - i - 1)).is_multiple_of(2))
+            .filter(|&(i, w)| {
+                (w[0] - w[1]) % 2 != 0
+                    && !(i + 1).is_multiple_of(2)
+                    && !(n - i - 1).is_multiple_of(2)
+            })
             .count()
             % 2
             == 1;
@@ -457,7 +477,12 @@ impl Irrep {
     /// [`Irrep::patterns`]. Ported from `gtpatterns.jl:creation`; the entry is
     /// `signedroot(coef)` of the exact GT rational `coef`, carried as a
     /// [`SignedSqrtRational`] (its `signed_square()` equals `coef`).
+    #[cfg(test)]
     fn creation(&self) -> Vec<Vec<LadderEntry>> {
+        self.try_creation()
+            .expect("test fixture has representable GT ladder weights")
+    }
+    fn try_creation(&self) -> Result<Vec<Vec<LadderEntry>>, SunError> {
         let n = self.rank();
         let pats = self.patterns();
         // Basis index of each pattern (the reference `table`).
@@ -479,12 +504,12 @@ impl Irrep {
                     let mut coef = Ratio::<BigInt>::from(BigInt::from(-1));
                     let mut skip = false;
                     for kp in 1..=(l + 1) {
-                        let base = mkl + (kp as i64) - (k as i64);
-                        let f1 = m.get(kp, l + 1) - base;
+                        let base = ladder_base(mkl, kp, k)?;
+                        let f1 = ladder_factor(m.get(kp, l + 1), base, 0)?;
                         coef *= BigInt::from(f1);
                         if kp < l {
                             // reference: k' ≤ l-1 (so m[k', l-1] is in range)
-                            let f2 = m.get(kp, l - 1) - base - 1;
+                            let f2 = ladder_factor(m.get(kp, l - 1), base, 1)?;
                             coef *= BigInt::from(f2);
                         }
                         if coef.numer().is_zero() {
@@ -492,11 +517,11 @@ impl Irrep {
                             break;
                         }
                         if kp <= l && kp != k {
-                            let g = m.get(kp, l) - base;
+                            let g = ladder_factor(m.get(kp, l), base, 0)?;
                             // Julia's Rational hits denominator 0 here and the
                             // reference skips; we detect the zero divisor and
                             // skip too (num_rational would panic on ÷0).
-                            let den = g * (g - 1);
+                            let den = ladder_denominator(g)?;
                             if den == 0 {
                                 skip = true;
                                 break;
@@ -523,7 +548,7 @@ impl Irrep {
                     // KeyError in all builds; QSpace aborts on invariant
                     // violations).
                     let mut mp = m.clone();
-                    mp.set(k, l, mkl + 1);
+                    mp.set(k, l, add_weight(mkl, 1)?);
                     let &j = table.get(&mp).expect(
                         "GT invariant violated: coef != 0 implies the raised \
                          pattern is a valid basis member",
@@ -536,15 +561,21 @@ impl Irrep {
                 }
             }
         }
-        result
+        Ok(result)
     }
 
     /// The GT annihilation (lowering) matrices: the transpose of
-    /// [`Irrep::creation`] (`annihilation(s) = [op' for op in creation(s)]`,
+    /// [`Irrep::try_creation`] (`annihilation(s) = [op' for op in creation(s)]`,
     /// `gtpatterns.jl`). Entries are real, so the transpose just swaps
     /// `row`/`col`.
+    #[cfg(test)]
     fn annihilation(&self) -> Vec<Vec<LadderEntry>> {
-        self.creation()
+        self.try_annihilation()
+            .expect("test fixture has representable GT ladder weights")
+    }
+    fn try_annihilation(&self) -> Result<Vec<Vec<LadderEntry>>, SunError> {
+        Ok(self
+            .try_creation()?
             .into_iter()
             .map(|mat| {
                 mat.into_iter()
@@ -555,7 +586,7 @@ impl Irrep {
                     })
                     .collect()
             })
-            .collect()
+            .collect())
     }
 }
 
@@ -619,6 +650,37 @@ fn subrow_rec(j: usize, m: usize, toprow: &[i64], cur: &mut Vec<i64>, out: &mut 
     }
 }
 
+fn ladder_base(weight: i64, kp: usize, k: usize) -> Result<i64, SunError> {
+    i64::try_from(kp)
+        .ok()
+        .and_then(|kp| weight.checked_add(kp))
+        .and_then(|base| base.checked_sub(i64::try_from(k).ok()?))
+        .ok_or(SunError::LabelOverflow)
+}
+fn ladder_factor(weight: i64, base: i64, offset: i64) -> Result<i64, SunError> {
+    weight
+        .checked_sub(base)
+        .and_then(|v| v.checked_sub(offset))
+        .ok_or(SunError::LabelOverflow)
+}
+fn ladder_denominator(g: i64) -> Result<i64, SunError> {
+    g.checked_sub(1)
+        .and_then(|h| g.checked_mul(h))
+        .ok_or(SunError::LabelOverflow)
+}
+fn add_weight(a: i64, b: i64) -> Result<i64, SunError> {
+    a.checked_add(b).ok_or(SunError::LabelOverflow)
+}
+fn weight_sum(weights: &[i64]) -> Result<i64, SunError> {
+    weights.iter().try_fold(0i64, |sum, &w| add_weight(sum, w))
+}
+fn add_multiplicity(a: u32, b: u32) -> Result<u32, SunError> {
+    a.checked_add(b).ok_or(SunError::LabelOverflow)
+}
+fn magnetic_index(value: usize) -> Result<u32, SunError> {
+    u32::try_from(value).map_err(|_| SunError::LabelOverflow)
+}
+
 /// Littlewood–Richardson product decomposition: the fusion multiplicities of
 /// `a ⊗ b`, keyed by the resulting irrep.
 ///
@@ -665,10 +727,18 @@ pub fn shared_directproduct(a: &Irrep, b: &Irrep) -> Result<SunProduct, SunError
         });
     }
     let key = SunProductKey::new(a, b);
-    Ok(crate::cache::cache_sun_product().get_or_compute(key, || directproduct_uncached(a, b)))
+    let cache = crate::cache::cache_sun_product();
+    if let Some(hit) = cache.get(&key) {
+        return Ok(hit);
+    }
+    Ok(cache.insert(key, directproduct_uncached(a, b)?))
 }
 
-fn directproduct_uncached(a: &Irrep, b: &Irrep) -> SunProduct {
+fn directproduct_uncached(a: &Irrep, b: &Irrep) -> Result<SunProduct, SunError> {
+    // Check before GT enumeration, including when one huge label is paired with a small one.
+    for (&x, &y) in a.weight().iter().zip(b.weight()) {
+        add_weight(x, y)?;
+    }
     let (a, b) = if a.dim() <= b.dim() { (a, b) } else { (b, a) };
     let n = a.rank();
     let mut result: BTreeMap<Irrep, u32> = BTreeMap::new();
@@ -683,7 +753,7 @@ fn directproduct_uncached(a: &Irrep, b: &Irrep) -> SunProduct {
                     // checkbounds(m, k, l-1): valid when l-1 ≥ k.
                     bkl -= m.get(k, l - 1);
                 }
-                t[l - 1] += bkl;
+                t[l - 1] = add_weight(t[l - 1], bkl)?;
                 if l > 1 && t[l - 2] < t[l - 1] {
                     bad = true;
                     break 'scan;
@@ -692,11 +762,12 @@ fn directproduct_uncached(a: &Irrep, b: &Irrep) -> SunProduct {
         }
         if !bad {
             // t is a valid (nonincreasing) weight; from_weight normalizes it.
-            let s = Irrep::from_weight(&t).expect("GT descent yields a valid weight");
-            *result.entry(s).or_insert(0) += 1;
+            let s = Irrep::from_weight(&t)?;
+            let count = result.entry(s).or_insert(0);
+            *count = add_multiplicity(*count, 1)?;
         }
     }
-    SunProduct::from_map(result)
+    Ok(SunProduct::from_map(result))
 }
 
 /// `sign(coef) * sqrt(|coef|)` as an exact [`SignedSqrtRational`], matching
@@ -1253,3 +1324,43 @@ mod sun_fr_su2_tests;
 #[cfg(test)]
 #[path = "sun/su2_embedding_tests.rs"]
 mod su2_embedding_tests;
+
+#[cfg(test)]
+mod arithmetic_tests {
+    use super::*;
+
+    #[test]
+    fn weight_and_multiplicity_bounds() {
+        assert_eq!(add_weight(i64::MAX, 1), Err(SunError::LabelOverflow));
+        assert_eq!(add_weight(i64::MIN, -1), Err(SunError::LabelOverflow));
+        assert_eq!(weight_sum(&[i64::MAX, 1]), Err(SunError::LabelOverflow));
+        assert_eq!(
+            Irrep::from_dynkin(&[i64::MAX, 1]),
+            Err(SunError::LabelOverflow)
+        );
+        assert_eq!(
+            Irrep::from_weight(&[i64::MAX, -1]),
+            Err(SunError::LabelOverflow)
+        );
+        assert_eq!(add_multiplicity(u32::MAX, 1), Err(SunError::LabelOverflow));
+        #[cfg(target_pointer_width = "64")]
+        assert_eq!(
+            magnetic_index(u32::MAX as usize + 1),
+            Err(SunError::LabelOverflow)
+        );
+        let x = Irrep::from_dynkin(&[i64::MAX, 0]).unwrap();
+        assert_eq!(ladder_base(i64::MAX, 1, 1), Err(SunError::LabelOverflow));
+        assert_eq!(ladder_base(i64::MIN, 0, 1), Err(SunError::LabelOverflow));
+        assert_eq!(ladder_base(3, 2, 1), Ok(4));
+        #[cfg(target_pointer_width = "64")]
+        assert_eq!(ladder_base(0, usize::MAX, 1), Err(SunError::LabelOverflow));
+        assert_eq!(ladder_factor(i64::MAX, -1, 0), Err(SunError::LabelOverflow));
+        assert_eq!(ladder_factor(i64::MIN, 0, 1), Err(SunError::LabelOverflow));
+        assert_eq!(ladder_denominator(i64::MIN), Err(SunError::LabelOverflow));
+        assert_eq!(ladder_denominator(i64::MAX), Err(SunError::LabelOverflow));
+        assert_eq!(ladder_denominator(0), Ok(0));
+        assert_eq!(ladder_denominator(1), Ok(0));
+        assert_eq!(ladder_denominator(-2), Ok(6));
+        assert_eq!(x.dual().dual(), x);
+    }
+}

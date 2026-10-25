@@ -18,6 +18,7 @@ mod global_form;
 mod group_totality;
 mod groupmath_oracle;
 mod isomorphism;
+mod lie_overflow;
 mod membership;
 mod oracle;
 mod product;
