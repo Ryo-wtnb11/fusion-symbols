@@ -15,7 +15,7 @@ This SU(3) example requires the default `lie-generated` feature:
 ```rust
 use fusion_symbols::{category::{CgcBlock, FusionCategory, GroupRepresentations}, lie::{GroupId, LieGroup}};
 let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
-let eight = cat.irrep(&[1, 1]).unwrap();
+let eight = cat.irrep(&[1, 1], &[]).unwrap();
 assert_eq!(cat.nsymbol(&eight, &eight, &eight), 2);
 let c = cat.cgc(&eight, &eight, &eight).unwrap();
 assert_eq!(c.dims(), [8, 8, 8, 2]);

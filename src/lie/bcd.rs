@@ -108,7 +108,7 @@ use num_bigint::BigInt;
 use num_rational::Ratio;
 use num_traits::One;
 
-use crate::lie::{CenterSubgroup, GlobalForm, GroupId, RootSystem};
+use crate::lie::{GroupId, RootSystem};
 
 /// The three orthogonal/symplectic Cartan series covered here.
 ///
@@ -159,16 +159,12 @@ impl Series {
     /// The group whose linear representations this module publishes at rank
     /// `r` — `SO(2r+1)`, `Sp(2r)`, `SO(2r)`.
     fn published_group(self, r: usize) -> GroupId {
-        GroupId {
-            root_system: self.root_system(r),
-            form: match self {
-                // Spin(2r+1)/Z2 and Spin(2r)/Z2 (the vector class).
-                Series::B => GlobalForm::Quotient(CenterSubgroup::Z2),
-                // Sp(2r) is simply connected.
-                Series::C => GlobalForm::SimplyConnected,
-                Series::D => GlobalForm::Quotient(CenterSubgroup::DVector),
-            },
+        match self {
+            Series::B => GroupId::so(2 * r + 1),
+            Series::C => GroupId::sp(2 * r),
+            Series::D => GroupId::so(2 * r),
         }
+        .expect("validated bootstrap rank fits its character lattice")
     }
 
     /// The **cover** of this bootstrap family at rank `r` — `Spin(2r+1)`,
@@ -179,10 +175,8 @@ impl Series {
     /// discovers spinor labels. The *published* labels of a query are a subset
     /// of it, cut down by [`published_group`](Self::published_group).
     pub(crate) fn cover_group(self, r: usize) -> GroupId {
-        GroupId {
-            root_system: self.root_system(r),
-            form: GlobalForm::SimplyConnected,
-        }
+        GroupId::cover(&[self.root_system(r)], 0)
+            .expect("validated bootstrap rank fits its character lattice")
     }
 
     /// Redirection guidance for the excluded low rank, **per global form**:
@@ -195,18 +189,16 @@ impl Series {
     /// | `B_1` | `Spin(3) ≅ SU(2)` | `SO(3)`: integer `j` only |
     /// | `C_1` | `Sp(2) ≅ SU(2)` | `PSp(2) ≅ SO(3)`: integer `j` only |
     /// | `D_2` | `Spin(4) ≅ SU(2)×SU(2)` | `SO(4)`: `j₁+j₂` integer |
-    fn low_rank_redirect(self, form: GlobalForm) -> &'static str {
-        match (self, form) {
+    fn low_rank_redirect(self, is_cover: bool) -> &'static str {
+        match (self, is_cover) {
             // B_1 = Spin(3) ≅ SU(2); C_1 = Sp(2) ≅ SU(2).
-            (Series::B | Series::C, GlobalForm::SimplyConnected) => "use SU(2) instead",
+            (Series::B | Series::C, true) => "use SU(2) instead",
             // SO(3) ≅ PSp(2) is the integer-spin sublattice of SU(2).
-            (Series::B | Series::C, GlobalForm::Quotient(_)) => {
-                "use SU(2) with integer j only instead"
-            }
+            (Series::B | Series::C, false) => "use SU(2) with integer j only instead",
             // D_2 = Spin(4) ≅ SU(2)×SU(2).
-            (Series::D, GlobalForm::SimplyConnected) => "use SU(2)×SU(2) instead",
+            (Series::D, true) => "use SU(2)×SU(2) instead",
             // SO(4) is the j₁+j₂ ∈ Z sublattice of SU(2)×SU(2).
-            (Series::D, GlobalForm::Quotient(_)) => "use SU(2)×SU(2) with j₁+j₂ integer instead",
+            (Series::D, false) => "use SU(2)×SU(2) with j₁+j₂ integer instead",
         }
     }
 }
@@ -397,6 +389,13 @@ impl Irrep {
         if dynkin.is_empty() {
             return Err(BcdError::EmptyLabel);
         }
+        if dynkin.len() < series.min_rank() {
+            return Err(BcdError::ExcludedRank {
+                series,
+                rank: dynkin.len(),
+                redirect: series.low_rank_redirect(series == Series::C),
+            });
+        }
         let group = series.published_group(dynkin.len());
         Self::from_dynkin_in(&group, dynkin)
     }
@@ -404,13 +403,13 @@ impl Irrep {
     /// Construct from the `r` integer Dynkin labels of `group` — the
     /// form-aware constructor.
     ///
-    /// `group.root_system` must be one of `B(r)`, `C(r)`, `D(r)` (the families
+    /// `group.root_systems()[0]` must be one of `B(r)`, `C(r)`, `D(r)` (the families
     /// this module implements) and `dynkin.len()` must equal its rank. A label
     /// the form does not admit — i.e. one whose central character is
     /// non-trivial on the quotiented-out subgroup — is
     /// [`BcdError::NotAdmissible`].
     ///
-    /// Under `GlobalForm::SimplyConnected` the `B`/`D` families are `Spin(N)`
+    /// For the full weight lattice the `B`/`D` families are `Spin(N)`
     /// and the spinor labels are admitted. Their highest weights
     /// are half-integers in the ε-basis, which is why the stored weight is
     /// doubled ([`Irrep::two_partition`](crate::lie::bcd::Irrep::two_partition)).
@@ -419,7 +418,7 @@ impl Irrep {
         if dynkin.is_empty() {
             return Err(BcdError::EmptyLabel);
         }
-        let (series, r) = match group.root_system {
+        let (series, r) = match group.root_systems()[0] {
             RootSystem::B(r) => (Series::B, r),
             RootSystem::C(r) => (Series::C, r),
             RootSystem::D(r) => (Series::D, r),
@@ -435,7 +434,7 @@ impl Irrep {
             return Err(BcdError::ExcludedRank {
                 series,
                 rank: r,
-                redirect: series.low_rank_redirect(group.form),
+                redirect: series.low_rank_redirect(group.is_cover()),
             });
         }
         if dynkin.iter().any(|&a| a < 0) {
@@ -446,9 +445,9 @@ impl Irrep {
         // Central-character condition of `group` — one implementation, in
         // `crate::lie`. For a form that does not admit the
         // spinor lattice this is the tensor-irrep constraint.
-        if !group.admits(dynkin) {
+        if !group.admits(dynkin, &[]) {
             return Err(BcdError::NotAdmissible {
-                group: *group,
+                group: group.clone(),
                 dynkin: dynkin.to_vec(),
             });
         }

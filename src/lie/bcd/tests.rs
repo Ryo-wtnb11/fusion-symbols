@@ -50,11 +50,8 @@ fn partition_is_nonincreasing_and_dominant() {
 /// form-aware constructor adds.
 #[test]
 fn from_dynkin_in_rejects_a_foreign_group_and_a_wrong_length_label() {
-    use crate::lie::{GlobalForm, GroupId, RootSystem};
-    let a3 = GroupId {
-        root_system: RootSystem::A(3),
-        form: GlobalForm::SimplyConnected,
-    };
+    use crate::lie::{GroupId, RootSystem};
+    let a3 = GroupId::su(4).unwrap();
     assert_eq!(
         Irrep::from_dynkin_in(&a3, &[1, 0, 0]),
         Err(BcdError::UnsupportedRootSystem {
@@ -886,7 +883,10 @@ fn series_root_system_bridge() {
     assert_eq!(Series::C.root_system(3), RootSystem::C(3));
     assert_eq!(Series::D.root_system(4), RootSystem::D(4));
     for (series, r) in [(Series::B, 2), (Series::C, 2), (Series::D, 3)] {
-        assert_eq!(series.root_system(r), series.published_group(r).root_system);
+        assert_eq!(
+            series.root_system(r),
+            series.published_group(r).root_systems()[0]
+        );
     }
 }
 

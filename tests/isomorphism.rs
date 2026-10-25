@@ -297,7 +297,7 @@ fn spin6_su4_dimensions_agree_including_spinors() {
     assert_eq!(su4_to_spin6(&[1, 0, 0]).dim_exact(), 4u32.into());
     assert!(!GroupId::so(6)
         .unwrap()
-        .admits(&su4_to_spin6(&[1, 0, 0]).dynkin()));
+        .admits(&su4_to_spin6(&[1, 0, 0]).dynkin(), &[]));
 }
 
 /// `Spin(6) ≅ SU(4)`: every ordered product agrees channel-for-channel and
@@ -358,7 +358,7 @@ fn spin5_sp4_dimensions_agree_including_spinors() {
     assert_eq!(sp4_to_spin5(&[1, 0]).dim_exact(), 4u32.into());
     assert!(!GroupId::so(5)
         .unwrap()
-        .admits(&sp4_to_spin5(&[1, 0]).dynkin()));
+        .admits(&sp4_to_spin5(&[1, 0]).dynkin(), &[]));
 }
 
 /// `Spin(5) ≅ Sp(4)`: every ordered product agrees, spinor channels included.
@@ -428,9 +428,9 @@ fn spin3_su2_is_a_form_aware_low_rank_redirect() {
     let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
     let so3 = LieGroup::new(GroupId::so(3).unwrap()).unwrap();
     assert_eq!(
-        spin3.irrep(&[1]).unwrap().dim_exact(),
-        su2.irrep(&[1]).unwrap().dim_exact()
+        spin3.irrep(&[1], &[]).unwrap().dim_exact(),
+        su2.irrep(&[1], &[]).unwrap().dim_exact()
     );
     assert_eq!(spin3.authority_fingerprint(), su2.authority_fingerprint());
-    assert_eq!(so3.irrep(&[1]), Err(LieError::NotAdmissible));
+    assert_eq!(so3.irrep(&[1], &[]), Err(LieError::NotAdmissible));
 }

@@ -8,9 +8,7 @@
 #[cfg(feature = "lie-generated")]
 use crate::common::lie as lie_test;
 
-use fusion_symbols::lie::{
-    d_odd_central_class, CenterSubgroup, GlobalForm, GroupError, GroupId, RootSystem,
-};
+use fusion_symbols::lie::{d_odd_central_class, GroupError, GroupId, RootSystem};
 
 // ---------------------------------------------------------------------------
 // A_r — N-ality
@@ -34,34 +32,37 @@ fn a_series_nality_congruences() {
         ([0, 2, 0], 0), // 20'
     ];
     for (label, kappa) in table {
-        assert!(su4.admits(&label), "SU(4) admits everything: {label:?}");
+        assert!(
+            su4.admits(&label, &[]),
+            "SU(4) admits everything: {label:?}"
+        );
         assert_eq!(
-            su4_z2.admits(&label),
+            su4_z2.admits(&label, &[]),
             kappa % 2 == 0,
             "SU(4)/Z2 on {label:?}"
         );
-        assert_eq!(psu4.admits(&label), kappa % 4 == 0, "PSU(4) on {label:?}");
+        assert_eq!(
+            psu4.admits(&label, &[]),
+            kappa % 4 == 0,
+            "PSU(4) on {label:?}"
+        );
     }
 
     // SU(3): only k ∈ {1, 3}; PSU(3) is triality-0, i.e. adjoint and up.
     let psu3 = GroupId::psu(3).unwrap();
-    assert!(psu3.admits(&[0, 0])); // 1
-    assert!(!psu3.admits(&[1, 0])); // 3
-    assert!(!psu3.admits(&[0, 1])); // 3bar
-    assert!(psu3.admits(&[1, 1])); // 8
-    assert!(psu3.admits(&[3, 0])); // 10
+    assert!(psu3.admits(&[0, 0], &[])); // 1
+    assert!(!psu3.admits(&[1, 0], &[])); // 3
+    assert!(!psu3.admits(&[0, 1], &[])); // 3bar
+    assert!(psu3.admits(&[1, 1], &[])); // 8
+    assert!(psu3.admits(&[3, 0], &[])); // 10
 
     // k must divide N.
     assert_eq!(
         GroupId::su_quotient(6, 4),
         Err(GroupError::NotACenterSubgroup { n: 6, k: 4 })
     );
-    // `su_quotient(n, 1)` is SU(n) as a group, but a distinct `GroupId` — the
-    // quotient by the trivial subgroup. Both admit everything.
-    assert_eq!(
-        GroupId::su_quotient(4, 1).unwrap().form,
-        GlobalForm::Quotient(CenterSubgroup::Zk(1))
-    );
+    // Trivial quotients have exactly the cover lattice and identity.
+    assert_eq!(GroupId::su_quotient(4, 1).unwrap(), su4);
 }
 
 #[test]
@@ -69,7 +70,7 @@ fn a_series_trivial_quotient_admits_everything() {
     let g = GroupId::su_quotient(5, 1).unwrap();
     for a in 0..3i64 {
         for b in 0..3i64 {
-            assert!(g.admits(&[a, b, 0, 0]));
+            assert!(g.admits(&[a, b, 0, 0], &[]));
         }
     }
 }
@@ -83,18 +84,22 @@ fn b_series_last_label_even() {
     for r in 2..=5usize {
         let spin = GroupId::spin(2 * r + 1).unwrap();
         let so = GroupId::so(2 * r + 1).unwrap();
-        assert_eq!(so.root_system, RootSystem::B(r));
+        assert_eq!(so.root_systems(), &[RootSystem::B(r)]);
         // PSO(2r+1) == SO(2r+1): the B_r center is already quotiented out.
         assert_eq!(GroupId::pso(2 * r + 1).unwrap(), so);
         for label in sweep(r, 3) {
-            assert!(spin.admits(&label), "Spin admits {label:?}");
-            assert_eq!(so.admits(&label), label[r - 1] % 2 == 0, "SO on {label:?}");
+            assert!(spin.admits(&label, &[]), "Spin admits {label:?}");
+            assert_eq!(
+                so.admits(&label, &[]),
+                label[r - 1] % 2 == 0,
+                "SO on {label:?}"
+            );
         }
     }
     // Spin(5) spinor ω₂ = (0,1) is not an SO(5) rep; the vector ω₁ = (1,0) is.
-    assert!(!GroupId::so(5).unwrap().admits(&[0, 1]));
-    assert!(GroupId::so(5).unwrap().admits(&[1, 0]));
-    assert!(GroupId::spin(5).unwrap().admits(&[0, 1]));
+    assert!(!GroupId::so(5).unwrap().admits(&[0, 1], &[]));
+    assert!(GroupId::so(5).unwrap().admits(&[1, 0], &[]));
+    assert!(GroupId::spin(5).unwrap().admits(&[0, 1], &[]));
 }
 
 // ---------------------------------------------------------------------------
@@ -106,19 +111,19 @@ fn c_series_odd_index_sum_even() {
     for r in 2..=5usize {
         let sp = GroupId::sp(2 * r).unwrap();
         let psp = GroupId::psp(2 * r).unwrap();
-        assert_eq!(sp.root_system, RootSystem::C(r));
+        assert_eq!(sp.root_systems(), &[RootSystem::C(r)]);
         for label in sweep(r, 3) {
-            assert!(sp.admits(&label), "Sp is simply connected: {label:?}");
+            assert!(sp.admits(&label, &[]), "Sp is simply connected: {label:?}");
             let odd: i64 = label.iter().step_by(2).sum();
-            assert_eq!(psp.admits(&label), odd % 2 == 0, "PSp on {label:?}");
+            assert_eq!(psp.admits(&label, &[]), odd % 2 == 0, "PSp on {label:?}");
         }
     }
     // PSp(4): the defining 4 = (1,0) is not a PSp rep; 5 = (0,1) and the
     // adjoint 10 = (2,0) are.
     let psp4 = GroupId::psp(4).unwrap();
-    assert!(!psp4.admits(&[1, 0]));
-    assert!(psp4.admits(&[0, 1]));
-    assert!(psp4.admits(&[2, 0]));
+    assert!(!psp4.admits(&[1, 0], &[]));
+    assert!(psp4.admits(&[0, 1], &[]));
+    assert!(psp4.admits(&[2, 0], &[]));
     assert_eq!(
         GroupId::sp(3),
         Err(GroupError::UnsupportedRank {
@@ -143,30 +148,28 @@ fn d_even_three_quotients_at_both_r_mod_4() {
         let pso = GroupId::pso(n).unwrap();
         let hs_plus = GroupId::half_spin_plus(n).unwrap();
         let hs_minus = GroupId::half_spin_minus(n).unwrap();
-        assert_eq!(so.form, GlobalForm::Quotient(CenterSubgroup::DVector));
-        assert_eq!(pso.form, GlobalForm::Quotient(CenterSubgroup::DFull));
 
         for label in sweep(r, 3) {
             let t: i64 = label[..r - 2].iter().step_by(2).sum();
             let p = (label[r - 2] + t) % 2;
             let q = (label[r - 1] + t) % 2;
             assert_eq!(
-                so.admits(&label),
+                so.admits(&label, &[]),
                 (label[r - 2] + label[r - 1]) % 2 == 0,
                 "SO({n}) on {label:?}"
             );
             assert_eq!(
-                hs_plus.admits(&label),
+                hs_plus.admits(&label, &[]),
                 p == 0,
                 "half_spin_plus({n}) on {label:?}"
             );
             assert_eq!(
-                hs_minus.admits(&label),
+                hs_minus.admits(&label, &[]),
                 q == 0,
                 "half_spin_minus({n}) on {label:?}"
             );
             assert_eq!(
-                pso.admits(&label),
+                pso.admits(&label, &[]),
                 p == 0 && q == 0,
                 "PSO({n}) on {label:?}"
             );
@@ -177,26 +180,26 @@ fn d_even_three_quotients_at_both_r_mod_4() {
         omega_last[r - 1] = 1;
         let mut omega_prev = vec![0i64; r];
         omega_prev[r - 2] = 1;
-        assert!(hs_plus.admits(&omega_last), "r={r}: plus retains ω_r");
-        assert!(!hs_plus.admits(&omega_prev));
+        assert!(hs_plus.admits(&omega_last, &[]), "r={r}: plus retains ω_r");
+        assert!(!hs_plus.admits(&omega_prev, &[]));
         assert!(
-            hs_minus.admits(&omega_prev),
+            hs_minus.admits(&omega_prev, &[]),
             "r={r}: minus retains ω_{{r-1}}"
         );
-        assert!(!hs_minus.admits(&omega_last));
+        assert!(!hs_minus.admits(&omega_last, &[]));
 
         // A half-spin group has no vector representation.
         let mut vector = vec![0i64; r];
         vector[0] = 1;
-        assert!(!hs_plus.admits(&vector));
-        assert!(!hs_minus.admits(&vector));
-        assert!(so.admits(&vector));
+        assert!(!hs_plus.admits(&vector, &[]));
+        assert!(!hs_minus.admits(&vector, &[]));
+        assert!(so.admits(&vector, &[]));
 
         // The adjoint is in every form.
         let mut adjoint = vec![0i64; r];
         adjoint[1] = 1;
         for g in [so, pso, hs_plus, hs_minus] {
-            assert!(g.admits(&adjoint), "{g:?} must admit the adjoint");
+            assert!(g.admits(&adjoint, &[]), "{g:?} must admit the adjoint");
         }
     }
 
@@ -239,22 +242,28 @@ fn d_odd_z4_class_slansky_so10_anchors() {
     let so10 = GroupId::so(10).unwrap();
     let pso10 = GroupId::pso(10).unwrap();
     let spin10 = GroupId::spin(10).unwrap();
-    assert_eq!(pso10.form, GlobalForm::Quotient(CenterSubgroup::Z4));
     for label in sweep(5, 3) {
         let kappa = d_odd_central_class(&label);
-        assert!(spin10.admits(&label));
+        assert!(spin10.admits(&label, &[]));
         // κ mod 2 reproduces the shipped SO condition a_{r-1}+a_r even.
-        assert_eq!(so10.admits(&label), kappa % 2 == 0, "SO(10) on {label:?}");
-        assert_eq!(so10.admits(&label), (label[3] + label[4]) % 2 == 0);
-        assert_eq!(pso10.admits(&label), kappa == 0, "PSO(10) on {label:?}");
+        assert_eq!(
+            so10.admits(&label, &[]),
+            kappa % 2 == 0,
+            "SO(10) on {label:?}"
+        );
+        assert_eq!(so10.admits(&label, &[]), (label[3] + label[4]) % 2 == 0);
+        assert_eq!(
+            pso10.admits(&label, &[]),
+            kappa == 0,
+            "PSO(10) on {label:?}"
+        );
     }
 
     // There is no half-spin group for odd r: Z4 has one proper subgroup.
-    assert!(!GroupId {
-        root_system: RootSystem::D(5),
-        form: GlobalForm::Quotient(CenterSubgroup::DHalfSpinPlus),
-    }
-    .admits(&[0, 0, 0, 0, 1]));
+    assert!(matches!(
+        GroupId::half_spin_plus(10),
+        Err(GroupError::UnsupportedRank { .. })
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -264,10 +273,10 @@ fn d_odd_z4_class_slansky_so10_anchors() {
 #[test]
 fn admits_rejects_wrong_length_and_negative_labels() {
     let su4 = GroupId::su(4).unwrap();
-    assert!(!su4.admits(&[0, 0]));
-    assert!(!su4.admits(&[0, 0, 0, 0]));
-    assert!(!su4.admits(&[-1, 0, 0]));
-    assert!(!GroupId::so(9).unwrap().admits(&[0, 0, -2, 0]));
+    assert!(!su4.admits(&[0, 0], &[]));
+    assert!(!su4.admits(&[0, 0, 0, 0], &[]));
+    assert!(!su4.admits(&[-1, 0, 0], &[]));
+    assert!(!GroupId::so(9).unwrap().admits(&[0, 0, -2, 0], &[]));
 }
 
 // ---------------------------------------------------------------------------
@@ -299,8 +308,8 @@ mod against_bcd {
             for r in min_r..=min_r + 2 {
                 let group = published(series, r);
                 for label in sweep(r, 3) {
-                    let built = LieGroup::new(group).unwrap().irrep(&label);
-                    let admitted = group.admits(&label);
+                    let built = LieGroup::new(group.clone()).unwrap().irrep(&label, &[]);
+                    let admitted = group.admits(&label, &[]);
                     match (&built, admitted) {
                         (Ok(_), true) => {}
                         (Err(LieError::NotAdmissible), false) => {}
@@ -324,18 +333,18 @@ mod against_bcd {
             let group = published(series, r);
             let labels: Vec<_> = sweep(r, 2)
                 .into_iter()
-                .filter(|l| group.admits(l))
+                .filter(|l| group.admits(l, &[]))
                 .collect();
             for a in &labels {
                 for b in &labels {
-                    let ia = LieGroup::new(group).unwrap().irrep(a).unwrap();
-                    let ib = LieGroup::new(group).unwrap().irrep(b).unwrap();
-                    for c in bcd_test::product(&LieGroup::new(group).unwrap(), &ia, &ib)
+                    let ia = LieGroup::new(group.clone()).unwrap().irrep(a, &[]).unwrap();
+                    let ib = LieGroup::new(group.clone()).unwrap().irrep(b, &[]).unwrap();
+                    for c in bcd_test::product(&LieGroup::new(group.clone()).unwrap(), &ia, &ib)
                         .unwrap()
                         .keys()
                     {
                         assert!(
-                            group.admits(&c.dynkin()),
+                            group.admits(&c.dynkin(), &[]),
                             "{series:?} r={r}: {a:?} ⊗ {b:?} produced {:?}",
                             c.dynkin()
                         );
@@ -355,19 +364,22 @@ mod against_bcd {
         ] {
             let labels: Vec<_> = sweep(r, 2)
                 .into_iter()
-                .filter(|l| group.admits(l) && LieGroup::new(group).unwrap().irrep(l).is_ok())
+                .filter(|l| {
+                    group.admits(l, &[])
+                        && LieGroup::new(group.clone()).unwrap().irrep(l, &[]).is_ok()
+                })
                 .collect();
             assert!(labels.len() > 2, "{group:?}: nothing to fuse");
             for a in &labels {
                 for b in &labels {
-                    let ia = LieGroup::new(group).unwrap().irrep(a).unwrap();
-                    let ib = LieGroup::new(group).unwrap().irrep(b).unwrap();
-                    for c in bcd_test::product(&LieGroup::new(group).unwrap(), &ia, &ib)
+                    let ia = LieGroup::new(group.clone()).unwrap().irrep(a, &[]).unwrap();
+                    let ib = LieGroup::new(group.clone()).unwrap().irrep(b, &[]).unwrap();
+                    for c in bcd_test::product(&LieGroup::new(group.clone()).unwrap(), &ia, &ib)
                         .unwrap()
                         .keys()
                     {
                         assert!(
-                            group.admits(&c.dynkin()),
+                            group.admits(&c.dynkin(), &[]),
                             "{group:?}: {a:?} ⊗ {b:?} produced {:?}",
                             c.dynkin()
                         );
@@ -378,13 +390,13 @@ mod against_bcd {
     }
 
     /// `sun` is the simply connected form of `A`: it admits every non-negative
-    /// Dynkin label, and `A(n-1) + SimplyConnected` says exactly that.
+    /// Dynkin label, and the full A(n−1) weight lattice says exactly that.
     #[test]
     fn sun_is_the_simply_connected_a_form() {
         for n in 2..=5usize {
             let su = GroupId::su(n).unwrap();
             for label in sweep(n - 1, 3) {
-                assert!(su.admits(&label));
+                assert!(su.admits(&label, &[]));
                 assert!(lie_test::irrep(&label).is_ok());
             }
         }
@@ -407,7 +419,7 @@ mod against_bcd {
     fn so5_canonical_parent_hand_example() {
         use num_bigint::BigInt;
         let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
-        let irrep = |a: i64, b: i64| cat.irrep(&[a, b]).unwrap();
+        let irrep = |a: i64, b: i64| cat.irrep(&[a, b], &[]).unwrap();
         let spinor = irrep(1, 0); // B₂ ω₂, the 4
         let vector = irrep(0, 1); // B₂ ω₁, the 5
         let adjoint = irrep(2, 0); // B₂ 2ω₂, the 10
@@ -574,7 +586,7 @@ mod sun_forms {
         assert_eq!(
             fusion_symbols::lie::LieGroup::new(GroupId::su(3).unwrap())
                 .unwrap()
-                .irrep(&[]),
+                .irrep(&[], &[]),
             Err(LieError::InvalidLabel)
         );
     }
@@ -585,14 +597,14 @@ mod sun_forms {
     fn global_form_validation_does_not_alter_gt_data() {
         let su3 = GroupId::su(3).unwrap();
         let psu3 = GroupId::psu(3).unwrap();
-        for label in sweep(2, 4).into_iter().filter(|l| psu3.admits(l)) {
+        for label in sweep(2, 4).into_iter().filter(|l| psu3.admits(l, &[])) {
             let cover = lie_test::irrep_in(&su3, &label).unwrap();
             let quotient = lie_test::irrep_in(&psu3, &label).unwrap();
             assert_ne!(cover, quotient);
             assert_eq!(cover.dim_exact(), quotient.dim_exact());
             assert_eq!(
                 lie_test::dual(&cover).dynkin(),
-                fusion_symbols::lie::LieGroup::new(psu3)
+                fusion_symbols::lie::LieGroup::new(psu3.clone())
                     .unwrap()
                     .dual(&quotient)
                     .dynkin()
@@ -605,13 +617,7 @@ mod sun_forms {
     #[test]
     fn constructor_rejects_an_unsupported_root_system_and_a_wrong_length_label() {
         assert!(matches!(
-            lie_test::irrep_in(
-                &GroupId {
-                    root_system: RootSystem::G2,
-                    form: GlobalForm::SimplyConnected
-                },
-                &[1, 0]
-            ),
+            lie_test::irrep_in(&GroupId::cover(&[RootSystem::G2], 0).unwrap(), &[1, 0]),
             Err(LieError::Unsupported { .. })
         ));
         assert!(matches!(
@@ -657,7 +663,10 @@ fn psp_rejection_uses_the_generic_not_admissible_error() {
         (GroupId::half_spin_plus(8).unwrap(), vec![1, 0, 0, 0]),
         (GroupId::so(7).unwrap(), vec![0, 0, 1]),
     ] {
-        let error = LieGroup::new(group).unwrap().irrep(&label).unwrap_err();
+        let error = LieGroup::new(group.clone())
+            .unwrap()
+            .irrep(&label, &[])
+            .unwrap_err();
         assert_eq!(error, LieError::NotAdmissible);
         assert!(!error.to_string().to_lowercase().contains("spinor"));
     }
@@ -666,46 +675,6 @@ fn psp_rejection_uses_the_generic_not_admissible_error() {
 // ---------------------------------------------------------------------------
 // GroupId construction invariants
 // ---------------------------------------------------------------------------
-
-/// The public fields let a caller build a root datum whose quotient subgroup is
-/// not in the root system's center. That is not a hazard: such a group admits
-/// nothing, so both form-aware constructors reject every label with the
-/// ordinary not-admissible error. This is why `GroupId` stays a plain record
-/// (no `try_new`, no private fields).
-#[test]
-fn nonsensical_root_datum_admits_nothing() {
-    let nonsense = [
-        (RootSystem::A(3), CenterSubgroup::DVector),
-        (RootSystem::A(3), CenterSubgroup::Z2),
-        (RootSystem::B(3), CenterSubgroup::Zk(2)),
-        (RootSystem::C(3), CenterSubgroup::DFull),
-        (RootSystem::D(4), CenterSubgroup::Z4), // Z4 is the r-odd center
-        (RootSystem::D(5), CenterSubgroup::DHalfSpinPlus), // r odd has no half-spin form
-        (RootSystem::E6, CenterSubgroup::Zk(3)),
-        (RootSystem::A(3), CenterSubgroup::Zk(3)), // 3 ∤ 4
-    ];
-    for (root_system, sub) in nonsense {
-        let g = GroupId {
-            root_system,
-            form: GlobalForm::Quotient(sub),
-        };
-        for label in sweep(root_system.rank(), 3) {
-            assert!(
-                !g.admits(&label),
-                "{g:?} must admit nothing, but took {label:?}"
-            );
-        }
-        // Both form-aware constructors inherit the rejection.
-        #[cfg(feature = "lie-generated")]
-        {
-            let zero = vec![0i64; root_system.rank()];
-            assert!(lie_test::irrep_in(&g, &zero).is_err());
-            assert!(fusion_symbols::lie::LieGroup::new(g)
-                .and_then(|cat| cat.irrep(&zero))
-                .is_err());
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Cross-global-form coefficient identity
@@ -744,10 +713,10 @@ mod cross_form_coefficients {
         ] {
             let spin = LieGroup::new(GroupId::spin(n).unwrap()).unwrap();
             let so = LieGroup::new(GroupId::so(n).unwrap()).unwrap();
-            let cv = spin.irrep(&v_label).unwrap();
-            let qv = so.irrep(&v_label).unwrap();
-            let cc = spin.irrep(&c_label).unwrap();
-            let qc = so.irrep(&c_label).unwrap();
+            let cv = spin.irrep(&v_label, &[]).unwrap();
+            let qv = so.irrep(&v_label, &[]).unwrap();
+            let cc = spin.irrep(&c_label, &[]).unwrap();
+            let qc = so.irrep(&c_label, &[]).unwrap();
             assert_ne!(cv, qv, "objects retain the global form tag");
             let cover = spin.cgc(&cv, &cv, &cc).unwrap();
             let quot = so.cgc(&qv, &qv, &qc).unwrap();
@@ -786,7 +755,7 @@ mod cross_form_coefficients {
         ];
         for (a, b, c) in channels {
             for l in [&a, &b, &c] {
-                assert!(psu3.admits(l), "{l:?} must be a PSU(3) rep");
+                assert!(psu3.admits(l, &[]), "{l:?} must be a PSU(3) rep");
             }
             let cov = |l: &[i64]| lie_test::irrep_in(&su3, l).unwrap();
             let quo = |l: &[i64]| lie_test::irrep_in(&psu3, l).unwrap();
@@ -794,14 +763,14 @@ mod cross_form_coefficients {
             assert_ne!(
                 hash_of(&(cov(&a), cov(&b), cov(&c))),
                 hash_of(&(quo(&a), quo(&b), quo(&c))),
-                "the SU(N) CGC cache key carries no GlobalForm"
+                "the SU(N) CGC cache key carries no global form"
             );
 
-            let cover = LieGroup::new(su3)
+            let cover = LieGroup::new(su3.clone())
                 .unwrap()
                 .cgc(&cov(&a), &cov(&b), &cov(&c))
                 .unwrap();
-            let quot = LieGroup::new(psu3)
+            let quot = LieGroup::new(psu3.clone())
                 .unwrap()
                 .cgc(&quo(&a), &quo(&b), &quo(&c))
                 .unwrap();
@@ -833,7 +802,7 @@ mod cross_form_coefficients {
 
         let f = |g: &GroupId| {
             let i = |l: &[i64]| lie_test::irrep_in(g, l).unwrap();
-            let cat = LieGroup::new(*g).unwrap();
+            let cat = LieGroup::new(g.clone()).unwrap();
             cat.f_symbol(
                 &cat.unit(),
                 &i(&adj),
@@ -890,7 +859,7 @@ mod cross_form_coefficients {
         }
         // And a warm entry for a *shared* weight is genuinely shared: the
         // quotient's request returns the identical data.
-        let again = LieGroup::new(psu3)
+        let again = LieGroup::new(psu3.clone())
             .unwrap()
             .cgc(
                 &lie_test::irrep_in(&psu3, &[1, 1]).unwrap(),
@@ -912,10 +881,10 @@ mod cross_form_coefficients {
         };
         let spin = LieGroup::new(GroupId::spin(5).unwrap()).unwrap();
         let so = LieGroup::new(GroupId::so(5).unwrap()).unwrap();
-        let spinor = spin.irrep(&[0, 1]).unwrap();
-        let vector = spin.irrep(&[1, 0]).unwrap();
+        let spinor = spin.irrep(&[0, 1], &[]).unwrap();
+        let vector = spin.irrep(&[1, 0], &[]).unwrap();
         spin.cgc(&spinor, &spinor, &vector).unwrap();
-        assert_eq!(so.irrep(&[0, 1]), Err(LieError::NotAdmissible));
+        assert_eq!(so.irrep(&[0, 1], &[]), Err(LieError::NotAdmissible));
     }
 }
 
@@ -930,45 +899,45 @@ fn a_series_nality_does_not_overflow() {
     let psu3 = GroupId::psu(3).unwrap();
     // κ = 1·a₁ + 2·a₂ with 2·(2^62 + 2) = 2^63 + 4 > i64::MAX.
     // 2^62 = 4^31 ≡ 1 (mod 3), so 2^62 + 2 ≡ 0 and κ ≡ 0: admitted.
-    assert!(psu3.admits(&[0, (1 << 62) + 2]));
+    assert!(psu3.admits(&[0, (1 << 62) + 2], &[]));
     // 2^62 + 1 ≡ 2, κ ≡ 2·2 = 4 ≡ 1: the 3 class.
-    assert!(!psu3.admits(&[0, (1 << 62) + 1]));
+    assert!(!psu3.admits(&[0, (1 << 62) + 1], &[]));
     // 2^63 = 2·2^62 ≡ 2, so MAX ≡ 1 and κ ≡ 1 + 2·1 = 3 ≡ 0.
-    assert!(psu3.admits(&[MAX, MAX]));
+    assert!(psu3.admits(&[MAX, MAX], &[]));
     // κ ≡ 1 + 0 = 1.
-    assert!(!psu3.admits(&[MAX, 0]));
+    assert!(!psu3.admits(&[MAX, 0], &[]));
 }
 
 #[test]
 fn bcd_congruences_do_not_overflow() {
     // B₂ = SO(5): a₂ even.
     let so5 = GroupId::so(5).unwrap();
-    assert!(!so5.admits(&[0, MAX]));
-    assert!(so5.admits(&[MAX, MAX - 1]));
+    assert!(!so5.admits(&[0, MAX], &[]));
+    assert!(so5.admits(&[MAX, MAX - 1], &[]));
 
     // C₃ = PSp(6): a₁ + a₃ even; MAX + MAX overflows as a plain sum.
     let psp6 = GroupId::psp(6).unwrap();
-    assert!(psp6.admits(&[MAX, 0, MAX]));
-    assert!(!psp6.admits(&[MAX, 0, MAX - 1]));
+    assert!(psp6.admits(&[MAX, 0, MAX], &[]));
+    assert!(!psp6.admits(&[MAX, 0, MAX - 1], &[]));
 
     // D₄ = SO(8): a₃ + a₄ even.
     let so8 = GroupId::so(8).unwrap();
-    assert!(so8.admits(&[0, 0, MAX, MAX]));
-    assert!(!so8.admits(&[0, 0, MAX, MAX - 1]));
+    assert!(so8.admits(&[0, 0, MAX, MAX], &[]));
+    assert!(!so8.admits(&[0, 0, MAX, MAX - 1], &[]));
 
     // D₄ half-spin forms: t = a₁, p = a₃ + t, q = a₄ + t (mod 2).
     // [MAX, 0, MAX, 0]: t = 1, p = 1 + 1 ≡ 0, q = 0 + 1 = 1.
     let label = [MAX, 0, MAX, 0];
-    assert!(GroupId::half_spin_plus(8).unwrap().admits(&label));
-    assert!(!GroupId::half_spin_minus(8).unwrap().admits(&label));
-    assert!(!GroupId::pso(8).unwrap().admits(&label));
+    assert!(GroupId::half_spin_plus(8).unwrap().admits(&label, &[]));
+    assert!(!GroupId::half_spin_minus(8).unwrap().admits(&label, &[]));
+    assert!(!GroupId::pso(8).unwrap().admits(&label, &[]));
 
     // D₅ = PSO(10): κ = a₅ − a₄ + 2(a₁ + a₃) (mod 4).
     let pso10 = GroupId::pso(10).unwrap();
     // κ ≡ 3 − 3 + 2·(1 + 1) = 4 ≡ 0.
-    assert!(pso10.admits(&[MAX, 0, MAX, MAX, MAX]));
+    assert!(pso10.admits(&[MAX, 0, MAX, MAX, MAX], &[]));
     // κ ≡ 3 − 0 + 2·1 = 5 ≡ 1.
-    assert!(!pso10.admits(&[MAX, 0, 0, 0, MAX]));
+    assert!(!pso10.admits(&[MAX, 0, 0, 0, MAX], &[]));
     assert_eq!(d_odd_central_class(&[MAX, 0, 0, 0, MAX]), 1);
     // The public class accepts any i64: MIN = −2^63 ≡ 0 (mod 4), κ ≡ 3 − 0 = 3,
     // where the plain difference MAX − MIN overflows.

@@ -77,7 +77,7 @@ fn spinor_labels_are_admissible_only_in_the_cover() {
                 matches!(
                     LieGroup::new(GroupId::so(n).unwrap())
                         .unwrap()
-                        .irrep(&label),
+                        .irrep(&label, &[]),
                     Err(LieError::NotAdmissible)
                 ),
                 "the published constructor must still reject {label:?}"

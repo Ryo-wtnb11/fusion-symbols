@@ -7,7 +7,7 @@ pub fn group() -> LieGroup {
     LieGroup::new(GroupId::su(2).unwrap()).unwrap()
 }
 pub fn ir(dj: u32) -> LieIrrep {
-    group().irrep(&[i64::from(dj)]).unwrap()
+    group().irrep(&[i64::from(dj)], &[]).unwrap()
 }
 pub fn exact_f(a: u32, b: u32, c: u32, d: u32, e: u32, f: u32) -> f64 {
     let block = group()

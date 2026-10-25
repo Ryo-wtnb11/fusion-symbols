@@ -1,72 +1,16 @@
-//! Root datum plus global form: which dominant weights are genuine
-//! representations of *which group*.
+//! Validated ordered root data and their exact character lattices.
 //!
-//! Specifying the Lie **algebra** does not specify the **group**. `so(N)` is
-//! the algebra of both `Spin(N)` and `SO(N) = Spin(N)/Z2`; `su(N)` is the
-//! algebra of `SU(N)`, of `SU(N)/Z_k` for every `k | N`, and of `PSU(N)`. The
-//! groups differ in exactly one respect: **which dominant integral highest
-//! weights are genuine group representations**. Fusion rules, CGC, `F`, `R`
-//! and the Frobenius–Schur indicator are shared — a global form deletes
-//! irreps, it never changes the value of a coefficient of a surviving irrep.
-//!
-//! # The fact that makes this cheap
-//!
-//! Let `G_sc` be the simply connected compact group with root system `R`, and
-//! `Z = Z(G_sc) ≅ P/Q` (weight lattice modulo root lattice). Every connected
-//! compact group with that root system is `G_Γ = G_sc/Γ` for a subgroup
-//! `Γ ⊆ Z`, and
-//!
-//! ```text
-//! Irr(G_Γ) = { λ ∈ P⁺ : χ_λ|_Γ = 1 }
-//! ```
-//!
-//! where the central character `χ_λ` depends on `λ` only through its class
-//! `[λ] ∈ P/Q`. So a global form is a **per-irrep boolean predicate at
-//! construction time** — [`GroupId::admits`](crate::lie::GroupId::admits). The class map `P⁺ → P/Q` is a
-//! group homomorphism, so `[λ+μ] = [λ]+[μ]`: admissibility is closed under
-//! fusion and duality and never needs re-checking on fusion outputs. That is
-//! why enforcement is construction-only and why cache keys stay form-free
-//! (two forms sharing an irrep *must* share the cache entry).
-//!
-//! # Conventions
-//!
-//! Dynkin labels `a = (a₁,…,a_r)`, `aᵢ = ⟨λ, αᵢ^∨⟩`, in Bourbaki numbering —
-//! the numbering [`crate::lie::bcd`]'s partition maps already use (see the `bcd`
-//! module docs and [`docs/gauge_soN.md`]). External math is pinned to
-//! Slansky, *Group Theory for Unified Model Building*, Phys. Rep. **79**
-//! (1981) 1–128, §5 (congruency classes, p. 37) and the table notes for
-//! Table 36 (SO(8)) and Table 41 (SO(10)); see [`docs/references.md`].
-//!
-//! Two conventions are *choices*, fixed here once and for all:
-//!
-//! 1. **`D_r`, `r` even — half-spin forms are named by the class they
-//!    RETAIN**, never by the central element they kill and never by an
-//!    imported congruence number. Killing `z_{ω_r}` retains `[ω_r]` when
-//!    `r ≡ 0 (mod 4)` but retains `[ω_{r-1}]` when `r ≡ 2 (mod 4)`, because
-//!    `(ω_r, ω_r) = r/4`; a kill-based name is therefore not stable in `r`.
-//!    See [`CenterSubgroup::DHalfSpinPlus`](crate::lie::CenterSubgroup::DHalfSpinPlus) / [`CenterSubgroup::DHalfSpinMinus`](crate::lie::CenterSubgroup::DHalfSpinMinus).
-//! 2. **`D_r`, `r` odd — the `Z4` class uses the generator `c := [ω_r]`**, so
-//!    `κ(λ) ≡ a_r − a_{r-1} + 2·Σ_{i odd ≤ r-2} aᵢ (mod 4)`, uniformly in `r`.
-//!    This agrees with [`crate::category::FusionCategory::dual`] (which flips `λ_r ↦ −λ_r`
-//!    for `D_r` odd, i.e. negates `κ`) and with Slansky's SO(10) table note;
-//!    it differs from Slansky's single uniform formula by the `Z4`
-//!    automorphism `x ↦ −x` for `r ≡ 3 (mod 4)`. That is a generator choice,
-//!    not a discrepancy. See [`CenterSubgroup::Z4`](crate::lie::CenterSubgroup::Z4).
-//!
-//! [`docs/gauge_soN.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/gauge_soN.md
-//! [`docs/references.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/references.md
-//!
-//! # Scope
-//!
-//! Connected compact groups only. `O(N)` and `Pin(N)` are not central
-//! quotients of a simply connected group and are out of scope. The `G2`–`E8`
-//! variants of [`RootSystem`](crate::lie::RootSystem) exist so the type is complete, but carry no
-//! predicate logic (their centers are `1`, `1`, `Z3`, `Z2`, `1`); only
-//! `SimplyConnected` is answerable for them.
+//! Coordinates are the Bourbaki Dynkin labels of each root block, followed by
+//! integer torus charges. The character lattice contains every root; restricting
+//! to it changes admission, never coefficients on surviving representations.
+//! Identity preserves the ordered presentation, including B1/C1/A1 and D3/A3.
+//! D2 denotes two ordered A1 coordinates within one presentation block.
 
-use std::fmt;
+use num_bigint::BigInt;
+use num_traits::{One, Signed, ToPrimitive, Zero};
+use std::{fmt, sync::Arc};
 
-/// Root system of a simple compact Lie algebra, by Cartan letter and rank.
+/// Root-system presentation of a compact semisimple Lie algebra.
 ///
 /// The rank is the number of Dynkin labels. This fixes the weight lattice
 /// and central-character congruences. `LieGroup` dispatches to the applicable
@@ -81,7 +25,7 @@ pub enum RootSystem {
     /// `C_r`, center `Z2`. Simply connected form `Sp(2r)`.
     C(usize),
     /// `D_r`, center `Z2×Z2` (`r` even) or `Z4` (`r` odd). Simply connected
-    /// form `Spin(2r)`.
+    /// form `Spin(2r)`. D(2) is the ordered two-A1 presentation; r ≥ 2.
     D(usize),
     /// `G_2`, trivial center.
     G2,
@@ -126,125 +70,38 @@ impl fmt::Display for RootSystem {
     }
 }
 
-/// The subgroup `Γ ⊆ Z(G_sc)` that is quotiented out.
-///
-/// A variant is only meaningful for the root systems named in its docs;
-/// [`GroupId::admits`] returns `false` for any other pairing (the named
-/// constructors never build one).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[non_exhaustive]
-pub enum CenterSubgroup {
-    /// `A_r`: the `Z_k ⊆ Z_{r+1}` generated by `ω^{(r+1)/k}`; requires
-    /// `k | r+1`. `k = 1` is `SU(r+1)` itself, `k = r+1` is `PSU(r+1)`.
-    /// Admissible iff the `N`-ality `Σ i·aᵢ ≡ 0 (mod k)`.
-    Zk(usize),
-    /// `B_r`, `C_r`, and `D_r` for `r` odd: the unique `Z2 ⊆ Z`.
-    ///
-    /// - `B_r`: `SO(2r+1)`, admissible iff `a_r` even.
-    /// - `C_r`: `PSp(2r)`, admissible iff `a₁+a₃+a₅+… ≡ 0 (mod 2)`.
-    /// - `D_r`, `r` odd: `SO(2r)`, admissible iff `a_{r-1}+a_r` even
-    ///   (equivalently `κ` even).
-    Z2,
-    /// `D_r`, `r` odd: the full center `Z4 = ⟨[ω_r]⟩`, giving `PSO(2r)`.
-    ///
-    /// Admissible iff `κ(λ) ≡ 0 (mod 4)` with
-    /// `κ(λ) ≡ a_r − a_{r-1} + 2·Σ_{i odd ≤ r-2} aᵢ`.
-    ///
-    /// Generator convention: `φ(ω_r) = +1`, hence `φ(ω_{r-1}) = −1` and
-    /// `φ(ω₁) = 2 = v`. Derivation: `Q` is the even-sum sublattice of `Z^r`
-    /// and `4ω_r = (2,…,2) ∈ Q`, so `φ|_{Z^r} = 2Σλᵢ`; substituting
-    /// `λᵢ = λ_{i+1}+aᵢ` and using `r` odd gives the formula. Checked against
-    /// Slansky Table 41 (SO(10), `D₅`): `45 ↦ 0`, `16 ↦ 1`, `16bar ↦ −1`,
-    /// `10 ↦ 2`. Slansky's uniform `D_n` formula equals `+κ` for
-    /// `r ≡ 1 (mod 4)` and `−κ` for `r ≡ 3 (mod 4)`; racah pins `φ(ω_r) = +1`
-    /// for `r`-uniformity and for agreement with
-    /// [`crate::category::FusionCategory::dual`]'s `λ_r ↦ −λ_r`.
-    Z4,
-    /// `D_r`, `r` even: the index-2 subgroup whose *retained* sublattice is
-    /// `{0, v}` — the tensor classes. This is `SO(2r)`.
-    ///
-    /// Admissible iff `a_{r-1} + a_r ≡ 0 (mod 2)`. This is the only `D`-form
-    /// congruence that is `r`-uniform (because `(ε₁,ε₁) = 1` for every `r`),
-    /// which is why it is also what [`CenterSubgroup::Z2`] means for `r` odd.
-    DVector,
-    /// `D_r`, `r` even: the half-spin form that **retains** `[ω_r]`, i.e. the
-    /// chirality with `λ_r = +1/2` in the ε-basis.
-    ///
-    /// Admissible iff `p ≡ 0 (mod 2)` where `p ≡ a_{r-1} + t` and
-    /// `t ≡ Σ_{i odd ≤ r-2} aᵢ`. Note the vector rep (`p = q = 1`) is *not*
-    /// admitted — a half-spin group has no vector representation.
-    ///
-    /// **Named by what survives, deliberately.** The kill-based name is not
-    /// stable in `r`: `Ann(z_{ω_r}) = {0, s₊}` for `r ≡ 0 (mod 4)` but
-    /// `{0, s₋}` for `r ≡ 2 (mod 4)`. Slansky's `Ss(2r)` is a **documented
-    /// alias** for this variant (`ω_r ↦ s`, per Table 36 for `D₄`, class
-    /// `(1,0)` = sub-`s` = `[ω₄]`, consistent with Table 41 for `D₅`).
-    DHalfSpinPlus,
-    /// `D_r`, `r` even: the half-spin form that **retains** `[ω_{r-1}]`
-    /// (`λ_r = −1/2`).
-    ///
-    /// Admissible iff `q ≡ 0 (mod 2)` where `q ≡ a_r + t`. Slansky's
-    /// `Sc(2r)` is a **documented alias** for this variant (`ω_{r-1} ↦ c`).
-    /// See [`CenterSubgroup::DHalfSpinPlus`] for why the naming is by the
-    /// retained class.
-    DHalfSpinMinus,
-    /// `D_r`, `r` even: the full center `Z2×Z2`, giving `PSO(2r)`.
-    /// Admissible iff `p ≡ q ≡ 0 (mod 2)`.
-    DFull,
+/// Immutable canonical datum. Rows generate the character lattice.
+#[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+struct Datum {
+    roots: Box<[RootSystem]>,
+    torus_rank: usize,
+    // Row-major entries differing from the identity matrix.
+    hnf: Box<[(usize, usize, i64)]>,
 }
 
-/// Which connected compact group with a given root system: the cover, or a
-/// quotient by a subgroup of its center.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum GlobalForm {
-    /// The simply connected form `G_sc` — every dominant integral weight is a
-    /// representation.
-    SimplyConnected,
-    /// `G_sc/Γ`.
-    Quotient(CenterSubgroup),
+/// A connected compact group in a fixed ordered root/torus presentation.
+///
+/// The full-rank character lattice lies between the root lattice and the
+/// ambient integral weight/charge lattice. Its row Hermite normal form (HNF)
+/// fixes equality and hashing independently of the supplied basis. This is
+/// presentation identity, not a test for abstract group isomorphism.
+/// Classification does not imply an available [`super::LieGroup`] engine.
+// The pointer shortcut is equivalent to content equality, matching derived Hash.
+#[allow(clippy::derived_hash_with_manual_eq)]
+#[derive(Clone, Debug, Eq, Hash, PartialOrd, Ord)]
+pub struct GroupId(Arc<Datum>);
+
+impl PartialEq for GroupId {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0) || self.0 == other.0
+    }
 }
 
-/// A connected compact simple group, as a root datum: root system plus global
-/// form.
-///
-/// Fields are `pub` so `Ord`/`Hash`/serialization key on the root datum and
-/// not on a name — a name is not an identity (`Ss(16) ≅ Sc(16)` as abstract
-/// groups; only the retained class distinguishes them). The named
-/// constructors below are the ergonomic public surface; they are fallible,
-/// as is [`crate::lie::LieGroup::irrep`].
-///
-/// # Why the fields stay public
-///
-/// This is deliberately a **low-level root-datum record**, not a validated
-/// handle. Direct construction can pair a [`CenterSubgroup`] with a
-/// [`RootSystem`] whose center does not contain it (`A_3` with
-/// [`CenterSubgroup::DVector`], `B_2` with `Zk(2)`, any exceptional with any
-/// quotient). Such a pairing is not silently wrong and does not propagate:
-/// [`admits`](GroupId::admits) returns `false` for **every** weight, and the
-/// [`crate::lie::LieGroup::new`] therefore rejects the datum and
-/// [`crate::lie::LieGroup::irrep`] rejects every excluded label with the ordinary not-admissible error. A
-/// nonsensical datum has no representations, which is the mathematically
-/// honest answer for a group that does not exist.
-///
-/// So no `try_new`, no private fields, no separate raw/validated pair: ordinary
-/// users go through [`su`](GroupId::su) / [`so`](GroupId::so) /
-/// [`spin`](GroupId::spin) / [`sp`](GroupId::sp) and never touch the root
-/// lattice, and the escape hatch is closed by the predicate rather than by
-/// encapsulation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct GroupId {
-    /// The root system (and hence the Lie algebra).
-    pub root_system: RootSystem,
-    /// Which quotient of the simply connected form.
-    pub form: GlobalForm,
-}
-
-/// Error from a [`GroupId`] constructor. Constructors never panic.
+/// Error from a [`GroupId`] constructor.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum GroupError {
-    /// The requested rank or matrix dimension is outside the range for which
-    /// the family is defined (e.g. `so(2)`, `sp(3)`, `half_spin_plus(10)`).
+    /// A rank or matrix dimension is outside its family's range.
     ///
     /// ```
     /// use fusion_symbols::lie::{GroupError, GroupId};
@@ -253,40 +110,325 @@ pub enum GroupError {
     /// }
     /// ```
     UnsupportedRank {
-        /// The constructor that rejected, e.g. `"so"`.
+        /// Constructor or root family.
         family: &'static str,
-        /// The rejected argument.
+        /// Rejected argument.
         value: usize,
     },
-    /// `Z_k` is not a subgroup of the `SU(n)` center: `k` does not divide `n`
-    /// (or `k = 0`).
+    /// `k` is zero or does not divide `n`.
     NotACenterSubgroup {
-        /// The `n` of `SU(n)`.
+        /// Matrix dimension of SU(n).
         n: usize,
-        /// The requested subgroup order.
+        /// Requested subgroup order.
         k: usize,
     },
+    /// The basis has the wrong shape, is singular, or omits a root.
+    InvalidLattice {
+        /// Failed invariant.
+        reason: &'static str,
+    },
+    /// A matrix size is unaddressable or a canonical entry does not fit i64.
+    SizeOverflow,
 }
 
 impl fmt::Display for GroupError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            GroupError::UnsupportedRank { family, value } => write!(
+            Self::UnsupportedRank { family, value } => write!(
                 f,
                 "{family}({value}) is not a supported rank for this family"
             ),
-            GroupError::NotACenterSubgroup { n, k } => write!(
+            Self::NotACenterSubgroup { n, k } => write!(
                 f,
                 "Z{k} is not a subgroup of the SU({n}) center Z{n}: {k} does not divide {n}"
             ),
+            Self::InvalidLattice { reason } => write!(f, "invalid character lattice: {reason}"),
+            Self::SizeOverflow => {
+                f.write_str("character lattice size or entry exceeds its integer range")
+            }
         }
     }
 }
-
 impl std::error::Error for GroupError {}
 
 impl GroupId {
-    /// `SU(n)` — `A(n-1)`, simply connected. Requires `n ≥ 2`.
+    /// Validate a square integer row basis and normalize it exactly.
+    ///
+    /// HNF is upper triangular with positive diagonal and
+    /// `0 <= H[i,j] < H[j,j]` for `i < j`. Every Cartan row (a root in
+    /// Dynkin coordinates) must belong to the lattice. The empty datum is valid.
+    /// Invalid ranks return [`GroupError::UnsupportedRank`]; malformed,
+    /// singular, or root-excluding bases return [`GroupError::InvalidLattice`].
+    pub fn new(
+        roots: &[RootSystem],
+        torus_rank: usize,
+        generators: &[Vec<i64>],
+    ) -> Result<Self, GroupError> {
+        let n = lattice_size(roots, torus_rank)?;
+        let size = n.checked_mul(n).ok_or(GroupError::SizeOverflow)?;
+        if generators.len() != n || generators.iter().any(|g| g.len() != n) {
+            return Err(GroupError::InvalidLattice {
+                reason: "expected a square rank-sized basis",
+            });
+        }
+        let mut h = Vec::new();
+        h.try_reserve_exact(size)
+            .map_err(|_| GroupError::SizeOverflow)?;
+        h.extend(generators.iter().flatten().map(|&x| BigInt::from(x)));
+        // Unimodular Euclidean row operations preserve exactly the input lattice.
+        for j in 0..n {
+            for i in j + 1..n {
+                while !h[i * n + j].is_zero() {
+                    let q = &h[j * n + j] / &h[i * n + j];
+                    for k in j..n {
+                        let sub = &q * &h[i * n + k];
+                        h[j * n + k] -= sub;
+                        h.swap(j * n + k, i * n + k);
+                    }
+                }
+            }
+            if h[j * n + j].is_zero() {
+                return Err(GroupError::InvalidLattice {
+                    reason: "singular basis",
+                });
+            }
+            if h[j * n + j].is_negative() {
+                for k in j..n {
+                    h[j * n + k] = -&h[j * n + k];
+                }
+            }
+            for i in 0..j {
+                let pivot = &h[j * n + j];
+                let mut q = &h[i * n + j] / pivot;
+                if (&h[i * n + j] % pivot).is_negative() {
+                    q -= 1;
+                }
+                if !q.is_zero() {
+                    for k in j..n {
+                        let sub = &q * &h[j * n + k];
+                        h[i * n + k] -= sub;
+                    }
+                }
+            }
+        }
+        let mut hnf = Vec::new();
+        let differs = |k: usize, x: &BigInt| {
+            if k / n == k % n {
+                !x.is_one()
+            } else {
+                !x.is_zero()
+            }
+        };
+        hnf.try_reserve_exact(h.iter().enumerate().filter(|(k, x)| differs(*k, x)).count())
+            .map_err(|_| GroupError::SizeOverflow)?;
+        for (k, x) in h.iter().enumerate() {
+            if differs(k, x) {
+                hnf.push((k / n, k % n, x.to_i64().ok_or(GroupError::SizeOverflow)?));
+            }
+        }
+        let group = Self(Arc::new(Datum {
+            roots: roots.into(),
+            torus_rank,
+            hnf: hnf.into(),
+        }));
+        if !group.contains_roots() {
+            return Err(GroupError::InvalidLattice {
+                reason: "character lattice omits a root",
+            });
+        }
+        Ok(group)
+    }
+
+    fn contains_roots(&self) -> bool {
+        let n = self.semisimple_rank() + self.torus_rank();
+        let mut root = vec![0; n];
+        let mut offset = 0;
+        for &system in self.root_systems() {
+            for i in 0..system.rank() {
+                root.fill(0);
+                for j in 0..system.rank() {
+                    root[offset + j] = cartan(system, i, j);
+                }
+                if !self.contains_coordinates(&root, &[]) {
+                    return false;
+                }
+            }
+            offset += system.rank();
+        }
+        true
+    }
+
+    /// The full weight/charge lattice `P ⊕ Z^t` in the given presentation.
+    /// Root containment and full rank are automatic for the identity basis.
+    pub fn cover(roots: &[RootSystem], torus_rank: usize) -> Result<Self, GroupError> {
+        lattice_size(roots, torus_rank)?;
+        Ok(Self(Arc::new(Datum {
+            roots: roots.into(),
+            torus_rank,
+            hnf: Box::new([]),
+        })))
+    }
+
+    /// Standard rank-`rank` torus, with integer charges. Requires rank ≥ 1.
+    pub fn torus(rank: usize) -> Result<Self, GroupError> {
+        if rank == 0 {
+            return Err(GroupError::UnsupportedRank {
+                family: "torus",
+                value: rank,
+            });
+        }
+        Self::cover(&[], rank)
+    }
+
+    /// U(n), with `q ≡ Σ i·aᵢ (mod n)` under `(S,z) ↦ zS`.
+    /// Fundamental charge is +1, determinant charge is n; U(1) is a torus.
+    pub fn u(n: usize) -> Result<Self, GroupError> {
+        if n == 0 {
+            return Err(GroupError::UnsupportedRank {
+                family: "u",
+                value: n,
+            });
+        }
+        if n == 1 {
+            return Self::torus(1);
+        }
+        Self::congruence(
+            &[RootSystem::A(n - 1)],
+            1,
+            n,
+            (0..n).map(|i| (i, if i + 1 == n { 1 } else { -(i as i128 + 1) })),
+        )
+    }
+
+    /// Ordered root-system blocks; D(2) retains its two-coordinate presentation.
+    pub fn root_systems(&self) -> &[RootSystem] {
+        &self.0.roots
+    }
+    /// Total number of Dynkin coordinates.
+    pub fn semisimple_rank(&self) -> usize {
+        self.0.roots.iter().map(|r| r.rank()).sum()
+    }
+    /// Number of integer torus charges.
+    pub fn torus_rank(&self) -> usize {
+        self.0.torus_rank
+    }
+    /// Canonical row-HNF basis, in Dynkin-then-charge coordinate order.
+    /// Allocates an n×n dense matrix, where n is the total rank.
+    pub fn character_lattice(&self) -> Vec<Vec<i64>> {
+        let n = self.semisimple_rank() + self.torus_rank();
+        let mut rows = vec![vec![0; n]; n];
+        for (i, row) in rows.iter_mut().enumerate() {
+            row[i] = 1;
+        }
+        for &(i, j, value) in &self.0.hnf {
+            rows[i][j] = value;
+        }
+        rows
+    }
+
+    /// Exact lattice admission. Wrong lengths or negative Dynkin labels return
+    /// false; signed torus charges are allowed. This predicate never panics.
+    ///
+    /// ```
+    /// use fusion_symbols::lie::GroupId;
+    /// assert!(GroupId::psu(3).unwrap().admits(&[1, 1], &[]));
+    /// assert!(!GroupId::psu(3).unwrap().admits(&[1, 0], &[]));
+    /// assert!(GroupId::u(3).unwrap().admits(&[0, 1], &[-1]));
+    /// ```
+    pub fn admits(&self, dynkin: &[i64], charges: &[i64]) -> bool {
+        if dynkin.len() != self.semisimple_rank()
+            || charges.len() != self.torus_rank()
+            || dynkin.iter().any(|&a| a < 0)
+        {
+            return false;
+        }
+        self.contains_coordinates(dynkin, charges)
+    }
+
+    // HNF unit-pivot columns have no entries above the diagonal, so their
+    // solution coefficient is the input coordinate. Simple centers need at most
+    // two nonunit pivots: keep those on the stack for allocation-free labels.
+    fn contains_coordinates(&self, dynkin: &[i64], charges: &[i64]) -> bool {
+        let n = dynkin.len() + charges.len();
+        let coordinate = |i: usize| {
+            if i < dynkin.len() {
+                dynkin[i]
+            } else {
+                charges[i - dynkin.len()]
+            }
+        };
+        let fast = || -> Option<bool> {
+            let mut pivots = [(0usize, 0i128); 2];
+            let mut used = 0;
+            for &(i, j, _) in &self.0.hnf {
+                if i == j {
+                    if used == pivots.len() {
+                        return None;
+                    }
+                    pivots[used] = (i, i128::from(coordinate(i)));
+                    used += 1;
+                }
+            }
+            let mut entries = self.0.hnf.iter().peekable();
+            for i in 0..n {
+                let mut coefficient = i128::from(coordinate(i));
+                if let Some(&&(row, col, pivot)) = entries.peek() {
+                    if row == i && col == i {
+                        let value = pivots[..used].iter().find(|&&(j, _)| j == i)?.1;
+                        if value % i128::from(pivot) != 0 {
+                            return Some(false);
+                        }
+                        coefficient = value / i128::from(pivot);
+                        entries.next();
+                    }
+                }
+                while let Some(&&(row, col, value)) = entries.peek() {
+                    if row != i {
+                        break;
+                    }
+                    let remainder = &mut pivots[..used].iter_mut().find(|(j, _)| *j == col)?.1;
+                    *remainder =
+                        remainder.checked_sub(coefficient.checked_mul(i128::from(value))?)?;
+                    entries.next();
+                }
+            }
+            Some(true)
+        };
+        fast().unwrap_or_else(|| {
+            // Arbitrarily coupled lattices can require larger exact intermediates.
+            let mut remainder: Vec<BigInt> = (0..n).map(|i| BigInt::from(coordinate(i))).collect();
+            let mut entries = self.0.hnf.iter().peekable();
+            for i in 0..n {
+                let pivot = if let Some(&&(row, col, value)) = entries.peek() {
+                    if row == i && col == i {
+                        entries.next();
+                        value
+                    } else {
+                        1
+                    }
+                } else {
+                    1
+                };
+                if !(&remainder[i] % pivot).is_zero() {
+                    return false;
+                }
+                let coefficient = &remainder[i] / pivot;
+                while let Some(&&(row, col, value)) = entries.peek() {
+                    if row != i {
+                        break;
+                    }
+                    remainder[col] -= &coefficient * value;
+                    entries.next();
+                }
+            }
+            true
+        })
+    }
+    pub(super) fn is_cover(&self) -> bool {
+        self.0.hnf.is_empty()
+    }
+
+    /// SU(n), the A(n−1) cover. Requires n ≥ 2.
     pub fn su(n: usize) -> Result<Self, GroupError> {
         if n < 2 {
             return Err(GroupError::UnsupportedRank {
@@ -294,14 +436,10 @@ impl GroupId {
                 value: n,
             });
         }
-        Ok(GroupId {
-            root_system: RootSystem::A(n - 1),
-            form: GlobalForm::SimplyConnected,
-        })
+        Self::cover(&[RootSystem::A(n - 1)], 0)
     }
-
-    /// `SU(n)/Z_k` — requires `n ≥ 2` and `k | n`. `k = 1` is [`Self::su`],
-    /// `k = n` is [`Self::psu`].
+    /// SU(n)/Z_k; k must divide n. Admission is `Σ i·aᵢ ≡ 0 (mod k)`.
+    /// The trivial quotient k=1 equals SU(n); k=n gives PSU(n).
     pub fn su_quotient(n: usize, k: usize) -> Result<Self, GroupError> {
         if n < 2 {
             return Err(GroupError::UnsupportedRank {
@@ -312,194 +450,226 @@ impl GroupId {
         if k == 0 || !n.is_multiple_of(k) {
             return Err(GroupError::NotACenterSubgroup { n, k });
         }
-        Ok(GroupId {
-            root_system: RootSystem::A(n - 1),
-            form: GlobalForm::Quotient(CenterSubgroup::Zk(k)),
-        })
+        Self::congruence(
+            &[RootSystem::A(n - 1)],
+            0,
+            k,
+            (0..n - 1).map(|i| (i, i as i128 + 1)),
+        )
     }
-
-    /// `PSU(n) = SU(n)/Z_n`, the adjoint form.
+    /// PSU(n), the adjoint form SU(n)/Z_n.
     pub fn psu(n: usize) -> Result<Self, GroupError> {
         Self::su_quotient(n, n)
     }
-
-    /// `Sp(m)` — `C(m/2)`, simply connected. `m` is the **matrix dimension**
-    /// and must be even and `≥ 2`.
+    /// Sp(m), the C(m/2) cover. Matrix dimension m must be even and ≥ 2.
     pub fn sp(m: usize) -> Result<Self, GroupError> {
-        Ok(GroupId {
-            root_system: RootSystem::C(sp_rank(m)?),
-            form: GlobalForm::SimplyConnected,
-        })
+        Self::cover(&[RootSystem::C(sp_rank(m)?)], 0)
     }
-
-    /// `PSp(m) = Sp(m)/Z2`, the adjoint form.
+    /// PSp(m); admission is `Σ_(i odd) aᵢ ≡ 0 (mod 2)`.
     pub fn psp(m: usize) -> Result<Self, GroupError> {
-        Ok(GroupId {
-            root_system: RootSystem::C(sp_rank(m)?),
-            form: GlobalForm::Quotient(CenterSubgroup::Z2),
-        })
+        let r = sp_rank(m)?;
+        Self::congruence(&[RootSystem::C(r)], 0, 2, (0..r).step_by(2).map(|i| (i, 1)))
     }
-
-    /// `Spin(n)` — `B((n-1)/2)` or `D(n/2)` by the parity of `n`, simply
-    /// connected. `n` is the **matrix dimension** of the `SO(n)` it covers and
-    /// must be `≥ 3`.
+    /// Spin(n), the B((n−1)/2) or D(n/2) cover. Matrix dimension n ≥ 3.
     pub fn spin(n: usize) -> Result<Self, GroupError> {
-        Ok(GroupId {
-            root_system: orthogonal(n, "spin")?,
-            form: GlobalForm::SimplyConnected,
-        })
+        Self::cover(&[orthogonal(n, "spin")?], 0)
     }
-
-    /// `SO(n) = Spin(n)/Z2` — the vector form. `n ≥ 3`.
+    /// SO(n), n ≥ 3. B_r admits `a_r` even; D_r admits
+    /// `a_(r−1)+a_r` even (the retained tensor classes `{0,v}`).
     pub fn so(n: usize) -> Result<Self, GroupError> {
-        let root_system = orthogonal(n, "so")?;
-        // For D_r the Z2 is one of three (r even) or the unique one (r odd);
-        // either way it is canonically named by the class it retains, so that
-        // one group has one `GroupId`. `Z2` stays accepted by `admits` for D.
-        let sub = match root_system {
-            RootSystem::D(_) => CenterSubgroup::DVector,
-            _ => CenterSubgroup::Z2,
+        let root = orthogonal(n, "so")?;
+        let r = root.rank();
+        let start = if matches!(root, RootSystem::B(_)) {
+            r - 1
+        } else {
+            r - 2
         };
-        Ok(GroupId {
-            root_system,
-            form: GlobalForm::Quotient(sub),
-        })
+        Self::congruence(&[root], 0, 2, (start..r).map(|i| (i, 1)))
     }
 
-    /// `PSO(n)`, the adjoint form. For `n` odd this *is* `SO(n)` (the `B_r`
-    /// center is already quotiented out); for `n = 2r` it is the quotient by
-    /// the full center.
+    /// PSO(n), the adjoint form. Odd n already gives SO(n).
+    ///
+    /// For D_r, odd r, admission is κ=0 mod 4 with
+    /// `κ = a_r − a_(r−1) + 2 Σ_(i odd ≤ r−2) aᵢ` and generator `[ω_r]=+1`.
+    /// Indeed Q is the even-sum sublattice of Z^r and `4ω_r=(2,…,2)∈Q`;
+    /// the class of an integral weight is twice its coordinate sum. Slansky
+    /// Table 41 (SO(10)) gives `45↦0, 16↦1, 16bar↦−1, 10↦2`.
+    /// Slansky's uniform D formula is +κ for r=1 mod 4 and −κ for r=3 mod 4;
+    /// our r-uniform generator agrees with duality's `λ_r↦−λ_r`.
+    /// For even r, both `p=a_(r−1)+t` and `q=a_r+t` must be even,
+    /// where `t=Σ_(i odd ≤ r−2) aᵢ`.
     pub fn pso(n: usize) -> Result<Self, GroupError> {
-        let root_system = orthogonal(n, "pso")?;
-        let sub = match root_system {
-            RootSystem::B(_) => CenterSubgroup::Z2,
-            RootSystem::D(r) if r % 2 == 0 => CenterSubgroup::DFull,
-            _ => CenterSubgroup::Z4,
-        };
-        Ok(GroupId {
-            root_system,
-            form: GlobalForm::Quotient(sub),
-        })
+        let root = orthogonal(n, "pso")?;
+        if matches!(root, RootSystem::B(_)) {
+            return Self::so(n);
+        }
+        let r = root.rank();
+        if r % 2 == 1 {
+            return Self::congruence(
+                &[root],
+                0,
+                4,
+                (0..r - 2)
+                    .step_by(2)
+                    .map(|i| (i, 2))
+                    .chain([(r - 2, -1), (r - 1, 1)]),
+            );
+        }
+        let mut hnf = Vec::new();
+        hnf.try_reserve_exact(r)
+            .map_err(|_| GroupError::SizeOverflow)?;
+        for i in (0..r - 2).step_by(2) {
+            hnf.push((i, r - 2, 1));
+            hnf.push((i, r - 1, 1));
+        }
+        hnf.push((r - 2, r - 2, 2));
+        hnf.push((r - 1, r - 1, 2));
+        Ok(Self::named(&[root], 0, hnf))
     }
 
-    /// The half-spin form of `Spin(n)` that **retains** the `[ω_r]` chirality
-    /// (Slansky's `Ss(n)`). Requires `n = 2r` with `r` even, i.e.
-    /// `n ≡ 0 (mod 4)`, `n ≥ 8`.
+    /// Half-spin form retaining `[ω_r]` (`λ_r=+1/2`), Slansky's Ss(n).
+    /// Requires n ≥ 8 divisible by 4. With `t=Σ_(i odd ≤ r−2) aᵢ`,
+    /// admission is `p=a_(r−1)+t` even; the vector class is excluded.
+    ///
+    /// Naming is by the retained class: killing `z_(ω_r)` retains ω_r for
+    /// r=0 mod 4 but ω_(r−1) for r=2 mod 4, since `(ω_r,ω_r)=r/4`.
+    /// Slansky Table 36 labels `[ω_4]` sub-s, consistent with Table 41.
     pub fn half_spin_plus(n: usize) -> Result<Self, GroupError> {
-        Ok(GroupId {
-            root_system: half_spin_root_system(n)?,
-            form: GlobalForm::Quotient(CenterSubgroup::DHalfSpinPlus),
-        })
+        Self::half_spin(n, false)
     }
-
-    /// The half-spin form of `Spin(n)` that **retains** the `[ω_{r-1}]`
-    /// chirality (Slansky's `Sc(n)`). Requires `n ≡ 0 (mod 4)`, `n ≥ 8`.
+    /// Half-spin form retaining `[ω_(r−1)]` (`λ_r=−1/2`), Slansky's Sc(n).
+    /// Admission is `q=a_r+Σ_(i odd ≤ r−2) aᵢ` even. Same range and retained-class
+    /// naming rationale as [`Self::half_spin_plus`].
     pub fn half_spin_minus(n: usize) -> Result<Self, GroupError> {
-        Ok(GroupId {
-            root_system: half_spin_root_system(n)?,
-            form: GlobalForm::Quotient(CenterSubgroup::DHalfSpinMinus),
-        })
+        Self::half_spin(n, true)
+    }
+    fn half_spin(n: usize, minus: bool) -> Result<Self, GroupError> {
+        let root = half_spin_root_system(n)?;
+        let r = root.rank();
+        Self::congruence(
+            &[root],
+            0,
+            2,
+            (0..r - 2)
+                .step_by(2)
+                .chain([r - 2 + usize::from(minus)])
+                .map(|i| (i, 1)),
+        )
     }
 
-    // Every central character of the zero weight is trivial when the pairing exists.
-    pub(super) fn admits_zero(&self) -> bool {
-        let r = self.root_system.rank();
-        match (self.root_system, self.form) {
-            (_, GlobalForm::SimplyConnected) => true,
-            (RootSystem::A(_), GlobalForm::Quotient(CenterSubgroup::Zk(k))) => {
-                k != 0 && r.checked_add(1).is_some_and(|n| n.is_multiple_of(k))
-            }
-            (RootSystem::B(_), GlobalForm::Quotient(CenterSubgroup::Z2)) => r >= 1,
-            (RootSystem::C(_), GlobalForm::Quotient(CenterSubgroup::Z2)) => true,
-            (RootSystem::D(_), GlobalForm::Quotient(sub)) => match sub {
-                CenterSubgroup::Z2 | CenterSubgroup::DVector => r >= 2,
-                CenterSubgroup::Z4 => r >= 3 && r % 2 == 1,
-                CenterSubgroup::DHalfSpinPlus
-                | CenterSubgroup::DHalfSpinMinus
-                | CenterSubgroup::DFull => r >= 2 && r.is_multiple_of(2),
-                _ => false,
-            },
-            _ => false,
+    // Nonzero central-character coefficients are ordered by coordinate. The
+    // final one is ±1 modulo m, so eliminating it gives row-HNF directly.
+    fn congruence(
+        roots: &[RootSystem],
+        torus: usize,
+        modulus: usize,
+        coefficients: impl DoubleEndedIterator<Item = (usize, i128)> + Clone,
+    ) -> Result<Self, GroupError> {
+        let n = lattice_size(roots, torus)?;
+        if modulus == 1 {
+            return Self::cover(roots, torus);
         }
-    }
-
-    /// Whether `dynkin` is a genuine representation of this group.
-    ///
-    /// `dynkin` is the dominant integral weight in Bourbaki numbering. Returns
-    /// `false` for a label of the wrong length, a label with a negative
-    /// component, and for a [`CenterSubgroup`] that is not a subgroup of this
-    /// root system's center (the named constructors never build one). Quotient
-    /// formulas needing absent Dynkin indices return `false`, including at rank zero.
-    ///
-    /// Admissibility is closed under fusion and duality, so this only needs
-    /// calling at construction.
-    ///
-    /// ```
-    /// use fusion_symbols::lie::GroupId;
-    ///
-    /// let psu3 = GroupId::psu(3).unwrap();     // SU(3)/Z_3
-    /// assert!(psu3.admits(&[1, 1]));           // the adjoint 8: triality 0
-    /// assert!(!psu3.admits(&[1, 0]));          // the fundamental 3: triality 1
-    ///
-    /// let spin5 = GroupId::spin(5).unwrap();
-    /// let so5 = GroupId::so(5).unwrap();
-    /// assert!(spin5.admits(&[0, 1]));          // the Dirac spinor
-    /// assert!(!so5.admits(&[0, 1]));           // SO(5) has no spinor irreps
-    /// ```
-    pub fn admits(&self, dynkin: &[i64]) -> bool {
-        let r = self.root_system.rank();
-        if dynkin.len() != r || dynkin.iter().any(|&a| a < 0) {
-            return false;
+        // Bound the entry storage before traversing the coefficients.
+        if n.checked_add(1).ok_or(GroupError::SizeOverflow)?
+            > isize::MAX as usize / std::mem::size_of::<(usize, usize, i64)>()
+        {
+            return Err(GroupError::SizeOverflow);
         }
-        let sub = match self.form {
-            // A global form never introduces a weight the cover lacks, and the
-            // cover admits every dominant integral weight.
-            GlobalForm::SimplyConnected => return true,
-            GlobalForm::Quotient(sub) => sub,
+        let m = i64::try_from(modulus).map_err(|_| GroupError::SizeOverflow)?;
+        let Some((p, c)) = coefficients
+            .clone()
+            .rev()
+            .find(|&(_, c)| c.rem_euclid(i128::from(m)) != 0)
+        else {
+            return Self::cover(roots, torus);
         };
-        match (self.root_system, sub) {
-            // A_r: N-ality Σ i·aᵢ mod k. k = 1 is SU(N) itself.
-            (RootSystem::A(_), CenterSubgroup::Zk(k)) => {
-                if k == 0 || !(r + 1).is_multiple_of(k) {
-                    return false;
-                }
-                // Reduced per term: the plain sum overflows i64 for large
-                // labels. Every operand is < k ≤ usize::MAX, so the u128
-                // product and running sum cannot overflow.
-                let k = k as u128;
-                let nality = dynkin.iter().enumerate().fold(0u128, |acc, (i, &a)| {
-                    (acc + (i as u128 + 1) % k * (a as u128 % k)) % k
-                });
-                nality == 0
-            }
-            // B_r: [ω_i] = 0 for i < r, [ω_r] = z. SO(2r+1).
-            (RootSystem::B(_), CenterSubgroup::Z2) if r >= 1 => dynkin[r - 1] % 2 == 0,
-            // C_r: [ω_i] = (i mod 2)·z. PSp(2r).
-            (RootSystem::C(_), CenterSubgroup::Z2) => odd_index_parity(dynkin) == 0,
-            // D_r: the vector (tensor) sublattice {0, v}. SO(2r), r-uniform.
-            (RootSystem::D(_), CenterSubgroup::Z2 | CenterSubgroup::DVector) if r >= 2 => {
-                parity(dynkin[r - 2]) == parity(dynkin[r - 1])
-            }
-            // D_r, r odd: PSO(2r) is the quotient by the full Z4.
-            (RootSystem::D(_), CenterSubgroup::Z4) if r >= 3 && r % 2 == 1 => {
-                d_odd_class(dynkin) == 0
-            }
-            // D_r, r even: the two half-spin forms and PSO(2r).
-            (RootSystem::D(_), sub) if r >= 2 && r.is_multiple_of(2) => {
-                let t = odd_index_parity(&dynkin[..r - 2]);
-                let p = parity(dynkin[r - 2]) ^ t;
-                let q = parity(dynkin[r - 1]) ^ t;
-                match sub {
-                    CenterSubgroup::DHalfSpinPlus => p == 0,
-                    CenterSubgroup::DHalfSpinMinus => q == 0,
-                    CenterSubgroup::DFull => p == 0 && q == 0,
-                    _ => false,
-                }
-            }
-            // Not a subgroup of this root system's center (or an exceptional
-            // family, whose quotient forms carry no logic).
-            _ => false,
+        let inverse = if c.rem_euclid(i128::from(m)) == 1 {
+            1
+        } else {
+            -1
+        };
+        debug_assert_eq!((c * inverse).rem_euclid(i128::from(m)), 1);
+        let entries = coefficients
+            .map(|(i, c)| (i, p, (-c * inverse).rem_euclid(i128::from(m)) as i64))
+            .filter(|&(i, _, value)| i != p && value != 0);
+        let mut hnf = Vec::new();
+        hnf.try_reserve_exact(
+            entries
+                .clone()
+                .count()
+                .checked_add(1)
+                .ok_or(GroupError::SizeOverflow)?,
+        )
+        .map_err(|_| GroupError::SizeOverflow)?;
+        hnf.extend(entries);
+        hnf.push((p, p, m));
+        Ok(Self::named(roots, torus, hnf))
+    }
+
+    fn named(roots: &[RootSystem], torus_rank: usize, hnf: Vec<(usize, usize, i64)>) -> Self {
+        let group = Self(Arc::new(Datum {
+            roots: roots.into(),
+            torus_rank,
+            hnf: hnf.into(),
+        }));
+        // Roots have trivial central character; check the construction at small ranks.
+        debug_assert!(group.semisimple_rank() + torus_rank > 64 || group.contains_roots());
+        group
+    }
+}
+
+// Validate root domains and the rank sum; dense sizes are checked only by new.
+fn lattice_size(roots: &[RootSystem], torus: usize) -> Result<usize, GroupError> {
+    let mut n = torus;
+    for &root in roots {
+        let (family, valid) = match root {
+            RootSystem::A(r) => ("A", r >= 1),
+            RootSystem::B(r) => ("B", r >= 1),
+            RootSystem::C(r) => ("C", r >= 1),
+            RootSystem::D(r) => ("D", r >= 2),
+            _ => ("exceptional", true),
+        };
+        if !valid {
+            return Err(GroupError::UnsupportedRank {
+                family,
+                value: root.rank(),
+            });
         }
+        n = n.checked_add(root.rank()).ok_or(GroupError::SizeOverflow)?;
+    }
+    Ok(n)
+}
+
+// Row i is α_i expressed in fundamental weights: <α_i, α_j∨>.
+// Bourbaki B has its short root last, C its long root last; D branches at r−2.
+// E has chain 1–3–4–5–… and node 2 attached to 4; F's first two roots are long,
+// and G's first root is short. D2 consists of two disconnected A1 roots.
+fn cartan(root: RootSystem, i: usize, j: usize) -> i64 {
+    if i == j {
+        return 2;
+    }
+    let r = root.rank();
+    let adjacent = match root {
+        RootSystem::D(_) => {
+            (i < r - 2 && j == i + 1)
+                || (j < r - 2 && i == j + 1)
+                || (r >= 3 && ((i == r - 3 && j == r - 1) || (j == r - 3 && i == r - 1)))
+        }
+        RootSystem::E6 | RootSystem::E7 | RootSystem::E8 => {
+            matches!((i, j), (0, 2) | (2, 0) | (1, 3) | (3, 1))
+                || (i >= 2 && j >= 2 && i.abs_diff(j) == 1)
+        }
+        _ => i.abs_diff(j) == 1,
+    };
+    if !adjacent {
+        return 0;
+    }
+    match root {
+        RootSystem::B(_) if i + 2 == r && j + 1 == r => -2,
+        RootSystem::C(_) if i + 1 == r && j + 2 == r => -2,
+        RootSystem::F4 if i == 1 && j == 2 => -2,
+        RootSystem::G2 if i == 1 && j == 0 => -3,
+        _ => -1,
     }
 }
 
@@ -522,7 +692,7 @@ fn odd_index_parity(dynkin: &[i64]) -> i64 {
 /// ```
 ///
 /// Exposed because this is the value an external congruency table is checked
-/// against; see [`CenterSubgroup::Z4`] for the derivation and the Slansky
+/// against; see [`GroupId::pso`] for the derivation and the Slansky
 /// SO(10) anchors. Returns `0` for a label shorter than 2.
 pub fn d_odd_central_class(dynkin: &[i64]) -> i64 {
     if dynkin.len() < 2 {
@@ -532,7 +702,7 @@ pub fn d_odd_central_class(dynkin: &[i64]) -> i64 {
 }
 
 /// `κ(λ) ≡ a_r − a_{r-1} + 2·Σ_{i odd ≤ r-2} aᵢ (mod 4)` for `D_r`, `r` odd,
-/// with the generator `c = [ω_r]` (see [`CenterSubgroup::Z4`]).
+/// with the generator `c = [ω_r]` (see [`GroupId::pso`]).
 fn d_odd_class(dynkin: &[i64]) -> i64 {
     let r = dynkin.len();
     // Each term reduced mod 4 first: every operand is then in [0, 4).
@@ -570,45 +740,4 @@ fn half_spin_root_system(n: usize) -> Result<RootSystem, GroupError> {
         });
     }
     Ok(RootSystem::D(n / 2))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn zero_admission_matches_materialized_labels() {
-        use CenterSubgroup::*;
-        let forms = [Z2, Z4, DVector, DHalfSpinPlus, DHalfSpinMinus, DFull]
-            .into_iter()
-            .chain((0..=10).map(Zk))
-            .map(GlobalForm::Quotient)
-            .chain([GlobalForm::SimplyConnected]);
-        for form in forms {
-            let roots = (0..=8)
-                .flat_map(|r| {
-                    [
-                        RootSystem::A(r),
-                        RootSystem::B(r),
-                        RootSystem::C(r),
-                        RootSystem::D(r),
-                    ]
-                })
-                .chain([
-                    RootSystem::G2,
-                    RootSystem::F4,
-                    RootSystem::E6,
-                    RootSystem::E7,
-                    RootSystem::E8,
-                ]);
-            for root_system in roots {
-                let group = GroupId { root_system, form };
-                assert_eq!(
-                    group.admits_zero(),
-                    group.admits(&vec![0; root_system.rank()]),
-                    "{group:?}"
-                );
-            }
-        }
-    }
 }

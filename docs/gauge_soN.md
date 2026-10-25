@@ -268,7 +268,7 @@ this permutation (`clebsch_aux.cc:295-301 @ dd2cc7e`).
 - **`D_r` (SEN, `:1018-1031`):** as `B_r` but with `x = qm_0 + qm_1`.
 
 The resulting Dynkin label constructs `LieGroup::irrep` **in the
-cover** (`GlobalForm::SimplyConnected`); an invalid label is
+cover** (`GroupId::cover(&[root_system], 0)`); an invalid label is
 `InvalidDiscoveredLabel` generation diagnostic (unreachable for a faithful sweep). The
 `B_r` conversion's `x = 2·qm_0` and the `D_r` conversion's `x = qm_0 + qm_1`
 already return an integer `a_{r-1}` from half-integer eigenvalues, which is

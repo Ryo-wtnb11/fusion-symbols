@@ -8,13 +8,17 @@ use fusion_symbols::{
 fn inline_blocks_and_warm_a1_symbols_allocate_nothing() {
     let _serial = crate::common::counting_alloc::serial();
     let cat = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    let half = cat.irrep(&[1]).unwrap();
+    let half = cat.irrep(&[1], &[]).unwrap();
     let zero = cat.unit();
     let expected = cat
         .f_symbol(&half, &half, &half, &half, &zero, &zero)
         .unwrap();
     let stats = fusion_symbols::cache::base_cache_stats();
     let before = counting_alloc::calls();
+    let label = cat.irrep(&[1], &[]).unwrap();
+    std::hint::black_box(label.clone());
+    std::hint::black_box(cat.group_id().clone());
+    assert_eq!(label.charges().len(), 0);
     std::hint::black_box(FBlock::one(0.5));
     std::hint::black_box(RBlock::one(-1.0));
     let f = cat

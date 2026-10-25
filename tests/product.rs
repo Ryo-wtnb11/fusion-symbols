@@ -39,8 +39,8 @@ fn fermionic_closed_forms_and_complex_promotion() {
     assert_eq!(fu1.twist(&a), -1.0);
     assert_eq!(fu1.frobenius_schur_indicator(&a), 0.0);
     let fsu2 = product(su2(), FermionParity);
-    let half = (fsu2.factors().0.irrep(&[1]).unwrap(), Parity::ODD);
-    let triplet = (fsu2.factors().0.irrep(&[2]).unwrap(), Parity::EVEN);
+    let half = (fsu2.factors().0.irrep(&[1], &[]).unwrap(), Parity::ODD);
+    let triplet = (fsu2.factors().0.irrep(&[2], &[]).unwrap(), Parity::EVEN);
     // SU(2): R^{1/2,1/2}_{j}=(-1)^{1-j}; parity supplies one more minus sign.
     assert_eq!(
         fsu2.r_symbol(&half, &half, &fsu2.unit()).unwrap().at(0, 0),
@@ -73,7 +73,7 @@ fn fermionic_closed_forms_and_complex_promotion() {
 
     let fibsu2 = product(TableCategory::fibonacci(), su2());
     let tau = fibsu2.factors().0.object(2).unwrap();
-    let h = fibsu2.factors().1.irrep(&[1]).unwrap();
+    let h = fibsu2.factors().1.irrep(&[1], &[]).unwrap();
     let x = (tau, h);
     // Fibonacci: R^{ττ}_1 = exp(+4πi/5), θ_τ = exp(-4πi/5), F[1,1]=1/φ.
     complex_close(
@@ -107,12 +107,12 @@ fn fermionic_closed_forms_and_complex_promotion() {
 #[test]
 fn fusion_first_factor_fastest_and_reassociation() {
     let s = su2();
-    let h = s.irrep(&[1]).unwrap();
-    let one = s.irrep(&[2]).unwrap();
+    let h = s.irrep(&[1], &[]).unwrap();
+    let one = s.irrep(&[2], &[]).unwrap();
     let cat = product(s.clone(), s.clone());
     let x = (h.clone(), one.clone());
     let z = s.unit();
-    let two = s.irrep(&[4]).unwrap();
+    let two = s.irrep(&[4], &[]).unwrap();
     assert_eq!(
         cat.fusion(&x, &x).unwrap().collect::<Vec<_>>(),
         [
@@ -228,7 +228,7 @@ fn identity_framing_arity_and_macro_evaluation() {
     assert_eq!(repeated.into_factors(), (U1, U1));
     // Trivial factors change category identity but preserve projected mathematical queries.
     let trivial = product(su2(), ZN::new(1).unwrap());
-    let h = trivial.factors().0.irrep(&[1]).unwrap();
+    let h = trivial.factors().0.irrep(&[1], &[]).unwrap();
     let a = (h, trivial.factors().1.unit());
     assert_eq!(trivial.dim(&a), 2.0);
     assert_eq!(trivial.frobenius_schur_indicator(&a), -1.0);
@@ -857,7 +857,7 @@ fn su3_octet_multiplicity_uses_independent_gauge_literals() {
     // tests/sun_fr_su3_values.rs::f_symbols_checked_against_sunrepresentations
     // and ::r_symbols_checked_against_sunrepresentations (not computed from this product).
     let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
-    let o = su3.irrep(&[1, 1]).unwrap();
+    let o = su3.irrep(&[1, 1], &[]).unwrap();
     let literal = Probe {
         n: [2; 4],
         f: &[
@@ -1020,10 +1020,10 @@ fn try_nsymbol_reports_overflow_and_zero_beats_it() {
     assert_eq!(fits.try_nsymbol(&z, &z, &z).unwrap(), 105);
     assert_eq!(fits.nsymbol(&z, &z, &z), 105);
     let su2 = su2();
-    let s = su2.irrep(&[1]).unwrap();
+    let s = su2.irrep(&[1], &[]).unwrap();
     let cat = product(su2.clone(), U1);
     let a = (s.clone(), U1Irrep::new(1).unwrap());
-    let c = (su2.irrep(&[2]).unwrap(), U1Irrep::new(2).unwrap());
+    let c = (su2.irrep(&[2], &[]).unwrap(), U1Irrep::new(2).unwrap());
     assert_eq!(cat.try_nsymbol(&a, &a, &c).unwrap(), 1);
     assert_eq!(cat.try_nsymbol(&a, &a, &cat.unit()).unwrap(), 0);
     assert_eq!(su2.try_nsymbol(&s, &s, &su2.unit()).unwrap(), 1);

@@ -9,10 +9,36 @@ value/gauge rule noted below.
 
 ### Breaking
 
+- `GroupId` now stores a validated ordered root datum and canonical row-HNF
+  character lattice. Public `root_system`/`form` fields, `GlobalForm`, and
+  `CenterSubgroup` are removed; use `root_systems()` and lattice constructors.
+  It is `Clone` (shared `Arc`), no longer `Copy`. Identical lattices now compare
+  equal, including SU(n)/Z1 versus SU(n), and the former D-odd Z2/DVector
+  spellings. Different root presentations remain distinct.
+- `GroupId::admits` and `LieGroup::irrep` take separate Dynkin-label and charge
+  slices. Pass `&[]` for all currently executable groups. Classification rejects
+  invalid ranks and unaddressable dense lattice sizes before engine setup.
+- Named quotient moduli must fit `i64`: `psu(n)` and `u(n)` return
+  `GroupError::SizeOverflow` for n > `i64::MAX`. Named lattices are stored
+  sparsely in O(rank) space.
+- `LieGroup::new` on a D(2) presentation reports
+  `Unsupported { requires: "D2 presentation" }` (was
+  `"Spin(4) = SU(2) × SU(2) product"`).
+- `LieGroup::irrep` checks admission before integer limits:
+  `psu(2).irrep(&[i64::MAX], &[])` reports `NotAdmissible` (was `LabelOverflow`).
+
 - `GroupRepresentations::Cgc` now requires `CgcBlock`. `LieCgc` accessors
   move to that trait: import `CgcBlock` and use `at([m1, m2, m3, mu])`.
 
 ### Added
+
+- `GroupId::{new,cover,torus,u,root_systems,semisimple_rank,torus_rank,character_lattice}`
+  classify connected compact groups, including torus-coupled lattices and
+  exceptional quotients, with exact admission. New errors are `InvalidLattice`
+  and `SizeOverflow`; normalization uses exact big-integer arithmetic.
+- `LieGroup::group_id` borrows its datum; `LieIrrep::charges` returns an empty
+  exact-size iterator. The executable support set, coefficient values, gauges,
+  fingerprints, and enumeration orders are unchanged.
 
 - The common `category::CgcBlock` contract, scalar CGCs for `finite::ZN`, and
   lazy tuple CGCs for products of group representations (2..=12 factors),
@@ -25,11 +51,11 @@ value/gauge rule noted below.
   F/R/A/B/CGC propagate `LieError::LabelOverflow`; infallible `nsymbol` reports
   failure with a clear panic. Coefficient values and gauge epochs are unchanged (#185).
 
-- `GroupId::admits` no longer panics on degenerate public root data
-  (`B(0)` with `Z2`); `LieGroup::new` returns `NotAdmissible` (#184).
-- `LieGroup::new` / `with_catalog_budget` no longer abort on huge ranks: the
-  zero-weight check allocates nothing, unaddressable SU(N) returns
-  `LabelOverflow`, and B/C/D seeds are checked before allocation (#187).
+- Degenerate roots such as `B(0)` are rejected during `GroupId` validation
+  (#184). Named constructors store canonical lattices sparsely, preserving
+  large-rank classification without dense allocation. Actual size or entry
+  overflow returns `GroupError::SizeOverflow`; B/C/D engine seeds are still
+  checked against their catalog budget (#187).
 - `GroupError::UnsupportedRank` docs list a rejected `half_spin_plus` example (#186).
 
 ### Changed

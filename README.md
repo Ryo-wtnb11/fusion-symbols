@@ -41,6 +41,11 @@ the caller owns parallelism. `anyonwiki-unitary` adds 303 table categories of
 rank 5–7 without a new dependency. See the [design](docs/overview.md) for
 labels, capabilities and error contracts.
 
+`lie::GroupId` separately classifies ordered connected root data with exact
+character lattices, including products, tori, U(N), and exceptional quotients.
+These additional classifications remain unsupported by `LieGroup` engines.
+See [Lie labels and lattices](docs/overview.md#lie-labels-and-global-forms).
+
 ## Example
 
 Exact SU(2) 6j, available without default features. Spins are doubled

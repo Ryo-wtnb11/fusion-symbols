@@ -141,7 +141,7 @@ enum LieEnumeration {
 pub enum LieError {
     /// A coefficient generation failed.
     Generation(GenerationError),
-    /// Wrong rank or negative Dynkin label.
+    /// Wrong Dynkin/charge lengths or a negative Dynkin label.
     InvalidLabel,
     /// The group's global form excludes this weight.
     NotAdmissible,
@@ -212,7 +212,9 @@ impl std::fmt::Display for LieError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Generation(error) => error.fmt(f),
-            Self::InvalidLabel => f.write_str("expected rank-many nonnegative Dynkin labels"),
+            Self::InvalidLabel => {
+                f.write_str("expected rank-many nonnegative Dynkin labels and torus-many charges")
+            }
             Self::NotAdmissible => f.write_str("weight is not admitted by this global form"),
             Self::LabelOverflow => {
                 f.write_str("a label, weight, dimension or multiplicity exceeds the integer range")
@@ -263,30 +265,50 @@ fn checked_projection(value: i64) -> Result<i32, LieError> {
     i32::try_from(value).map_err(|_| LieError::LabelOverflow)
 }
 
+fn coefficient_root(group: &GroupId) -> Result<RootSystem, LieError> {
+    let requires = if group.torus_rank() != 0 {
+        "torus"
+    } else {
+        match group.root_systems() {
+            [] => "trivial group",
+            [RootSystem::E6] => "E6 coefficient engine",
+            [RootSystem::E7] => "E7 coefficient engine",
+            [RootSystem::E8] => "E8 coefficient engine",
+            [RootSystem::F4] => "F4 coefficient engine",
+            [RootSystem::G2] => "G2 coefficient engine",
+            [root] => return Ok(*root),
+            _ => "product of root systems",
+        }
+    };
+    Err(LieError::Unsupported { requires })
+}
+
 impl LieGroup {
-    /// Construct a supported compact Lie group without allocating a zero-weight label.
-    /// Unaddressable SU(N) weight buffers return [`LieError::LabelOverflow`];
+    /// The complete validated classification datum.
+    pub fn group_id(&self) -> &GroupId {
+        &self.group
+    }
+    /// Construct a supported single-block classical group, with no torus charges.
+    /// Other classified data return [`LieError::Unsupported`]; higher ranks
+    /// require `lie-generated`. No zero-weight label is allocated at setup.
     /// B/C/D base seeds exceeding the catalog budget return [`LieError::Generation`].
     pub fn new(group: GroupId) -> Result<Self, LieError> {
-        if !group.admits_zero() {
-            return Err(LieError::NotAdmissible);
-        }
-        if group.root_system == RootSystem::D(2) {
+        let root = coefficient_root(&group)?;
+        if root == RootSystem::D(2) {
             return Err(LieError::Unsupported {
-                requires: "Spin(4) = SU(2) × SU(2) product",
+                requires: "D2 presentation",
             });
         }
-        if matches!(group.root_system, RootSystem::B(r) | RootSystem::C(r) | RootSystem::D(r) if r >= 2)
-        {
+        if matches!(root, RootSystem::B(r) | RootSystem::C(r) | RootSystem::D(r) if r >= 2) {
             #[cfg(feature = "lie-generated")]
             {
-                let series = bcd_series(group.root_system)
+                let series = bcd_series(root)
                     .expect("the enclosing match restricts the root system to B/C/D");
                 return Ok(Self {
                     group,
                     unit: std::sync::OnceLock::new(),
                     catalog: Some(std::sync::Arc::new(std::sync::Mutex::new(
-                        bcd::CanonicalCatalog::new(series, group.root_system.rank())?,
+                        bcd::CanonicalCatalog::new(series, root.rank())?,
                     ))),
                 });
             }
@@ -295,11 +317,11 @@ impl LieGroup {
                 requires: "lie-generated",
             });
         }
-        if matches!(group.root_system, RootSystem::A(r) if r >= 2) {
+        if matches!(root, RootSystem::A(r) if r >= 2) {
             #[cfg(feature = "lie-generated")]
             {
                 // The internal SU(N) weight has rank + 1 i64 entries.
-                if group.root_system.rank() >= isize::MAX as usize / std::mem::size_of::<i64>() {
+                if root.rank() >= isize::MAX as usize / std::mem::size_of::<i64>() {
                     return Err(LieError::LabelOverflow);
                 }
                 return Ok(Self {
@@ -313,10 +335,7 @@ impl LieGroup {
                 requires: "lie-generated",
             });
         }
-        if !matches!(
-            group.root_system,
-            RootSystem::A(1) | RootSystem::B(1) | RootSystem::C(1)
-        ) {
+        if !matches!(root, RootSystem::A(1) | RootSystem::B(1) | RootSystem::C(1)) {
             return Err(LieError::Unsupported {
                 requires: "higher-rank Lie representations",
             });
@@ -331,26 +350,20 @@ impl LieGroup {
     }
     /// Construct a B/C/D group with a byte budget for retained generators.
     pub fn with_catalog_budget(group: GroupId, max_bytes: usize) -> Result<Self, LieError> {
-        if !group.admits_zero() {
-            return Err(LieError::NotAdmissible);
-        }
+        let root = coefficient_root(&group)?;
         #[cfg(feature = "lie-generated")]
-        if let Some(series) = bcd_series(group.root_system) {
-            if group.root_system != RootSystem::D(2) && group.root_system.rank() >= 2 {
+        if let Some(series) = bcd_series(root) {
+            if root != RootSystem::D(2) && root.rank() >= 2 {
                 return Ok(Self {
                     group,
                     unit: std::sync::OnceLock::new(),
                     catalog: Some(std::sync::Arc::new(std::sync::Mutex::new(
-                        bcd::CanonicalCatalog::with_budget(
-                            series,
-                            group.root_system.rank(),
-                            max_bytes,
-                        )?,
+                        bcd::CanonicalCatalog::with_budget(series, root.rank(), max_bytes)?,
                     ))),
                 });
             }
         }
-        let _ = max_bytes;
+        let _ = (root, max_bytes);
         Self::new(group)?;
         Err(LieError::Unsupported {
             requires: "B/C/D catalog",
@@ -373,10 +386,17 @@ impl LieGroup {
         }
         Ok(())
     }
-    /// Validate Dynkin labels and the group's global-form admissibility.
-    pub fn irrep(&self, dynkin: &[i64]) -> Result<LieIrrep, LieError> {
-        if dynkin.len() != self.group.root_system.rank() || dynkin.iter().any(|&x| x < 0) {
+    /// Validate label lengths and nonnegative Dynkin labels, then lattice
+    /// admission, then engine representability. Current engines require `charges = &[]`.
+    pub fn irrep(&self, dynkin: &[i64], charges: &[i64]) -> Result<LieIrrep, LieError> {
+        if dynkin.len() != self.group.semisimple_rank()
+            || charges.len() != self.group.torus_rank()
+            || dynkin.iter().any(|&x| x < 0)
+        {
             return Err(LieError::InvalidLabel);
+        }
+        if !self.group.admits(dynkin, charges) {
+            return Err(LieError::NotAdmissible);
         }
         if dynkin
             .iter()
@@ -385,13 +405,10 @@ impl LieGroup {
         {
             return Err(LieError::LabelOverflow);
         }
-        if !self.group.admits(dynkin) {
-            return Err(LieError::NotAdmissible);
-        }
         #[cfg(feature = "lie-generated")]
-        if matches!(self.group.root_system, RootSystem::A(r) if r >= 2) {
+        if matches!(self.group.root_systems()[0], RootSystem::A(r) if r >= 2) {
             return Ok(LieIrrep {
-                group: self.group,
+                group: self.group.clone(),
                 dj: 0,
                 generated: Some(sun::Irrep::from_dynkin(dynkin)?),
                 bcd: None,
@@ -400,7 +417,7 @@ impl LieGroup {
         #[cfg(feature = "lie-generated")]
         if self.catalog.is_some() {
             return Ok(LieIrrep {
-                group: self.group,
+                group: self.group.clone(),
                 dj: 0,
                 generated: None,
                 bcd: Some(bcd::Irrep::from_dynkin_in(&self.group, dynkin)?),
@@ -411,7 +428,7 @@ impl LieGroup {
         };
         let dj = u32::try_from(*dj).map_err(|_| LieError::LabelOverflow)?;
         Ok(LieIrrep {
-            group: self.group,
+            group: self.group.clone(),
             dj,
             #[cfg(feature = "lie-generated")]
             generated: None,
@@ -420,21 +437,14 @@ impl LieGroup {
         })
     }
     fn enumeration(&self) -> Result<LieEnumeration, EnumerationError> {
-        match self.group.root_system {
+        match self.group.root_systems()[0] {
             // The rank-one center is Z2: a form admits either every doubled
             // spin or exactly the even ones.
             RootSystem::A(1) | RootSystem::B(1) | RootSystem::C(1) => Ok(LieEnumeration::RankOne {
-                stride: if self.group.admits(&[1]) { 1 } else { 2 },
+                stride: if self.group.admits(&[1], &[]) { 1 } else { 2 },
             }),
             // SU(N)/Z_1 admits every weight, as SU(N) does.
-            RootSystem::A(_)
-                if matches!(
-                    self.group.form,
-                    GlobalForm::SimplyConnected | GlobalForm::Quotient(CenterSubgroup::Zk(1))
-                ) =>
-            {
-                Ok(LieEnumeration::Dynkin)
-            }
+            RootSystem::A(_) if self.group.is_cover() => Ok(LieEnumeration::Dynkin),
             _ => Err(EnumerationError::NotEnumerable),
         }
     }
@@ -444,6 +454,10 @@ impl LieGroup {
     }
 }
 impl LieIrrep {
+    /// Integer torus charges (empty for every supported engine).
+    pub fn charges(&self) -> impl ExactSizeIterator<Item = i64> + '_ {
+        std::iter::empty()
+    }
     /// GT basis in the frozen gauge order; absent for rank-one and B/C/D groups.
     pub fn gt_patterns(&self) -> Option<Vec<GtPattern>> {
         #[cfg(feature = "lie-generated")]
@@ -474,7 +488,7 @@ impl LieIrrep {
     pub fn dynkin_labels(&self) -> impl ExactSizeIterator<Item = i64> + '_ {
         DynkinLabels {
             irrep: self,
-            indices: 0..self.group.root_system.rank(),
+            indices: 0..self.group.semisimple_rank(),
         }
     }
 
@@ -587,7 +601,7 @@ impl FusionCategory for LieGroup {
     type Fusion<'a> = LieFusion;
     type Error = LieError;
     fn fusion_style(&self) -> FusionStyle {
-        if self.group.root_system.rank() >= 2 {
+        if self.group.semisimple_rank() >= 2 {
             FusionStyle::Generic
         } else {
             FusionStyle::Simple
@@ -598,17 +612,17 @@ impl FusionCategory for LieGroup {
     }
     fn unit(&self) -> LieIrrep {
         #[cfg(feature = "lie-generated")]
-        if self.group.root_system.rank() >= 2 {
+        if self.group.semisimple_rank() >= 2 {
             return self
                 .unit
                 .get_or_init(|| {
-                    self.irrep(&vec![0; self.group.root_system.rank()])
+                    self.irrep(&vec![0; self.group.semisimple_rank()], &[])
                         .expect("zero Dynkin labels have zero weight and are admitted by the constructed group")
                 })
                 .clone();
         }
         LieIrrep {
-            group: self.group,
+            group: self.group.clone(),
             dj: 0,
             #[cfg(feature = "lie-generated")]
             generated: None,
@@ -645,7 +659,7 @@ impl FusionCategory for LieGroup {
                 unreachable!("dual key stores a dual")
             };
             return LieIrrep {
-                group: self.group,
+                group: self.group.clone(),
                 dj: 0,
                 generated: None,
                 bcd: Some(dual[0].0.clone()),
@@ -664,7 +678,7 @@ impl FusionCategory for LieGroup {
                 tier.insert(key, sun::SunProduct::from_map(BTreeMap::from([(dual, 1)])))
             });
             return LieIrrep {
-                group: self.group,
+                group: self.group.clone(),
                 dj: 0,
                 generated: Some(value.channel(0).clone()),
                 bcd: None,
@@ -726,7 +740,7 @@ impl FusionCategory for LieGroup {
             let product = sun::shared_directproduct(a, b)?;
             let back = product.iter().count();
             return Ok(LieFusion {
-                group: self.group,
+                group: self.group.clone(),
                 inner: FusionInner::Generated {
                     product,
                     front: 0,
@@ -739,7 +753,7 @@ impl FusionCategory for LieGroup {
             let product = bcd::shared_directproduct(a, b)?;
             let back = product.len();
             return Ok(LieFusion {
-                group: self.group,
+                group: self.group.clone(),
                 inner: FusionInner::Bcd {
                     product,
                     front: 0,
@@ -752,7 +766,7 @@ impl FusionCategory for LieGroup {
             .fusion(su2::A1Irrep::new(b))
             .map_err(|_| LieError::LabelOverflow)?;
         Ok(LieFusion {
-            group: self.group,
+            group: self.group.clone(),
             inner: FusionInner::A1(inner),
         })
     }
@@ -909,7 +923,7 @@ impl FusionCategory for LieGroup {
                 vec![i64::from(dj)]
             }
             LieEnumeration::Dynkin => {
-                let bounds = vec![None; self.group.root_system.rank()];
+                let bounds = vec![None; self.group.semisimple_rank()];
                 crate::category::unrank(&bounds, &BigInt::from(index))
                     .ok_or(EnumerationError::OutOfRange)?
                     .into_iter()
@@ -919,14 +933,15 @@ impl FusionCategory for LieGroup {
         };
         // The labels are nonnegative, of the right rank and admitted, so only
         // `LieError::LabelOverflow` remains.
-        self.irrep(&labels).map_err(|_| EnumerationError::Overflow)
+        self.irrep(&labels, &[])
+            .map_err(|_| EnumerationError::Overflow)
     }
     fn object_index(&self, a: &LieIrrep) -> Result<u64, EnumerationError> {
         let dj = self.label(a);
         match self.enumeration()? {
             LieEnumeration::RankOne { stride } => Ok(u64::from(dj) / stride),
             LieEnumeration::Dynkin => {
-                let bounds = vec![None; self.group.root_system.rank()];
+                let bounds = vec![None; self.group.semisimple_rank()];
                 let x: Vec<BigInt> = a.dynkin_labels().map(BigInt::from).collect();
                 u64::try_from(crate::category::rank(&bounds, &x))
                     .map_err(|_| EnumerationError::Overflow)
@@ -939,7 +954,7 @@ impl FusionCategory for LieGroup {
             return bcd::bcd_authority_fingerprint();
         }
         #[cfg(feature = "lie-generated")]
-        if matches!(self.group.root_system, RootSystem::A(r) if r >= 2) {
+        if matches!(self.group.root_systems()[0], RootSystem::A(r) if r >= 2) {
             return sun::fingerprint();
         }
         su2::fingerprint()
@@ -1083,7 +1098,7 @@ impl LieFusion {
                     i
                 };
                 Some(LieIrrep {
-                    group: self.group,
+                    group: self.group.clone(),
                     dj: 0,
                     generated: None,
                     bcd: Some(product[i].0.clone()),
@@ -1095,7 +1110,7 @@ impl LieFusion {
                 inner.next()
             })
             .map(|a| LieIrrep {
-                group: self.group,
+                group: self.group.clone(),
                 dj: a.dj(),
                 #[cfg(feature = "lie-generated")]
                 generated: None,
@@ -1120,7 +1135,7 @@ impl LieFusion {
                     i
                 };
                 Some(LieIrrep {
-                    group: self.group,
+                    group: self.group.clone(),
                     dj: 0,
                     generated: Some(product.channel(index).clone()),
                     bcd: None,
@@ -1221,12 +1236,12 @@ mod arithmetic_tests {
     #[test]
     fn rank_one_n_stays_exact_when_fusion_labels_overflow() {
         let cat = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-        let a = cat.irrep(&[i64::from(u32::MAX)]).unwrap();
-        let b = cat.irrep(&[1]).unwrap();
-        let c = cat.irrep(&[i64::from(u32::MAX) - 1]).unwrap();
+        let a = cat.irrep(&[i64::from(u32::MAX)], &[]).unwrap();
+        let b = cat.irrep(&[1], &[]).unwrap();
+        let c = cat.irrep(&[i64::from(u32::MAX) - 1], &[]).unwrap();
         assert_eq!(cat.try_nsymbol(&a, &b, &c), Ok(1));
         assert!(matches!(cat.fusion(&a, &b), Err(LieError::LabelOverflow)));
-        let a = cat.irrep(&[i64::from(i32::MAX)]).unwrap();
+        let a = cat.irrep(&[i64::from(i32::MAX)], &[]).unwrap();
         assert!(matches!(
             cat.cgc(&a, &a, &cat.unit()),
             Err(LieError::LabelOverflow)
