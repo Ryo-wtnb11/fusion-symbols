@@ -39,7 +39,7 @@ fn excluded_rank_and_absent_catalog() {
 fn labels_weights_zero_blocks_and_catalog_budget() {
     use fusion_symbols::{
         cache,
-        category::{FusionCategory, FusionStyle, GroupRepresentations},
+        category::{CgcBlock, FusionCategory, FusionStyle, GroupRepresentations},
     };
     use std::{
         collections::hash_map::DefaultHasher,

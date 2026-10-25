@@ -3,7 +3,9 @@
 //! Labels are validated at construction. Symbols are exact `f64` zeros and
 //! ones, with unique fusion; inadmissible vertices give zero, not errors.
 
-use crate::category::{BraidingStyle, EnumerationError, FusionCategory, FusionStyle, RBlock};
+use crate::category::{
+    BraidingStyle, EnumerationError, FusionCategory, FusionStyle, GroupRepresentations, RBlock,
+};
 use std::{convert::Infallible, num::NonZeroU32};
 
 /// An invalid cyclic modulus or noncanonical charge.
@@ -258,6 +260,13 @@ impl FusionCategory for ZN {
     }
     fn authority_fingerprint(&self) -> &[u8] {
         ZN_FINGERPRINT
+    }
+}
+
+impl GroupRepresentations for ZN {
+    type Cgc = f64;
+    fn cgc(&self, a: &ZNIrrep, b: &ZNIrrep, c: &ZNIrrep) -> Result<f64, Infallible> {
+        Ok(f64::from(self.nsymbol(a, b, c)))
     }
 }
 

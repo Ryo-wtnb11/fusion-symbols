@@ -4,8 +4,9 @@
 //! first factor fastest. Each F/R/A/B multiplicity axis varies the last factor
 //! fastest, with row-major block storage. Scalar promotion and multiplication
 //! fold left to right. Reassociation agrees up to floating-point tolerance where
-//! intermediate queries are representable. No cross-factor fermionic sign,
-//! coefficient cache, or product Clebsch–Gordan capability is added.
+//! intermediate queries are representable. No cross-factor fermionic sign or
+//! coefficient cache is added. Products of group representations provide lazy
+//! Clebsch–Gordan blocks, with the last factor fastest on every axis.
 //!
 //! Nonzero F/R/A/B queries check each factor's storage axes against checked N
 //! symbols and its exact row-major storage length before composition. Invalid
@@ -31,8 +32,8 @@
 //! arbitrary borrowed providers are not promised.
 use crate::category::{
     rank_checked, sealed::ExactCount, sealed::Ranked, sealed::SymbolWithAxes, sealed::Validated,
-    unrank, BraidingStyle, Count, EnumerationError, FBlock, FusionCategory, FusionStyle, Promote,
-    RBlock, Scalar, Storage, SymbolBlock,
+    unrank, BraidingStyle, CgcBlock, Count, EnumerationError, FBlock, FusionCategory, FusionStyle,
+    GroupRepresentations, Promote, RBlock, Scalar, Storage, SymbolBlock,
 };
 use num_bigint::BigInt;
 use std::{
@@ -397,6 +398,19 @@ fn kron<A: Scalar + Promote<B::Scalar>, B: SymbolBlock<R>, const R: usize>(
     (dims, data)
 }
 
+// Zero axes stay zero even if a preceding partial product would overflow.
+fn cgc_dims<const N: usize>(factors: [[usize; 4]; N]) -> Option<[usize; 4]> {
+    let mut dims = [0; 4];
+    for axis in 0..4 {
+        if factors.iter().all(|d| d[axis] != 0) {
+            dims[axis] = factors
+                .iter()
+                .try_fold(1usize, |n, d| n.checked_mul(d[axis]))?;
+        }
+    }
+    Some(dims)
+}
+
 macro_rules! impl_product {
     ($C0:ident; $Last:ident; $(($C:ident, $i:tt, $Err:ident, $Prev:ty, $S:ident)),+) => {
         impl<$C0, $($C, $S),+> FusionCategory for Product<($C0, $($C,)+)>
@@ -651,6 +665,40 @@ macro_rules! impl_product {
                     for fp in fps { bytes.extend_from_slice(&(fp.len() as u64).to_le_bytes()); bytes.extend_from_slice(fp); }
                     bytes.into()
                 })
+            }
+        }
+        impl<$C0, $($C, $S),+> GroupRepresentations for Product<($C0, $($C,)+)>
+        where
+            $C0: GroupRepresentations,
+            for<'a> $C0::Fusion<'a>: Clone,
+            $( $C: GroupRepresentations, for<'a> $C::Fusion<'a>: Clone,
+               $Prev: Promote<$C::Scalar, Output = $S>, $S: Scalar, )+
+        {
+            type Cgc = ($C0::Cgc, $($C::Cgc,)+);
+            fn cgc(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<Self::Cgc, Self::Error> {
+                self.dim(a); self.dim(b); self.dim(c);
+                let blocks = (self.factors.0.cgc(&a.0, &b.0, &c.0).map_err(ProductError::Factor0)?,
+                    $(self.factors.$i.cgc(&a.$i, &b.$i, &c.$i).map_err(ProductError::$Err)?,)+);
+                cgc_dims([blocks.0.dims(), $(blocks.$i.dims()),+]).ok_or(ProductError::Overflow)?;
+                Ok(blocks)
+            }
+        }
+        impl<$C0: CgcBlock, $($C: CgcBlock),+> CgcBlock for ($C0, $($C,)+) {
+            fn dims(&self) -> [usize; 4] {
+                cgc_dims([self.0.dims(), $(self.$i.dims()),+]).expect("CGC axis overflow")
+            }
+            fn at(&self, mut index: [usize; 4]) -> f64 {
+                let mut remaining = self.dims();
+                assert!(index.iter().zip(remaining).all(|(&i, n)| i < n), "CGC index out of range");
+                let mut entry = |dims: [usize; 4]| std::array::from_fn(|axis| {
+                    remaining[axis] /= dims[axis];
+                    let i = index[axis] / remaining[axis];
+                    index[axis] %= remaining[axis];
+                    i
+                });
+                let value = self.0.at(entry(self.0.dims()));
+                $(let value = value * self.$i.at(entry(self.$i.dims()));)+
+                value
             }
         }
         impl<I0, O0, $($C, $S),+> Iterator for ProductFusion<(I0, $($C,)+), (O0, $($S,)+)>

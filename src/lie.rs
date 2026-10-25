@@ -21,7 +21,7 @@ pub type RBlock = crate::category::RBlock<f64>;
 pub use group::*;
 
 use crate::category::{
-    BraidingStyle, EnumerationError, FusionCategory, FusionStyle, GroupRepresentations,
+    BraidingStyle, CgcBlock, EnumerationError, FusionCategory, FusionStyle, GroupRepresentations,
 };
 use num_bigint::BigInt;
 use std::collections::BTreeMap;
@@ -519,7 +519,7 @@ impl LieIrrep {
     }
 }
 
-/// Clebsch–Gordan data with axes `[dim(a), dim(b), dim(c), N(a,b,c)]`.
+/// Clebsch–Gordan data read through [`CgcBlock`], with axes `[dim(a), dim(b), dim(c), N(a,b,c)]`.
 /// A1 magnetic index zero is the lowest weight, followed by raising in steps
 /// of two; higher A-series magnetic indices follow the frozen GT basis order.
 /// B/C/D indices follow the canonical bootstrap gauge in `docs/gauge_soN.md`.
@@ -534,9 +534,9 @@ pub struct LieCgc {
     #[cfg(feature = "lie-generated")]
     bcd: Option<std::sync::Arc<bcd::CatalogCgc>>,
 }
-impl LieCgc {
+impl CgcBlock for LieCgc {
     /// Axis lengths, with multiplicity last (zero for an absent channel).
-    pub fn dims(&self) -> [usize; 4] {
+    fn dims(&self) -> [usize; 4] {
         #[cfg(feature = "lie-generated")]
         if let Some(c) = &self.generated {
             return c.dims();
@@ -547,7 +547,7 @@ impl LieCgc {
     ///
     /// # Panics
     /// Panics if any index is outside its axis.
-    pub fn at(&self, m1: usize, m2: usize, m3: usize, mu: usize) -> f64 {
+    fn at(&self, [m1, m2, m3, mu]: [usize; 4]) -> f64 {
         #[cfg(feature = "lie-generated")]
         if let Some(c) = &self.bcd {
             let dims = self.dims();

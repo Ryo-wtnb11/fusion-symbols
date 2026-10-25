@@ -712,12 +712,40 @@ pub(crate) fn rank2_block<S: Scalar>(
     RBlock::from_row_major(n, data)
 }
 
+/// Clebsch–Gordan block with axes `[dim(a), dim(b), dim(c), N(a,b,c)]`;
+/// an absent channel has multiplicity axis 0.
+///
+/// Tuples of 2..=12 blocks represent lazy Kronecker products: the last factor
+/// varies fastest on every axis. Their `dims` may panic if a hand-built tuple's
+/// combined axis overflows `usize`; blocks returned by `Product::cgc` are checked.
+pub trait CgcBlock {
+    /// Axis lengths, with multiplicity last.
+    fn dims(&self) -> [usize; 4];
+    /// Read one coefficient.
+    ///
+    /// # Panics
+    /// Panics if any index is outside its axis.
+    fn at(&self, index: [usize; 4]) -> f64;
+}
+
+/// A one-dimensional channel: nonzero means present, zero means absent.
+/// Abelian providers return exactly `1.0` or `0.0`.
+impl CgcBlock for f64 {
+    fn dims(&self) -> [usize; 4] {
+        [1, 1, 1, usize::from(*self != 0.0)]
+    }
+    fn at(&self, index: [usize; 4]) -> f64 {
+        assert!(index == [0; 4] && *self != 0.0, "CGC index out of range");
+        *self
+    }
+}
+
 /// Group categories that additionally provide Clebsch–Gordan data.
 pub trait GroupRepresentations: FusionCategory {
-    /// Family-specific CGC storage.
-    type Cgc;
+    /// Family-specific CGC storage implementing the common block contract.
+    type Cgc: CgcBlock;
     /// CGC for validated objects; foreign objects panic, absent channels
-    /// return zeros, and errors indicate genuine failure or absent capability.
+    /// return blocks with multiplicity axis zero, and errors indicate genuine failure or absent capability.
     fn cgc(
         &self,
         a: &Self::Object,

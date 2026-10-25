@@ -86,7 +86,7 @@ fn clebsch_gordan_1() {
 #[test]
 fn clebsch_gordan_2() {
     use fusion_symbols::{
-        category::{FusionCategory, GroupRepresentations},
+        category::{CgcBlock, FusionCategory, GroupRepresentations},
         lie::{GroupId, LieGroup},
     };
     let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
@@ -98,14 +98,14 @@ fn clebsch_gordan_2() {
     let c = cat.cgc(&three, &anti, &eight).unwrap();
     assert_eq!(c.dims(), [3, 3, 8, 1]); // [dim(s1), dim(s2), dim(s3), N^{s3}_{s1 s2}]
     assert_eq!(c.dims()[3], 1);
-    assert!((c.at(0, 0, 0, 0) - 1.0).abs() < 1e-12);
+    assert!((c.at([0, 0, 0, 0]) - 1.0).abs() < 1e-12);
 }
 
 /// `docs/user-guide/README.md#fusion-and-cgc`.
 #[test]
 fn clebsch_gordan_3() {
     use fusion_symbols::{
-        category::GroupRepresentations,
+        category::{CgcBlock, GroupRepresentations},
         lie::{GroupId, LieGroup},
     };
     let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
@@ -114,14 +114,14 @@ fn clebsch_gordan_3() {
     let c = cat.cgc(&eight, &eight, &eight).unwrap();
     assert_eq!(c.dims()[3], 2); // the 8 occurs twice in 8 ⊗ 8
     assert_eq!(c.dims(), [8, 8, 8, 2]);
-    assert!(c.at(0, 2, 0, 1) < 0.0);
+    assert!(c.at([0, 2, 0, 1]) < 0.0);
 }
 
 /// `docs/user-guide/README.md#fusion-and-cgc`.
 #[test]
 fn clebsch_gordan_4() {
     use fusion_symbols::{
-        category::GroupRepresentations,
+        category::{CgcBlock, GroupRepresentations},
         lie::{GroupId, LieGroup},
     };
 
@@ -490,7 +490,7 @@ fn recoupling_4() {
 #[test]
 fn recoupling_5() {
     use fusion_symbols::{
-        category::{FusionCategory, GroupRepresentations},
+        category::{CgcBlock, FusionCategory, GroupRepresentations},
         lie::{GroupId, LieGroup, LieIrrep},
     };
     let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
@@ -519,7 +519,7 @@ fn recoupling_5() {
             for m2 in 0..d2 {
                 for m3 in 0..d3 {
                     for mu in 0..n {
-                        buf[((m1 * d2 + m2) * d3 + m3) * n + mu] = t.at(m1, m2, m3, mu);
+                        buf[((m1 * d2 + m2) * d3 + m3) * n + mu] = t.at([m1, m2, m3, mu]);
                     }
                 }
             }

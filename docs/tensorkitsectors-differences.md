@@ -75,14 +75,16 @@ last factor fastest. Buffers are Rust row-major: compare indexed values with
 Julia arrays. Scalar promotion/multiplication and derived dimensions fold
 left to right; TKS derives square roots/inverses from the product dimension,
 which may differ by rounding. Fermionic R/twist multiply factorwise without a
-cross-factor sign or imposed parity/charge relation. Products add no CGC
-capability or coefficient cache. Initialized fusion iterators reset by cloning;
+cross-factor sign or imposed parity/charge relation. Products of
+`GroupRepresentations` provide lazy tuple CGCs through `CgcBlock`, with the last
+factor fastest on all four axes; they add no coefficient cache.
+Initialized fusion iterators reset by cloning;
 the current higher-ranked bound supports owned providers.
 
 ### Reference guard inventory
 
 The port uses TensorKitSectors 0.3.9 `product.jl::Nsymbol`, `Fsymbol`,
-`Rsymbol`, `⊗`, style methods, `auxiliary.jl::_kron` / `_kron_promote`,
+`Rsymbol`, `fusiontensor`, `⊗`, style methods, `auxiliary.jl::_kron` / `_kron_promote`,
 and `sectors.jl` style `&` methods. Their relevant guards and assumptions map as follows:
 
 | Reference guard or invariant | Rust mapping |
@@ -97,8 +99,11 @@ and `sectors.jl` style `&` methods. Their relevant guards and assumptions map as
 | Single-sector symbol base cases | N/A: Rust accepts 2..=12 immediate factors and delegates leaf symbols to the factor authority. |
 
 No reference assertions are present on these product-symbol paths. TKS
-`fusiontensor`, generic units and flattening are outside the approved port;
-value indexing is described in [Object enumeration](#object-enumeration). Factor generation retains its own verification
+generic units and flattening are outside the approved port;
+CGC value indexing follows `auxiliary.jl::_kron`: the last factor varies fastest
+on every axis. `CgcBlock::at` panics for out-of-range indices, and product CGC
+queries check combined axis lengths for typed `Overflow` before returning.
+The scalar abelian case maps an absent channel to a zero multiplicity axis. Factor generation retains its own verification
 gates; composition only consumes those authorities. Independent indexed
 oracles are in `tests/product.rs`; structural identities use
 `tests/category_conformance.rs::product_identities` and

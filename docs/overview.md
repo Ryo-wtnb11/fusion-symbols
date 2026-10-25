@@ -3,7 +3,7 @@
 `fusion-symbols` provides representation and fusion-category mathematics.
 Consumers own tensor-network representations and operations. There is no tensor
 engine dependency. The shared interface is `src/category.rs::FusionCategory`;
-CGC are the separate `GroupRepresentations` capability.
+CGC are the separate `GroupRepresentations` capability, read through `CgcBlock`.
 
 ## Families and features
 
@@ -135,7 +135,9 @@ Charge/spin and parity labels are independent, with no extra cross-factor sign.
 Fusion varies the first factor fastest; each F/R/A/B multiplicity axis varies
 the last factor fastest. Scalar promotion and multiplication fold left to right.
 Reassociation agrees to floating-point tolerance where intermediate queries are
-representable. Products add neither a coefficient cache nor CGC capability.
+representable. Products of `GroupRepresentations` provide lazy tuple CGCs,
+with the last factor fastest on each magnetic and multiplicity axis. Combined
+axis overflow returns `ProductError::Overflow`. Products add no coefficient cache.
 With inline dimension arithmetic, warm leaf A/B queries allocate only their
 returned coefficient buffer (zero for empty or inline blocks).
 Product A/B, like F, compose factor blocks on

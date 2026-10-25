@@ -53,7 +53,7 @@ use crate::common::lie as lie_test;
 
 use crate::common::bcd as bcd_test;
 use bcd_test::Series;
-use fusion_symbols::category::GroupRepresentations;
+use fusion_symbols::category::{CgcBlock, GroupRepresentations};
 
 use fusion_symbols::lie::GroupId;
 use fusion_symbols::lie::LieIrrep as Sun;
@@ -116,7 +116,7 @@ const SU3_FUNDAMENTAL_ADJOINT: &[SunRow] = &[
 ];
 
 fn sun_value(c: &fusion_symbols::lie::LieCgc, m1: u32, m2: u32, m3: u32, mu: u32) -> f64 {
-    c.at(m1 as usize, m2 as usize, m3 as usize, mu as usize)
+    c.at([m1 as usize, m2 as usize, m3 as usize, mu as usize])
 }
 
 #[test]
