@@ -135,7 +135,8 @@ fn labels_weights_zero_blocks_and_catalog_budget() {
     assert_eq!(warm.misses, before.misses);
     assert!(warm.hits > before.hits);
     cache::reset();
-    let tiny = LieGroup::with_catalog_budget(GroupId::spin(5).unwrap(), 0).unwrap();
+    let seed_bytes = cat.catalog_stats().unwrap().0;
+    let tiny = LieGroup::with_catalog_budget(GroupId::spin(5).unwrap(), seed_bytes).unwrap();
     assert_eq!(tiny, cat);
     let hash = |x: &LieGroup| {
         let mut h = DefaultHasher::new();
@@ -143,7 +144,7 @@ fn labels_weights_zero_blocks_and_catalog_budget() {
         h.finish()
     };
     assert_eq!(hash(&tiny), hash(&cat));
-    assert_eq!(tiny.catalog_stats().unwrap().1, 0);
+    assert_eq!(tiny.catalog_stats().unwrap().1, seed_bytes);
     assert!(matches!(
         tiny.cgc(&s, &s, &adj),
         Err(LieError::Generation(_))

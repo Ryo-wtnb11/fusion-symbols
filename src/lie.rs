@@ -145,7 +145,7 @@ pub enum LieError {
     InvalidLabel,
     /// The group's global form excludes this weight.
     NotAdmissible,
-    /// A label or its internal weight encoding exceeds the integer range.
+    /// A label or its internal weight encoding exceeds the integer or buffer size range.
     LabelOverflow,
     /// The named capability is unavailable.
     Unsupported {
@@ -219,9 +219,11 @@ impl std::error::Error for LieError {
 }
 
 impl LieGroup {
-    /// Construct a supported compact Lie group.
+    /// Construct a supported compact Lie group without allocating a zero-weight label.
+    /// Unaddressable SU(N) weight buffers return [`LieError::LabelOverflow`];
+    /// B/C/D base seeds exceeding the catalog budget return [`LieError::Generation`].
     pub fn new(group: GroupId) -> Result<Self, LieError> {
-        if !group.admits(&vec![0; group.root_system.rank()]) {
+        if !group.admits_zero() {
             return Err(LieError::NotAdmissible);
         }
         if group.root_system == RootSystem::D(2) {
@@ -249,11 +251,17 @@ impl LieGroup {
         }
         if matches!(group.root_system, RootSystem::A(r) if r >= 2) {
             #[cfg(feature = "lie-generated")]
-            return Ok(Self {
-                group,
-                unit: std::sync::OnceLock::new(),
-                catalog: None,
-            });
+            {
+                // The internal SU(N) weight has rank + 1 i64 entries.
+                if group.root_system.rank() >= isize::MAX as usize / std::mem::size_of::<i64>() {
+                    return Err(LieError::LabelOverflow);
+                }
+                return Ok(Self {
+                    group,
+                    unit: std::sync::OnceLock::new(),
+                    catalog: None,
+                });
+            }
             #[cfg(not(feature = "lie-generated"))]
             return Err(LieError::Unsupported {
                 requires: "lie-generated",
@@ -277,7 +285,7 @@ impl LieGroup {
     }
     /// Construct a B/C/D group with a byte budget for retained generators.
     pub fn with_catalog_budget(group: GroupId, max_bytes: usize) -> Result<Self, LieError> {
-        if !group.admits(&vec![0; group.root_system.rank()]) {
+        if !group.admits_zero() {
             return Err(LieError::NotAdmissible);
         }
         #[cfg(feature = "lie-generated")]

@@ -41,6 +41,9 @@ must not call reset or trim.** Neither operation promises to lower RSS.
 Each B/C/D `LieGroup` owns a generator catalog; clones share it. The default
 budget is 256 MiB. `LieGroup::with_catalog_budget(group,max_bytes)` sets a
 retained generator charge budget, separate from coefficient-cache limits.
+Construction checks the trivial and defining seeds' combined charge with checked
+arithmetic before any rank-sized allocation; an insufficient budget or byte-count
+overflow returns `LieError::Generation` (including a zero-byte budget).
 Materialization stages a whole canonical-parent chain before committing it;
 budget failure leaves committed entries unchanged. Temporary generation memory
 is not bounded by the retained-byte budget. See `src/lie/bcd/catalog.rs::ensure`.

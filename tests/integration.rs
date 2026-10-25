@@ -15,6 +15,7 @@ mod gauge_certificates;
 mod gauge_golden;
 mod generated_backend_identity;
 mod global_form;
+mod group_totality;
 mod groupmath_oracle;
 mod isomorphism;
 mod membership;

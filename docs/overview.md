@@ -38,6 +38,12 @@ SO(N) excludes. Supported constructors also include `su_quotient`, `psu`,
 `psp`, `pso`, `half_spin_plus`, and `half_spin_minus`. D-series central-class
 and half-spin naming conventions are fixed in [references](references.md#global-form--fixed-conventions).
 Objects retain the full group tag, including isomorphic groups.
+`GroupId::admits` is total for public root data and label slices; quotient
+formulas with absent Dynkin indices return false. Group construction checks
+zero-weight admission without allocating a rank-sized label. SU(N) ranks whose
+internal N-entry i64 weight cannot be addressed return `LieError::LabelOverflow`;
+B/C/D seeds are checked against the catalog budget before allocation (see
+[resources](user-guide/resources.md#bcd-generator-catalogs)).
 
 `LieIrrep::dynkin_labels` reads labels without allocation; `dynkin` collects
 them. Clones share weight buffers without allocation. Warm duals reuse shared
