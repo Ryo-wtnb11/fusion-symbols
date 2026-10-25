@@ -1030,3 +1030,139 @@ fn try_nsymbol_reports_overflow_and_zero_beats_it() {
     // Foreign objects still panic.
     assert!(std::panic::catch_unwind(|| fits.try_nsymbol(&z, &z, &((0, 0), 255))).is_err());
 }
+
+#[test]
+fn runtime_checked_composition_and_initialized_iteration() {
+    let probe = |n| Probe {
+        n: [n; 4],
+        ..Probe::default()
+    };
+    let factors = vec![
+        product(probe(65536), probe(1)),
+        product(probe(65536), probe(1)),
+        product(probe(u32::MAX), probe(2)),
+    ];
+    let a = vec![(0, 0); 3];
+    let cat = Product::new(factors.clone());
+    // A factor failure wins over overflow in the preceding nonzero product.
+    assert!(matches!(
+        cat.try_nsymbol(&a, &a, &a),
+        Err(ProductError::Factor {
+            index: 2,
+            source: ProductError::Overflow
+        })
+    ));
+    let zero = Product::new([factors, vec![product(probe(0), probe(1))]].concat());
+    let z = vec![(0, 0); 4];
+    assert_eq!(zero.try_nsymbol(&z, &z, &z).unwrap(), 0);
+    assert!(zero
+        .f_symbol(&z, &z, &z, &z, &z, &z)
+        .unwrap()
+        .data()
+        .is_empty());
+    // Like tuple products, infallible N evaluates every factor: a factor's
+    // loud panic is not a typed failure that can be suppressed by a zero.
+    let cat = Product::new(vec![
+        product(probe(0), probe(1)),
+        product(probe(u32::MAX), probe(2)),
+    ]);
+    let z = vec![(0, 0); 2];
+    assert_eq!(cat.try_nsymbol(&z, &z, &z).unwrap(), 0);
+    assert!(std::panic::catch_unwind(|| cat.nsymbol(&z, &z, &z)).is_err());
+    let overflowing = Product::new(vec![probe(u32::MAX), probe(2)]);
+    let z = vec![0; 2];
+    assert!(matches!(
+        overflowing.try_nsymbol(&z, &z, &z),
+        Err(ProductError::Overflow)
+    ));
+    assert!(matches!(
+        overflowing.r_symbol(&z, &z, &z),
+        Err(ProductError::Overflow)
+    ));
+    // Runtime factor positions are not bounded by tuple arity.
+    let mut factors = vec![Probe::default(); 14];
+    factors[13].fail = true;
+    let z = vec![0; 14];
+    assert!(matches!(
+        Product::new(factors).r_symbol(&z, &z, &z),
+        Err(ProductError::Factor { index: 13, .. })
+    ));
+    let bad = Probe {
+        f: &[],
+        r: &[],
+        ..Probe::default()
+    };
+    let malformed = Product::new(vec![Probe::default(), bad]);
+    let z = vec![0; 2];
+    assert!(matches!(
+        malformed.f_symbol(&z, &z, &z, &z, &z, &z),
+        Err(ProductError::MalformedSymbolData { factor: 1, .. })
+    ));
+    assert!(matches!(
+        malformed.r_symbol(&z, &z, &z),
+        Err(ProductError::MalformedSymbolData { factor: 1, .. })
+    ));
+    let cat = Product::new(vec![Probe::default(); 3]);
+    let z = vec![0; 3];
+    assert_eq!(
+        cat.object_count(),
+        Err(fusion_symbols::category::EnumerationError::NotEnumerable)
+    );
+    FUSIONS.set(0);
+    let iter = cat.fusion(&z, &z).unwrap();
+    assert_eq!(FUSIONS.get(), 3);
+    assert_eq!(iter.clone().rev().count(), 8);
+    assert_eq!(iter.count(), 8);
+    assert_eq!(FUSIONS.get(), 3, "iteration must reuse initialized factors");
+    let cat = Product::new(vec![Probe::default(); usize::BITS as usize]);
+    let z = cat.unit();
+    assert!(matches!(cat.fusion(&z, &z), Err(ProductError::Overflow)));
+    let mut factors = cat.into_factors();
+    factors.push(probe(0));
+    let zero = Product::new(factors);
+    let z = zero.unit();
+    assert_eq!(zero.fusion(&z, &z).unwrap().len(), 0);
+}
+
+#[test]
+fn runtime_complex_scalars_and_enumeration_overflow() {
+    let fib = TableCategory::fibonacci();
+    let tau = fib.object(2).unwrap();
+    let runtime = Product::new(vec![fib.clone(), fib.clone()]);
+    let tuple = product(fib.clone(), fib);
+    let x = vec![tau, tau];
+    assert_eq!(
+        runtime.frobenius_schur_phase(&x),
+        tuple.frobenius_schur_phase(&(tau, tau))
+    );
+    assert_eq!(
+        runtime.f_symbol(&x, &x, &x, &x, &x, &x).unwrap().as_slice(),
+        tuple
+            .f_symbol(
+                &(tau, tau),
+                &(tau, tau),
+                &(tau, tau),
+                &(tau, tau),
+                &(tau, tau),
+                &(tau, tau)
+            )
+            .unwrap()
+            .as_slice()
+    );
+    assert_eq!(
+        runtime.r_symbol(&x, &x, &x).unwrap().as_slice(),
+        tuple
+            .r_symbol(&(tau, tau), &(tau, tau), &(tau, tau))
+            .unwrap()
+            .as_slice()
+    );
+    let large = Product::new(vec![ZN::new(u32::MAX).unwrap(); 3]);
+    assert_eq!(
+        large.object_count(),
+        Err(fusion_symbols::category::EnumerationError::Overflow)
+    );
+    for i in [0, 1, 42, u64::MAX] {
+        let a = large.object_at(i).unwrap();
+        assert_eq!(large.object_index(&a), Ok(i));
+    }
+}

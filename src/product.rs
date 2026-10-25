@@ -1,7 +1,7 @@
-//! Ordered Deligne products of two through twelve immediate factors.
+//! Ordered Deligne products of tuple or runtime-length homogeneous factors.
 //!
-//! Objects are tuples; explicit nesting is preserved. Fusion outcomes vary the
-//! first factor fastest. Each F/R/A/B multiplicity axis varies the last factor
+//! Objects are tuples or vectors; explicit nesting is preserved. Fusion outcomes
+//! vary the first factor fastest. Each F/R/A/B multiplicity axis varies the last factor
 //! fastest, with row-major block storage. Scalar promotion and multiplication
 //! fold left to right. Reassociation agrees up to floating-point tolerance where
 //! intermediate queries are representable. No cross-factor fermionic sign or
@@ -45,13 +45,18 @@ use std::{
 };
 
 /// A product retaining the ordered values and nesting of its factors.
+///
+/// Tuples support 2..=12 factors, including heterogeneous categories and scalar
+/// promotion. `Product<Vec<C>>` supports any number of homogeneous factors;
+/// its objects are `Vec<C::Object>` and its scalar is `C::Scalar`. The empty
+/// vector is the trivial category, with unit `[]` and scalar symbols equal to 1.
 #[derive(Clone)]
 pub struct Product<C> {
     factors: C,
     fingerprint: OnceLock<Arc<[u8]>>,
 }
 impl<C> Product<C> {
-    /// Construct a product of 2..=12 immediate factors.
+    /// Construct a tuple product (2..=12 factors) or a homogeneous vector product (any length).
     pub fn new(factors: C) -> Self
     where
         Self: FusionCategory,
@@ -172,6 +177,13 @@ pub enum ProductError<
     E10 = Infallible,
     E11 = Infallible,
 > {
+    /// Failure from a runtime-length product's immediate factor.
+    Factor {
+        /// Zero-based immediate factor index.
+        index: usize,
+        /// The factor's concrete error.
+        source: E0,
+    },
     /// Failure from immediate factor 0.
     Factor0(E0),
     /// Failure from immediate factor 1.
@@ -197,7 +209,7 @@ pub enum ProductError<
     /// Failure from immediate factor 11.
     Factor11(E11),
     /// A factor returned a block inconsistent with its checked multiplicities.
-    /// Nested products retain their path through `Factor0` .. `Factor11`.
+    /// Nested products retain their path through factor errors.
     MalformedSymbolData {
         /// Zero-based immediate factor index.
         factor: usize,
@@ -233,6 +245,7 @@ impl<
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Factor { index, source } => write!(f, "product factor {index}: {source}"),
             Self::Factor0(e) => write!(f, "product factor 0: {e}"),
             Self::Factor1(e) => write!(f, "product factor 1: {e}"),
             Self::Factor2(e) => write!(f, "product factor 2: {e}"),
@@ -315,7 +328,7 @@ fn checked_multiplicity<E>(
     let mut error = None;
     for n in values {
         match n {
-            Ok(0) => return Ok(0),
+            Ok(0) => product = Some(0),
             Ok(n) => product = product.and_then(|p| p.checked_mul(n)),
             Err(e) => {
                 error.get_or_insert(e);
@@ -323,6 +336,7 @@ fn checked_multiplicity<E>(
         }
     }
     match (error, product) {
+        (_, Some(0)) => Ok(0),
         (Some(e), _) => Err(e),
         (None, Some(n)) => Ok(n),
         (None, None) => Err(overflow),
@@ -370,11 +384,12 @@ fn storage<B: SymbolBlock<R>, const R: usize>(block: B) -> ([usize; R], Storage<
 }
 
 // Each output axis decodes i = left_digit * right_size + right_digit.
-fn kron<A: Scalar + Promote<B::Scalar>, B: SymbolBlock<R>, const R: usize>(
+fn kron<A: Scalar, B: SymbolBlock<R>, S: Scalar, const R: usize>(
     left_dims: [usize; R],
     left: Storage<A>,
     right: B,
-) -> ([usize; R], Storage<<A as Promote<B::Scalar>>::Output>) {
+    multiply: impl Fn(A, B::Scalar) -> S,
+) -> ([usize; R], Storage<S>) {
     let right_dims = right.dims();
     let dims = std::array::from_fn(|i| left_dims[i] * right_dims[i]);
     let entry = |mut flat: usize| {
@@ -388,7 +403,7 @@ fn kron<A: Scalar + Promote<B::Scalar>, B: SymbolBlock<R>, const R: usize>(
             stride *= left_dims[axis];
             r[axis] = digit % right_dims[axis];
         }
-        A::left(left.as_slice()[l]) * A::right(right.get(r))
+        multiply(left.as_slice()[l], right.get(r))
     };
     let data = if dims == [1; R] {
         Storage::One(entry(0))
@@ -399,16 +414,206 @@ fn kron<A: Scalar + Promote<B::Scalar>, B: SymbolBlock<R>, const R: usize>(
 }
 
 // Zero axes stay zero even if a preceding partial product would overflow.
-fn cgc_dims<const N: usize>(factors: [[usize; 4]; N]) -> Option<[usize; 4]> {
+fn cgc_dims(factors: impl IntoIterator<IntoIter: Clone, Item = [usize; 4]>) -> Option<[usize; 4]> {
+    let factors = factors.into_iter();
     let mut dims = [0; 4];
     for axis in 0..4 {
-        if factors.iter().all(|d| d[axis] != 0) {
+        if factors.clone().all(|d| d[axis] != 0) {
             dims[axis] = factors
-                .iter()
+                .clone()
                 .try_fold(1usize, |n, d| n.checked_mul(d[axis]))?;
         }
     }
     Some(dims)
+}
+
+fn fingerprint<'a>(
+    factors: impl IntoIterator<Item = &'a [u8], IntoIter: ExactSizeIterator>,
+) -> Arc<[u8]> {
+    let factors = factors.into_iter();
+    let mut bytes =
+        b"fusion-symbols:product:epoch=1:axes=last-fastest:fusion=first-fastest;".to_vec();
+    bytes.extend_from_slice(&(factors.len() as u32).to_le_bytes());
+    for fp in factors {
+        bytes.extend_from_slice(&(fp.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(fp);
+    }
+    bytes.into()
+}
+
+fn product_unrank(factors: &[ExactCount], index: u64) -> Result<Vec<BigInt>, EnumerationError> {
+    // The zero-coordinate product has exactly one object. The general unrank
+    // routine requires at least one coordinate.
+    if factors.is_empty() {
+        return if index == 0 {
+            Ok(Vec::new())
+        } else {
+            Err(EnumerationError::OutOfRange)
+        };
+    }
+    let bounds: Vec<_> = factors.iter().map(|c| c.total.bound()).collect();
+    unrank(&bounds, &BigInt::from(index)).ok_or(EnumerationError::OutOfRange)
+}
+
+fn product_rank(factors: Vec<Ranked>) -> Result<Ranked, EnumerationError> {
+    let (counts, x): (Vec<_>, Vec<_>) = factors
+        .into_iter()
+        .map(|Ranked { count, index }| (count, index))
+        .unzip();
+    let index =
+        rank_checked(&counts.iter().collect::<Vec<_>>(), &x).ok_or(EnumerationError::Overflow)?;
+    Ok(Ranked {
+        count: Count::product(&counts),
+        index,
+    })
+}
+
+fn cgc_indices(
+    mut remaining: [usize; 4],
+    mut index: [usize; 4],
+) -> impl FnMut([usize; 4]) -> [usize; 4] {
+    assert!(
+        index.iter().zip(remaining).all(|(&i, n)| i < n),
+        "CGC index out of range"
+    );
+    move |dims| {
+        std::array::from_fn(|axis| {
+            remaining[axis] /= dims[axis];
+            let i = index[axis] / remaining[axis];
+            index[axis] %= remaining[axis];
+            i
+        })
+    }
+}
+
+// Start at the first factor, rather than multiplying it by an identity: this
+// preserves signed zeros and the tuple path's floating-point fold exactly.
+fn scalar_product<S: Scalar>(values: impl Iterator<Item = S>) -> S {
+    values.reduce(|a, b| a * b).unwrap_or_else(S::one)
+}
+
+// A carry resets an initialized factor, never calls its category again.
+fn advance<I: Iterator + Clone>(initial: &I, active: &mut I) -> (bool, I::Item) {
+    if let Some(value) = active.next() {
+        (true, value)
+    } else {
+        let (reset, value) = restarted(initial, 0);
+        *active = reset;
+        (false, value)
+    }
+}
+
+fn restarted<I: Iterator + Clone>(initial: &I, skip: usize) -> (I, I::Item) {
+    let mut active = initial.clone();
+    let value = active
+        .nth(skip)
+        .expect("initialized fusion iterator length changed");
+    (active, value)
+}
+
+macro_rules! product_queries {
+    ($this:ident; $braidings:expr) => {
+            fn dual(&$this, a: &Self::Object) -> Self::Object {
+                $this.dim(a);
+                $this.__fusion_symbols_validated_dual(a, Validated(()))
+            }
+            fn object_count(&$this) -> Result<Option<u64>, EnumerationError> {
+                match $this.__fusion_symbols_exact_object_count(Validated(()))?.total {
+                    Count::Finite(n) => u64::try_from(n).map(Some).map_err(|_| EnumerationError::Overflow),
+                    Count::AboveU64 => Err(EnumerationError::Overflow),
+                    Count::Infinite => Ok(None),
+                }
+            }
+            fn object_at(&$this, index: u64) -> Result<Self::Object, EnumerationError> {
+                let t = Validated(());
+                let count = $this.__fusion_symbols_exact_object_count(t)?;
+                $this.__fusion_symbols_counted_object_at(index, &count, t)
+            }
+            fn object_index(&$this, a: &Self::Object) -> Result<u64, EnumerationError> {
+                assert!($this.contains(a), "foreign product object");
+                let Ranked { index, .. } = $this.__fusion_symbols_validated_object_index(a, Validated(()))?;
+                u64::try_from(index).map_err(|_| EnumerationError::Overflow)
+            }
+            fn frobenius_schur_phase(&$this, a: &Self::Object) -> Self::Scalar {
+                $this.dim(a);
+                $this.__fusion_symbols_validated_frobenius_schur_phase(a, Validated(()))
+            }
+            fn frobenius_schur_indicator(&$this, a: &Self::Object) -> Self::Scalar {
+                $this.dim(a);
+                $this.__fusion_symbols_validated_frobenius_schur_indicator(a, Validated(()))
+            }
+            fn twist(&$this, a: &Self::Object) -> Self::Scalar {
+                $this.dim(a);
+                if let Some(factor) = ($braidings).into_iter().position(|s| s == BraidingStyle::None) {
+                    panic!("product factor {factor} has no braiding");
+                }
+                $this.__fusion_symbols_validated_twist(a, Validated(()))
+            }
+            fn fusion<'a>(&'a $this, a: &Self::Object, b: &Self::Object) -> Result<Self::Fusion<'a>, Self::Error> {
+                for a in [a, b] { $this.dim(a); }
+                $this.__fusion_symbols_validated_fusion(a, b, Validated(()))
+            }
+            /// Panics only if a nonzero product multiplicity exceeds `u32`, or an object is foreign;
+            /// [`FusionCategory::try_nsymbol`] reports the former as an error.
+            fn nsymbol(&$this, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> u32 {
+                for a in [a, b, c] { $this.dim(a); }
+                $this.__fusion_symbols_validated_nsymbol(a, b, c, Validated(()))
+            }
+            /// A zero factor multiplicity beats both factor failures and overflow.
+            /// Otherwise the first factor failure is returned at its immediate tuple
+            /// position or vector index, then [`ProductError::Overflow`] if the
+            /// product multiplicity exceeds `u32`. Foreign objects panic.
+            fn try_nsymbol(&$this, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<u32, Self::Error> {
+                for a in [a, b, c] { $this.dim(a); }
+                $this.__fusion_symbols_validated_try_nsymbol(a, b, c, Validated(()))
+            }
+            fn f_symbol(&$this, a: &Self::Object, b: &Self::Object, c: &Self::Object, d: &Self::Object, e: &Self::Object, f: &Self::Object) -> Result<Self::FSymbol, Self::Error> {
+                for a in [a, b, c, d, e, f] { $this.dim(a); }
+                let t = Validated(());
+                let n = |x, y, z| $this.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
+                let dims = shape::<Self::Scalar, 4>([n(a, b, e)?, n(e, c, d)?, n(b, c, f)?, n(a, f, d)?]).ok_or(ProductError::Overflow)?;
+                if dims.contains(&0) { return Ok(FBlock { dims, data: Storage::Empty }); }
+                let (block, _) = $this.__fusion_symbols_validated_f_symbol(a, b, c, d, e, f, t)?;
+                debug_assert_eq!(block.dims(), dims);
+                Ok(block)
+            }
+            fn r_symbol(&$this, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<Self::RSymbol, Self::Error> {
+                for a in [a, b, c] { $this.dim(a); }
+                if let Some(factor) = ($braidings).into_iter().position(|s| s == BraidingStyle::None) {
+                    return Err(ProductError::NoBraiding { factor });
+                }
+                let t = Validated(());
+                let n = |x, y, z| $this.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
+                let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(b, a, c)?]).ok_or(ProductError::Overflow)?;
+                if dims.contains(&0) { return Ok(RBlock { n: dims[0], data: Storage::Empty }); }
+                let (block, _) = $this.__fusion_symbols_validated_r_symbol(a, b, c, t)?;
+                debug_assert_eq!(block.dims(), dims);
+                Ok(block)
+            }
+            // Tuple and vector products use factor Kronecker products as for F/R
+            // (TensorKitSectors `product.jl::Asymbol`); braiding is not needed.
+            fn a_symbol(&$this, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<RBlock<Self::Scalar>, Self::Error> {
+                for a in [a, b, c] { $this.dim(a); }
+                let t = Validated(());
+                let n = |x, y, z| $this.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
+                let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(&$this.__fusion_symbols_validated_dual(a, t), c, b)?]).ok_or(ProductError::Overflow)?;
+                if dims.contains(&0) { return Ok(RBlock { n: dims[0], data: Storage::Empty }); }
+                let (block, _) = $this.__fusion_symbols_validated_a_symbol(a, b, c, t)?;
+                debug_assert_eq!(block.dims(), dims);
+                Ok(block)
+            }
+            // Same composition as `product.jl::Bsymbol`, for tuple and vector factors.
+            fn b_symbol(&$this, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<RBlock<Self::Scalar>, Self::Error> {
+                for a in [a, b, c] { $this.dim(a); }
+                let t = Validated(());
+                let n = |x, y, z| $this.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
+                let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(c, &$this.__fusion_symbols_validated_dual(b, t), a)?]).ok_or(ProductError::Overflow)?;
+                if dims.contains(&0) { return Ok(RBlock { n: dims[0], data: Storage::Empty }); }
+                let (block, _) = $this.__fusion_symbols_validated_b_symbol(a, b, c, t)?;
+                debug_assert_eq!(block.dims(), dims);
+                Ok(block)
+            }
+    };
 }
 
 macro_rules! impl_product {
@@ -426,6 +631,8 @@ macro_rules! impl_product {
             type RSymbol = RBlock<Self::Scalar>;
             type Error = ProductError<$C0::Error, $($C::Error),+>;
             type Fusion<'a> = ProductFusion<(Fuse<$C0::Fusion<'a>>, $(Fuse<$C::Fusion<'a>>,)+), Self::Object> where Self: 'a;
+
+            product_queries!(self; [self.factors.0.braiding_style(), $(self.factors.$i.braiding_style()),+]);
 
             fn fusion_style(&self) -> FusionStyle {
                 use FusionStyle::*;
@@ -455,10 +662,7 @@ macro_rules! impl_product {
             }
             // Public queries validate every leaf object once through `dim`, which
             // never re-validates, then use the `__fusion_symbols_validated_*` paths below.
-            fn dual(&self, a: &Self::Object) -> Self::Object {
-                self.dim(a);
-                self.__fusion_symbols_validated_dual(a, Validated(()))
-            }
+
             fn dim(&self, a: &Self::Object) -> f64 {
                 let value = self.factors.0.dim(&a.0); $(let value = value * self.factors.$i.dim(&a.$i);)+ value
             }
@@ -471,33 +675,17 @@ macro_rules! impl_product {
             fn inv_dim(&self, a: &Self::Object) -> f64 {
                 let value = self.factors.0.inv_dim(&a.0); $(let value = value * self.factors.$i.inv_dim(&a.$i);)+ value
             }
-            fn object_count(&self) -> Result<Option<u64>, EnumerationError> {
-                match self.__fusion_symbols_exact_object_count(Validated(()))?.total {
-                    Count::Finite(n) => u64::try_from(n).map(Some).map_err(|_| EnumerationError::Overflow),
-                    Count::AboveU64 => Err(EnumerationError::Overflow),
-                    Count::Infinite => Ok(None),
-                }
-            }
-            fn object_at(&self, index: u64) -> Result<Self::Object, EnumerationError> {
-                let t = Validated(());
-                let count = self.__fusion_symbols_exact_object_count(t)?;
-                self.__fusion_symbols_counted_object_at(index, &count, t)
-            }
+
             fn __fusion_symbols_counted_object_at(&self, index: u64, count: &ExactCount, t: Validated) -> Result<Self::Object, EnumerationError> {
                 let factors = &count.factors;
                 // Exact for every `index ≤ u64::MAX`, also with `AboveU64` factors (`Count::bound`).
-                let bounds: Vec<_> = factors.iter().map(|c| c.total.bound()).collect();
-                let x = unrank(&bounds, &BigInt::from(index)).ok_or(EnumerationError::OutOfRange)?;
+                let x = product_unrank(factors, index)?;
                 // A coordinate never exceeds the index of its tuple.
                 let x = |j: usize| u64::try_from(&x[j]).map_err(|_| EnumerationError::Overflow);
                 Ok((self.factors.0.__fusion_symbols_counted_object_at(x(0)?, &factors[0], t)?,
                     $(self.factors.$i.__fusion_symbols_counted_object_at(x($i)?, &factors[$i], t)?,)+))
             }
-            fn object_index(&self, a: &Self::Object) -> Result<u64, EnumerationError> {
-                assert!(self.contains(a), "foreign product object");
-                let Ranked { index, .. } = self.__fusion_symbols_validated_object_index(a, Validated(()))?;
-                u64::try_from(index).map_err(|_| EnumerationError::Overflow)
-            }
+
             fn __fusion_symbols_validated_sqrt_dim(&self, a: &Self::Object, t: Validated) -> f64 {
                 let value = self.factors.0.__fusion_symbols_validated_sqrt_dim(&a.0, t); $(let value = value * self.factors.$i.__fusion_symbols_validated_sqrt_dim(&a.$i, t);)+ value
             }
@@ -513,88 +701,9 @@ macro_rules! impl_product {
             }
             fn __fusion_symbols_validated_object_index(&self, a: &Self::Object, t: Validated) -> Result<Ranked, EnumerationError> {
                 let factors = all_ok([self.factors.0.__fusion_symbols_validated_object_index(&a.0, t), $(self.factors.$i.__fusion_symbols_validated_object_index(&a.$i, t)),+])?;
-                let (counts, x): (Vec<_>, Vec<_>) = factors.into_iter().map(|Ranked { count, index }| (count, index)).unzip();
-                // An index of at least 2^64 overflows the enclosing products too: a
-                // coordinate never exceeds the index of its tuple.
-                let index = rank_checked(&counts.iter().collect::<Vec<_>>(), &x).ok_or(EnumerationError::Overflow)?;
-                Ok(Ranked { count: Count::product(&counts), index })
+                product_rank(factors)
             }
-            fn frobenius_schur_phase(&self, a: &Self::Object) -> Self::Scalar {
-                self.dim(a);
-                self.__fusion_symbols_validated_frobenius_schur_phase(a, Validated(()))
-            }
-            fn frobenius_schur_indicator(&self, a: &Self::Object) -> Self::Scalar {
-                self.dim(a);
-                self.__fusion_symbols_validated_frobenius_schur_indicator(a, Validated(()))
-            }
-            fn twist(&self, a: &Self::Object) -> Self::Scalar {
-                self.dim(a);
-                assert!(self.factors.0.braiding_style() != BraidingStyle::None, "product factor 0 has no braiding");
-                $(assert!(self.factors.$i.braiding_style() != BraidingStyle::None, "product factor {} has no braiding", $i);)+
-                self.__fusion_symbols_validated_twist(a, Validated(()))
-            }
-            fn fusion<'a>(&'a self, a: &Self::Object, b: &Self::Object) -> Result<Self::Fusion<'a>, Self::Error> {
-                for a in [a, b] { self.dim(a); }
-                self.__fusion_symbols_validated_fusion(a, b, Validated(()))
-            }
-            /// Panics only if a nonzero product multiplicity exceeds `u32`, or an object is foreign;
-            /// [`FusionCategory::try_nsymbol`] reports the former as an error.
-            fn nsymbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> u32 {
-                for a in [a, b, c] { self.dim(a); }
-                self.__fusion_symbols_validated_nsymbol(a, b, c, Validated(()))
-            }
-            /// `Overflow` if a nonzero product multiplicity exceeds `u32`; a factor's
-            /// failure (including a nested product's overflow) is returned at its
-            /// immediate position. A zero factor multiplicity beats both.
-            /// Foreign objects panic.
-            fn try_nsymbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<u32, Self::Error> {
-                for a in [a, b, c] { self.dim(a); }
-                self.__fusion_symbols_validated_try_nsymbol(a, b, c, Validated(()))
-            }
-            fn f_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, d: &Self::Object, e: &Self::Object, f: &Self::Object) -> Result<Self::FSymbol, Self::Error> {
-                for a in [a, b, c, d, e, f] { self.dim(a); }
-                let t = Validated(());
-                let n = |x, y, z| self.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
-                let dims = shape::<Self::Scalar, 4>([n(a, b, e)?, n(e, c, d)?, n(b, c, f)?, n(a, f, d)?]).ok_or(ProductError::Overflow)?;
-                if dims.contains(&0) { return Ok(FBlock { dims, data: Storage::Empty }); }
-                let (block, _) = self.__fusion_symbols_validated_f_symbol(a, b, c, d, e, f, t)?;
-                debug_assert_eq!(block.dims(), dims);
-                Ok(block)
-            }
-            fn r_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<Self::RSymbol, Self::Error> {
-                for a in [a, b, c] { self.dim(a); }
-                if self.factors.0.braiding_style() == BraidingStyle::None { return Err(ProductError::NoBraiding { factor: 0 }); }
-                $(if self.factors.$i.braiding_style() == BraidingStyle::None { return Err(ProductError::NoBraiding { factor: $i }); })+
-                let t = Validated(());
-                let n = |x, y, z| self.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
-                let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(b, a, c)?]).ok_or(ProductError::Overflow)?;
-                if dims.contains(&0) { return Ok(RBlock { n: dims[0], data: Storage::Empty }); }
-                let (block, _) = self.__fusion_symbols_validated_r_symbol(a, b, c, t)?;
-                debug_assert_eq!(block.dims(), dims);
-                Ok(block)
-            }
-            // Factor Kronecker products as for F and R (TensorKitSectors `product.jl`
-            // `Asymbol`/`Bsymbol`); braiding is not needed.
-            fn a_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<RBlock<Self::Scalar>, Self::Error> {
-                for a in [a, b, c] { self.dim(a); }
-                let t = Validated(());
-                let n = |x, y, z| self.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
-                let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(&self.__fusion_symbols_validated_dual(a, t), c, b)?]).ok_or(ProductError::Overflow)?;
-                if dims.contains(&0) { return Ok(RBlock { n: dims[0], data: Storage::Empty }); }
-                let (block, _) = self.__fusion_symbols_validated_a_symbol(a, b, c, t)?;
-                debug_assert_eq!(block.dims(), dims);
-                Ok(block)
-            }
-            fn b_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<RBlock<Self::Scalar>, Self::Error> {
-                for a in [a, b, c] { self.dim(a); }
-                let t = Validated(());
-                let n = |x, y, z| self.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
-                let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(c, &self.__fusion_symbols_validated_dual(b, t), a)?]).ok_or(ProductError::Overflow)?;
-                if dims.contains(&0) { return Ok(RBlock { n: dims[0], data: Storage::Empty }); }
-                let (block, _) = self.__fusion_symbols_validated_b_symbol(a, b, c, t)?;
-                debug_assert_eq!(block.dims(), dims);
-                Ok(block)
-            }
+
             fn __fusion_symbols_validated_dual(&self, a: &Self::Object, t: Validated) -> Self::Object {
                 (self.factors.0.__fusion_symbols_validated_dual(&a.0, t), $(self.factors.$i.__fusion_symbols_validated_dual(&a.$i, t),)+)
             }
@@ -634,36 +743,32 @@ macro_rules! impl_product {
             // without re-querying N or copying coefficient data.
             fn __fusion_symbols_validated_f_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, d: &Self::Object, e: &Self::Object, f: &Self::Object, t: Validated) -> Result<SymbolWithAxes<Self::FSymbol, 4>, Self::Error> {
                 let (dims, data) = storage(Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_f_symbol(&a.0,&b.0,&c.0,&d.0,&e.0,&f.0,t).map_err(ProductError::Factor0)?)?);
-                $(let (dims, data) = kron(dims, data, Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_f_symbol(&a.$i,&b.$i,&c.$i,&d.$i,&e.$i,&f.$i,t).map_err(ProductError::$Err)?)?);)+
+                $(let (dims, data) = kron(dims, data, Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_f_symbol(&a.$i,&b.$i,&c.$i,&d.$i,&e.$i,&f.$i,t).map_err(ProductError::$Err)?)?, |l, r| <$Prev as Promote<$C::Scalar>>::left(l) * <$Prev as Promote<$C::Scalar>>::right(r));)+
                 let [n0, n1, n2, n3] = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
                 Ok((FBlock { dims, data }, [n0?, n1?, n2?, n3?]))
             }
             // As for F; braiding of every factor has also been checked.
             fn __fusion_symbols_validated_r_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> Result<SymbolWithAxes<Self::RSymbol, 2>, Self::Error> {
                 let (dims, data) = storage(Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_r_symbol(&a.0,&b.0,&c.0,t).map_err(ProductError::Factor0)?)?);
-                $(let (dims, data) = kron(dims, data, Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_r_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?)?);)+
+                $(let (dims, data) = kron(dims, data, Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_r_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?)?, |l, r| <$Prev as Promote<$C::Scalar>>::left(l) * <$Prev as Promote<$C::Scalar>>::right(r));)+
                 let [n0, n1] = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
                 Ok((RBlock { n: dims[0], data }, [n0?, n1?]))
             }
             fn __fusion_symbols_validated_a_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
                 let (dims, data) = storage(Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_a_symbol(&a.0,&b.0,&c.0,t).map_err(ProductError::Factor0)?)?);
-                $(let (dims, data) = kron(dims, data, Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_a_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?)?);)+
+                $(let (dims, data) = kron(dims, data, Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_a_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?)?, |l, r| <$Prev as Promote<$C::Scalar>>::left(l) * <$Prev as Promote<$C::Scalar>>::right(r));)+
                 let [n0, n1] = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
                 Ok((RBlock { n: dims[0], data }, [n0?, n1?]))
             }
             fn __fusion_symbols_validated_b_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
                 let (dims, data) = storage(Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_b_symbol(&a.0,&b.0,&c.0,t).map_err(ProductError::Factor0)?)?);
-                $(let (dims, data) = kron(dims, data, Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_b_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?)?);)+
+                $(let (dims, data) = kron(dims, data, Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_b_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?)?, |l, r| <$Prev as Promote<$C::Scalar>>::left(l) * <$Prev as Promote<$C::Scalar>>::right(r));)+
                 let [n0, n1] = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
                 Ok((RBlock { n: dims[0], data }, [n0?, n1?]))
             }
             fn authority_fingerprint(&self) -> &[u8] {
                 self.fingerprint.get_or_init(|| {
-                    let fps = [self.factors.0.authority_fingerprint(), $(self.factors.$i.authority_fingerprint()),+];
-                    let mut bytes = b"fusion-symbols:product:epoch=1:axes=last-fastest:fusion=first-fastest;".to_vec();
-                    bytes.extend_from_slice(&(fps.len() as u32).to_le_bytes());
-                    for fp in fps { bytes.extend_from_slice(&(fp.len() as u64).to_le_bytes()); bytes.extend_from_slice(fp); }
-                    bytes.into()
+                    fingerprint([self.factors.0.authority_fingerprint(), $(self.factors.$i.authority_fingerprint()),+])
                 })
             }
         }
@@ -687,15 +792,8 @@ macro_rules! impl_product {
             fn dims(&self) -> [usize; 4] {
                 cgc_dims([self.0.dims(), $(self.$i.dims()),+]).expect("CGC axis overflow")
             }
-            fn at(&self, mut index: [usize; 4]) -> f64 {
-                let mut remaining = self.dims();
-                assert!(index.iter().zip(remaining).all(|(&i, n)| i < n), "CGC index out of range");
-                let mut entry = |dims: [usize; 4]| std::array::from_fn(|axis| {
-                    remaining[axis] /= dims[axis];
-                    let i = index[axis] / remaining[axis];
-                    index[axis] %= remaining[axis];
-                    i
-                });
+            fn at(&self, index: [usize; 4]) -> f64 {
+                let mut entry = cgc_indices(self.dims(), index);
                 let value = self.0.at(entry(self.0.dims()));
                 $(let value = value * self.$i.at(entry(self.$i.dims()));)+
                 value
@@ -709,16 +807,12 @@ macro_rules! impl_product {
             fn next(&mut self) -> Option<Self::Item> {
                 let mut current = self.current.take()?;
                 let result = current.clone();
-                if let Some(value) = self.active.0.next() {
-                    current.0 = value; self.current = Some(current); return Some(result);
-                }
-                self.active.0 = self.initial.0.clone();
-                current.0 = self.active.0.next().expect("initialized nonempty fusion iterator");
-                $(if let Some(value) = self.active.$i.next() {
-                    current.$i = value; self.current = Some(current); return Some(result);
-                }
-                self.active.$i = self.initial.$i.clone();
-                current.$i = self.active.$i.next().expect("initialized nonempty fusion iterator");)+
+                let (advanced, value) = advance(&self.initial.0, &mut self.active.0);
+                current.0 = value;
+                if advanced { self.current = Some(current); return Some(result); }
+                $(let (advanced, value) = advance(&self.initial.$i, &mut self.active.$i);
+                current.$i = value;
+                if advanced { self.current = Some(current); return Some(result); })+
                 Some(result)
             }
         }
@@ -736,10 +830,559 @@ impl_product!(C0; S9; (C1, 1, Factor1, C0::Scalar, S1), (C2, 2, Factor2, S1, S2)
 impl_product!(C0; S10; (C1, 1, Factor1, C0::Scalar, S1), (C2, 2, Factor2, S1, S2), (C3, 3, Factor3, S2, S3), (C4, 4, Factor4, S3, S4), (C5, 5, Factor5, S4, S5), (C6, 6, Factor6, S5, S6), (C7, 7, Factor7, S6, S7), (C8, 8, Factor8, S7, S8), (C9, 9, Factor9, S8, S9), (C10, 10, Factor10, S9, S10));
 impl_product!(C0; S11; (C1, 1, Factor1, C0::Scalar, S1), (C2, 2, Factor2, S1, S2), (C3, 3, Factor3, S2, S3), (C4, 4, Factor4, S3, S4), (C5, 5, Factor5, S4, S5), (C6, 6, Factor6, S5, S6), (C7, 7, Factor7, S6, S7), (C8, 8, Factor8, S7, S8), (C9, 9, Factor9, S8, S9), (C10, 10, Factor10, S9, S10), (C11, 11, Factor11, S10, S11));
 
+impl<C: FusionCategory> FusionCategory for Product<Vec<C>>
+where
+    for<'a> C::Fusion<'a>: Clone,
+{
+    type Object = Vec<C::Object>;
+    type Scalar = C::Scalar;
+    type FSymbol = FBlock<Self::Scalar>;
+    type RSymbol = RBlock<Self::Scalar>;
+    type Error = ProductError<C::Error>;
+    type Fusion<'a>
+        = ProductFusion<Vec<(C::Fusion<'a>, usize)>, (usize, usize, Vec<C::Object>)>
+    where
+        Self: 'a;
+
+    product_queries!(self; self.factors.iter().map(FusionCategory::braiding_style));
+
+    fn fusion_style(&self) -> FusionStyle {
+        use FusionStyle::*;
+        self.factors
+            .iter()
+            .map(FusionCategory::fusion_style)
+            .fold(Unique, |a, b| {
+                if a == Generic || b == Generic {
+                    Generic
+                } else if a == Simple || b == Simple {
+                    Simple
+                } else {
+                    Unique
+                }
+            })
+    }
+    fn braiding_style(&self) -> BraidingStyle {
+        use BraidingStyle::*;
+        self.factors
+            .iter()
+            .map(FusionCategory::braiding_style)
+            .fold(Bosonic, |a, b| {
+                if a == None || b == None {
+                    None
+                } else if a == Anyonic || b == Anyonic {
+                    Anyonic
+                } else if a == Fermionic || b == Fermionic {
+                    Fermionic
+                } else {
+                    Bosonic
+                }
+            })
+    }
+    fn unit(&self) -> Self::Object {
+        self.factors.iter().map(FusionCategory::unit).collect()
+    }
+    fn contains(&self, a: &Self::Object) -> bool {
+        a.len() == self.factors.len() && self.factors.iter().zip(a).all(|(c, a)| c.contains(a))
+    }
+    fn has_trivial_associator_gauge(&self) -> bool {
+        self.factors
+            .iter()
+            .all(FusionCategory::has_trivial_associator_gauge)
+    }
+    fn has_canonical_unit(&self) -> bool {
+        self.factors.iter().all(FusionCategory::has_canonical_unit)
+    }
+    fn dim(&self, a: &Self::Object) -> f64 {
+        assert_eq!(a.len(), self.factors.len(), "foreign product object");
+        scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.dim(a)))
+    }
+    fn sqrt_dim(&self, a: &Self::Object) -> f64 {
+        assert_eq!(a.len(), self.factors.len(), "foreign product object");
+        scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.sqrt_dim(a)))
+    }
+    fn inv_sqrt_dim(&self, a: &Self::Object) -> f64 {
+        assert_eq!(a.len(), self.factors.len(), "foreign product object");
+        scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.inv_sqrt_dim(a)))
+    }
+    fn inv_dim(&self, a: &Self::Object) -> f64 {
+        assert_eq!(a.len(), self.factors.len(), "foreign product object");
+        scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.inv_dim(a)))
+    }
+    fn __fusion_symbols_validated_sqrt_dim(&self, a: &Self::Object, t: Validated) -> f64 {
+        scalar_product(
+            self.factors
+                .iter()
+                .zip(a)
+                .map(|(c, a)| c.__fusion_symbols_validated_sqrt_dim(a, t)),
+        )
+    }
+    fn __fusion_symbols_validated_inv_sqrt_dim(&self, a: &Self::Object, t: Validated) -> f64 {
+        scalar_product(
+            self.factors
+                .iter()
+                .zip(a)
+                .map(|(c, a)| c.__fusion_symbols_validated_inv_sqrt_dim(a, t)),
+        )
+    }
+    fn __fusion_symbols_validated_inv_dim(&self, a: &Self::Object, t: Validated) -> f64 {
+        scalar_product(
+            self.factors
+                .iter()
+                .zip(a)
+                .map(|(c, a)| c.__fusion_symbols_validated_inv_dim(a, t)),
+        )
+    }
+    fn __fusion_symbols_validated_frobenius_schur_phase(
+        &self,
+        a: &Self::Object,
+        t: Validated,
+    ) -> Self::Scalar {
+        scalar_product(
+            self.factors
+                .iter()
+                .zip(a)
+                .map(|(c, a)| c.__fusion_symbols_validated_frobenius_schur_phase(a, t)),
+        )
+    }
+    fn __fusion_symbols_validated_frobenius_schur_indicator(
+        &self,
+        a: &Self::Object,
+        t: Validated,
+    ) -> Self::Scalar {
+        scalar_product(
+            self.factors
+                .iter()
+                .zip(a)
+                .map(|(c, a)| c.__fusion_symbols_validated_frobenius_schur_indicator(a, t)),
+        )
+    }
+    fn __fusion_symbols_validated_twist(&self, a: &Self::Object, t: Validated) -> Self::Scalar {
+        scalar_product(
+            self.factors
+                .iter()
+                .zip(a)
+                .map(|(c, a)| c.__fusion_symbols_validated_twist(a, t)),
+        )
+    }
+    fn __fusion_symbols_validated_dual(&self, a: &Self::Object, t: Validated) -> Self::Object {
+        self.factors
+            .iter()
+            .zip(a)
+            .map(|(c, a)| c.__fusion_symbols_validated_dual(a, t))
+            .collect()
+    }
+    fn __fusion_symbols_exact_object_count(
+        &self,
+        t: Validated,
+    ) -> Result<ExactCount, EnumerationError> {
+        let counts = all_ok(
+            self.factors
+                .iter()
+                .map(|c| c.__fusion_symbols_exact_object_count(t)),
+        )?;
+        Ok(ExactCount {
+            total: Count::product(counts.iter().map(|c| &c.total)),
+            factors: counts,
+        })
+    }
+    fn __fusion_symbols_counted_object_at(
+        &self,
+        index: u64,
+        count: &ExactCount,
+        t: Validated,
+    ) -> Result<Self::Object, EnumerationError> {
+        let x = product_unrank(&count.factors, index)?;
+        self.factors
+            .iter()
+            .zip(&count.factors)
+            .zip(x)
+            .map(|((c, count), i)| {
+                c.__fusion_symbols_counted_object_at(
+                    u64::try_from(i).map_err(|_| EnumerationError::Overflow)?,
+                    count,
+                    t,
+                )
+            })
+            .collect()
+    }
+    fn __fusion_symbols_validated_object_index(
+        &self,
+        a: &Self::Object,
+        t: Validated,
+    ) -> Result<Ranked, EnumerationError> {
+        product_rank(all_ok(
+            self.factors
+                .iter()
+                .zip(a)
+                .map(|(c, a)| c.__fusion_symbols_validated_object_index(a, t)),
+        )?)
+    }
+    fn __fusion_symbols_validated_nsymbol(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+        t: Validated,
+    ) -> u32 {
+        checked_multiplicity(
+            self.factors
+                .iter()
+                .enumerate()
+                .map(|(i, f)| Ok(f.__fusion_symbols_validated_nsymbol(&a[i], &b[i], &c[i], t))),
+            (),
+        )
+        .expect("nonzero product multiplicity exceeds u32")
+    }
+    fn __fusion_symbols_validated_try_nsymbol(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+        t: Validated,
+    ) -> Result<u32, Self::Error> {
+        checked_multiplicity(
+            self.factors.iter().enumerate().map(|(index, f)| {
+                f.__fusion_symbols_validated_try_nsymbol(&a[index], &b[index], &c[index], t)
+                    .map_err(|source| ProductError::Factor { index, source })
+            }),
+            ProductError::Overflow,
+        )
+    }
+    fn __fusion_symbols_validated_fusion<'a>(
+        &'a self,
+        a: &Self::Object,
+        b: &Self::Object,
+        t: Validated,
+    ) -> Result<Self::Fusion<'a>, Self::Error> {
+        let initial: Vec<_> = self
+            .factors
+            .iter()
+            .enumerate()
+            .map(|(index, f)| {
+                let iter = f
+                    .__fusion_symbols_validated_fusion(&a[index], &b[index], t)
+                    .map_err(|source| ProductError::Factor { index, source })?;
+                let (lo, hi) = iter.size_hint();
+                let len = if hi == Some(lo) {
+                    lo
+                } else {
+                    iter.clone()
+                        .try_fold(0usize, |n, _| n.checked_add(1))
+                        .ok_or(ProductError::Overflow)?
+                };
+                Ok((iter, len))
+            })
+            .collect::<Result<_, Self::Error>>()?;
+        let len = if initial.iter().any(|(_, n)| *n == 0) {
+            0
+        } else {
+            initial
+                .iter()
+                .try_fold(1usize, |p, (_, n)| p.checked_mul(*n))
+                .ok_or(ProductError::Overflow)?
+        };
+        let mut active = initial.clone();
+        let current = if len == 0 {
+            Vec::new()
+        } else {
+            active
+                .iter_mut()
+                .map(|(iter, _)| {
+                    iter.next()
+                        .expect("initialized fusion iterator length changed")
+                })
+                .collect()
+        };
+        Ok(ProductFusion {
+            initial,
+            active,
+            current: Some((0, len, current)),
+        })
+    }
+    fn __fusion_symbols_validated_f_symbol(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+        d: &Self::Object,
+        e: &Self::Object,
+        f: &Self::Object,
+        t: Validated,
+    ) -> Result<SymbolWithAxes<Self::FSymbol, 4>, Self::Error> {
+        let (dims, data) =
+            compose_blocks(self.factors.iter().enumerate().map(|(index, factor)| {
+                let block = factor
+                    .__fusion_symbols_validated_f_symbol(
+                        &a[index], &b[index], &c[index], &d[index], &e[index], &f[index], t,
+                    )
+                    .map_err(|source| ProductError::Factor { index, source })?;
+                ProductError::checked_block(index, block)
+            }))?;
+        let n = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
+        let [n0, n1, n2, n3] = n;
+        Ok((FBlock { dims, data }, [n0?, n1?, n2?, n3?]))
+    }
+    fn __fusion_symbols_validated_r_symbol(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+        t: Validated,
+    ) -> Result<SymbolWithAxes<Self::RSymbol, 2>, Self::Error> {
+        let (dims, data) =
+            compose_blocks(self.factors.iter().enumerate().map(|(index, factor)| {
+                let block = factor
+                    .__fusion_symbols_validated_r_symbol(&a[index], &b[index], &c[index], t)
+                    .map_err(|source| ProductError::Factor { index, source })?;
+                ProductError::checked_block(index, block)
+            }))?;
+        let n = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
+        let [n0, n1] = n;
+        Ok((RBlock { n: dims[0], data }, [n0?, n1?]))
+    }
+    fn __fusion_symbols_validated_a_symbol(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+        t: Validated,
+    ) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
+        let (dims, data) =
+            compose_blocks(self.factors.iter().enumerate().map(|(index, factor)| {
+                let block = factor
+                    .__fusion_symbols_validated_a_symbol(&a[index], &b[index], &c[index], t)
+                    .map_err(|source| ProductError::Factor { index, source })?;
+                ProductError::checked_block(index, block)
+            }))?;
+        let n = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
+        let [n0, n1] = n;
+        Ok((RBlock { n: dims[0], data }, [n0?, n1?]))
+    }
+    fn __fusion_symbols_validated_b_symbol(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+        t: Validated,
+    ) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
+        let (dims, data) =
+            compose_blocks(self.factors.iter().enumerate().map(|(index, factor)| {
+                let block = factor
+                    .__fusion_symbols_validated_b_symbol(&a[index], &b[index], &c[index], t)
+                    .map_err(|source| ProductError::Factor { index, source })?;
+                ProductError::checked_block(index, block)
+            }))?;
+        let n = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
+        let [n0, n1] = n;
+        Ok((RBlock { n: dims[0], data }, [n0?, n1?]))
+    }
+    fn authority_fingerprint(&self) -> &[u8] {
+        self.fingerprint.get_or_init(|| {
+            fingerprint(
+                self.factors
+                    .iter()
+                    .map(FusionCategory::authority_fingerprint),
+            )
+        })
+    }
+}
+
+fn compose_blocks<B: SymbolBlock<R>, E, const R: usize>(
+    blocks: impl IntoIterator<Item = Result<B, E>>,
+) -> Result<([usize; R], Storage<B::Scalar>), E> {
+    let mut blocks = blocks.into_iter();
+    let Some(first) = blocks.next() else {
+        return Ok(([1; R], Storage::One(B::Scalar::one())));
+    };
+    let mut result = storage(first?);
+    for block in blocks {
+        result = kron(result.0, result.1, block?, |l, r| l * r);
+    }
+    Ok(result)
+}
+
+impl<C: GroupRepresentations> GroupRepresentations for Product<Vec<C>>
+where
+    for<'a> C::Fusion<'a>: Clone,
+{
+    type Cgc = Vec<C::Cgc>;
+    fn cgc(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+    ) -> Result<Self::Cgc, Self::Error> {
+        self.dim(a);
+        self.dim(b);
+        self.dim(c);
+        let blocks: Vec<_> = self
+            .factors
+            .iter()
+            .enumerate()
+            .map(|(index, f)| {
+                f.cgc(&a[index], &b[index], &c[index])
+                    .map_err(|source| ProductError::Factor { index, source })
+            })
+            .collect::<Result<_, _>>()?;
+        cgc_dims(blocks.iter().map(CgcBlock::dims)).ok_or(ProductError::Overflow)?;
+        Ok(blocks)
+    }
+}
+impl<B: CgcBlock> CgcBlock for Vec<B> {
+    fn dims(&self) -> [usize; 4] {
+        cgc_dims(self.iter().map(CgcBlock::dims)).expect("CGC axis overflow")
+    }
+    fn at(&self, index: [usize; 4]) -> f64 {
+        let mut entry = cgc_indices(self.dims(), index);
+        scalar_product(self.iter().map(|b| b.at(entry(b.dims()))))
+    }
+}
+
+// Runtime specialization: current stores [front, back) and the front items;
+// active holds the incremental front cursor. Each initial factor carries its radix.
+impl<I: Iterator + Clone> ProductFusion<Vec<(I, usize)>, (usize, usize, Vec<I::Item>)> {
+    fn entry(&self, mut index: usize) -> Vec<I::Item> {
+        self.initial
+            .iter()
+            .map(|(iter, radix)| {
+                let digit = index % radix;
+                index /= radix;
+                restarted(iter, digit).1
+            })
+            .collect()
+    }
+}
+impl<I: Iterator + Clone> Iterator for ProductFusion<Vec<(I, usize)>, (usize, usize, Vec<I::Item>)>
+where
+    I::Item: Clone,
+{
+    type Item = Vec<I::Item>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let (front, back, current) = self.current.as_mut()?;
+        if front == back {
+            return None;
+        }
+        let result = current.clone();
+        *front += 1;
+        if front != back {
+            for (((initial, _), (active, _)), item) in
+                self.initial.iter().zip(&mut self.active).zip(current)
+            {
+                let (advanced, value) = advance(initial, active);
+                *item = value;
+                if advanced {
+                    break;
+                }
+            }
+        }
+        Some(result)
+    }
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        let (front, back, current) = self.current.as_mut()?;
+        if n >= *back - *front {
+            *front = *back;
+            return None;
+        }
+        if n != 0 {
+            *front += n;
+            let mut index = *front;
+            for (((initial, radix), (active, _)), item) in
+                self.initial.iter().zip(&mut self.active).zip(current)
+            {
+                let digit = index % radix;
+                index /= radix;
+                (*active, *item) = restarted(initial, digit);
+            }
+        }
+        self.next()
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let (front, back, _) = self
+            .current
+            .as_ref()
+            .expect("initialized runtime fusion range");
+        (back - front, Some(back - front))
+    }
+}
+impl<I: DoubleEndedIterator + Clone> DoubleEndedIterator
+    for ProductFusion<Vec<(I, usize)>, (usize, usize, Vec<I::Item>)>
+where
+    I::Item: Clone,
+{
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.nth_back(0)
+    }
+    fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
+        let (front, back, _) = self.current.as_mut()?;
+        if n >= *back - *front {
+            *front = *back;
+            return None;
+        }
+        *back -= n + 1;
+        let index = *back;
+        Some(self.entry(index))
+    }
+}
+impl<I: ExactSizeIterator + Clone> ExactSizeIterator
+    for ProductFusion<Vec<(I, usize)>, (usize, usize, Vec<I::Item>)>
+where
+    I::Item: Clone,
+{
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::fermion::FermionParity;
+
+    #[test]
+    fn runtime_fusion_forward_is_incremental() {
+        use std::{cell::Cell, ops::Range, rc::Rc};
+
+        #[derive(Clone)]
+        struct Counting {
+            range: Range<usize>,
+            calls: Rc<Cell<usize>>,
+        }
+        impl Iterator for Counting {
+            type Item = usize;
+            fn next(&mut self) -> Option<usize> {
+                self.calls.set(self.calls.get() + 1);
+                self.range.next()
+            }
+        }
+        let calls = Rc::new(Cell::new(0));
+        let radices = [8, 9, 10];
+        let initial: Vec<_> = radices
+            .iter()
+            .map(|&n| {
+                (
+                    Counting {
+                        range: 0..n,
+                        calls: calls.clone(),
+                    },
+                    n,
+                )
+            })
+            .collect();
+        let len: usize = radices.iter().product();
+        let mut active = initial.clone();
+        let current = active
+            .iter_mut()
+            .map(|(iter, _)| iter.next().unwrap())
+            .collect();
+        let iter = ProductFusion {
+            initial,
+            active,
+            current: Some((0, len, current)),
+        };
+        assert_eq!(iter.count(), len);
+        assert!(
+            calls.get() <= len * radices.len() + radices.iter().sum::<usize>(),
+            "{} factor next calls for {len} outcomes",
+            calls.get()
+        );
+    }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     enum Fault {
@@ -916,6 +1559,17 @@ mod tests {
                 symbol
             )
             .unwrap(),
+            (vec![2; rank], values.clone())
+        );
+        assert_eq!(
+            query(
+                &Product::new(vec![Blocks {
+                    n: 2,
+                    fault: Fault::None
+                }]),
+                symbol
+            )
+            .unwrap(),
             (vec![2; rank], values)
         );
         for fault in [
@@ -968,6 +1622,23 @@ mod tests {
                     symbol
                 ),
                 Err(ProductError::Factor1(expected(1)))
+            );
+            assert_eq!(
+                query(&Product::new(vec![bad.clone()]), symbol),
+                Err(expected(0))
+            );
+            assert_eq!(
+                query(
+                    &Product::new(vec![
+                        Blocks {
+                            n: 1,
+                            fault: Fault::None
+                        },
+                        bad.clone()
+                    ]),
+                    symbol
+                ),
+                Err(expected(1))
             );
             let zero = Blocks { n: 0, fault };
             assert_eq!(

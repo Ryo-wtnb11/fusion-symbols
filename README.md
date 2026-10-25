@@ -26,7 +26,7 @@ and a frozen coefficient gauge. Tables retain AnyonWiki's gauge. See
 | `lie` | Exact rank-one symbols; U(1), CU(1) = O(2); generated SU(N), SO(N), Spin(N), Sp(2r) and supported global forms |
 | `finite`, `fermion` | Cyclic groups Z_N; fermion parity |
 | `table` | 74 unitary multiplicity-free AnyonWiki categories of rank ≤ 4, including Fibonacci and Ising |
-| `product` | Ordered Deligne products of 2..=12 immediate factors, preserving nesting |
+| `product` | Ordered Deligne products: tuples of 2..=12 or homogeneous vectors of any length, preserving nesting |
 | `cache` | Coefficient-cache budgets, statistics, reset and trimming |
 
 ```toml

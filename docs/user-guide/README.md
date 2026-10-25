@@ -76,13 +76,15 @@ assert_eq!(three.dim(&three.unit()), 1.0);
 ```
 
 Use `Product::new((a,b,...))` for 2..=12 factors, `product(a,b)` for two,
-and `product![...]` for 3..=12. `factors` borrows the tuple; `into_factors`
-returns it. `product(product(a,b),c)` keeps labels `((x,y),z)`, with different
-identity and enumeration from the flat product. Fusion is first-factor-fast;
+and `product![...]` for 3..=12. Use `Product::new(vec![a,b,...])` for
+any runtime number of homogeneous factors, with vector objects of the same
+length. An empty vector gives the trivial category. `factors` borrows the
+container; `into_factors` returns it. `product(product(a,b),c)` keeps labels
+`((x,y),z)`, with different identity and enumeration from the flat product. Fusion is first-factor-fast;
 within each symbol axis, `i = i_left * n_right + i_right` is last-factor-fast.
 When every factor implements `GroupRepresentations`, so does the product. Its
-CGC is a tuple of factor blocks, read lazily as a Kronecker product through
-`CgcBlock`, with the last factor fastest on all four axes. `U1` and `ZN`
+CGC is a tuple or vector of factor blocks, read lazily as a Kronecker product
+through `CgcBlock`, with the last factor fastest on all four axes. `U1` and `ZN`
 use scalar CGCs: `1.0` for a present channel, `0.0` for an absent one, with
 shapes `[1,1,1,1]` and `[1,1,1,0]`. Product CGC queries report axis overflow
 as `ProductError::Overflow`; a hand-built tuple's `dims()` may panic on overflow.

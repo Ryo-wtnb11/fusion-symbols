@@ -24,6 +24,7 @@ mod oracle;
 mod product;
 mod product_cgc;
 mod product_validation_cost;
+mod product_vec;
 mod properties;
 mod spin;
 mod su2_fingerprint;

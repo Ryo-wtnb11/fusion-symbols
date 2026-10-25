@@ -32,6 +32,11 @@ value/gauge rule noted below.
 
 ### Added
 
+- `Product<Vec<C>>` composes any runtime number of homogeneous categories,
+  including the empty product, with checked symbol arithmetic, enumeration,
+  indexed factor errors, and lazy vector CGCs. Runtime fusion supports exact
+  lengths and reverse iteration when the factor iterators do.
+
 - `GroupId::{new,cover,torus,u,root_systems,semisimple_rank,torus_rank,character_lattice}`
   classify connected compact groups, including torus-coupled lattices and
   exceptional quotients, with exact admission. New errors are `InvalidLattice`
