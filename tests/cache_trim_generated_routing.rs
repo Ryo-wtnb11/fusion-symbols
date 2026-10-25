@@ -1,11 +1,12 @@
+//! Isolated process: exact generated-tier counts around trim exclude unrelated cache traffic.
 //! Isolated process-global generated-tier trim routing contract.
 #![cfg(feature = "lie-generated")]
 
-#[path = "common/lie.rs"]
-mod lie_test;
+mod common;
 
-#[path = "common/bcd.rs"]
-mod bcd_test;
+use crate::common::lie as lie_test;
+
+use crate::common::bcd as bcd_test;
 use bcd_test::Series;
 use fusion_symbols::category::FusionCategory;
 

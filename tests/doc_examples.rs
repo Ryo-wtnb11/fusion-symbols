@@ -1,7 +1,10 @@
+//! Isolated process: resource examples can install a one-shot non-default cache policy.
 //! Runnable examples for the contracts in the public guides.
 #![cfg(feature = "lie-generated")]
 
 /// `README.md`, Rust block 1.
+mod common;
+
 #[test]
 fn readme_1() {
     use fusion_symbols::lie::su2::wigner_6j;

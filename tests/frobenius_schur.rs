@@ -6,8 +6,7 @@
 
 #![cfg(feature = "lie-generated")]
 
-#[path = "common/lie.rs"]
-mod lie_test;
+use crate::common::lie as lie_test;
 use fusion_symbols::{category::FusionCategory, lie::LieIrrep as Irrep};
 use lie_test::f_symbol;
 

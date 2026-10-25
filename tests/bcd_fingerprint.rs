@@ -6,8 +6,7 @@
 //! byte-identical values (`docs/gauge_soN.md`).
 #![cfg(feature = "lie-generated")]
 
-#[path = "common/bcd.rs"]
-mod bcd_test;
+use crate::common::bcd as bcd_test;
 
 /// Compatibility policy: the fingerprint's exact current bytes.
 ///

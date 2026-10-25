@@ -1,4 +1,7 @@
+//! Fresh process: installs a one-shot non-default cache policy.
 //! Base-only one-shot coefficient-cache budget contract.
+
+mod common;
 
 use fusion_symbols::cache::{
     base_cache_stats, cache_budgets, configure_cache_budgets, reset, CacheBudgetError,

@@ -1,9 +1,11 @@
+//! Fresh process: installs a one-shot disabled generated-cache policy.
 //! Generated-family zero-budget coefficient-cache contract.
 
 #![cfg(feature = "lie-generated")]
 
-#[path = "common/lie.rs"]
-mod lie_test;
+mod common;
+
+use crate::common::lie as lie_test;
 use fusion_symbols::cache::{
     cache_budgets, configure_cache_budgets, generated_cache_stats, CoefficientCacheBudgets,
     CoefficientCacheTier,

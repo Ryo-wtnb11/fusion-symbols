@@ -1,3 +1,4 @@
+//! Isolated process: cold/reset/exact aggregate counters exclude unrelated cache traffic.
 //! CGC cache: facade reset/stats wiring and concurrency equivalence.
 //!
 //! Kept in one `#[test]` because the cache facade is process-global and
@@ -6,8 +7,9 @@
 
 #![cfg(feature = "lie-generated")]
 
-#[path = "common/lie.rs"]
-mod lie_test;
+mod common;
+
+use crate::common::lie as lie_test;
 use std::sync::Arc;
 
 use fusion_symbols::cache;

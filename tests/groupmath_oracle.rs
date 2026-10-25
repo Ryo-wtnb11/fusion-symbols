@@ -9,14 +9,12 @@
 //! and are not compared.
 #![cfg(feature = "lie-generated")]
 
-#[path = "common/lie.rs"]
-mod lie_test;
+use crate::common::lie as lie_test;
 use std::collections::BTreeMap;
 
 use num_bigint::BigInt;
 
-#[path = "common/bcd.rs"]
-mod bcd_test;
+use crate::common::bcd as bcd_test;
 use bcd_test::Series;
 use lie_test::product as sdp;
 

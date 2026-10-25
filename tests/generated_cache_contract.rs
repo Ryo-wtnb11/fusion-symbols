@@ -1,3 +1,4 @@
+//! Isolated process: exact generated reset/counter assertions exclude unrelated cache traffic.
 //! Generated-tier coefficient-cache resource contract.
 //!
 //! The `lie-generated` analogue of `tests/base_cache_contract.rs`: the five generated
@@ -16,11 +17,11 @@
 
 #![cfg(feature = "lie-generated")]
 
-#[path = "common/lie.rs"]
-mod lie_test;
+mod common;
 
-#[path = "common/bcd.rs"]
-mod bcd_test;
+use crate::common::lie as lie_test;
+
+use crate::common::bcd as bcd_test;
 use bcd_test::Series;
 
 use fusion_symbols::cache::{self, GeneratedCacheStats, GENERATED_CACHE_MAX_BYTES};

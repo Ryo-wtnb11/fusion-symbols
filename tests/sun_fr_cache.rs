@@ -1,3 +1,4 @@
+//! Isolated process: cold/reset/exact aggregate counters exclude unrelated cache traffic.
 //! Derived-f64 SU(N) F-symbol cache behaviour through the public API: a warm
 //! hit returns the identical block, `reset` clears it, `stats` accounts it, and concurrent generation is race-free.
 //!
@@ -7,8 +8,9 @@
 
 #![cfg(feature = "lie-generated")]
 
-#[path = "common/lie.rs"]
-mod lie_test;
+mod common;
+
+use crate::common::lie as lie_test;
 use fusion_symbols::lie::LieIrrep as Irrep;
 use lie_test::f_symbol;
 

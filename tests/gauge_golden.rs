@@ -49,11 +49,9 @@
 // point is to have none.
 #![allow(clippy::approx_constant)]
 
-#[path = "common/lie.rs"]
-mod lie_test;
+use crate::common::lie as lie_test;
 
-#[path = "common/bcd.rs"]
-mod bcd_test;
+use crate::common::bcd as bcd_test;
 use bcd_test::Series;
 use fusion_symbols::category::GroupRepresentations;
 

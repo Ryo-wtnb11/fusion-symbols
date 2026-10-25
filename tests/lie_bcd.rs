@@ -1,3 +1,6 @@
+//! Isolated process: reset/warm counter and catalog lifecycle assertions exclude unrelated cache traffic.
+mod common;
+
 #[cfg(feature = "lie-generated")]
 use fusion_symbols::category::FusionCategory;
 use fusion_symbols::lie::{GroupId, LieError, LieGroup};

@@ -6,11 +6,7 @@
 //! value (the cross-global-form section checks this).
 
 #[cfg(feature = "lie-generated")]
-#[path = "common/bcd.rs"]
-mod bcd_test;
-#[cfg(feature = "lie-generated")]
-#[path = "common/lie.rs"]
-mod lie_test;
+use crate::common::lie as lie_test;
 
 use fusion_symbols::lie::{
     d_odd_central_class, CenterSubgroup, GlobalForm, GroupError, GroupId, RootSystem,
@@ -281,7 +277,7 @@ fn admits_rejects_wrong_length_and_negative_labels() {
 #[cfg(feature = "lie-generated")]
 mod against_bcd {
     use super::*;
-    use crate::bcd_test;
+    use crate::common::bcd as bcd_test;
     use bcd_test::Series;
     use fusion_symbols::lie::{LieError, LieGroup, LieIrrep as Irrep};
 
@@ -472,7 +468,7 @@ fn sweep(r: usize, cap: i64) -> Vec<Vec<i64>> {
 #[cfg(feature = "lie-generated")]
 mod sun_forms {
     use super::*;
-    use crate::lie_test::{self};
+    use crate::common::lie as lie_test;
     use fusion_symbols::category::FusionCategory;
     use fusion_symbols::lie::LieError;
 
@@ -756,7 +752,10 @@ mod cross_form_coefficients {
             let cover = spin.cgc(&cv, &cv, &cc).unwrap();
             let quot = so.cgc(&qv, &qv, &qc).unwrap();
             assert_eq!(cover.dims(), quot.dims());
-            assert_eq!(crate::bcd_test::data(&cover), crate::bcd_test::data(&quot));
+            assert_eq!(
+                crate::common::bcd::data(&cover),
+                crate::common::bcd::data(&quot)
+            );
             let f_cover = spin
                 .f_symbol(&spin.unit(), &cv, &cv, &cc, &cv, &cc)
                 .unwrap();
@@ -770,7 +769,7 @@ mod cross_form_coefficients {
     /// and a second nontrivial one, the decuplet.
     #[test]
     fn su_and_psu_share_coefficient_data() {
-        use crate::lie_test::{self};
+        use crate::common::lie as lie_test;
         use fusion_symbols::category::{FusionCategory, GroupRepresentations};
         use fusion_symbols::lie::LieGroup;
 
@@ -868,7 +867,7 @@ mod cross_form_coefficients {
     /// construction, strictly before any cache is touched.
     #[test]
     fn an_inadmissible_rep_cannot_reach_the_cache_through_the_quotient_api() {
-        use crate::lie_test::{self};
+        use crate::common::lie as lie_test;
         use fusion_symbols::category::GroupRepresentations;
         use fusion_symbols::lie::{LieError, LieGroup};
 
