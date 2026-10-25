@@ -17,6 +17,7 @@
 //! Numerical seams (full SVD, positive-diagonal QR, least squares) route
 //! through [`super::linalg`] (t4a-faer public APIs only).
 
+use super::{add_weight, magnetic_index, weight_sum};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use super::linalg::{self, Mat};
@@ -109,9 +110,18 @@ impl Cgc {
     /// the three irrep weight buffers and value shell. Container scaffolding,
     /// allocator metadata/RSS, and external clones are outside this charge.
     pub(crate) fn storage_bytes(&self) -> usize {
-        self.0.entries.len() * std::mem::size_of::<CgcEntry>()
-            + std::mem::size_of::<CgcData>()
-            + (self.0.s1.rank() + self.0.s2.rank() + self.0.s3.rank()) * std::mem::size_of::<i64>()
+        self.0
+            .entries
+            .len()
+            .saturating_mul(std::mem::size_of::<CgcEntry>())
+            .saturating_add(std::mem::size_of::<CgcData>())
+            .saturating_add(
+                [&self.0.s1, &self.0.s2, &self.0.s3]
+                    .into_iter()
+                    .fold(0usize, |sum, s| {
+                        sum.saturating_add(s.rank().saturating_mul(std::mem::size_of::<i64>()))
+                    }),
+            )
     }
 }
 
@@ -122,26 +132,26 @@ impl Cgc {
 /// The physical weight of a GT pattern, an `N`-tuple. Ported from
 /// `gtpatterns.jl:weight`: component `l` (1-based) is `rowsum(l) - rowsum(l-1)`
 /// with `rowsum(l) = Σ_{k=1..l} m[k, l]` and `rowsum(0) = 0`.
-fn pattern_weight(p: &GtPattern, n: usize) -> Vec<i64> {
-    let rowsum = |l: usize| -> i64 { (1..=l).map(|k| p.get(k, l)).sum() };
-    let mut w = vec![0i64; n];
-    for (l, wl) in w.iter_mut().enumerate() {
-        *wl = rowsum(l + 1);
-    }
-    for l in (2..=n).rev() {
-        w[l - 1] -= w[l - 2];
-    }
-    w
+pub(in crate::lie) fn pattern_weight(p: &GtPattern, n: usize) -> Result<Vec<i64>, SunError> {
+    let mut previous = 0i64;
+    (1..=n)
+        .map(|l| {
+            let sum = (1..=l).try_fold(0i64, |sum, k| add_weight(sum, p.get(k, l)))?;
+            let w = sum.checked_sub(previous).ok_or(SunError::LabelOverflow)?;
+            previous = sum;
+            Ok(w)
+        })
+        .collect()
 }
 
 /// Map from weight tuple to the 0-based basis indices carrying it, over the GT
 /// basis of `s`. Ports `clebschgordan.jl:weightmap`.
-fn weight_map(patterns: &[GtPattern], n: usize) -> HashMap<Vec<i64>, Vec<usize>> {
+fn weight_map(patterns: &[GtPattern], n: usize) -> Result<HashMap<Vec<i64>, Vec<usize>>, SunError> {
     let mut m: HashMap<Vec<i64>, Vec<usize>> = HashMap::new();
     for (i, p) in patterns.iter().enumerate() {
-        m.entry(pattern_weight(p, n)).or_default().push(i);
+        m.entry(pattern_weight(p, n)?).or_default().push(i);
     }
-    m
+    Ok(m)
 }
 
 /// A GT ladder operator in sparse form: `by_col[c]` lists `(row, value)` of
@@ -226,12 +236,16 @@ fn generate(
             b: if s2.rank() != n { s2.rank() } else { s3.rank() },
         });
     }
-    let d1 = s1.patterns().len();
-    let d2 = s2.patterns().len();
-    let d3 = s3.patterns().len();
+    let [d1, d2, d3] = [s1, s2, s3].map(|s| {
+        let d = super::super::checked_dimension(s.dim()).map_err(|_| SunError::LabelOverflow)?;
+        magnetic_index(d - 1)?;
+        Ok(d)
+    });
+    let (d1, d2, d3) = (d1?, d2?, d3?);
     let expected = match expected_override {
         Some(expected) => expected,
-        None => shared_directproduct(s1, s2)?.multiplicity(s3) as usize,
+        None => crate::lie::checked_dimension(shared_directproduct(s1, s2)?.multiplicity(s3))
+            .map_err(|_| SunError::LabelOverflow)?,
     };
 
     // Trivial couplings (clebschgordan.jl:trivial_CGC): 1 ⊗ s → s and s ⊗ 1 → s
@@ -244,29 +258,17 @@ fn generate(
         if s3 != s2 {
             return Err(SunError::NullspaceDimMismatch { expected, found: 1 });
         }
-        return Ok(trivial_cgc(
-            s1.clone(),
-            s2.clone(),
-            s3.clone(),
-            [d1, d2, d3, 1],
-            true,
-        ));
+        return trivial_cgc(s1.clone(), s2.clone(), s3.clone(), [d1, d2, d3, 1], true);
     }
     if is_trivial(s2) {
         if s3 != s1 {
             return Err(SunError::NullspaceDimMismatch { expected, found: 1 });
         }
-        return Ok(trivial_cgc(
-            s1.clone(),
-            s2.clone(),
-            s3.clone(),
-            [d1, d2, d3, 1],
-            false,
-        ));
+        return trivial_cgc(s1.clone(), s2.clone(), s3.clone(), [d1, d2, d3, 1], false);
     }
 
     let mut data: HashMap<(u32, u32, u32, u32), f64> = HashMap::new();
-    let ctx = Ctx::new(s1, s2, s3);
+    let ctx = Ctx::new(s1, s2, s3)?;
     let n123 = highest_weight_cgc(&mut data, &ctx, expected)?;
     lower_weight_cgc(&mut data, &ctx, n123)?;
     purge(&mut data);
@@ -277,32 +279,34 @@ fn generate(
     Ok(cgc)
 }
 
-fn trivial_cgc(s1: Irrep, s2: Irrep, s3: Irrep, dims: [usize; 4], is_left: bool) -> Cgc {
+fn trivial_cgc(
+    s1: Irrep,
+    s2: Irrep,
+    s3: Irrep,
+    dims: [usize; 4],
+    is_left: bool,
+) -> Result<Cgc, SunError> {
     // isleft: 1 ⊗ s → s, CGC[0, m, m, 0] = 1. else s ⊗ 1 → s, CGC[m, 0, m, 0] = 1.
     let d = if is_left { dims[1] } else { dims[0] };
-    let entries = (0..d)
-        .map(|m| {
-            let (m1, m2) = if is_left {
-                (0, m as u32)
-            } else {
-                (m as u32, 0)
-            };
-            CgcEntry {
-                m1,
-                m2,
-                m3: m as u32,
-                mu: 0,
-                value: 1.0,
-            }
-        })
-        .collect();
-    Cgc(std::sync::Arc::new(CgcData {
+    let mut entries = Vec::with_capacity(d);
+    for m in 0..d {
+        let m = magnetic_index(m)?;
+        let (m1, m2) = if is_left { (0, m) } else { (m, 0) };
+        entries.push(CgcEntry {
+            m1,
+            m2,
+            m3: m,
+            mu: 0,
+            value: 1.0,
+        });
+    }
+    Ok(Cgc(std::sync::Arc::new(CgcData {
         s1,
         s2,
         s3,
         dims,
         entries,
-    }))
+    })))
 }
 
 /// Precomputed per-pair data shared by the highest-weight and descent stages.
@@ -323,29 +327,42 @@ struct Ctx {
 }
 
 impl Ctx {
-    fn new(s1: &Irrep, s2: &Irrep, s3: &Irrep) -> Self {
+    fn new(s1: &Irrep, s2: &Irrep, s3: &Irrep) -> Result<Self, SunError> {
         let n = s1.rank();
         let pats1 = s1.patterns();
         let pats2 = s2.patterns();
         let pats3 = s3.patterns();
-        let sum: fn(&Irrep) -> i64 = |s| s.weight().iter().sum();
-        let wshift = (sum(s1) + sum(s2) - sum(s3)) / n as i64;
-        Ctx {
+        let wshift = coupling_shift(s1.weight(), s2.weight(), s3.weight(), n)?;
+        Ok(Ctx {
             n,
             d3: pats3.len(),
-            creation1: build_ops(s1.creation()),
-            creation2: build_ops(s2.creation()),
-            annih1: build_ops(s1.annihilation()),
-            annih2: build_ops(s2.annihilation()),
-            annih3: build_ops(s3.annihilation()),
-            map1: weight_map(&pats1, n),
-            map2: weight_map(&pats2, n),
-            map3: weight_map(&pats3, n),
+            creation1: build_ops(s1.try_creation()?),
+            creation2: build_ops(s2.try_creation()?),
+            annih1: build_ops(s1.try_annihilation()?),
+            annih2: build_ops(s2.try_annihilation()?),
+            annih3: build_ops(s3.try_annihilation()?),
+            map1: weight_map(&pats1, n)?,
+            map2: weight_map(&pats2, n)?,
+            map3: weight_map(&pats3, n)?,
             w3_top: s3.weight().to_vec(),
             pats1,
             wshift,
-        }
+        })
     }
+}
+
+fn coupling_shift(a: &[i64], b: &[i64], c: &[i64], n: usize) -> Result<i64, SunError> {
+    add_weight(weight_sum(a)?, weight_sum(b)?)?
+        .checked_sub(weight_sum(c)?)
+        .and_then(|w| w.checked_div(i64::try_from(n).ok()?))
+        .ok_or(SunError::LabelOverflow)
+}
+fn matching_weight(total: &[i64], first: &[i64], shift: i64) -> Result<Vec<i64>, SunError> {
+    total
+        .iter()
+        .zip(first)
+        .map(|(&a, &b)| add_weight(a.checked_sub(b).ok_or(SunError::LabelOverflow)?, shift))
+        .collect()
 }
 
 const EMPTY: &[usize] = &[];
@@ -372,9 +389,9 @@ fn highest_weight_cgc(
     let mut rowset: BTreeSet<(usize, usize, usize)> = BTreeSet::new();
 
     for (m1, pat1) in ctx.pats1.iter().enumerate() {
-        let w1 = pattern_weight(pat1, n);
+        let w1 = pattern_weight(pat1, n)?;
         // w2 = w3_top - w1 + wshift  (componentwise, wshift a scalar broadcast).
-        let w2: Vec<i64> = (0..n).map(|c| ctx.w3_top[c] - w1[c] + ctx.wshift).collect();
+        let w2 = matching_weight(&ctx.w3_top, &w1, ctx.wshift)?;
         for &m2 in get_indices(&ctx.map2, &w2) {
             let col = cols.len();
             cols.push((m1, m2));
@@ -404,7 +421,7 @@ fn highest_weight_cgc(
     let rows: Vec<(usize, usize, usize)> = rowset.into_iter().collect();
     let row_index: HashMap<(usize, usize, usize), usize> =
         rows.iter().enumerate().map(|(i, &k)| (k, i)).collect();
-    let mut eqs = Mat::zeros(rows.len(), ncols);
+    let mut eqs = Mat::try_zeros(rows.len(), ncols)?;
     for (rk, col, v) in acc {
         eqs.add(row_index[&rk], col, v);
     }
@@ -422,13 +439,18 @@ fn highest_weight_cgc(
     let fixed = gaugefix(solutions)?; // n_cols x N123
 
     // Scatter into CGC at m3 = highest-weight pattern of s3 = last basis index.
-    let m3_top = (ctx.d3 - 1) as u32;
+    let m3_top = magnetic_index(ctx.d3 - 1)?;
     for alpha in 0..n123 {
         for (i, &(m1, m2)) in cols.iter().enumerate() {
             let v = fixed.at(i, alpha);
             if v != 0.0 {
                 *data
-                    .entry((m1 as u32, m2 as u32, m3_top, alpha as u32))
+                    .entry((
+                        magnetic_index(m1)?,
+                        magnetic_index(m2)?,
+                        m3_top,
+                        magnetic_index(alpha)?,
+                    ))
                     .or_insert(0.0) += v;
             }
         }
@@ -542,13 +564,14 @@ fn lower_weight_cgc(
             let mut parent_blocks: Vec<(usize, Vec<usize>)> = Vec::new();
             let mut imax = 0usize;
             for l in 0..n - 1 {
-                let w3p = raise(w3, l);
+                let w3p = raise(w3, l)?;
                 let list = get_indices(&ctx.map3, &w3p).to_vec();
-                imax += list.len();
+                imax = crate::lie::checked_count(imax, list.len())
+                    .map_err(|_| SunError::LabelOverflow)?;
                 parent_blocks.push((l, list));
             }
 
-            let mut eqs = Mat::zeros(imax, jmax);
+            let mut eqs = Mat::try_zeros(imax, jmax)?;
             // RHS over the unique (m1, m2) columns encountered.
             let mut mask_index: HashMap<(usize, usize), usize> = HashMap::new();
             let mut rhs_acc: Vec<(usize, (usize, usize), f64)> = Vec::new();
@@ -556,7 +579,7 @@ fn lower_weight_cgc(
             let mut i = 0usize;
             for (l, m3plist) in &parent_blocks {
                 let l = *l;
-                let w3p = raise(w3, l);
+                let w3p = raise(w3, l)?;
                 for &m3p in m3plist {
                     // eqs[i, j] = Jm3[m3, m3']  (annihilation3[l], element (m3, m3')).
                     for (j, &m3) in m3list.iter().enumerate() {
@@ -567,7 +590,7 @@ fn lower_weight_cgc(
                     // RHS: (Jm1 ⊗ I + I ⊗ Jm2) acting on parent CGC[m1',m2',m3',α].
                     for &w1p in &w1list {
                         let m1plist = &ctx.map1[w1p];
-                        let w2p: Vec<i64> = (0..n).map(|c| w3p[c] - w1p[c] + ctx.wshift).collect();
+                        let w2p = matching_weight(&w3p, w1p, ctx.wshift)?;
                         let m2plist = get_indices(&ctx.map2, &w2p);
                         if m2plist.is_empty() {
                             continue;
@@ -575,13 +598,18 @@ fn lower_weight_cgc(
                         for &m2p in m2plist {
                             for &m1p in m1plist {
                                 let cgc_coeff = *data
-                                    .get(&(m1p as u32, m2p as u32, m3p as u32, alpha as u32))
+                                    .get(&(
+                                        magnetic_index(m1p)?,
+                                        magnetic_index(m2p)?,
+                                        magnetic_index(m3p)?,
+                                        magnetic_index(alpha)?,
+                                    ))
                                     .unwrap_or(&0.0);
                                 if cgc_coeff == 0.0 {
                                     continue;
                                 }
                                 // Apply Jm1: lower m1' at level l -> m1.
-                                let w1 = lower(w1p, l);
+                                let w1 = lower(w1p, l)?;
                                 for &m1 in get_indices(&ctx.map1, &w1) {
                                     if let Some(&jm1) = ctx.annih1[l].elem.get(&(m1, m1p)) {
                                         push_rhs(
@@ -594,7 +622,7 @@ fn lower_weight_cgc(
                                     }
                                 }
                                 // Apply Jm2: lower m2' at level l -> m2.
-                                let w2 = lower(&w2p, l);
+                                let w2 = lower(&w2p, l)?;
                                 for &m2 in get_indices(&ctx.map2, &w2) {
                                     if let Some(&jm2) = ctx.annih2[l].elem.get(&(m2, m2p)) {
                                         push_rhs(
@@ -622,7 +650,7 @@ fn lower_weight_cgc(
             for (&pair, &c) in &mask_index {
                 mask[c] = pair;
             }
-            let mut rhs = Mat::zeros(imax, nmask);
+            let mut rhs = Mat::try_zeros(imax, nmask)?;
             for (row, pair, val) in rhs_acc {
                 rhs.add(row, mask_index[&pair], val);
             }
@@ -634,7 +662,12 @@ fn lower_weight_cgc(
                     let v = sols.at(j, c);
                     if v != 0.0 {
                         *data
-                            .entry((m1 as u32, m2 as u32, m3 as u32, alpha as u32))
+                            .entry((
+                                magnetic_index(m1)?,
+                                magnetic_index(m2)?,
+                                magnetic_index(m3)?,
+                                magnetic_index(alpha)?,
+                            ))
                             .or_insert(0.0) += v;
                     }
                 }
@@ -658,19 +691,19 @@ fn push_rhs(
 
 /// Raise weight component `l` by 1 and `l+1` by -1 (0-based `l`). Ports the
 /// `Base.setindex(w, w[l]+1, l); setindex(_, w[l+1]-1, l+1)` parent step.
-fn raise(w: &[i64], l: usize) -> Vec<i64> {
+fn raise(w: &[i64], l: usize) -> Result<Vec<i64>, SunError> {
     let mut v = w.to_vec();
-    v[l] += 1;
-    v[l + 1] -= 1;
-    v
+    v[l] = add_weight(v[l], 1)?;
+    v[l + 1] = add_weight(v[l + 1], -1)?;
+    Ok(v)
 }
 
 /// Lower weight component `l` by 1 and `l+1` by +1 (0-based `l`).
-fn lower(w: &[i64], l: usize) -> Vec<i64> {
+fn lower(w: &[i64], l: usize) -> Result<Vec<i64>, SunError> {
     let mut v = w.to_vec();
-    v[l] -= 1;
-    v[l + 1] += 1;
-    v
+    v[l] = add_weight(v[l], -1)?;
+    v[l + 1] = add_weight(v[l + 1], 1)?;
+    Ok(v)
 }
 
 // ---------------------------------------------------------------------------
@@ -763,17 +796,23 @@ fn check_ladder(cgc: &Cgc, ctx: &Ctx) -> Result<(), SunError> {
         return Ok(());
     }
     let l = 0usize;
-    let m3p = (ctx.d3 - 1) as u32; // highest-weight pattern of s3
+    let m3p = magnetic_index(ctx.d3 - 1)?; // highest-weight pattern of s3
     let n123 = cgc.multiplicity();
     // Index CGC for random access.
     let mut idx: HashMap<(u32, u32, u32, u32), f64> = HashMap::new();
     for e in cgc.entries() {
         idx.insert((e.m1, e.m2, e.m3, e.mu), e.value);
     }
-    let get = |m1: usize, m2: usize, m3: usize, a: usize| -> f64 {
-        idx.get(&(m1 as u32, m2 as u32, m3 as u32, a as u32))
+    let get = |m1: usize, m2: usize, m3: usize, a: usize| -> Result<f64, SunError> {
+        Ok(idx
+            .get(&(
+                magnetic_index(m1)?,
+                magnetic_index(m2)?,
+                magnetic_index(m3)?,
+                magnetic_index(a)?,
+            ))
             .copied()
-            .unwrap_or(0.0)
+            .unwrap_or(0.0))
     };
 
     let mut worst = 0.0f64;
@@ -782,10 +821,13 @@ fn check_ladder(cgc: &Cgc, ctx: &Ctx) -> Result<(), SunError> {
         let mut lhs: HashMap<(usize, usize), f64> = HashMap::new();
         // parent (m1',m2') states carrying nonzero CGC at m3'.
         for e in cgc.entries() {
-            if e.m3 != m3p || e.mu as usize != alpha {
+            if e.m3 != m3p || usize::try_from(e.mu).map_err(|_| SunError::LabelOverflow)? != alpha {
                 continue;
             }
-            let (m1p, m2p) = (e.m1 as usize, e.m2 as usize);
+            let (m1p, m2p) = (
+                usize::try_from(e.m1).map_err(|_| SunError::LabelOverflow)?,
+                usize::try_from(e.m2).map_err(|_| SunError::LabelOverflow)?,
+            );
             let coeff = e.value;
             // Jm1 lowers m1'
             if let Some(col) = ctx.annih1[l].by_col.get(&m1p) {
@@ -802,15 +844,28 @@ fn check_ladder(cgc: &Cgc, ctx: &Ctx) -> Result<(), SunError> {
         }
         // RHS[(m1,m2)] = Σ_m3 C[m1,m2,m3,α] Jm3[m3, m3'].
         let mut rhs: HashMap<(usize, usize), f64> = HashMap::new();
-        if let Some(col) = ctx.annih3[l].by_col.get(&(m3p as usize)) {
+        if let Some(col) = ctx.annih3[l]
+            .by_col
+            .get(&(usize::try_from(m3p).map_err(|_| SunError::LabelOverflow)?))
+        {
             for &(m3, jm3) in col {
                 // m3 is a child (lower) state; find CGC entries at that m3.
                 for e in cgc.entries() {
-                    if e.m3 as usize != m3 || e.mu as usize != alpha {
+                    if usize::try_from(e.m3).map_err(|_| SunError::LabelOverflow)? != m3
+                        || usize::try_from(e.mu).map_err(|_| SunError::LabelOverflow)? != alpha
+                    {
                         continue;
                     }
-                    *rhs.entry((e.m1 as usize, e.m2 as usize)).or_insert(0.0) +=
-                        get(e.m1 as usize, e.m2 as usize, m3, alpha) * jm3;
+                    *rhs.entry((
+                        usize::try_from(e.m1).map_err(|_| SunError::LabelOverflow)?,
+                        usize::try_from(e.m2).map_err(|_| SunError::LabelOverflow)?,
+                    ))
+                    .or_insert(0.0) += get(
+                        usize::try_from(e.m1).map_err(|_| SunError::LabelOverflow)?,
+                        usize::try_from(e.m2).map_err(|_| SunError::LabelOverflow)?,
+                        m3,
+                        alpha,
+                    )? * jm3;
                 }
             }
         }
@@ -949,5 +1004,50 @@ mod tests {
                 found: 1
             }
         );
+    }
+}
+
+#[cfg(test)]
+mod arithmetic_tests {
+    use super::*;
+
+    #[test]
+    fn coupling_weight_bounds() {
+        assert_eq!(
+            coupling_shift(&[i64::MAX], &[1], &[0], 1),
+            Err(SunError::LabelOverflow)
+        );
+        assert_eq!(
+            coupling_shift(&[i64::MIN], &[0], &[1], 1),
+            Err(SunError::LabelOverflow)
+        );
+        #[cfg(target_pointer_width = "64")]
+        assert_eq!(
+            coupling_shift(&[0], &[0], &[0], i64::MAX as usize + 1),
+            Err(SunError::LabelOverflow)
+        );
+        assert_eq!(
+            matching_weight(&[i64::MAX], &[0], 1),
+            Err(SunError::LabelOverflow)
+        );
+        assert_eq!(
+            matching_weight(&[i64::MIN], &[1], 0),
+            Err(SunError::LabelOverflow)
+        );
+        assert_eq!(raise(&[i64::MAX, 0], 0), Err(SunError::LabelOverflow));
+        assert_eq!(raise(&[0, i64::MIN], 0), Err(SunError::LabelOverflow));
+        assert_eq!(lower(&[i64::MIN, 0], 0), Err(SunError::LabelOverflow));
+        assert_eq!(lower(&[0, i64::MAX], 0), Err(SunError::LabelOverflow));
+        // Row-sum overflow is rejected even if the final difference would fit.
+        let p = GtPattern {
+            n: 2,
+            data: vec![i64::MAX, i64::MAX, i64::MAX].into_boxed_slice(),
+        };
+        assert_eq!(pattern_weight(&p, 2), Err(SunError::LabelOverflow));
+        let p = GtPattern {
+            n: 2,
+            data: vec![i64::MAX, i64::MAX, 0].into_boxed_slice(),
+        };
+        assert_eq!(pattern_weight(&p, 2), Err(SunError::LabelOverflow));
     }
 }

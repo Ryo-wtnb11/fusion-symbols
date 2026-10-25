@@ -78,6 +78,8 @@ const EPS_MW_UNIQUE: f64 = 1e-8;
 /// Not `Eq`: several variants carry an `f64` residual for diagnostics.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SweepError {
+    /// Integer arithmetic or narrowing exceeded its range.
+    LabelOverflow,
     /// QSpace `if (!nz || np>nz) ERR` and `if (np!=r || nz!=r) ERR`
     /// (`clebsch_aux.cc:85,90`): the generator sets are empty or their counts
     /// disagree with each other or with the rank.
@@ -192,6 +194,10 @@ pub enum SweepError {
 impl std::fmt::Display for SweepError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            SweepError::LabelOverflow => write!(
+                f,
+                "a label, weight, dimension or multiplicity exceeds the integer range"
+            ),
             SweepError::InvalidGeneratorCounts { np, nz, rank } => {
                 write!(f, "invalid generator counts: np={np}, nz={nz}, rank={rank}")
             }
@@ -401,7 +407,8 @@ impl Generators {
             dim: d,
             sp,
             sz,
-            weight_denom: *s.denom() as u32,
+            weight_denom: u32::try_from(*s.denom())
+                .expect("seed Cartan denominators are exactly 1 or 2"),
         }
     }
 
@@ -438,7 +445,8 @@ impl Generators {
         }
         let r = a.rank;
         let (da, db) = (a.dim, b.dim);
-        let d = da * db;
+        let d = product_dimension(da, db)?;
+        crate::lie::checked_size([d, d]).map_err(|_| SweepError::LabelOverflow)?;
         // combined(m_a, m_b) = m_a + d_a * m_b   (factor a fast).
         let comb = |ma: usize, mb: usize| ma + da * mb;
 
@@ -621,9 +629,10 @@ pub fn decompose(
 
     // Production gate: both-direction multiplicity check.
     let found: BTreeMap<Irrep, u32> = {
-        let mut m = BTreeMap::new();
+        let mut m: BTreeMap<Irrep, u32> = BTreeMap::new();
         for b in &blocks {
-            *m.entry(b.irrep.clone()).or_insert(0) += 1;
+            let n = m.entry(b.irrep.clone()).or_insert(0);
+            *n = sweep_multiplicity(*n, 1)?;
         }
         m
     };
@@ -769,14 +778,14 @@ fn get_symmetry_states(g: &Generators) -> Result<Vec<Block>, SweepError> {
                 project_out(&vblock, &mut vi)?;
                 project_out(&level, &mut vi)?;
                 vi = qr_positive_q(&vi, CG_EPS1)?;
-                level.cat_cols(&vi);
+                level.try_cat_cols(&vi)?;
                 if level.cols > d {
                     return Err(SweepError::SpaceOutOfBounds);
                 }
                 any = true;
             }
             if any {
-                vblock.cat_cols(&level);
+                vblock.try_cat_cols(&level)?;
                 if vblock.cols > d {
                     return Err(SweepError::SpaceOutOfBounds);
                 }
@@ -787,7 +796,7 @@ fn get_symmetry_states(g: &Generators) -> Result<Vec<Block>, SweepError> {
         }
 
         // ---- accumulate: U ← [U, V] ---------------------------------------
-        u.cat_cols(&vblock);
+        u.try_cat_cols(&vblock)?;
         if u.cols > d {
             return Err(SweepError::SpaceOutOfBounds);
         }
@@ -833,7 +842,7 @@ fn get_symmetry_states(g: &Generators) -> Result<Vec<Block>, SweepError> {
             rsp.push(tmatmul(&v, &spv)?);
         }
         let mut rsz_diag: Vec<Vec<f64>> = Vec::with_capacity(nz);
-        let mut zmat = Dense::zeros(d0, nz);
+        let mut zmat = Dense::try_zeros(d0, nz)?;
         for (j, szj) in g.sz.iter().enumerate() {
             let mut szv = v.clone();
             apply_diag(szj, &mut szv);
@@ -960,8 +969,13 @@ fn find_max_weight(
     // discovers spinor labels, which are representations of `Spin(N)` and not
     // of the published `SO(N)`. Nothing else changes — a product of
     // tensor irreps only ever discovers tensor labels.
-    let irrep = Irrep::from_dynkin_in(&series.cover_group(r), &dynkin)
-        .map_err(|_| SweepError::InvalidDiscoveredLabel { dynkin })?;
+    let irrep = Irrep::from_dynkin_in(&series.cover_group(r), &dynkin).map_err(|e| {
+        if e == super::BcdError::LabelOverflow {
+            SweepError::LabelOverflow
+        } else {
+            SweepError::InvalidDiscoveredLabel { dynkin }
+        }
+    })?;
     Ok((irrep, perm))
 }
 
@@ -1001,7 +1015,7 @@ fn to_dynkin(series: Series, r: usize, qm: &[f64], block: usize) -> Result<Vec<i
         if (x - q).abs() > FIXRATIONAL_TOL {
             return Err(SweepError::NonIntegerWeight { block, value: x });
         }
-        Ok(q as i64)
+        rounded_weight(q)
     };
     let mut q = qm.to_vec();
     match series {
@@ -1070,6 +1084,17 @@ fn range_sign_convention(d: &mut [f64]) {
             *x = -*x;
         }
     }
+}
+
+fn sweep_multiplicity(a: u32, b: u32) -> Result<u32, SweepError> {
+    a.checked_add(b).ok_or(SweepError::LabelOverflow)
+}
+fn product_dimension(a: usize, b: usize) -> Result<usize, SweepError> {
+    a.checked_mul(b).ok_or(SweepError::LabelOverflow)
+}
+pub(super) fn rounded_weight(value: f64) -> Result<i64, SweepError> {
+    use num_traits::ToPrimitive;
+    value.to_i64().ok_or(SweepError::LabelOverflow)
 }
 
 // ---- outer-multiplicity harvest (clebsch_aux.cc:331-345) -------------------
@@ -1471,12 +1496,14 @@ fn intertwiner(block: &Generators, canonical: &Generators) -> Result<Dense, Swee
     if block.dim != d || block.rank != r || nz == 0 {
         return Ok(w);
     }
-    let weight = |g: &Generators, s: usize| -> Vec<i64> {
-        (0..nz).map(|j| g.sz[j][s].round() as i64).collect()
+    let weight = |g: &Generators, s: usize| -> Result<Vec<i64>, SweepError> {
+        (0..nz)
+            .map(|j| rounded_weight(g.sz[j][s].round()))
+            .collect()
     };
     // A shared weight partition is a precondition; a mismatch is not a rotation.
     for s in 0..d {
-        if weight(block, s) != weight(canonical, s) {
+        if weight(block, s)? != weight(canonical, s)? {
             return Ok(w);
         }
     }
@@ -1489,7 +1516,7 @@ fn intertwiner(block: &Generators, canonical: &Generators) -> Result<Dense, Swee
     // a range loop is clearer than zipping them.
     #[allow(clippy::needless_range_loop)]
     for s in 0..d {
-        let key = weight(canonical, s);
+        let key = weight(canonical, s)?;
         let idx = *space_of.entry(key).or_insert_with(|| {
             spaces.push(Vec::new());
             spaces.len() - 1
@@ -1539,9 +1566,10 @@ fn intertwiner(block: &Generators, canonical: &Generators) -> Result<Dense, Swee
                 }
             }
             let c = matmul(&a, &ws)?;
+            cols = crate::lie::checked_count(cols, n_s).map_err(|_| SweepError::LabelOverflow)?;
+            crate::lie::checked_size([n_t, cols]).map_err(|_| SweepError::LabelOverflow)?;
             c_cols.extend_from_slice(&c.data);
             b_cols.extend_from_slice(&bmat.data);
-            cols += n_s;
         }
         let wblock = if cols == 0 {
             // Highest-weight space (no solved source): +1 fixes the global sign.
@@ -1573,3 +1601,32 @@ fn intertwiner(block: &Generators, canonical: &Generators) -> Result<Dense, Swee
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod arithmetic_tests {
+    use super::*;
+    #[test]
+    fn product_and_weight_bounds() {
+        assert_eq!(
+            sweep_multiplicity(u32::MAX, 1),
+            Err(SweepError::LabelOverflow)
+        );
+        assert_eq!(
+            product_dimension(usize::MAX, 2),
+            Err(SweepError::LabelOverflow)
+        );
+        assert_eq!(
+            rounded_weight(2.0f64.powi(63)),
+            Err(SweepError::LabelOverflow)
+        );
+        assert_eq!(
+            rounded_weight(f64::NEG_INFINITY),
+            Err(SweepError::LabelOverflow)
+        );
+        assert_eq!(rounded_weight(f64::NAN), Err(SweepError::LabelOverflow));
+        assert_eq!(
+            to_dynkin(Series::C, 2, &[0.0, 2.0f64.powi(65)], 0),
+            Err(SweepError::LabelOverflow)
+        );
+    }
+}

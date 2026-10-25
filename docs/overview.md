@@ -68,13 +68,19 @@ hashing represent mathematical identity, independently of fingerprints.
 
 - `fusion` yields distinct outcomes in deterministic order; `nsymbol` gives
   the exact `u32` multiplicity, including zero. `try_nsymbol` reports
-  unrepresentable multiplicities as errors where supported.
+  unrepresentable multiplicities as errors where supported. On `LieGroup`, it
+  also propagates generated fusion arithmetic and generation failures;
+  infallible `nsymbol` panics with a clear diagnostic for those failures.
 - Inadmissible F/R vertices give zero symbols. Logical axes come from N;
   scalar storage still has all-one axes. Lie blocks have zero axes for absent
   channels. See [symbol layout](user-guide/README.md#symbol-layout).
 - Lie constructors distinguish invalid labels, excluded global-form weights,
   label overflow and unsupported capabilities. Generated failures are opaque
   `LieError::Generation` diagnostics with an error source.
+- Lie fusion and fallible N/F/R/A/B/CGC paths report `LieError::LabelOverflow`
+  when a label, weight, dimension or multiplicity exceeds its integer range.
+  Infallible weight-multiplicity queries panic on such failures. Dimension and
+  phase formulas use exact or parity arithmetic without fixed-width overflow.
 - U(1), CU(1) and rank-one Lie fusion report label overflow. `ZN` and parity
   category errors are `Infallible`; their constructors still validate labels.
   `ZNIrrep::new` reduces charges, whereas `from_canonical` rejects them outside

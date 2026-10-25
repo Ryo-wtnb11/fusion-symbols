@@ -39,6 +39,9 @@ struct SunFamily;
 impl Family for SunFamily {
     type Irrep = Irrep;
     type Error = SunError;
+    fn overflow() -> SunError {
+        SunError::LabelOverflow
+    }
 
     fn mult(&mut self, a: &Irrep, b: &Irrep, c: &Irrep) -> Result<usize, SunError> {
         mult(a, b, c)
@@ -74,7 +77,8 @@ fn mult(a: &Irrep, b: &Irrep, c: &Irrep) -> Result<usize, SunError> {
             b: c.rank(),
         });
     }
-    Ok(shared_directproduct(a, b)?.multiplicity(c) as usize)
+    crate::lie::checked_dimension(shared_directproduct(a, b)?.multiplicity(c))
+        .map_err(|_| SunError::LabelOverflow)
 }
 
 /// All labels of an F/R request share one rank, or [`SunError::RankMismatch`].

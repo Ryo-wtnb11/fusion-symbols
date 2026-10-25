@@ -152,6 +152,36 @@ impl Seed {
 /// The exact defining-rep generator seed for `series` at rank `r`.
 ///
 /// Ports the sparse `Sp`/`Sz` seed matrices entry-for-entry from QSpace's
+fn seed_dimension(series: Series, rank: usize) -> Result<usize, BcdError> {
+    let d = rank
+        .checked_mul(2)
+        .and_then(|d| d.checked_add(usize::from(series == Series::B)))
+        .ok_or(BcdError::LabelOverflow)?;
+    crate::lie::checked_size([rank, d]).map_err(|_| BcdError::LabelOverflow)?;
+    crate::lie::checked_size([d, d]).map_err(|_| BcdError::LabelOverflow)?;
+    i64::try_from(rank).map_err(|_| BcdError::LabelOverflow)?;
+    Ok(d)
+}
+fn fock_dimension(rank: usize) -> Result<usize, BcdError> {
+    let total = u32::try_from(rank)
+        .ok()
+        .and_then(|r| 1usize.checked_shl(r))
+        .ok_or(BcdError::LabelOverflow)?;
+    crate::lie::checked_size([total]).map_err(|_| BcdError::LabelOverflow)?;
+    Ok(total)
+}
+
+fn spinor_dimension(series: Series, rank: usize) -> Result<usize, BcdError> {
+    let total = fock_dimension(rank)?;
+    let d = if series == Series::D {
+        total / 2
+    } else {
+        total
+    };
+    crate::lie::checked_size([d, d]).map_err(|_| BcdError::LabelOverflow)?;
+    Ok(d)
+}
+
 /// `Setup_SpN`/`Setup_SON`/`Setup_SEN` (@ `dd2cc7e`). The defining irrep is the
 /// vector (`B`, `D`) / fundamental (`C`) label `(1,0,…,0)`; its dimension is
 /// `2r` (`C`, `D`) or `2r+1` (`B`).
@@ -187,10 +217,11 @@ pub fn defining_seed(series: Series, r: usize) -> Result<Seed, BcdError> {
             redirect: series.low_rank_redirect(GlobalForm::SimplyConnected),
         });
     }
+    let d = seed_dimension(series, r)?;
     let seed = match series {
-        Series::C => setup_spn(r),
-        Series::B => setup_son(r),
-        Series::D => setup_sen(r),
+        Series::C => setup_spn(r, d),
+        Series::B => setup_son(r, d),
+        Series::D => setup_sen(r, d),
     };
     Ok(seed)
 }
@@ -201,15 +232,14 @@ pub fn defining_seed(series: Series, r: usize) -> Result<Seed, BcdError> {
 /// long-root ladder entry for `i=r`. The Cartan diagonals are the QSpace
 /// integer construction: upper half `Z[i]=-i, Z[0..i-1]=1` (`i<r`) or all `1`
 /// (`i=r`), lower half the negated mirror `Z[r+j] = -Z[r-1-j]`.
-fn setup_spn(r: usize) -> Seed {
-    let d = 2 * r;
+fn setup_spn(r: usize, d: usize) -> Seed {
     let mut sp = Vec::with_capacity(r);
     let mut sz = Vec::with_capacity(r);
     // C++ loop `for (i=1; i<=r; i++)`; index into Sp/Sz is `i-1`.
     for i in 1..=r {
         let mut z = vec![0i64; d];
         let p: Vec<(usize, usize, i64)> = if i < r {
-            z[i] = -(i as i64); // C++: Z[i]=-int(i) (i is 1-based, used as 0-based index)
+            z[i] = -i64::try_from(i).expect("seed rank was checked to fit i64 before allocation"); // C++: Z[i]=-int(i) (i is 1-based, used as 0-based index)
             z[..i].fill(1); // C++: for (j=0;j<i;++j) Z[j]=1
             vec![(i - 1, i, 1), (2 * r - i - 1, 2 * r - i, 1)]
         } else {
@@ -240,8 +270,7 @@ fn setup_spn(r: usize) -> Seed {
 /// `2×2` weight pairs `Z[i2]=1, Z[i2+1]=-1` (`i2 = 2(i-1)`); paired ladder
 /// entries for `i<r`; the short-root ladder touching the zero-weight state
 /// (index `D-1`) for `i=r`.
-fn setup_son(r: usize) -> Seed {
-    let d = 2 * r + 1;
+fn setup_son(r: usize, d: usize) -> Seed {
     let mut sp = Vec::with_capacity(r);
     let mut sz = Vec::with_capacity(r);
     for i in 1..=r {
@@ -273,8 +302,7 @@ fn setup_son(r: usize) -> Seed {
 /// Same `2×2` weight pairs and interior ladder as `SON`, but the `i=r` node is
 /// the D-series **fork**: fixed entries `(2,1)` and `(0,3)` (independent of `r`),
 /// attaching the last simple root away from the tail of the chain.
-fn setup_sen(r: usize) -> Seed {
-    let d = 2 * r;
+fn setup_sen(r: usize, d: usize) -> Seed {
     let mut sp = Vec::with_capacity(r);
     let mut sz = Vec::with_capacity(r);
     for i in 1..=r {
@@ -353,6 +381,9 @@ pub fn spinor_seeds(series: Series, r: usize) -> Result<Vec<(Vec<i64>, Seed)>, B
             redirect: series.low_rank_redirect(GlobalForm::SimplyConnected),
         });
     }
+    if series != Series::C {
+        spinor_dimension(series, r)?;
+    }
     let mut out = match series {
         Series::C => Vec::new(),
         Series::B => vec![fock_seed(Series::B, r, None)],
@@ -398,7 +429,9 @@ fn fock_seed(series: Series, r: usize, sector: Option<u32>) -> (Vec<i64>, Seed) 
     // (λ_1, …, λ_r) = (n_1, …, n_r), which is descending in the bit-reversed
     // occupation string. A spinor's weights are non-degenerate, so there are no
     // ties and the tie-break rule never fires.
-    let mut states: Vec<usize> = (0..1usize << r)
+    let total = fock_dimension(r)
+        .expect("spinor_seeds checked the Fock dimension before calling fock_seed");
+    let mut states: Vec<usize> = (0..total)
         .filter(|m| sector.is_none_or(|p| m.count_ones() % 2 == p))
         .collect();
     let rev_key = |m: &usize| -> std::cmp::Reverse<Vec<u8>> {
@@ -406,7 +439,7 @@ fn fock_seed(series: Series, r: usize, sector: Option<u32>) -> (Vec<i64>, Seed) 
     };
     states.sort_by_key(rev_key);
     let d = states.len();
-    let mut pos = vec![usize::MAX; 1usize << r];
+    let mut pos = vec![usize::MAX; total];
     for (p, &m) in states.iter().enumerate() {
         pos[m] = p;
     }
@@ -690,3 +723,27 @@ fn fro_diag(u: &[i64], v: &[i64]) -> i64 {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod arithmetic_tests {
+    use super::*;
+    #[test]
+    fn seed_dimension_bounds() {
+        assert_eq!(
+            seed_dimension(Series::C, usize::MAX / 2 + 1),
+            Err(BcdError::LabelOverflow)
+        );
+        assert_eq!(
+            seed_dimension(Series::B, usize::MAX / 2),
+            Err(BcdError::LabelOverflow)
+        );
+        assert_eq!(
+            fock_dimension(usize::BITS as usize),
+            Err(BcdError::LabelOverflow)
+        );
+        assert_eq!(
+            spinor_dimension(Series::B, usize::BITS as usize / 2 - 2),
+            Err(BcdError::LabelOverflow)
+        );
+    }
+}

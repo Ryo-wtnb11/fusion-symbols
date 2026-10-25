@@ -914,7 +914,12 @@ impl A1Irrep {
         let lo = self.0.abs_diff(other.0);
         // lo and hi always share parity (both congruent to dj1+dj2 mod 2), so
         // the half-open count is exact and the last step lands on hi.
-        let remaining = ((hi - lo) / 2) as usize + 1;
+        let remaining = super::checked_dimension((hi - lo) / 2)
+            .and_then(|n| super::checked_count(n, 1))
+            .map_err(|_| Su2Error::LabelOverflow {
+                left: self.0,
+                right: other.0,
+            })?;
         Ok(A1Fusion {
             front: lo,
             back: hi,

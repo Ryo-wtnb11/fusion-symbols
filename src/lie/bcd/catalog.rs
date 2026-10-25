@@ -259,7 +259,10 @@ impl CatalogCgc {
     /// ([`crate::cache::cache_bcd_cgc`]): the dense coefficient buffer plus a
     /// fixed shell. Mirrors [`crate::lie::sun::Cgc::storage_bytes`].
     pub(crate) fn storage_bytes(&self) -> usize {
-        self.cols.len() * std::mem::size_of::<f64>() + std::mem::size_of::<Self>()
+        self.cols
+            .len()
+            .saturating_mul(std::mem::size_of::<f64>())
+            .saturating_add(std::mem::size_of::<Self>())
     }
 }
 
@@ -440,8 +443,16 @@ impl CanonicalCatalog {
         self.ensure(s2)?;
         self.ensure(s3)?;
 
-        let g1 = self.store.get(s1).expect("ensured").clone();
-        let g2 = self.store.get(s2).expect("ensured").clone();
+        let g1 = self
+            .store
+            .get(s1)
+            .expect("ensure succeeded for this irrep without an intervening reset")
+            .clone();
+        let g2 = self
+            .store
+            .get(s2)
+            .expect("ensure succeeded for this irrep without an intervening reset")
+            .clone();
         let product = Generators::product(&g1, &g2)?;
         let decomp = decompose(&product, &expected)?;
 
@@ -477,8 +488,16 @@ impl CanonicalCatalog {
         self.ensure(s2)?;
 
         let expected = directproduct(s1, s2)?;
-        let g1 = self.store.get(s1).expect("ensured").clone();
-        let g2 = self.store.get(s2).expect("ensured").clone();
+        let g1 = self
+            .store
+            .get(s1)
+            .expect("ensure succeeded for this irrep without an intervening reset")
+            .clone();
+        let g2 = self
+            .store
+            .get(s2)
+            .expect("ensure succeeded for this irrep without an intervening reset")
+            .clone();
         let product = Generators::product(&g1, &g2)?;
         let decomp = decompose(&product, &expected)?;
 
@@ -523,11 +542,16 @@ impl CanonicalCatalog {
         s3: &Irrep,
         copies: &[&Block],
     ) -> Result<CatalogCgc, CatalogError> {
-        let stored = self.store.get(s3).expect("caller ensured s3");
+        let stored = self
+            .store
+            .get(s3)
+            .expect("callers ensure s3 before assembling its CGC");
         let (rows, d3) = copies[0].cgc_shape();
-        let mut cols = Vec::with_capacity(rows * d3 * copies.len());
+        let len = crate::lie::checked_size([rows, d3, copies.len()])
+            .map_err(|_| BcdError::LabelOverflow)?;
+        let mut cols = Vec::with_capacity(len);
         for b in copies {
-            debug_assert_cartan_matches(b, stored);
+            debug_assert_cartan_matches(b, stored)?;
             let raw = b.generators().coherence_residual(stored);
             if raw <= TOL_BASIS_COHERENT {
                 // Already in the canonical frame: use the block CGC verbatim
@@ -565,12 +589,15 @@ impl CanonicalCatalog {
     /// the catalog to its just-constructed state. Re-materialization afterward is
     /// bitwise identical (the canonical-parent chain is a deterministic function
     /// of the exact data).
+    #[cfg(test)]
     pub fn reset(&mut self) {
+        self.try_reset()
+            .expect("test catalog can regenerate its base fixtures");
+    }
+    pub(in crate::lie) fn try_reset(&mut self) -> Result<(), CatalogError> {
         self.store.clear();
         self.bytes = 0;
-        // Base seeding cannot fail here: the rank was validated at construction.
         self.seed_base()
-            .expect("base re-seed cannot fail after a valid construction");
     }
 
     // ---- materialization (compute-fully-then-commit) -----------------------
@@ -585,8 +612,15 @@ impl CanonicalCatalog {
         let mut staged: Vec<(Irrep, Generators)> = Vec::new();
         build_into(self.series, self.rank, &self.store, &mut staged, c)?;
 
-        let add: usize = staged.iter().map(|(_, g)| gen_bytes(g)).sum();
-        let needed = self.bytes + add;
+        let needed = staged
+            .iter()
+            .try_fold(self.bytes, |n, (_, g)| {
+                n.checked_add(gen_bytes_for(g.rank(), g.dim())?)
+            })
+            .ok_or(CatalogError::BudgetExceeded {
+                limit: self.max_bytes,
+                needed: usize::MAX,
+            })?;
         if needed > self.max_bytes {
             // Atomic failure: discard the staging buffer, commit nothing.
             return Err(CatalogError::BudgetExceeded {
@@ -602,7 +636,10 @@ impl CanonicalCatalog {
 
     /// Commit one generator set, charging its bytes.
     fn commit_one(&mut self, irrep: Irrep, gens: Generators) {
-        self.bytes += gen_bytes(&gens);
+        self.bytes = self
+            .bytes
+            .checked_add(gen_bytes(&gens))
+            .expect("construction or ensure checked the total charge before committing");
         self.store.insert(irrep, gens);
     }
 
@@ -660,8 +697,12 @@ fn is_spinor_base(c: &Irrep) -> bool {
 /// chosen through it — agrees with the undoubled order on the tensor irreps; what doubling
 /// buys is that a spinor's half-integer weight has an integer box count too
 /// (`box'(ω_r) = r`).
-fn box_count(c: &Irrep) -> i64 {
-    c.two_partition().iter().map(|x| x.abs()).sum()
+fn box_count(c: &Irrep) -> Result<i64, BcdError> {
+    c.two_partition().iter().try_fold(0i64, |sum, &x| {
+        x.checked_abs()
+            .and_then(|x| sum.checked_add(x))
+            .ok_or(BcdError::LabelOverflow)
+    })
 }
 
 /// The `≺` sort key of an irrep: `(box_count, dim, dynkin)` (§14.1). Box count
@@ -671,8 +712,12 @@ fn box_count(c: &Irrep) -> i64 {
 /// partition coordinate: partition `(1,1,0)` has dim 15 > `(1,1,±1)` dim 10).
 /// `≺` is a **well order**: box count is a non-negative integer and, at a fixed
 /// box count and rank, only finitely many irreps exist (§14.1).
+#[cfg(test)]
 fn prec_key(c: &Irrep) -> (i64, BigInt, Vec<i64>) {
-    (box_count(c), c.dim(), c.dynkin())
+    try_prec_key(c).expect("test fixture has a representable box count")
+}
+fn try_prec_key(c: &Irrep) -> Result<(i64, BigInt, Vec<i64>), BcdError> {
+    Ok((box_count(c)?, c.dim(), c.dynkin()))
 }
 
 /// The canonical parent pair `(a, b)` of a non-base irrep `c` (§14): among all
@@ -684,7 +729,16 @@ fn prec_key(c: &Irrep) -> (i64, BigInt, Vec<i64>) {
 /// `(defining, c-minus-a-box)` is always admissible), so the returned `Option`
 /// is `None` only if called on a base case (trivial/defining), which the caller
 /// never does — those are pre-seeded and short-circuited.
+#[cfg(test)]
 fn canonical_parent(series: Series, rank: usize, c: &Irrep) -> Option<(Irrep, Irrep)> {
+    try_canonical_parent(series, rank, c)
+        .expect("test fixture has representable canonical-parent arithmetic")
+}
+fn try_canonical_parent(
+    series: Series,
+    rank: usize,
+    c: &Irrep,
+) -> Result<Option<(Irrep, Irrep)>, CatalogError> {
     /// A candidate parent pair with its `key(a,b)` (§14.2).
     struct Cand {
         sum: BigInt,
@@ -701,9 +755,9 @@ fn canonical_parent(series: Series, rank: usize, c: &Irrep) -> Option<(Irrep, Ir
         }
     }
 
-    let key_c = prec_key(c);
+    let key_c = try_prec_key(c)?;
     // All irreps strictly `≺ c` — the finite candidate set for `a` and `b`.
-    let below = irreps_below(series, rank, c);
+    let below = try_irreps_below(series, rank, c)?;
 
     let mut best: Option<Cand> = None;
     // Iterate `a` in ascending `≺` order; prune once `2·dim_a` exceeds the best
@@ -718,11 +772,9 @@ fn canonical_parent(series: Series, rank: usize, c: &Irrep) -> Option<(Irrep, Ir
         }
         // `c ∈ a ⊗ b`  ⟺  `b ∈ a* ⊗ c` (Frobenius reciprocity). Enumerate the
         // candidate `b` directly from that product rather than looping all irreps.
-        let Ok(prod) = directproduct(&a.dual(), c) else {
-            continue;
-        };
+        let prod = directproduct(&a.dual(), c)?;
         for b in prod.keys() {
-            if prec_key(b) >= key_c {
+            if try_prec_key(b)? >= key_c {
                 continue; // require b ≺ c
             }
             let cand = Cand {
@@ -738,7 +790,7 @@ fn canonical_parent(series: Series, rank: usize, c: &Irrep) -> Option<(Irrep, Ir
             }
         }
     }
-    best.map(|c| (c.a, c.b))
+    Ok(best.map(|c| (c.a, c.b)))
 }
 
 /// The irreps `x` of `(series, rank)` with `x ≺ c` that are **admissible as
@@ -761,19 +813,28 @@ fn canonical_parent(series: Series, rank: usize, c: &Irrep) -> Option<(Irrep, Ir
 /// prune is exact for all three series. Every `x ≺ c` has
 /// `box_count(x) ≤ box_count(c)`, so the walk is a complete superset; the
 /// `retain` keeps exactly `{ x : x ≺ c }`.
+#[cfg(test)]
 fn irreps_below(series: Series, rank: usize, c: &Irrep) -> Vec<Irrep> {
-    let max_boxes = box_count(c);
-    let key_c = prec_key(c);
+    try_irreps_below(series, rank, c).expect("test fixture has representable box count")
+}
+fn try_irreps_below(series: Series, rank: usize, c: &Irrep) -> Result<Vec<Irrep>, BcdError> {
+    let max_boxes = box_count(c)?;
+    let key_c = try_prec_key(c)?;
     let mut out: Vec<Irrep> = Vec::new();
     let mut cur = vec![0i64; rank];
     // Parity 0 = the tensor sublattice, parity 1 = the spinor class.
-    enum_partitions(series, rank, max_boxes, 0, 0, 0, &mut cur, &mut out);
+    enum_partitions(series, rank, max_boxes, 0, 0, 0, &mut cur, &mut out)?;
     if c.is_spinor() {
-        enum_partitions(series, rank, max_boxes, 1, 0, 0, &mut cur, &mut out);
+        enum_partitions(series, rank, max_boxes, 1, 0, 0, &mut cur, &mut out)?;
     }
-    out.retain(|x| prec_key(x) < key_c);
-    out.sort_by_key(|x| (x.dim(), x.dynkin()));
-    out
+    let mut below = Vec::new();
+    for x in out {
+        if try_prec_key(&x)? < key_c {
+            below.push(x);
+        }
+    }
+    below.sort_by_key(|x| (x.dim(), x.dynkin()));
+    Ok(below)
 }
 
 /// Walk the doubled dominant weights of one class (`parity` 0 = tensor, 1 =
@@ -788,23 +849,36 @@ fn enum_partitions(
     used: i64,
     cur: &mut Vec<i64>,
     out: &mut Vec<Irrep>,
-) {
+) -> Result<(), BcdError> {
     if pos == rank {
         push_partition_irrep(series, cur, out);
-        return;
+        return Ok(());
     }
     let upper = if pos == 0 { max_boxes } else { cur[pos - 1] };
     let mut v = parity;
     while v <= upper {
         // Prune on box count: monotone in v for every coordinate ⇒ safe break.
-        if used + v > max_boxes {
+        if v > max_boxes - used {
             break;
         }
         cur[pos] = v;
-        enum_partitions(series, rank, max_boxes, parity, pos + 1, used + v, cur, out);
-        v += 2;
+        enum_partitions(
+            series,
+            rank,
+            max_boxes,
+            parity,
+            pos + 1,
+            super::add_weight(used, v)?,
+            cur,
+            out,
+        )?;
+        let Some(next) = v.checked_add(2) else {
+            break;
+        };
+        v = next;
     }
     cur[pos] = parity;
+    Ok(())
 }
 
 /// Emit the (non-negative) partition `cur` as an irrep, and — for the D series
@@ -890,16 +964,16 @@ fn build_into(
 
     // Non-base c: its canonical parent exists (§14.4 existence argument). The
     // error path is unreachable by that theorem; kept as defense-in-depth.
-    let (a, b) = canonical_parent(series, rank, c)
+    let (a, b) = try_canonical_parent(series, rank, c)?
         .ok_or_else(|| CatalogError::NoCanonicalParent { dynkin: c.dynkin() })?;
     build_into(series, rank, store, staged, &a)?;
     build_into(series, rank, store, staged, &b)?;
 
     let ga = lookup(store, staged, &a)
-        .expect("staged by recursion")
+        .expect("successful recursive build_into stages this irrep or finds it in the store")
         .clone();
     let gb = lookup(store, staged, &b)
-        .expect("staged by recursion")
+        .expect("successful recursive build_into stages this irrep or finds it in the store")
         .clone();
     let product = Generators::product(&ga, &gb)?;
     let expected = directproduct(&a, &b)?;
@@ -910,7 +984,7 @@ fn build_into(
         if let Some(existing) = lookup(store, staged, ci) {
             // Rediscovery: never write; assert the intrinsic Cartan spectrum
             // agrees (deviation-by-design from QSpace's normDiff replacement).
-            debug_assert_cartan_matches(block, existing);
+            debug_assert_cartan_matches(block, existing)?;
             continue;
         }
         // Append only the outer-multiplicity-0 copy, and only when THIS product
@@ -918,7 +992,7 @@ fn build_into(
         if block.outer_multiplicity().0 != 0 {
             continue;
         }
-        if canonical_parent(series, rank, ci).as_ref() == Some(&(a.clone(), b.clone())) {
+        if try_canonical_parent(series, rank, ci)?.as_ref() == Some(&(a.clone(), b.clone())) {
             staged.push((ci.clone(), block.generators().clone()));
         }
     }
@@ -941,34 +1015,61 @@ fn build_into(
 /// [`assemble_cgc`](CanonicalCatalog::assemble_cgc). Weights are
 /// integer Cartan eigenvalues (snapped in the sweep, §6), so they compare exactly
 /// after rounding.
-fn debug_assert_cartan_matches(block: &Block, stored: &Generators) {
+fn debug_assert_cartan_matches(block: &Block, stored: &Generators) -> Result<(), SweepError> {
     debug_assert_eq!(
         block.dim(),
         stored.dim(),
         "rediscovered block dim disagrees with stored generators"
     );
     if !cfg!(debug_assertions) {
-        return;
+        return Ok(());
     }
     let rank = stored.rank();
     let d = stored.dim();
     // Compared at the doubled scale: a carrier with a spinor factor has
     // half-integer Cartan eigenvalues, and `2·weight` is an integer for every
     // irrep of the cover (§6, §16).
-    let round = |x: f64| (2.0 * x).round() as i64;
+    let round = |x: f64| super::sweep::rounded_weight((2.0 * x).round());
     let mut block_w: Vec<Vec<i64>> = (0..d)
-        .map(|s| (0..rank).map(|j| round(block.weight(s, j))).collect())
-        .collect();
+        .map(|s| {
+            (0..rank)
+                .map(|j| round(block.weight(s, j)))
+                .collect::<Result<_, _>>()
+        })
+        .collect::<Result<_, _>>()?;
     let mut stored_w: Vec<Vec<i64>> = (0..d)
-        .map(|s| (0..rank).map(|j| round(stored.cartan_diag(j)[s])).collect())
-        .collect();
+        .map(|s| {
+            (0..rank)
+                .map(|j| round(stored.cartan_diag(j)[s]))
+                .collect::<Result<_, _>>()
+        })
+        .collect::<Result<_, _>>()?;
     block_w.sort_unstable();
     stored_w.sort_unstable();
     debug_assert_eq!(
         block_w, stored_w,
         "rediscovered block weight multiset disagrees with stored generators"
     );
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod arithmetic_tests {
+    use super::*;
+    #[test]
+    fn box_count_bound() {
+        assert_eq!(gen_bytes_for(usize::MAX, 1), None);
+        let c = Irrep::from_two_weight(Series::B, vec![i64::MAX; 2]);
+        assert_eq!(
+            try_irreps_below(Series::B, 2, &c),
+            Err(BcdError::LabelOverflow)
+        );
+        assert_eq!(
+            try_canonical_parent(Series::B, 2, &c),
+            Err(CatalogError::Label(BcdError::LabelOverflow))
+        );
+    }
+}
