@@ -1,3 +1,4 @@
+//! Isolated process: exact reset/counter assertions require no unrelated cache traffic.
 //! Base SU(2) coefficient-cache resource contract.
 //!
 //! Kept in one `#[test]`: the 3j/6j/derived-F tiers are process-global and
@@ -13,8 +14,9 @@
 //! local caches in `src/cache.rs`; here we prove the aggregate retained-charge cap, the
 //! per-tier/total statistic coherence, hit/miss accounting, and reset zeroing.
 
-#[path = "common/a1.rs"]
-mod a1;
+mod common;
+
+use crate::common::a1;
 use a1::exact_f;
 use fusion_symbols::cache::{self, BASE_CACHE_MAX_BYTES};
 use fusion_symbols::lie::su2::{wigner_3j, wigner_6j};

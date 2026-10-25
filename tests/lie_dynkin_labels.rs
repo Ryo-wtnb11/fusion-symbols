@@ -1,36 +1,13 @@
+use crate::common::counting_alloc;
 use fusion_symbols::{
     category::FusionCategory,
     lie::{GroupId, LieGroup, LieIrrep},
 };
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
-struct Counting;
-static ALLOCS: AtomicUsize = AtomicUsize::new(0);
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.alloc(layout) }
-    }
-    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.alloc_zeroed(layout) }
-    }
-    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.realloc(ptr, layout, size) }
-    }
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        unsafe { System.dealloc(ptr, layout) }
-    }
-}
-#[global_allocator]
-static ALLOCATOR: Counting = Counting;
 
 // Compatibility with owned materialization, including length after every step.
-// One test keeps this process-wide allocation counter isolated.
 fn check_labels(a: &LieIrrep) {
     let expected = a.dynkin();
-    let before = ALLOCS.load(Ordering::Relaxed);
+    let before = counting_alloc::calls();
     let mut labels = std::hint::black_box(a).dynkin_labels();
     assert_eq!(labels.len(), expected.len());
     for (i, &coordinate) in expected.iter().enumerate() {
@@ -41,12 +18,34 @@ fn check_labels(a: &LieIrrep) {
     assert_eq!(labels.next(), None);
     assert_eq!(labels.next(), None);
     assert_eq!(labels.len(), 0);
-    let after = ALLOCS.load(Ordering::Relaxed);
+    let after = counting_alloc::calls();
     assert_eq!(after, before);
 }
 
 #[test]
 fn dynkin_labels_match_owned_labels_without_allocation() {
+    let _serial = crate::common::counting_alloc::serial();
+    // Initialize thread parking before measuring synchronization.
+    let _thread = std::thread::current();
+    // A worker's allocations must not enter this thread's measurement.
+    let barrier = std::sync::Barrier::new(2);
+    std::thread::scope(|scope| {
+        let worker = scope.spawn(|| {
+            barrier.wait(); // Warm thread parking before measuring.
+            barrier.wait();
+            let measured = counting_alloc::measure(|| std::hint::black_box(vec![0u8; 64]));
+            barrier.wait();
+            measured
+        });
+        barrier.wait(); // Warm thread parking before measuring.
+        let measured = counting_alloc::measure(|| {
+            barrier.wait();
+            barrier.wait();
+        });
+        assert_eq!((measured.0, measured.1, measured.2), (0, 0, 0));
+        let measured = worker.join().unwrap();
+        assert_eq!((measured.0, measured.1, measured.2), (1, 64, 64));
+    });
     for id in [
         GroupId::su(2).unwrap(),
         GroupId::spin(3).unwrap(),
@@ -66,7 +65,7 @@ fn dynkin_labels_match_owned_labels_without_allocation() {
         let a = cat.irrep(&[4]).unwrap();
         let b = cat.irrep(&[6]).unwrap();
         let expected = cat.fusion(&a, &b).unwrap().count();
-        let before = ALLOCS.load(Ordering::Relaxed);
+        let before = counting_alloc::calls();
         let mut channels = 0;
         for c in cat.fusion(&a, &b).unwrap() {
             for coordinate in c.dynkin_labels() {
@@ -77,7 +76,7 @@ fn dynkin_labels_match_owned_labels_without_allocation() {
             }
             channels += 1;
         }
-        let after = ALLOCS.load(Ordering::Relaxed);
+        let after = counting_alloc::calls();
         assert_eq!(after, before);
         assert_eq!(channels, expected);
     }
@@ -140,9 +139,9 @@ fn dynkin_labels_match_owned_labels_without_allocation() {
         // The last two D coordinates can require an intermediate of twice i64::MAX.
         for label in [[0, 0, i64::MAX, 0], [0, 0, 0, i64::MAX]] {
             let a = cat.irrep(&label).unwrap();
-            let before = ALLOCS.load(Ordering::Relaxed);
+            let before = counting_alloc::calls();
             assert!(std::hint::black_box(&a).dynkin_labels().eq(label));
-            let after = ALLOCS.load(Ordering::Relaxed);
+            let after = counting_alloc::calls();
             assert_eq!(after, before);
         }
     }

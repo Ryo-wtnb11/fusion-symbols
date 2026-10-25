@@ -1,4 +1,7 @@
+//! Fresh process: observing statistics must freeze the untouched default policy.
 //! Cache policy observation freezes the compiled default in a fresh process.
+
+mod common;
 
 use fusion_symbols::cache::{
     base_cache_stats, cache_budgets, configure_cache_budgets, CacheBudgetError,

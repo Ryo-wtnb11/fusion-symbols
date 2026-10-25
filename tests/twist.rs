@@ -6,10 +6,9 @@
 //! sum is independent of the `twist()` implementations, which return a
 //! constant without generating any R-symbol.
 
-#[path = "common/a1.rs"]
-mod a1;
-#[path = "common/lie.rs"]
-mod lie_test;
+use crate::common::a1;
+#[cfg(feature = "lie-generated")]
+use crate::common::lie as lie_test;
 use a1::{exact_r, twist};
 use fusion_symbols::category::FusionCategory;
 
@@ -70,8 +69,7 @@ fn sun_twist_matches_r_symbol_formula() {
 #[cfg(feature = "lie-generated")]
 #[test]
 fn bcd_twist_matches_r_symbol_formula() {
-    #[path = "common/bcd.rs"]
-    mod bcd_test;
+    use crate::common::bcd as bcd_test;
     use bcd_test::Series;
     use fusion_symbols::lie::GroupId;
     use fusion_symbols::lie::LieGroup;

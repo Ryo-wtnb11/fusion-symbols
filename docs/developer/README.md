@@ -30,3 +30,29 @@ Criterion harnesses in `benches/` are measurements, not CI gates:
 All except `wigner` require `lie-generated`. Test-only cache measurement
 harnesses remain in `src/cache_audit.rs`, `src/cache_budget_pressure.rs`, and
 `src/cache_trim_pressure.rs`; their ignored entry points describe how to run them.
+
+## Integration-test targets
+
+`Cargo.toml` disables automatic test targets. Existing `tests/*.rs` members stay
+in place under `tests/integration.rs` (value tests) or `tests/allocations.rs`
+(allocation budgets). For example:
+
+```sh
+cargo test --test integration gauge_golden::
+cargo test --test allocations lie_a1_alloc::
+```
+
+Allocation tests take `tests/common/counting_alloc.rs::serial` before any work;
+the single allocator counts calls, bytes and largest allocation per thread.
+Only integration tests that measure or reset global caches take
+`tests/common/mod.rs::serial`; pure value tests stay parallel. The backend
+identity test takes that guard to reset between independent generation runs.
+
+The explicitly named cache-policy, cache-contract, cache-trim, `sun_*_cache`,
+`lie_a1`, `lie_ar`, `lie_bcd`, and `doc_examples` targets remain separate:
+one-shot policies or exact cache counters require isolation from unrelated
+value-test traffic. Their root comments state the reason. Member module names
+prefix test paths; the assertions and feature gates are unchanged.
+
+Local dev/test builds use line tables for debug information. CI retains its
+explicit `CARGO_PROFILE_TEST_DEBUG=1` override.

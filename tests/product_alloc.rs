@@ -1,33 +1,12 @@
+use crate::common::counting_alloc;
 use fusion_symbols::{
     category::FusionCategory,
     lie::{GroupId, LieGroup},
 };
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
-struct Counting;
-static ALLOCS: AtomicUsize = AtomicUsize::new(0);
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.alloc(layout) }
-    }
-    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.alloc_zeroed(layout) }
-    }
-    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.realloc(ptr, layout, size) }
-    }
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        unsafe { System.dealloc(ptr, layout) }
-    }
-}
-#[global_allocator]
-static ALLOCATOR: Counting = Counting;
 
 #[test]
 fn warm_product_composition_allocates_nothing() {
+    let _serial = crate::common::counting_alloc::serial();
     use fusion_symbols::{
         fermion::{FermionParity, FermionParityIrrep as Parity},
         product,
@@ -42,14 +21,14 @@ fn warm_product_composition_allocates_nothing() {
         .f_symbol(&half, &half, &half, &half, &zero, &zero)
         .unwrap();
     let stats = fusion_symbols::cache::base_cache_stats();
-    let before = ALLOCS.load(Ordering::Relaxed);
+    let before = counting_alloc::calls();
     let f = cat
         .f_symbol(&half, &half, &half, &half, &zero, &zero)
         .unwrap();
     let r = cat.r_symbol(&half, &half, &zero).unwrap();
     let empty = cat.r_symbol(&half, &zero, &zero).unwrap();
     let outcomes = cat.fusion(&half, &half).unwrap().count();
-    let after = ALLOCS.load(Ordering::Relaxed);
+    let after = counting_alloc::calls();
     assert_eq!(after, before);
     assert_eq!(f.at(0, 0, 0, 0), -0.5);
     assert_eq!(r.at(0, 0), 1.0);

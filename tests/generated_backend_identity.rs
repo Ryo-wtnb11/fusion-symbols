@@ -32,11 +32,9 @@
 //! `N = 2`) and D3 `(0,1,1) ⊗ (0,1,1)` (`docs/gauge_soN.md` §13, `N = 2`).
 #![cfg(feature = "lie-generated")]
 
-#[path = "common/lie.rs"]
-mod lie_test;
+use crate::common::lie as lie_test;
 
-#[path = "common/bcd.rs"]
-mod bcd_test;
+use crate::common::bcd as bcd_test;
 use bcd_test::Series;
 use fusion_symbols::category::GroupRepresentations;
 
@@ -179,6 +177,7 @@ fn bcd_run() -> StructuralSig {
 /// reset-order-independent, but keeping them sequential is the cleaner contract.
 #[test]
 fn discrete_layer_is_convention_only_across_independent_runs() {
+    let _serial = crate::common::serial();
     // SU(N): two independent runs with a cache reset between them.
     let sun_first = sun_run();
     cache::reset(); // force the second run to regenerate, not read the cache

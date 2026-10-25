@@ -6,8 +6,7 @@
 //! byte-identical values (`docs/gauge.md`).
 #![cfg(feature = "lie-generated")]
 
-#[path = "common/lie.rs"]
-mod lie_test;
+use crate::common::lie as lie_test;
 use lie_test::fingerprint;
 
 /// Compatibility policy: the fingerprint's exact current bytes.

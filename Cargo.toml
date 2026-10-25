@@ -5,6 +5,7 @@
 name = "fusion-symbols"
 version = "0.8.1"
 edition = "2021"
+autotests = false
 license = "MIT OR Apache-2.0"
 description = "Fusion and recoupling symbols for symmetric tensors: exact SU(2) recoupling, and runtime Clebsch-Gordan / F- / R-coefficient generation for SU(N), SO(N), and Sp(2N) (successor of the racah crate)"
 repository = "https://github.com/Ryo-wtnb11/fusion-symbols"
@@ -75,3 +76,70 @@ required-features = ["lie-generated"]
 name = "bcd_fr"
 harness = false
 required-features = ["lie-generated"]
+
+[profile.dev]
+debug = "line-tables-only"
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "allocations"
+path = "tests/allocations.rs"
+
+[[test]]
+name = "base_cache_contract"
+path = "tests/base_cache_contract.rs"
+
+[[test]]
+name = "cache_trim_base"
+path = "tests/cache_trim_base.rs"
+
+[[test]]
+name = "cache_trim_generated_routing"
+path = "tests/cache_trim_generated_routing.rs"
+
+[[test]]
+name = "coefficient_cache_budget_base"
+path = "tests/coefficient_cache_budget_base.rs"
+
+[[test]]
+name = "coefficient_cache_budget_generated"
+path = "tests/coefficient_cache_budget_generated.rs"
+
+[[test]]
+name = "coefficient_cache_budget_observation"
+path = "tests/coefficient_cache_budget_observation.rs"
+
+[[test]]
+name = "doc_examples"
+path = "tests/doc_examples.rs"
+
+[[test]]
+name = "generated_cache_contract"
+path = "tests/generated_cache_contract.rs"
+
+[[test]]
+name = "lie_a1"
+path = "tests/lie_a1.rs"
+
+[[test]]
+name = "lie_ar"
+path = "tests/lie_ar.rs"
+
+[[test]]
+name = "lie_bcd"
+path = "tests/lie_bcd.rs"
+
+[[test]]
+name = "sun_cgc_cache"
+path = "tests/sun_cgc_cache.rs"
+
+[[test]]
+name = "sun_fr_cache"
+path = "tests/sun_fr_cache.rs"
+
+[[test]]
+name = "sun_product_cache"
+path = "tests/sun_product_cache.rs"

@@ -20,8 +20,7 @@ use std::collections::BTreeMap;
 
 use num_bigint::BigInt;
 
-#[path = "common/lie.rs"]
-mod lie_test;
+use crate::common::lie as lie_test;
 use lie_test::product as directproduct;
 
 /// Every Dynkin label of SU(N) with entries summing to at most `max`.

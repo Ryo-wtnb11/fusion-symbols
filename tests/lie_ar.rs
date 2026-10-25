@@ -1,4 +1,7 @@
+//! Isolated process: reset/warm miss counts exclude unrelated cache traffic.
 #![cfg(feature = "lie-generated")]
+mod common;
+
 use fusion_symbols::{
     cache,
     category::{FusionCategory, FusionStyle, GroupRepresentations},

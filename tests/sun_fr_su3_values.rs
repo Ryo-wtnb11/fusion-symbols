@@ -7,8 +7,7 @@
 //! gauge invariant, so these literals are what pins the gauge.
 #![cfg(feature = "lie-generated")]
 
-#[path = "common/lie.rs"]
-mod lie_test;
+use crate::common::lie as lie_test;
 fn irr(d: &[i64]) -> Irrep {
     lie_test::irrep(d).unwrap()
 }

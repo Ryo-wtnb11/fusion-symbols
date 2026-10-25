@@ -1,17 +1,18 @@
+//! Isolated process: cold/reset/exact counter assertions exclude unrelated cache traffic.
 //! SU(N) product-cache API and concurrency contract.
 //!
 //! One sequential test owns the process-global reset policy for this binary.
 
 #![cfg(feature = "lie-generated")]
 
-#[path = "common/a1.rs"]
-mod a1;
+mod common;
+
+use crate::common::a1;
 use std::sync::{Arc, Barrier};
 
+use crate::common::lie as lie_test;
 use fusion_symbols::cache::{self, TierStats};
 use fusion_symbols::category::FusionCategory;
-#[path = "common/lie.rs"]
-mod lie_test;
 use fusion_symbols::lie::LieIrrep as Irrep;
 use lie_test::group;
 

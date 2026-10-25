@@ -7,8 +7,7 @@
 //! checked against TensorKitSectors itself. F is composed exactly and rounded
 //! once, so the tolerance covers only the reference's own last-ulp rounding.
 
-#[path = "common/a1.rs"]
-mod a1;
+use crate::common::a1;
 use a1::{exact_f, exact_r};
 use fusion_symbols::lie::su2::wigner_6j;
 

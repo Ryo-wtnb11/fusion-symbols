@@ -1,8 +1,7 @@
 //! Compatibility-policy and determinism tests for the base SU(2) authority
 //! fingerprint (`LieGroup::authority_fingerprint`).
 
-#[path = "common/a1.rs"]
-mod a1;
+use crate::common::a1;
 use a1::fingerprint;
 
 /// Compatibility policy: the fingerprint's exact current bytes.

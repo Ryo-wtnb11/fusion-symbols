@@ -1,7 +1,9 @@
+//! Isolated process: exact tier counts around trim must exclude unrelated cache traffic.
 //! Public base-tier cache trim contract.
 
-#[path = "common/a1.rs"]
-mod a1;
+mod common;
+
+use crate::common::a1;
 use a1::exact_f;
 use fusion_symbols::cache::{
     base_cache_stats, cache_budgets, reset, trim_to, CoefficientCacheTier,

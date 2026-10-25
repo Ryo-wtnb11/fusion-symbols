@@ -1,33 +1,12 @@
+use crate::common::counting_alloc;
 use fusion_symbols::{
     category::FusionCategory,
     lie::{FBlock, GroupId, LieGroup, RBlock},
 };
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
-struct Counting;
-static ALLOCS: AtomicUsize = AtomicUsize::new(0);
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.alloc(layout) }
-    }
-    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.alloc_zeroed(layout) }
-    }
-    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.realloc(ptr, layout, size) }
-    }
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        unsafe { System.dealloc(ptr, layout) }
-    }
-}
-#[global_allocator]
-static ALLOCATOR: Counting = Counting;
 
 #[test]
 fn inline_blocks_and_warm_a1_symbols_allocate_nothing() {
+    let _serial = crate::common::counting_alloc::serial();
     let cat = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
     let half = cat.irrep(&[1]).unwrap();
     let zero = cat.unit();
@@ -35,7 +14,7 @@ fn inline_blocks_and_warm_a1_symbols_allocate_nothing() {
         .f_symbol(&half, &half, &half, &half, &zero, &zero)
         .unwrap();
     let stats = fusion_symbols::cache::base_cache_stats();
-    let before = ALLOCS.load(Ordering::Relaxed);
+    let before = counting_alloc::calls();
     std::hint::black_box(FBlock::one(0.5));
     std::hint::black_box(RBlock::one(-1.0));
     let f = cat
@@ -47,7 +26,7 @@ fn inline_blocks_and_warm_a1_symbols_allocate_nothing() {
         .unwrap();
     let empty_r = cat.r_symbol(&half, &zero, &zero).unwrap();
     let fusion_count = cat.fusion(&half, &half).unwrap().count();
-    let after = ALLOCS.load(Ordering::Relaxed);
+    let after = counting_alloc::calls();
     assert_eq!(after, before);
     assert_eq!(f, expected);
     assert_eq!(r.at(0, 0), -1.0);

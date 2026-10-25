@@ -1,39 +1,18 @@
 //! Generated labels share their weight storage: a warm fusion yields owned
 //! channel labels without allocating.
 #![cfg(feature = "lie-generated")]
+use crate::common::counting_alloc;
 use fusion_symbols::{
     category::FusionCategory,
     lie::{GroupId, LieGroup},
 };
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
-struct Counting;
-static ALLOCS: AtomicUsize = AtomicUsize::new(0);
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.alloc(layout) }
-    }
-    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.alloc_zeroed(layout) }
-    }
-    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
-        unsafe { System.realloc(ptr, layout, size) }
-    }
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        unsafe { System.dealloc(ptr, layout) }
-    }
-}
-#[global_allocator]
-static ALLOCATOR: Counting = Counting;
 
-// One test keeps this process-wide allocation counter isolated. Warm means:
+// Warm means:
 // the labels are constructed and one identical `fusion(a, b)` has been fully
 // consumed, so the decomposition is in the product cache.
 #[test]
 fn warm_generated_fusion_yields_labels_without_allocation() {
+    let _serial = crate::common::counting_alloc::serial();
     for (id, a, b, expected) in [
         // SU(3): 8 ⊗ 8 = 1 ⊕ 8 ⊕ 8 ⊕ 10 ⊕ 10̄ ⊕ 27 (distinct outcomes).
         (
@@ -64,7 +43,7 @@ fn warm_generated_fusion_yields_labels_without_allocation() {
         cold.sort();
         assert_eq!(cold, expected, "{id:?}");
         let mut sums = [0i64; 8];
-        let before = ALLOCS.load(Ordering::Relaxed);
+        let before = counting_alloc::calls();
         let mut channels = 0;
         for c in cat.fusion(&a, &b).unwrap() {
             let copy = c.clone();
@@ -73,7 +52,7 @@ fn warm_generated_fusion_yields_labels_without_allocation() {
             }
             channels += 1;
         }
-        let after = ALLOCS.load(Ordering::Relaxed);
+        let after = counting_alloc::calls();
         assert_eq!(after, before, "{id:?}");
         assert_eq!(channels, expected.len());
         for (i, s) in sums.iter().enumerate() {

@@ -6,56 +6,18 @@
 
 #![cfg(feature = "lie-generated")]
 
-#[path = "common/bcd.rs"]
-mod bcd_test;
-#[path = "common/lie.rs"]
-mod lie_test;
+use crate::common::bcd as bcd_test;
+use crate::common::lie as lie_test;
 use bcd_test::Series;
 
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use crate::common::counting_alloc;
 
-static CALLS: AtomicUsize = AtomicUsize::new(0);
-static BYTES: AtomicUsize = AtomicUsize::new(0);
-static LARGEST: AtomicUsize = AtomicUsize::new(0);
+use counting_alloc::measure;
 
-struct Counting;
-
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        CALLS.fetch_add(1, Ordering::Relaxed);
-        BYTES.fetch_add(layout.size(), Ordering::Relaxed);
-        LARGEST.fetch_max(layout.size(), Ordering::Relaxed);
-        unsafe { System.alloc(layout) }
-    }
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        unsafe { System.dealloc(ptr, layout) }
-    }
-    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-        CALLS.fetch_add(1, Ordering::Relaxed);
-        BYTES.fetch_add(size, Ordering::Relaxed);
-        LARGEST.fetch_max(size, Ordering::Relaxed);
-        unsafe { System.realloc(ptr, layout, size) }
-    }
-}
-
-#[global_allocator]
-static GLOBAL: Counting = Counting;
-
-/// `(calls, bytes, largest single allocation)` made by `f`.
-fn measure<T>(f: impl FnOnce() -> T) -> (usize, usize, usize, T) {
-    let (c0, b0) = (CALLS.load(Ordering::Relaxed), BYTES.load(Ordering::Relaxed));
-    LARGEST.store(0, Ordering::Relaxed);
-    let out = f();
-    let calls = CALLS.load(Ordering::Relaxed) - c0;
-    let bytes = BYTES.load(Ordering::Relaxed) - b0;
-    (calls, bytes, LARGEST.load(Ordering::Relaxed), out)
-}
-
-/// One test: the counters are process-global, so nothing else may allocate
-/// concurrently in this binary.
+/// Measurements count only this thread; the guard isolates shared caches.
 #[test]
 fn warm_hits_do_not_copy_coefficients() {
+    let _serial = crate::common::counting_alloc::serial();
     // SU(3) 8^6: OM = 2 on every vertex, a 2x2x2x2 block (128 bytes).
     let e8 = lie_test::irrep(&[1, 1]).unwrap();
     let f = || lie_test::f_symbol(&e8, &e8, &e8, &e8, &e8, &e8).unwrap();

@@ -1,3 +1,6 @@
+//! Isolated process: exact warm 3j miss counts exclude unrelated cache traffic.
+mod common;
+
 use fusion_symbols::{
     category::{FusionCategory, GroupRepresentations, SymbolBlock},
     lie::{su2::clebsch_gordan, GroupId, LieError, LieGroup},

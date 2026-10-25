@@ -1,50 +1,19 @@
 //! Warm leaf A/B allocate only their returned block; products retain factor composition.
 #![cfg(feature = "lie-generated")]
 
+use crate::common::counting_alloc;
 use fusion_symbols::{
     cache,
     category::FusionCategory,
     lie::{GroupId, LieGroup},
     product,
 };
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
-struct Counting;
-static CALLS: AtomicUsize = AtomicUsize::new(0);
-static BYTES: AtomicUsize = AtomicUsize::new(0);
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        CALLS.fetch_add(1, Relaxed);
-        BYTES.fetch_add(l.size(), Relaxed);
-        unsafe { System.alloc(l) }
-    }
-    unsafe fn alloc_zeroed(&self, l: Layout) -> *mut u8 {
-        CALLS.fetch_add(1, Relaxed);
-        BYTES.fetch_add(l.size(), Relaxed);
-        unsafe { System.alloc_zeroed(l) }
-    }
-    unsafe fn realloc(&self, p: *mut u8, l: Layout, s: usize) -> *mut u8 {
-        CALLS.fetch_add(1, Relaxed);
-        BYTES.fetch_add(s, Relaxed);
-        unsafe { System.realloc(p, l, s) }
-    }
-    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
-        unsafe { System.dealloc(p, l) }
-    }
-}
-#[global_allocator]
-static GLOBAL: Counting = Counting;
+
+use std::sync::atomic::AtomicUsize;
 
 fn measure<T>(f: impl FnOnce() -> T) -> ((usize, usize), T) {
-    let before = (CALLS.load(Relaxed), BYTES.load(Relaxed));
-    let result = f();
-    (
-        (
-            CALLS.load(Relaxed) - before.0,
-            BYTES.load(Relaxed) - before.1,
-        ),
-        result,
-    )
+    let (calls, bytes, _, result) = counting_alloc::measure(f);
+    ((calls, bytes), result)
 }
 
 // Each non-inline Arc<[f64]> owns two reference counts and its coefficient payload.
@@ -131,9 +100,10 @@ fn check<C: FusionCategory<Scalar = f64>>(
     elements
 }
 
-// Counters are process-global: keep all allocation checks in one test.
+// The serial guard isolates the cache lifecycle checks.
 #[test]
 fn warm_ab_allocate_only_leaf_blocks_and_product_composition() {
+    let _serial = crate::common::counting_alloc::serial();
     let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
     let oct = su3.irrep(&[1, 1]).unwrap();
     let n = check("SU3", &su3, &oct, &oct, &oct, &[]);
