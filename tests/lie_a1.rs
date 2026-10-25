@@ -2,7 +2,7 @@
 mod common;
 
 use fusion_symbols::{
-    category::{FusionCategory, GroupRepresentations, SymbolBlock},
+    category::{CgcBlock, FusionCategory, GroupRepresentations, SymbolBlock},
     lie::{su2::clebsch_gordan, GroupId, LieError, LieGroup},
 };
 
@@ -93,7 +93,7 @@ fn dense_cgc_matches_exact_in_ascending_magnetic_order() {
                         for z in 0..=c {
                             if n != 0 {
                                 assert_eq!(
-                                    tensor.at(x as usize, y as usize, z as usize, 0),
+                                    tensor.at([x as usize, y as usize, z as usize, 0]),
                                     clebsch_gordan(
                                         a,
                                         2 * x as i32 - a as i32,

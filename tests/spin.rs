@@ -31,7 +31,7 @@ use crate::common::bcd as bcd_test;
 use bcd_test::{check_f_unitarity, check_hexagon, check_pentagon, Series};
 use fusion_symbols::lie::GroupId;
 use fusion_symbols::{
-    category::{FusionCategory, GroupRepresentations},
+    category::{CgcBlock, FusionCategory, GroupRepresentations},
     lie::{LieCgc, LieError, LieGroup, LieIrrep as Irrep},
 };
 

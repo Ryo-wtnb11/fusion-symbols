@@ -36,7 +36,7 @@ use crate::common::lie as lie_test;
 
 use crate::common::bcd as bcd_test;
 use bcd_test::Series;
-use fusion_symbols::category::GroupRepresentations;
+use fusion_symbols::category::{CgcBlock, GroupRepresentations};
 
 use fusion_symbols::cache;
 use fusion_symbols::lie::{LieCgc as Cgc, LieIrrep as SunIrrep};
@@ -84,7 +84,7 @@ fn sun_sign_pattern(cg: &Cgc) -> Vec<i8> {
                 for mu in 0..n {
                     let col = mu * d3 + k;
                     if signs[col] == 0 {
-                        signs[col] = sign_of(cg.at(i, j, k, mu));
+                        signs[col] = sign_of(cg.at([i, j, k, mu]));
                     }
                 }
             }

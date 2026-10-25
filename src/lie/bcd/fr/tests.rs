@@ -1,6 +1,6 @@
 use crate::{
     cache,
-    category::{FusionCategory, GroupRepresentations},
+    category::{CgcBlock, FusionCategory, GroupRepresentations},
     lie::{GroupId, LieError, LieGroup},
 };
 use std::{sync::mpsc, time::Duration};
@@ -165,7 +165,7 @@ fn cgc_budget_covers_only_the_requested_channel() {
     assert_eq!(cat.catalog_stats().unwrap(), (needed, needed));
     for m2 in 0..4 {
         for m1 in 0..4 {
-            assert_eq!(got.at(m1, m2, 0, 0), expected.copy(0)[m1 + 4 * m2]);
+            assert_eq!(got.at([m1, m2, 0, 0]), expected.copy(0)[m1 + 4 * m2]);
         }
     }
 }

@@ -7,22 +7,23 @@ Per-item reference: [docs.rs](https://docs.rs/fusion-symbols).
 ## Fusion and CGC
 
 Import `FusionCategory` for category operations and `GroupRepresentations`
-for Clebsch–Gordan coefficients (CGC). Fusion yields each outcome once;
+for Clebsch–Gordan coefficients (CGC), and `CgcBlock` to read them.
+Fusion yields each outcome once;
 `nsymbol(a,b,c)` is the number of copies of `c` in `a ⊗ b`.
 This SU(3) example requires the default `lie-generated` feature:
 
 ```rust
-use fusion_symbols::{category::{FusionCategory, GroupRepresentations}, lie::{GroupId, LieGroup}};
+use fusion_symbols::{category::{CgcBlock, FusionCategory, GroupRepresentations}, lie::{GroupId, LieGroup}};
 let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 let eight = cat.irrep(&[1, 1]).unwrap();
 assert_eq!(cat.nsymbol(&eight, &eight, &eight), 2);
 let c = cat.cgc(&eight, &eight, &eight).unwrap();
 assert_eq!(c.dims(), [8, 8, 8, 2]);
-assert!(c.at(0, 2, 0, 1) < 0.0);
+assert!(c.at([0, 2, 0, 1]) < 0.0);
 ```
 
-`LieCgc::dims()` is `[dim(a), dim(b), dim(c), N(a,b,c)]`;
-`at(m1,m2,m3,mu)` reads that coefficient and panics outside the axes.
+`CgcBlock::dims()` is `[dim(a), dim(b), dim(c), N(a,b,c)]`;
+`at([m1,m2,m3,mu])` reads that coefficient and panics outside the axes.
 An absent channel has multiplicity axis zero. A1 indices ascend from the
 lowest magnetic weight; higher A-series indices use `LieIrrep::gt_patterns()`.
 B/C/D indices use the canonical sweep frame. The trailing copy order is gauge,
@@ -79,6 +80,12 @@ and `product![...]` for 3..=12. `factors` borrows the tuple; `into_factors`
 returns it. `product(product(a,b),c)` keeps labels `((x,y),z)`, with different
 identity and enumeration from the flat product. Fusion is first-factor-fast;
 within each symbol axis, `i = i_left * n_right + i_right` is last-factor-fast.
+When every factor implements `GroupRepresentations`, so does the product. Its
+CGC is a tuple of factor blocks, read lazily as a Kronecker product through
+`CgcBlock`, with the last factor fastest on all four axes. `U1` and `ZN`
+use scalar CGCs: `1.0` for a present channel, `0.0` for an absent one, with
+shapes `[1,1,1,1]` and `[1,1,1,0]`. Product CGC queries report axis overflow
+as `ProductError::Overflow`; a hand-built tuple's `dims()` may panic on overflow.
 
 ## Identity checks
 

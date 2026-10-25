@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use fusion_symbols::{
-    category::{self, FusionCategory},
+    category::{self, CgcBlock, FusionCategory},
     lie::{GroupId, LieCgc, LieError, LieGroup, LieIrrep},
 };
 #[derive(Clone, Copy, Debug)]
@@ -94,7 +94,7 @@ pub fn check_hexagon(
 pub fn copy(c: &LieCgc, mu: usize) -> Vec<f64> {
     let [d1, d2, d3, _] = c.dims();
     (0..d3)
-        .flat_map(|m3| (0..d2).flat_map(move |m2| (0..d1).map(move |m1| c.at(m1, m2, m3, mu))))
+        .flat_map(|m3| (0..d2).flat_map(move |m2| (0..d1).map(move |m1| c.at([m1, m2, m3, mu]))))
         .collect()
 }
 pub fn data(c: &LieCgc) -> Vec<f64> {

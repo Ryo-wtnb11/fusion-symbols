@@ -22,6 +22,7 @@ mod lie_overflow;
 mod membership;
 mod oracle;
 mod product;
+mod product_cgc;
 mod product_validation_cost;
 mod properties;
 mod spin;

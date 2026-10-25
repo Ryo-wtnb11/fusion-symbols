@@ -17,6 +17,8 @@
 // Index loops mirror the tensor-index formulas above.
 #![allow(clippy::needless_range_loop)]
 
+use fusion_symbols::category::CgcBlock;
+
 use crate::common::lie as lie_test;
 use fusion_symbols::lie::LieIrrep as Irrep;
 use lie_test::cgc;

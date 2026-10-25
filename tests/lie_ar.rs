@@ -4,7 +4,7 @@ mod common;
 
 use fusion_symbols::{
     cache,
-    category::{FusionCategory, FusionStyle, GroupRepresentations},
+    category::{CgcBlock, FusionCategory, FusionStyle, GroupRepresentations},
     lie::{GroupId, LieError, LieGroup},
 };
 
@@ -53,6 +53,20 @@ fn labels_zero_channels_and_warm_generation() {
     assert_eq!(
         cache::generated_cache_stats().sun_cgc.misses,
         stats.sun_cgc.misses
+    );
+    let product = fusion_symbols::product(cat.clone(), a1.clone());
+    let channel = (eight.clone(), a1.irrep(&[2]).unwrap());
+    let first = product.cgc(&channel, &channel, &channel).unwrap();
+    let stats = cache::generated_cache_stats();
+    let base = cache::base_cache_stats();
+    assert_eq!(product.cgc(&channel, &channel, &channel).unwrap(), first);
+    let warm = cache::generated_cache_stats();
+    assert_eq!(warm.sun_cgc.misses, stats.sun_cgc.misses);
+    assert_eq!(warm.sun_product.misses, stats.sun_product.misses);
+    assert!(warm.sun_cgc.hits > stats.sun_cgc.hits);
+    assert_eq!(
+        cache::base_cache_stats().three_j.misses,
+        base.three_j.misses
     );
     let r = cat.r_symbol(&eight, &eight, &eight).unwrap();
     let stats = cache::generated_cache_stats();

@@ -7,6 +7,17 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Breaking
+
+- `GroupRepresentations::Cgc` now requires `CgcBlock`. `LieCgc` accessors
+  move to that trait: import `CgcBlock` and use `at([m1, m2, m3, mu])`.
+
+### Added
+
+- The common `category::CgcBlock` contract, scalar CGCs for `finite::ZN`, and
+  lazy tuple CGCs for products of group representations (2..=12 factors),
+  with the last factor fastest on every axis.
+
 ### Fixed
 
 - Generated Lie fusion arithmetic now checks label and weight sums, dimensions,

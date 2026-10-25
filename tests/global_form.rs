@@ -735,7 +735,7 @@ mod cross_form_coefficients {
     #[test]
     fn spin_and_so_share_tensor_coefficient_data() {
         use fusion_symbols::{
-            category::{FusionCategory, GroupRepresentations},
+            category::{CgcBlock, FusionCategory, GroupRepresentations},
             lie::LieGroup,
         };
         for (n, v_label, c_label) in [
@@ -770,7 +770,7 @@ mod cross_form_coefficients {
     #[test]
     fn su_and_psu_share_coefficient_data() {
         use crate::common::lie as lie_test;
-        use fusion_symbols::category::{FusionCategory, GroupRepresentations};
+        use fusion_symbols::category::{CgcBlock, FusionCategory, GroupRepresentations};
         use fusion_symbols::lie::LieGroup;
 
         let su3 = GroupId::su(3).unwrap();
