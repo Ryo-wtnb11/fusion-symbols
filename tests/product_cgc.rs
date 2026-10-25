@@ -94,7 +94,7 @@ fn assert_f_from_cgc<C: GroupRepresentations<Scalar = f64>>(cat: &C, labels: [&C
 #[test]
 fn su2_su2_isometry_and_f() {
     let spin = su2();
-    let one = spin.irrep(&[2]).unwrap();
+    let one = spin.irrep(&[2], &[]).unwrap();
     let cat = product(spin.clone(), spin);
     let a = (one.clone(), one);
     assert_orthonormal(&cat.cgc(&a, &a, &a).unwrap());
@@ -104,7 +104,7 @@ fn su2_su2_isometry_and_f() {
 #[test]
 fn su2_zn_isometry_and_f() {
     let spin = su2();
-    let one = spin.irrep(&[2]).unwrap();
+    let one = spin.irrep(&[2], &[]).unwrap();
     let zn = ZN::new(3).unwrap();
     let z = |q| ZNIrrep::new(q, 3).unwrap();
     let cat = product(spin, zn);
@@ -122,10 +122,10 @@ fn su2_zn_isometry_and_f() {
 #[test]
 fn su3_su2_outer_multiplicity_isometry_and_f() {
     let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
-    let eight = su3.irrep(&[1, 1]).unwrap();
+    let eight = su3.irrep(&[1, 1], &[]).unwrap();
     let spin = su2();
-    let half = spin.irrep(&[1]).unwrap();
-    let one = spin.irrep(&[2]).unwrap();
+    let half = spin.irrep(&[1], &[]).unwrap();
+    let one = spin.irrep(&[2], &[]).unwrap();
     let cat = product(su3, spin);
     let a = (eight.clone(), half);
     let e = (eight, one);
@@ -138,8 +138,8 @@ fn su3_su2_outer_multiplicity_isometry_and_f() {
 #[test]
 fn last_factor_fastest_and_nested_products() {
     let spin = su2();
-    let half = spin.irrep(&[1]).unwrap();
-    let one = spin.irrep(&[2]).unwrap();
+    let half = spin.irrep(&[1], &[]).unwrap();
+    let one = spin.irrep(&[2], &[]).unwrap();
     let unit = spin.unit();
     let cat = product(spin.clone(), spin.clone());
     let a = (half.clone(), one.clone());
@@ -175,7 +175,7 @@ fn last_factor_fastest_and_nested_products() {
 #[test]
 fn su3_su3_multiplicity_last_factor_fastest() {
     let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
-    let eight = su3.irrep(&[1, 1]).unwrap();
+    let eight = su3.irrep(&[1, 1], &[]).unwrap();
     let c = su3.cgc(&eight, &eight, &eight).unwrap();
     let cat = product(su3.clone(), su3);
     let a = (eight.clone(), eight);
@@ -216,7 +216,7 @@ fn zn_scalar_channels_and_bounds() {
 fn axis_overflow_factor_errors_and_foreign_objects() {
     use fusion_symbols::{lie::LieError, product::ProductError};
     let spin = su2();
-    let huge = spin.irrep(&[i64::from(u32::MAX)]).unwrap();
+    let huge = spin.irrep(&[i64::from(u32::MAX)], &[]).unwrap();
     let unit = spin.unit();
     let cat = product(spin.clone(), spin);
     let h = (huge.clone(), huge.clone());

@@ -9,7 +9,7 @@ use fusion_symbols::lie::{GroupId, LieError, LieGroup};
 fn excluded_rank_and_absent_catalog() {
     for id in [GroupId::spin(4).unwrap(), GroupId::so(4).unwrap()] {
         assert!(
-            matches!(LieGroup::new(id),Err(LieError::Unsupported { requires }) if requires.contains("SU(2) × SU(2)"))
+            matches!(LieGroup::new(id),Err(LieError::Unsupported { requires }) if requires == "D2 presentation")
         );
     }
     let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
@@ -46,7 +46,7 @@ fn labels_weights_zero_blocks_and_catalog_budget() {
         hash::{Hash, Hasher},
     };
     let cat = LieGroup::new(GroupId::spin(5).unwrap()).unwrap();
-    let s = cat.irrep(&[0, 1]).unwrap();
+    let s = cat.irrep(&[0, 1], &[]).unwrap();
     assert_eq!(s.dim_exact(), 4.into());
     assert!(s.gt_patterns().is_none());
     assert_eq!(
@@ -58,15 +58,15 @@ fn labels_weights_zero_blocks_and_catalog_budget() {
     );
     assert_eq!(cat.frobenius_schur_indicator(&s), -1.0);
     assert_eq!(cat.fusion_style(), FusionStyle::Generic);
-    assert_eq!(cat.irrep(&[1]), Err(LieError::InvalidLabel));
-    assert_eq!(cat.irrep(&[-1, 0]), Err(LieError::InvalidLabel));
-    assert_eq!(cat.irrep(&[i64::MAX, 1]), Err(LieError::LabelOverflow));
+    assert_eq!(cat.irrep(&[1], &[]), Err(LieError::InvalidLabel));
+    assert_eq!(cat.irrep(&[-1, 0], &[]), Err(LieError::InvalidLabel));
+    assert_eq!(cat.irrep(&[i64::MAX, 1], &[]), Err(LieError::LabelOverflow));
     assert_eq!(
         format!("{cat:?}"),
         format!("LieGroup {{ group: {:?} }}", GroupId::spin(5).unwrap())
     );
-    let v = cat.irrep(&[1, 0]).unwrap();
-    let adj = cat.irrep(&[0, 2]).unwrap();
+    let v = cat.irrep(&[1, 0], &[]).unwrap();
+    let adj = cat.irrep(&[0, 2], &[]).unwrap();
     assert_eq!(
         cat.f_symbol(&v, &v, &v, &v, &v, &adj).unwrap().dims(),
         [0, 0, 1, 1]
@@ -93,7 +93,7 @@ fn labels_weights_zero_blocks_and_catalog_budget() {
         ),
     ] {
         let group = LieGroup::new(id).unwrap();
-        let a = group.irrep(&label).unwrap();
+        let a = group.irrep(&label, &[]).unwrap();
         assert_eq!(
             a.weight_multiplicities(),
             weights.into_iter().map(|w| (w, 1)).collect()
@@ -106,7 +106,7 @@ fn labels_weights_zero_blocks_and_catalog_budget() {
         (GroupId::spin(10).unwrap(), vec![0, 0, 0, 0, 1]),
     ] {
         let group = LieGroup::new(id).unwrap();
-        let a = group.irrep(&label).unwrap();
+        let a = group.irrep(&label, &[]).unwrap();
         let dual = group.dual(&a);
         let unit = group.unit();
         // Only these four channels are needed; a full product builds large unrelated irreps.
@@ -170,7 +170,7 @@ fn doubled_weight_overflow_is_a_label_error() {
         (GroupId::spin(6).unwrap(), vec![1 << 61, 1 << 62, 0]),
     ] {
         assert_eq!(
-            LieGroup::new(id).unwrap().irrep(&label),
+            LieGroup::new(id).unwrap().irrep(&label, &[]),
             Err(LieError::LabelOverflow)
         );
     }

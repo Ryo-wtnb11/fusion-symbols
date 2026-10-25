@@ -46,8 +46,8 @@ impl<S> Storage<S> {
 /// use fusion_symbols::{category::FusionCategory, lie::{LieGroup, GroupId}};
 /// let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 ///
-/// let three = cat.irrep(&[1, 0]).unwrap();
-/// let eight = cat.irrep(&[1, 1]).unwrap();
+/// let three = cat.irrep(&[1, 0], &[]).unwrap();
+/// let eight = cat.irrep(&[1, 1], &[]).unwrap();
 /// let block = cat.f_symbol(&three, &cat.dual(&three), &three, &three, &eight, &eight).unwrap();
 ///
 /// assert_eq!(block.dims(), [1, 1, 1, 1]);

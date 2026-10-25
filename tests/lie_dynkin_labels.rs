@@ -46,6 +46,18 @@ fn dynkin_labels_match_owned_labels_without_allocation() {
         let measured = worker.join().unwrap();
         assert_eq!((measured.0, measured.1, measured.2), (1, 64, 64));
     });
+    // Higher-rank simple centers still admit labels without a scratch allocation.
+    for id in [
+        GroupId::psu(13).unwrap(),
+        GroupId::so(25).unwrap(),
+        GroupId::psp(24).unwrap(),
+        GroupId::pso(24).unwrap(),
+    ] {
+        let before = counting_alloc::calls();
+        assert!(id.admits(&[2; 12], &[]));
+        std::hint::black_box(id.clone());
+        assert_eq!(counting_alloc::calls(), before);
+    }
     for id in [
         GroupId::su(2).unwrap(),
         GroupId::spin(3).unwrap(),
@@ -53,17 +65,17 @@ fn dynkin_labels_match_owned_labels_without_allocation() {
         GroupId::so(3).unwrap(),
         GroupId::psu(2).unwrap(),
     ] {
-        let cat = LieGroup::new(id).unwrap();
+        let cat = LieGroup::new(id.clone()).unwrap();
         for label in 0..=200 {
-            if !id.admits(&[label]) {
+            if !id.admits(&[label], &[]) {
                 continue;
             }
-            let a = cat.irrep(&[label]).unwrap();
+            let a = cat.irrep(&[label], &[]).unwrap();
             assert!(a.dynkin_labels().eq([label]));
             check_labels(&a);
         }
-        let a = cat.irrep(&[4]).unwrap();
-        let b = cat.irrep(&[6]).unwrap();
+        let a = cat.irrep(&[4], &[]).unwrap();
+        let b = cat.irrep(&[6], &[]).unwrap();
         let expected = cat.fusion(&a, &b).unwrap().count();
         let before = counting_alloc::calls();
         let mut channels = 0;
@@ -93,8 +105,8 @@ fn dynkin_labels_match_owned_labels_without_allocation() {
         GroupId::spin(8).unwrap(),
         GroupId::so(8).unwrap(),
     ] {
-        let cat = LieGroup::new(id).unwrap();
-        let rank = id.root_system.rank();
+        let cat = LieGroup::new(id.clone()).unwrap();
+        let rank = id.semisimple_rank();
         // All admitted coordinates in 0..=2, independently checking round trips.
         for mut code in 0..3usize.pow(rank as u32) {
             let label: Vec<_> = (0..rank)
@@ -104,8 +116,8 @@ fn dynkin_labels_match_owned_labels_without_allocation() {
                     coordinate
                 })
                 .collect();
-            if id.admits(&label) {
-                let a = cat.irrep(&label).unwrap();
+            if id.admits(&label, &[]) {
+                let a = cat.irrep(&label, &[]).unwrap();
                 assert!(a.dynkin_labels().eq(label));
                 check_labels(&a);
                 check_labels(&cat.dual(&a));
@@ -116,12 +128,12 @@ fn dynkin_labels_match_owned_labels_without_allocation() {
         for i in 0..rank {
             let mut label = vec![0; rank];
             label[i] = 1;
-            if id.admits(&label) {
-                seeds.push(cat.irrep(&label).unwrap());
+            if id.admits(&label, &[]) {
+                seeds.push(cat.irrep(&label, &[]).unwrap());
             }
         }
         if id == GroupId::psu(3).unwrap() {
-            seeds.push(cat.irrep(&[1, 1]).unwrap());
+            seeds.push(cat.irrep(&[1, 1], &[]).unwrap());
         }
         for a in &seeds {
             for b in &seeds {
@@ -138,7 +150,7 @@ fn dynkin_labels_match_owned_labels_without_allocation() {
         let cat = LieGroup::new(GroupId::spin(8).unwrap()).unwrap();
         // The last two D coordinates can require an intermediate of twice i64::MAX.
         for label in [[0, 0, i64::MAX, 0], [0, 0, 0, i64::MAX]] {
-            let a = cat.irrep(&label).unwrap();
+            let a = cat.irrep(&label, &[]).unwrap();
             let before = counting_alloc::calls();
             assert!(std::hint::black_box(&a).dynkin_labels().eq(label));
             let after = counting_alloc::calls();

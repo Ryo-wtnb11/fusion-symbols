@@ -22,7 +22,7 @@ fn overview_1() {
     };
     let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-    let eight = cat.irrep(&[1, 1]).unwrap(); // SU(3) adjoint
+    let eight = cat.irrep(&[1, 1], &[]).unwrap(); // SU(3) adjoint
     assert_eq!(eight.dim_exact(), 8u32.into());
     assert_eq!(
         cat.fusion(&eight, &eight)
@@ -46,8 +46,8 @@ fn overview_2() {
 
     let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap(); // Sp(4)
     let triv = cat.unit();
-    let five = cat.irrep(&[0, 1]).unwrap(); // the 5
-    let ten = cat.irrep(&[2, 0]).unwrap(); // the adjoint 10
+    let five = cat.irrep(&[0, 1], &[]).unwrap(); // the 5
+    let ten = cat.irrep(&[2, 0], &[]).unwrap(); // the adjoint 10
 
     let block = cat
         .f_symbol(&triv, &five, &five, &ten, &five, &ten)
@@ -62,13 +62,16 @@ fn overview_3() {
     use fusion_symbols::lie::{GroupId, LieGroup};
 
     let spin7 = GroupId::spin(7).unwrap();
-    let s = LieGroup::new(spin7).unwrap().irrep(&[0, 0, 1]).unwrap();
+    let s = LieGroup::new(spin7)
+        .unwrap()
+        .irrep(&[0, 0, 1], &[])
+        .unwrap();
     assert_eq!(s.dim_exact(), 8u32.into());
 
     // The same label is not a representation of SO(7).
     assert!(LieGroup::new(GroupId::so(7).unwrap())
         .unwrap()
-        .irrep(&[0, 0, 1])
+        .irrep(&[0, 0, 1], &[])
         .is_err());
 }
 
@@ -91,9 +94,9 @@ fn clebsch_gordan_2() {
     };
     let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-    let three = cat.irrep(&[1, 0]).unwrap();
+    let three = cat.irrep(&[1, 0], &[]).unwrap();
     let anti = cat.dual(&three);
-    let eight = cat.irrep(&[1, 1]).unwrap();
+    let eight = cat.irrep(&[1, 1], &[]).unwrap();
 
     let c = cat.cgc(&three, &anti, &eight).unwrap();
     assert_eq!(c.dims(), [3, 3, 8, 1]); // [dim(s1), dim(s2), dim(s3), N^{s3}_{s1 s2}]
@@ -110,7 +113,7 @@ fn clebsch_gordan_3() {
     };
     let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-    let eight = cat.irrep(&[1, 1]).unwrap();
+    let eight = cat.irrep(&[1, 1], &[]).unwrap();
     let c = cat.cgc(&eight, &eight, &eight).unwrap();
     assert_eq!(c.dims()[3], 2); // the 8 occurs twice in 8 ⊗ 8
     assert_eq!(c.dims(), [8, 8, 8, 2]);
@@ -126,8 +129,8 @@ fn clebsch_gordan_4() {
     };
 
     let cat = LieGroup::new(GroupId::so(5).unwrap()).unwrap(); // SO(5) / Spin(5)
-    let v = cat.irrep(&[1, 0]).unwrap(); // the 5
-    let adj = cat.irrep(&[0, 2]).unwrap(); // the 10
+    let v = cat.irrep(&[1, 0], &[]).unwrap(); // the 5
+    let adj = cat.irrep(&[0, 2], &[]).unwrap(); // the 10
 
     let c = cat.cgc(&v, &v, &adj).unwrap();
     assert_eq!(c.dims()[3], 1);
@@ -142,7 +145,7 @@ fn fusion_1() {
         lie::{GroupId, LieGroup},
     };
     let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    let half = group.irrep(&[1]).unwrap();
+    let half = group.irrep(&[1], &[]).unwrap();
     let channels: Vec<i64> = group
         .fusion(&half, &half)
         .unwrap()
@@ -160,7 +163,7 @@ fn fusion_2() {
     };
     let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-    let three = cat.irrep(&[1, 0]).unwrap();
+    let three = cat.irrep(&[1, 0], &[]).unwrap();
     let anti = cat.dual(&three);
     let out = cat
         .fusion(&three, &anti)
@@ -174,7 +177,7 @@ fn fusion_2() {
     // 3 ⊗ 3-bar = 1 ⊕ 8, each once.
     assert_eq!(out.len(), 2);
     assert_eq!(out[&cat.unit()], 1);
-    assert_eq!(out[&cat.irrep(&[1, 1]).unwrap()], 1);
+    assert_eq!(out[&cat.irrep(&[1, 1], &[]).unwrap()], 1);
 }
 
 /// `docs/user-guide/README.md#fusion-and-cgc`.
@@ -186,7 +189,7 @@ fn fusion_3() {
     };
     let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-    let eight = cat.irrep(&[1, 1]).unwrap(); // SU(3) adjoint
+    let eight = cat.irrep(&[1, 1], &[]).unwrap(); // SU(3) adjoint
     let out = cat
         .fusion(&eight, &eight)
         .unwrap()
@@ -208,7 +211,7 @@ fn fusion_4() {
 
     // SO(5) = B_2: 5 ⊗ 5 = 1 ⊕ 10 ⊕ 14.
     let cat = LieGroup::new(GroupId::so(5).unwrap()).unwrap();
-    let v = cat.irrep(&[1, 0]).unwrap();
+    let v = cat.irrep(&[1, 0], &[]).unwrap();
     let out = cat
         .fusion(&v, &v)
         .map(|it| {
@@ -264,7 +267,7 @@ fn getting_started_2() {
     };
     let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-    let fund = cat.irrep(&[1, 0]).unwrap(); // the 3 of SU(3)
+    let fund = cat.irrep(&[1, 0], &[]).unwrap(); // the 3 of SU(3)
     assert_eq!(fund.dim_exact(), 3u32.into());
     assert_eq!(cat.dual(&fund).dynkin(), vec![0, 1]); // the 3-bar
 }
@@ -292,7 +295,7 @@ fn groups_1() {
         lie::{GroupId, LieGroup},
     };
     let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    let one = group.irrep(&[2]).unwrap();
+    let one = group.irrep(&[2], &[]).unwrap();
     let channels: Vec<i64> = group
         .fusion(&one, &one)
         .unwrap()
@@ -310,7 +313,7 @@ fn groups_2() {
     };
     let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-    let eight = cat.irrep(&[1, 1]).unwrap(); // SU(3) adjoint
+    let eight = cat.irrep(&[1, 1], &[]).unwrap(); // SU(3) adjoint
     let decomposition = cat
         .fusion(&eight, &eight)
         .unwrap()
@@ -333,7 +336,7 @@ fn groups_3() {
 
     // SO(5) = B_2: 5 ⊗ 5 = 1 ⊕ 10 ⊕ 14.
     let cat = LieGroup::new(GroupId::so(5).unwrap()).unwrap();
-    let v = cat.irrep(&[1, 0]).unwrap();
+    let v = cat.irrep(&[1, 0], &[]).unwrap();
     let out = cat
         .fusion(&v, &v)
         .map(|it| {
@@ -355,12 +358,12 @@ fn groups_4() {
     use fusion_symbols::lie::{GroupId, LieGroup};
 
     let spin5 = GroupId::spin(5).unwrap();
-    let s = LieGroup::new(spin5).unwrap().irrep(&[0, 1]).unwrap();
+    let s = LieGroup::new(spin5).unwrap().irrep(&[0, 1], &[]).unwrap();
     assert_eq!(s.dim_exact(), 4u32.into()); // the Spin(5) Dirac spinor
 
     // The same label is not a representation of SO(5).
     let so5 = GroupId::so(5).unwrap();
-    assert!(LieGroup::new(so5).unwrap().irrep(&[0, 1]).is_err());
+    assert!(LieGroup::new(so5).unwrap().irrep(&[0, 1], &[]).is_err());
 }
 
 /// `docs/overview.md#lie-labels-and-global-forms`.
@@ -373,7 +376,7 @@ fn groups_5() {
 
     // Sp(4) = C_2. The defining 4, and 4 ⊗ 4 = 1 ⊕ 5 ⊕ 10.
     let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
-    let four = cat.irrep(&[1, 0]).unwrap();
+    let four = cat.irrep(&[1, 0], &[]).unwrap();
     assert_eq!(four.dim_exact(), 4u32.into());
     let out = cat
         .fusion(&four, &four)
@@ -397,10 +400,16 @@ fn groups_6() {
     let psu3 = GroupId::psu(3).unwrap(); // SU(3)/Z₃
 
     // The adjoint 8 has zero triality, so it is a genuine PSU(3) representation.
-    assert!(LieGroup::new(psu3).unwrap().irrep(&[1, 1]).is_ok());
+    assert!(LieGroup::new(psu3.clone())
+        .unwrap()
+        .irrep(&[1, 1], &[])
+        .is_ok());
 
     // The fundamental 3 has triality 1: PSU(3) has no such representation.
-    assert!(LieGroup::new(psu3).unwrap().irrep(&[1, 0]).is_err());
+    assert!(LieGroup::new(psu3.clone())
+        .unwrap()
+        .irrep(&[1, 0], &[])
+        .is_err());
 }
 
 /// `docs/user-guide/README.md#symbol-layout`.
@@ -430,7 +439,7 @@ fn recoupling_2() {
     };
     assert!((wigner_6j(2, 2, 2, 2, 2, 2).to_f64() - 1.0 / 6.0).abs() < 1e-14);
     let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    let half = group.irrep(&[1]).unwrap();
+    let half = group.irrep(&[1], &[]).unwrap();
     let unit = group.unit();
     let f = group
         .f_symbol(&half, &half, &half, &half, &unit, &unit)
@@ -449,9 +458,9 @@ fn recoupling_3() {
     };
     let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-    let three = cat.irrep(&[1, 0]).unwrap();
+    let three = cat.irrep(&[1, 0], &[]).unwrap();
     let anti = cat.dual(&three);
-    let eight = cat.irrep(&[1, 1]).unwrap();
+    let eight = cat.irrep(&[1, 1], &[]).unwrap();
 
     // F^{3 3bar 3}_{3}[8, 8]
     let block = cat
@@ -476,8 +485,8 @@ fn recoupling_4() {
 
     let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap(); // Sp(4) = C_2
     let triv = cat.unit();
-    let five = cat.irrep(&[0, 1]).unwrap(); // the 5
-    let ten = cat.irrep(&[2, 0]).unwrap(); // the adjoint 10
+    let five = cat.irrep(&[0, 1], &[]).unwrap(); // the 5
+    let ten = cat.irrep(&[2, 0], &[]).unwrap(); // the adjoint 10
 
     let block = cat
         .f_symbol(&triv, &five, &five, &ten, &five, &ten)
@@ -495,7 +504,7 @@ fn recoupling_5() {
     };
     let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-    let eight = cat.irrep(&[1, 1]).unwrap();
+    let eight = cat.irrep(&[1, 1], &[]).unwrap();
     let dim = 8usize;
 
     // N^8_88 = 2, so every multiplicity axis below has length 2.
@@ -602,7 +611,7 @@ fn recoupling_6() {
     };
     let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-    let three = cat.irrep(&[1, 0]).unwrap();
+    let three = cat.irrep(&[1, 0], &[]).unwrap();
     let anti = cat.dual(&three);
     assert!(
         fusion_symbols::category::f_unitarity_residual(&cat, &three, &anti, &three, &three)
@@ -637,7 +646,7 @@ fn representations_2() {
         lie::{GroupId, LieGroup},
     };
     let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    let s = group.irrep(&[3]).unwrap(); // doubled spin 3, i.e. spin 3/2
+    let s = group.irrep(&[3], &[]).unwrap(); // doubled spin 3, i.e. spin 3/2
     assert_eq!(s.dynkin(), vec![3]);
     assert_eq!(s.dim_exact(), 4.into());
     assert_eq!(group.dual(&s), s);
@@ -653,8 +662,8 @@ fn representations_3() {
     };
     let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
-    let three = cat.irrep(&[1, 0]).unwrap(); // SU(3) fundamental
-    let eight = cat.irrep(&[1, 1]).unwrap(); // SU(3) adjoint
+    let three = cat.irrep(&[1, 0], &[]).unwrap(); // SU(3) fundamental
+    let eight = cat.irrep(&[1, 1], &[]).unwrap(); // SU(3) adjoint
     let singlet = cat.unit();
     assert_eq!(singlet.dim_exact(), 1.into());
 
@@ -674,7 +683,7 @@ fn representations_4() {
 
     // SO(5) = B_2. Dynkin [1, 0] is the 5-dimensional vector representation.
     let cat = LieGroup::new(GroupId::so(5).unwrap()).unwrap();
-    let v = cat.irrep(&[1, 0]).unwrap();
+    let v = cat.irrep(&[1, 0], &[]).unwrap();
     assert_eq!(v.dim_exact(), 5u32.into());
     assert_eq!(cat.dual(&v), v);
     assert_eq!(cat.frobenius_schur_indicator(&v), 1.0); // real (orthogonal) self-duality
@@ -690,8 +699,8 @@ fn representations_5() {
 
     // Sp(4) = C_2. Its defining 4 is pseudo-real; the 5 is real.
     let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
-    let four = cat.irrep(&[1, 0]).unwrap();
-    let five = cat.irrep(&[0, 1]).unwrap();
+    let four = cat.irrep(&[1, 0], &[]).unwrap();
+    let five = cat.irrep(&[0, 1], &[]).unwrap();
     assert_eq!(four.dim_exact(), 4u32.into());
     assert_eq!(cat.frobenius_schur_indicator(&four), -1.0);
     assert_eq!(five.dim_exact(), 5u32.into());

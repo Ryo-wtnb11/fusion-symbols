@@ -66,8 +66,6 @@ use num_traits::One;
 #[cfg(test)]
 use num_traits::Zero;
 
-use crate::lie::GlobalForm;
-
 use super::{BcdError, Series};
 
 /// The exact defining-representation generator seed for one B/C/D group.
@@ -214,7 +212,7 @@ pub fn defining_seed(series: Series, r: usize) -> Result<Seed, BcdError> {
             // The seed layer works on the **cover** (it is where the spinor
             // base cases live), so the simply-connected redirect is the right
             // one: `B_1 = Spin(3) ≅ SU(2)`, `D_2 = Spin(4) ≅ SU(2)×SU(2)`.
-            redirect: series.low_rank_redirect(GlobalForm::SimplyConnected),
+            redirect: series.low_rank_redirect(true),
         });
     }
     let d = seed_dimension(series, r)?;
@@ -378,7 +376,7 @@ pub fn spinor_seeds(series: Series, r: usize) -> Result<Vec<(Vec<i64>, Seed)>, B
         return Err(BcdError::ExcludedRank {
             series,
             rank: r,
-            redirect: series.low_rank_redirect(GlobalForm::SimplyConnected),
+            redirect: series.low_rank_redirect(true),
         });
     }
     if series != Series::C {

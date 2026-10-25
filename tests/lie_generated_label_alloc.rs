@@ -36,9 +36,9 @@ fn warm_generated_fusion_yields_labels_without_allocation() {
             vec![vec![0, 1], vec![1, 1]],
         ),
     ] {
-        let cat = LieGroup::new(id).unwrap();
-        let a = cat.irrep(&a).unwrap();
-        let b = cat.irrep(&b).unwrap();
+        let cat = LieGroup::new(id.clone()).unwrap();
+        let a = cat.irrep(&a, &[]).unwrap();
+        let b = cat.irrep(&b, &[]).unwrap();
         let mut cold: Vec<Vec<i64>> = cat.fusion(&a, &b).unwrap().map(|c| c.dynkin()).collect();
         cold.sort();
         assert_eq!(cold, expected, "{id:?}");

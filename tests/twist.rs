@@ -90,11 +90,11 @@ fn bcd_twist_matches_r_symbol_formula() {
             GroupId::spin(n).unwrap()
         };
         let cat = LieGroup::new(id).unwrap();
-        let a = cat.irrep(d).unwrap();
+        let a = cat.irrep(d, &[]).unwrap();
         assert_eq!(
             (
                 to_f64(a.dim_exact()),
-                n != 0 && !GroupId::so(n).unwrap().admits(d)
+                n != 0 && !GroupId::so(n).unwrap().admits(d, &[])
             ),
             (dim as f64, spinor)
         );

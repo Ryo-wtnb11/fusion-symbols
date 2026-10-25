@@ -33,9 +33,9 @@ fn leaf_categories_accept_own_and_reject_foreign_objects() {
 
     let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
     let so3 = LieGroup::new(GroupId::so(3).unwrap()).unwrap();
-    let spin = su2.irrep(&[1]).unwrap();
+    let spin = su2.irrep(&[1], &[]).unwrap();
     assert!(su2.contains(&spin) && su2.contains(&su2.unit()));
-    assert!(!so3.contains(&spin) && !su2.contains(&so3.irrep(&[2]).unwrap()));
+    assert!(!so3.contains(&spin) && !su2.contains(&so3.irrep(&[2], &[]).unwrap()));
 
     let fib = TableCategory::fibonacci();
     let ising = TableCategory::ising();
@@ -55,10 +55,10 @@ fn generated_lie_groups_reject_other_groups() {
     let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
     let su4 = LieGroup::new(GroupId::su(4).unwrap()).unwrap();
     let sp4 = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
-    let octet = su3.irrep(&[1, 1]).unwrap();
+    let octet = su3.irrep(&[1, 1], &[]).unwrap();
     assert!(su3.contains(&octet));
     assert!(!su4.contains(&octet) && !sp4.contains(&octet));
-    assert!(!su3.contains(&sp4.irrep(&[1, 0]).unwrap()));
+    assert!(!su3.contains(&sp4.irrep(&[1, 0], &[]).unwrap()));
     assert!(!su3.contains(&su4.unit()));
 }
 

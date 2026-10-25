@@ -25,7 +25,7 @@ data without adding a dependency. See `Cargo.toml::features`.
 
 ## Lie labels and global forms
 
-Construct `GroupId`, then `LieGroup`, then `LieGroup::irrep(&dynkin)`.
+Construct `GroupId`, then `LieGroup`, then `LieGroup::irrep(&dynkin, &[])`.
 Dynkin numbering follows Bourbaki. `GroupId::sp(2*r)` uses the defining
 dimension, not the rank. A1, B1 and C1 use the exact SU(2) implementation;
 SO(3) and PSU(2) admit only even doubled spins. D2 is unsupported: use an
@@ -38,12 +38,34 @@ SO(N) excludes. Supported constructors also include `su_quotient`, `psu`,
 `psp`, `pso`, `half_spin_plus`, and `half_spin_minus`. D-series central-class
 and half-spin naming conventions are fixed in [references](references.md#global-form--fixed-conventions).
 Objects retain the full group tag, including isomorphic groups.
-`GroupId::admits` is total for public root data and label slices; quotient
-formulas with absent Dynkin indices return false. Group construction checks
-zero-weight admission without allocating a rank-sized label. SU(N) ranks whose
-internal N-entry i64 weight cannot be addressed return `LieError::LabelOverflow`;
-B/C/D seeds are checked against the catalog budget before allocation (see
-[resources](user-guide/resources.md#bcd-generator-catalogs)).
+`GroupId` is a validated classification datum: ordered root-system blocks,
+torus rank, and a full-rank character lattice containing every root. `new`
+accepts square `i64` row generators and stores their canonical upper triangular
+row HNF, with `0 ≤ H[i,j] < H[j,j]` above the positive pivots. `cover` chooses
+the full weight/charge lattice. `root_systems`, `semisimple_rank`, `torus_rank`
+and `character_lattice` expose the presentation and canonical basis.
+`admits(dynkin, charges)` is exact and total: lengths must match, Dynkin labels
+must be nonnegative, and signed charges must lie in the character lattice.
+Invalid ranks, malformed/singular/root-excluding lattices, and unaddressable
+sizes or unrepresentable HNF entries return typed `GroupError`s.
+
+`torus(t)` classifies the standard positive-rank torus; `u(n)` imposes
+`q ≡ Σ i·aᵢ (mod n)`. General constructors also classify coupled products,
+the empty datum, and exceptional central quotients. These classifications
+**enable no additional coefficient engines**: `LieGroup::new` rejects tori,
+products, D2, the trivial group, and exceptional groups with a specific
+`LieError::Unsupported`. Existing generated families still require
+`lie-generated`. Their B/C/D seeds are checked against the catalog budget
+before allocation (see [resources](user-guide/resources.md#bcd-generator-catalogs)).
+
+`GroupId` has private fields and shares immutable data through `Arc`; it is
+`Clone`, not `Copy`. Equality/hash/order use the ordered presentation and
+canonical lattice, so SU(n)/Z1 equals SU(n). Distinct root presentations such
+as B1/C1/A1, D3/A3, and D2/[A1,A1] remain distinct. `LieGroup::group_id` borrows
+the classification datum. `LieGroup::irrep(dynkin, charges)` checks lengths and
+nonnegative Dynkin labels, then lattice admission, then engine integer limits.
+Every current engine requires an empty charge slice; `LieIrrep::charges` is
+an empty allocation-free exact-size iterator.
 
 `LieIrrep::dynkin_labels` reads labels without allocation; `dynkin` collects
 them. Clones share weight buffers without allocation. Warm duals reuse shared
@@ -58,6 +80,16 @@ independent of the number of labels or queries. Exact big-integer arithmetic
 can still allocate for large dimensions.
 `weight_multiplicities` uses Dynkin coordinates. `gt_patterns` gives the
 Gelfand–Tsetlin basis for A-series rank ≥ 2, and `None` for A1 and B/C/D.
+
+Classification validates root ranks, basis shape, full rank, and root
+containment. Invalid ranks return `UnsupportedRank`; malformed or root-excluding
+bases return `InvalidLattice`. Rank-sum overflow, allocation failure, and
+unrepresentable canonical entries return `SizeOverflow`. General bases are
+normalized with exact unimodular row operations. Named constructors build the
+canonical lattice directly in O(rank) time or less; full rank and root containment
+hold by construction. Only entries differing from the identity matrix are stored;
+`character_lattice()` allocates a dense matrix with rank squared entries.
+Unsupported presentations are rejected before any coefficient catalog is created.
 
 ## Validation and errors
 

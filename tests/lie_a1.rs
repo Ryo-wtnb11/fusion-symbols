@@ -9,17 +9,17 @@ use fusion_symbols::{
 #[test]
 fn labels_forms_and_rank_one_isomorphisms() {
     let su = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    assert_eq!(su.irrep(&[]), Err(LieError::InvalidLabel));
-    assert_eq!(su.irrep(&[1, 0]), Err(LieError::InvalidLabel));
-    assert_eq!(su.irrep(&[-1]), Err(LieError::InvalidLabel));
+    assert_eq!(su.irrep(&[], &[]), Err(LieError::InvalidLabel));
+    assert_eq!(su.irrep(&[1, 0], &[]), Err(LieError::InvalidLabel));
+    assert_eq!(su.irrep(&[-1], &[]), Err(LieError::InvalidLabel));
     assert_eq!(
-        su.irrep(&[i64::from(u32::MAX) + 1]),
+        su.irrep(&[i64::from(u32::MAX) + 1], &[]),
         Err(LieError::LabelOverflow)
     );
-    let max = su.irrep(&[i64::from(u32::MAX)]).unwrap();
+    let max = su.irrep(&[i64::from(u32::MAX)], &[]).unwrap();
     assert_eq!(max.dim_exact(), (u64::from(u32::MAX) + 1).into());
     assert!(matches!(
-        su.fusion(&max, &su.irrep(&[1]).unwrap()),
+        su.fusion(&max, &su.irrep(&[1], &[]).unwrap()),
         Err(LieError::LabelOverflow)
     ));
     #[cfg(not(feature = "lie-generated"))]
@@ -29,7 +29,7 @@ fn labels_forms_and_rank_one_isomorphisms() {
             requires: "lie-generated"
         })
     ));
-    let half = su.irrep(&[1]).unwrap();
+    let half = su.irrep(&[1], &[]).unwrap();
     assert_eq!(
         half.weight_multiplicities(),
         [(vec![-1], 1), (vec![1], 1)].into()
@@ -40,16 +40,16 @@ fn labels_forms_and_rank_one_isomorphisms() {
         GroupId::sp(2).unwrap(),
         GroupId::psu(2).unwrap(),
     ] {
-        let cat = LieGroup::new(id).unwrap();
+        let cat = LieGroup::new(id.clone()).unwrap();
         assert_eq!(cat.authority_fingerprint(), su.authority_fingerprint());
         if id == GroupId::so(3).unwrap() || id == GroupId::psu(2).unwrap() {
-            assert_eq!(cat.irrep(&[1]), Err(LieError::NotAdmissible));
+            assert_eq!(cat.irrep(&[1], &[]), Err(LieError::NotAdmissible));
         } else {
-            assert!(cat.irrep(&[1]).is_ok());
+            assert!(cat.irrep(&[1], &[]).is_ok());
         }
-        let one = cat.irrep(&[2]).unwrap();
+        let one = cat.irrep(&[2], &[]).unwrap();
         let unit = cat.unit();
-        let su_one = su.irrep(&[2]).unwrap();
+        let su_one = su.irrep(&[2], &[]).unwrap();
         assert_ne!(one, su_one);
         assert_eq!(
             cat.f_symbol(&one, &one, &one, &one, &unit, &unit).unwrap(),
@@ -71,7 +71,7 @@ fn labels_forms_and_rank_one_isomorphisms() {
 fn foreign_object_precedes_zero_channel() {
     let su = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
     let so = LieGroup::new(GroupId::so(3).unwrap()).unwrap();
-    su.r_symbol(&su.unit(), &su.unit(), &so.irrep(&[2]).unwrap())
+    su.r_symbol(&su.unit(), &su.unit(), &so.irrep(&[2], &[]).unwrap())
         .unwrap();
 }
 
@@ -81,7 +81,7 @@ fn dense_cgc_matches_exact_in_ascending_magnetic_order() {
     for a in 0..=6 {
         for b in 0..=6 {
             for c in 0..=6 {
-                let [ia, ib, ic] = [a, b, c].map(|dj| cat.irrep(&[i64::from(dj)]).unwrap());
+                let [ia, ib, ic] = [a, b, c].map(|dj| cat.irrep(&[i64::from(dj)], &[]).unwrap());
                 let tensor = cat.cgc(&ia, &ib, &ic).unwrap();
                 let n = cat.nsymbol(&ia, &ib, &ic) as usize;
                 assert_eq!(
@@ -113,12 +113,12 @@ fn dense_cgc_matches_exact_in_ascending_magnetic_order() {
     }
     // Dense materialization reuses the exact evaluator's cached 3j values.
     let cached = fusion_symbols::cache::base_cache_stats().three_j;
-    let half = cat.irrep(&[1]).unwrap();
+    let half = cat.irrep(&[1], &[]).unwrap();
     cat.cgc(&half, &half, &cat.unit()).unwrap();
     let warm = fusion_symbols::cache::base_cache_stats().three_j;
     assert_eq!(warm.misses, cached.misses);
     assert!(warm.hits > cached.hits);
-    let huge = cat.irrep(&[i64::from(u32::MAX)]).unwrap();
+    let huge = cat.irrep(&[i64::from(u32::MAX)], &[]).unwrap();
     assert!(matches!(
         cat.cgc(&huge, &huge, &cat.unit()),
         Err(LieError::Unsupported { .. })
@@ -128,7 +128,7 @@ fn dense_cgc_matches_exact_in_ascending_magnetic_order() {
         0
     );
     let zero = cat.unit();
-    let half = cat.irrep(&[1]).unwrap();
+    let half = cat.irrep(&[1], &[]).unwrap();
     let f = cat
         .f_symbol(&half, &zero, &zero, &zero, &zero, &zero)
         .unwrap();
@@ -140,13 +140,15 @@ fn dense_cgc_matches_exact_in_ascending_magnetic_order() {
 }
 
 #[test]
-fn group_must_admit_the_unit() {
-    use fusion_symbols::lie::{CenterSubgroup, GlobalForm, RootSystem};
-    for root_system in [RootSystem::A(1), RootSystem::A(2), RootSystem::B(2)] {
-        let id = GroupId {
-            root_system,
-            form: GlobalForm::Quotient(CenterSubgroup::DVector),
-        };
-        assert_eq!(LieGroup::new(id), Err(LieError::NotAdmissible));
+fn every_valid_rank_one_datum_admits_the_unit() {
+    for id in [
+        GroupId::su(2).unwrap(),
+        GroupId::psu(2).unwrap(),
+        GroupId::so(3).unwrap(),
+    ] {
+        let cat = LieGroup::new(id.clone()).unwrap();
+        assert_eq!(cat.group_id(), &id);
+        assert!(id.admits(&[0], &[]));
+        assert_eq!(cat.unit().charges().len(), 0);
     }
 }

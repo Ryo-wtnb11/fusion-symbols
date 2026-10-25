@@ -15,7 +15,7 @@ fn warm_product_composition_allocates_nothing() {
         LieGroup::new(GroupId::su(2).unwrap()).unwrap(),
         FermionParity,
     );
-    let half = (cat.factors().0.irrep(&[1]).unwrap(), Parity::ODD);
+    let half = (cat.factors().0.irrep(&[1], &[]).unwrap(), Parity::ODD);
     let zero = cat.unit();
     let _ = cat
         .f_symbol(&half, &half, &half, &half, &zero, &zero)

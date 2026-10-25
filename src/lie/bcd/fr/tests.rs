@@ -11,9 +11,9 @@ fn warm_calls_do_not_lock_or_resweep() {
     cache::reset();
     let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
     let one = cat.unit();
-    let v = cat.irrep(&[0, 1]).unwrap();
-    let adj = cat.irrep(&[2, 0]).unwrap();
-    let other = cat.irrep(&[0, 2]).unwrap();
+    let v = cat.irrep(&[0, 1], &[]).unwrap();
+    let adj = cat.irrep(&[2, 0], &[]).unwrap();
+    let other = cat.irrep(&[0, 2], &[]).unwrap();
     let first = cat.f_symbol(&one, &v, &v, &adj, &v, &adj).unwrap();
     let cgc = cat.cgc(&v, &v, &adj).unwrap();
     // The same sweep populates every channel, including this unrequested one.
@@ -59,7 +59,7 @@ fn poisoned_catalog_is_a_generation_error() {
     })
     .join()
     .is_err());
-    let v = cat.irrep(&[0, 1]).unwrap();
+    let v = cat.irrep(&[0, 1], &[]).unwrap();
     assert!(matches!(
         cat.cgc(&v, &v, &cat.unit()),
         Err(LieError::Generation(_))
@@ -73,7 +73,7 @@ fn warm_product_is_shared_without_resweeping() {
     let _guard = cache::TEST_CACHE_LOCK.lock().unwrap();
     cache::reset();
     let cat = LieGroup::new(GroupId::spin(5).unwrap()).unwrap();
-    let a = cat.irrep(&[0, 1]).unwrap();
+    let a = cat.irrep(&[0, 1], &[]).unwrap();
     let first = cat.fusion(&a, &a).unwrap().collect::<Vec<_>>();
     let product =
         super::super::shared_directproduct(a.bcd.as_ref().unwrap(), a.bcd.as_ref().unwrap())
@@ -136,7 +136,7 @@ fn d3_adjoint_square_84_channel_cgc_is_coherent_or_bricks() {
 fn d3_adjoint_f_symbol_closes_or_bricks() {
     let _guard = cache::TEST_CACHE_LOCK.lock().unwrap();
     let cat = LieGroup::new(GroupId::so(6).unwrap()).unwrap();
-    let g = cat.irrep(&[0, 1, 1]).unwrap();
+    let g = cat.irrep(&[0, 1, 1], &[]).unwrap();
     match cat.f_symbol(&g, &g, &g, &g, &g, &g) {
         Ok(_) => {}
         Err(LieError::Generation(error))
@@ -160,7 +160,7 @@ fn cgc_budget_covers_only_the_requested_channel() {
     let expected = probe.cgc(&s, &s, &one).unwrap();
     let needed = probe.bytes();
     let cat = LieGroup::with_catalog_budget(group, needed).unwrap();
-    let s = cat.irrep(&[0, 1]).unwrap();
+    let s = cat.irrep(&[0, 1], &[]).unwrap();
     let got = cat.cgc(&s, &s, &cat.unit()).unwrap();
     assert_eq!(cat.catalog_stats().unwrap(), (needed, needed));
     for m2 in 0..4 {

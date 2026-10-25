@@ -230,7 +230,7 @@ fn su2_identities_through_dj6() {
     let cat = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
     conformance(
         cat.clone(),
-        (0..=6).map(|dj| cat.irrep(&[dj]).unwrap()).collect(),
+        (0..=6).map(|dj| cat.irrep(&[dj], &[]).unwrap()).collect(),
     );
 }
 
@@ -242,7 +242,7 @@ fn so3_identities() {
         cat.clone(),
         (0..=6)
             .step_by(2)
-            .map(|dj| cat.irrep(&[dj]).unwrap())
+            .map(|dj| cat.irrep(&[dj], &[]).unwrap())
             .collect(),
     );
 }
@@ -256,14 +256,14 @@ fn su3_and_su4_identities() {
         su3.clone(),
         (0..=2)
             .flat_map(|p| (0..=2 - p).map(move |q| [p, q]))
-            .map(|x| su3.irrep(&x).unwrap())
+            .map(|x| su3.irrep(&x, &[]).unwrap())
             .collect(),
     );
     let su4 = LieGroup::new(GroupId::su(4).unwrap()).unwrap();
     conformance(
         su4.clone(),
         [[0, 0, 0], [1, 0, 0], [0, 0, 1]]
-            .map(|x| su4.irrep(&x).unwrap())
+            .map(|x| su4.irrep(&x, &[]).unwrap())
             .into(),
     );
 }
@@ -275,7 +275,10 @@ mod bcd_conformance {
 
     fn identities(group: GroupId, label: &[i64]) {
         let cat = LieGroup::new(group).unwrap();
-        conformance(cat.clone(), vec![cat.unit(), cat.irrep(label).unwrap()]);
+        conformance(
+            cat.clone(),
+            vec![cat.unit(), cat.irrep(label, &[]).unwrap()],
+        );
     }
     #[test]
     fn spin5() {
@@ -297,8 +300,8 @@ mod bcd_conformance {
     fn multiplicity_two() {
         // C2: (2,0) ⊗ (1,1) contains (1,1) twice (GroupMath 1.1.3).
         let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
-        let a = cat.irrep(&[2, 0]).unwrap();
-        let b = cat.irrep(&[1, 1]).unwrap();
+        let a = cat.irrep(&[2, 0], &[]).unwrap();
+        let b = cat.irrep(&[1, 1], &[]).unwrap();
         assert_eq!(cat.nsymbol(&a, &b, &b), 2);
         // Unit associativity and symmetric braiding on that multiplicity space.
         let f = cat.f_symbol(&cat.unit(), &a, &b, &b, &a, &b).unwrap();
@@ -333,7 +336,7 @@ fn product_identities() {
         ],
     );
     let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    let half = su2.irrep(&[1]).unwrap();
+    let half = su2.irrep(&[1], &[]).unwrap();
     let fsu2 = product(su2.clone(), FermionParity);
     conformance(fsu2.clone(), vec![fsu2.unit(), (half.clone(), parity)]);
     let fib = TableCategory::fibonacci();
@@ -353,7 +356,7 @@ fn product_multiplicity_residuals() {
         product,
     };
     let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
-    let octet = su3.irrep(&[1, 1]).unwrap();
+    let octet = su3.irrep(&[1, 1], &[]).unwrap();
     let cat = product(su3, FermionParity);
     let o = (octet, FermionParityIrrep::ODD);
     let u = cat.unit();

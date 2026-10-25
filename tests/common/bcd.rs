@@ -20,10 +20,10 @@ pub fn group(s: Series, r: usize) -> Result<LieGroup, LieError> {
     LieGroup::new(group_id(s, r))
 }
 pub fn irrep(s: Series, d: &[i64]) -> Result<LieIrrep, LieError> {
-    group(s, d.len())?.irrep(d)
+    group(s, d.len())?.irrep(d, &[])
 }
 pub fn irrep_in(g: &GroupId, d: &[i64]) -> Result<LieIrrep, LieError> {
-    LieGroup::new(*g)?.irrep(d)
+    LieGroup::new(g.clone())?.irrep(d, &[])
 }
 pub fn trivial(s: Series, r: usize) -> Result<LieIrrep, LieError> {
     irrep(s, &vec![0; r])
