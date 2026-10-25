@@ -55,7 +55,7 @@ use super::{defining_seed, directproduct, BcdError, Irrep, Series};
 /// `D×D` blocks; a family exercised over modest ranks stays far below this,
 /// while a runaway recursion (or a deliberately tiny budget in a test) trips
 /// [`CatalogError::BudgetExceeded`] before committing.
-const DEFAULT_MAX_BYTES: usize = 256 << 20;
+pub(in crate::lie) const DEFAULT_MAX_BYTES: usize = 256 << 20;
 
 /// Coherence tolerance for the QSpace cross-copy check
 /// ([`CatalogError::BasisIncoherent`]): two embeddings of one irrep must present
@@ -303,17 +303,7 @@ impl CanonicalCatalog {
     pub fn with_budget(series: Series, r: usize, max_bytes: usize) -> Result<Self, CatalogError> {
         // Preserve the seed layer's excluded-rank errors before checking its charge.
         if r >= series.min_rank() {
-            let needed = r
-                .checked_mul(2)
-                .and_then(|d| d.checked_add(usize::from(series == Series::B)))
-                .and_then(|d| gen_bytes_for(r, d))
-                .and_then(|defining| gen_bytes_for(r, 1)?.checked_add(defining));
-            if needed.is_none_or(|needed| needed > max_bytes) {
-                return Err(CatalogError::BudgetExceeded {
-                    limit: max_bytes,
-                    needed: needed.unwrap_or(usize::MAX),
-                });
-            }
+            Self::seed_requirement(series, r, max_bytes)?;
         }
         let mut cat = CanonicalCatalog {
             series,
@@ -324,6 +314,26 @@ impl CanonicalCatalog {
         };
         cat.seed_base()?;
         Ok(cat)
+    }
+
+    /// Preflight the base fixtures without allocating generators.
+    pub(in crate::lie) fn seed_requirement(
+        series: Series,
+        r: usize,
+        max_bytes: usize,
+    ) -> Result<usize, CatalogError> {
+        let needed = r
+            .checked_mul(2)
+            .and_then(|d| d.checked_add(usize::from(series == Series::B)))
+            .and_then(|d| gen_bytes_for(r, d))
+            .and_then(|defining| gen_bytes_for(r, 1)?.checked_add(defining));
+        match needed {
+            Some(needed) if needed <= max_bytes => Ok(needed),
+            _ => Err(CatalogError::BudgetExceeded {
+                limit: max_bytes,
+                needed: needed.unwrap_or(usize::MAX),
+            }),
+        }
     }
 
     /// The family series.

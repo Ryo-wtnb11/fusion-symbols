@@ -361,3 +361,16 @@ first-significant-entry sign convention, the outer-multiplicity assignment, the
 canonical-parent rule, and the intertwiner alignment. That document is normative
 under this same freeze, and `FusionCategory::authority_fingerprint`'s `epoch` is its
 specification version.
+
+## 14. Semisimple products and central quotients
+
+Composite `LieGroup` coefficients use the ordered simple-cover gauges through
+`Product<Vec<LieGroup>>`. A D₂ block expands into α₁ then α₂, each in the
+exact A₁ gauge of §12. Each F/R/A/B multiplicity axis and each CGC magnetic or
+multiplicity axis has the last factor fastest. Factor coefficients multiply
+left to right. These conventions introduce no change to simple-factor values.
+A character lattice `Q ⊆ X ⊆ P` only restricts admitted objects; all fusion
+outcomes remain admitted because `ν−λ−μ ∈ Q`. It neither changes coefficients
+nor renormalizes them. Authority fingerprints use the existing Product framing
+of ordered simple-factor fingerprints, without a new epoch or quotient tag.
+Different outward group presentations can share an authority.

@@ -38,3 +38,30 @@ fn warm_product_composition_allocates_nothing() {
     assert_eq!(warm.derived_f.misses, stats.derived_f.misses);
     assert_eq!(warm.derived_f.hits, stats.derived_f.hits + 1);
 }
+
+#[test]
+fn warm_d2_queries_allocate_only_as_much_as_product() {
+    fn counts<C: FusionCategory>(cat: &C, a: &C::Object, zero: &C::Object) -> [usize; 3] {
+        let f = || cat.f_symbol(a, a, a, a, zero, zero).unwrap();
+        let n = || cat.nsymbol(a, a, zero);
+        let dim = || cat.dim(a);
+        let _ = (f(), n(), dim());
+        [
+            counting_alloc::measure(f).0,
+            counting_alloc::measure(n).0,
+            counting_alloc::measure(dim).0,
+        ]
+    }
+
+    let _serial = counting_alloc::serial();
+    let cat = LieGroup::new(GroupId::spin(4).unwrap()).unwrap();
+    let a = cat.irrep(&[1, 1], &[]).unwrap();
+    let spin = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+    let half = spin.irrep(&[1], &[]).unwrap();
+    let product = fusion_symbols::product::Product::new(vec![spin.clone(), spin]);
+    let parts = vec![half.clone(), half];
+    assert_eq!(
+        counts(&cat, &a, &cat.unit()),
+        counts(&product, &parts, &product.unit())
+    );
+}

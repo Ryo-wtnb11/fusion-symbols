@@ -23,8 +23,10 @@ pub use group::*;
 use crate::category::{
     BraidingStyle, CgcBlock, EnumerationError, FusionCategory, FusionStyle, GroupRepresentations,
 };
+use crate::product::{Product, ProductError};
 use num_bigint::BigInt;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 /// A Lie group with its global form. A(1), B(1), and C(1) share the exact
 /// SU(2) gauge and fingerprint; their single Dynkin label is doubled spin.
@@ -42,8 +44,10 @@ use std::collections::BTreeMap;
 /// - SU(N), `N ≥ 3`: Dynkin labels by increasing total `Σ aᵢ`, then
 ///   ascending lexicographic order (SUNRepresentations.jl's order), so SU(3)
 ///   starts `(0,0), (0,1), (1,0), (0,2), (1,1), (2,0)`;
-/// - every other global form and the B, C, D series of rank at least two:
-///   [`EnumerationError::NotEnumerable`].
+/// - composite covers: the Product's Manhattan order over ordered simple
+///   factors (D(2) expands to A(1), A(1)); every factor must be enumerable;
+/// - every composite quotient, other higher A-series global forms, and
+///   B/C/D simple factors of rank at least two: [`EnumerationError::NotEnumerable`].
 ///
 /// # Panics
 /// Every object-taking category method except `contains` panics on an object
@@ -51,6 +55,7 @@ use std::collections::BTreeMap;
 #[derive(Clone)]
 pub struct LieGroup {
     group: GroupId,
+    composite: Option<Product<Vec<LieGroup>>>,
     #[cfg(feature = "lie-generated")]
     catalog: Option<std::sync::Arc<std::sync::Mutex<bcd::CanonicalCatalog>>>,
     // At most one retained rank-sized unit label per group instance.
@@ -84,6 +89,7 @@ impl std::hash::Hash for LieGroup {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LieIrrep {
     group: GroupId,
+    factors: Option<Arc<Vec<LieIrrep>>>,
     dj: u32,
     #[cfg(feature = "lie-generated")]
     generated: Option<sun::Irrep>,
@@ -100,7 +106,21 @@ impl Iterator for DynkinLabels<'_> {
     type Item = i64;
 
     fn next(&mut self) -> Option<i64> {
-        let i = self.indices.next()?;
+        let mut i = self.indices.next()?;
+        if let Some(factors) = &self.irrep.factors {
+            for factor in factors.iter() {
+                let rank = factor.group.semisimple_rank();
+                if i < rank {
+                    return DynkinLabels {
+                        irrep: factor,
+                        indices: i..i + 1,
+                    }
+                    .next();
+                }
+                i -= rank;
+            }
+            unreachable!("composite rank equals the sum of leaf ranks");
+        }
         #[cfg(feature = "lie-generated")]
         if let Some(a) = &self.irrep.generated {
             let w = a.weight();
@@ -265,22 +285,71 @@ fn checked_projection(value: i64) -> Result<i32, LieError> {
     i32::try_from(value).map_err(|_| LieError::LabelOverflow)
 }
 
-fn coefficient_root(group: &GroupId) -> Result<RootSystem, LieError> {
-    let requires = if group.torus_rank() != 0 {
-        "torus"
-    } else {
-        match group.root_systems() {
-            [] => "trivial group",
-            [RootSystem::E6] => "E6 coefficient engine",
-            [RootSystem::E7] => "E7 coefficient engine",
-            [RootSystem::E8] => "E8 coefficient engine",
-            [RootSystem::F4] => "F4 coefficient engine",
-            [RootSystem::G2] => "G2 coefficient engine",
-            [root] => return Ok(*root),
-            _ => "product of root systems",
+fn coefficient_roots(group: &GroupId) -> Result<(), LieError> {
+    if group.torus_rank() != 0 {
+        return Err(LieError::Unsupported { requires: "torus" });
+    }
+    if group.root_systems().is_empty() {
+        return Err(LieError::Unsupported {
+            requires: "trivial group",
+        });
+    }
+    for root in group.root_systems() {
+        let requires = match root {
+            RootSystem::E6 => "E6 coefficient engine",
+            RootSystem::E7 => "E7 coefficient engine",
+            RootSystem::E8 => "E8 coefficient engine",
+            RootSystem::F4 => "F4 coefficient engine",
+            RootSystem::G2 => "G2 coefficient engine",
+            _ => continue,
+        };
+        return Err(LieError::Unsupported { requires });
+    }
+    #[cfg(not(feature = "lie-generated"))]
+    if group.root_systems().iter().any(|root| {
+        !matches!(
+            root,
+            RootSystem::A(1) | RootSystem::B(1) | RootSystem::C(1) | RootSystem::D(2)
+        )
+    }) {
+        return Err(LieError::Unsupported {
+            requires: "lie-generated",
+        });
+    }
+    Ok(())
+}
+
+// Product errors allow borrowed generic sources. Keep source forwarding local
+// to the owned Lie error so composition does not tighten Product's public bounds.
+#[derive(Debug)]
+struct CompositeError(ProductError<LieError>);
+impl std::fmt::Display for CompositeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, f)
+    }
+}
+impl std::error::Error for CompositeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match &self.0 {
+            ProductError::Factor { source, .. } | ProductError::Factor0(source) => Some(source),
+            _ => None,
         }
-    };
-    Err(LieError::Unsupported { requires })
+    }
+}
+
+impl From<ProductError<LieError>> for LieError {
+    fn from(error: ProductError<LieError>) -> Self {
+        match error {
+            ProductError::Overflow => Self::LabelOverflow,
+            // Keep matchable leaf capability/overflow variants; generation and
+            // malformed-block diagnostics retain the complete indexed source path.
+            ProductError::Factor {
+                source: source @ (Self::LabelOverflow | Self::Unsupported { .. }),
+                ..
+            } => source,
+            error => Self::Generation(GenerationError(Arc::new(CompositeError(error)))),
+        }
+    }
 }
 
 impl LieGroup {
@@ -288,17 +357,25 @@ impl LieGroup {
     pub fn group_id(&self) -> &GroupId {
         &self.group
     }
-    /// Construct a supported single-block classical group, with no torus charges.
-    /// Other classified data return [`LieError::Unsupported`]; higher ranks
-    /// require `lie-generated`. No zero-weight label is allocated at setup.
-    /// B/C/D base seeds exceeding the catalog budget return [`LieError::Generation`].
+    /// Construct a semisimple group with executable classical factors and any
+    /// admitted character lattice. A(1), B(1), C(1), and D(2) need no feature;
+    /// A/B/C ranks ≥ 2 and D ranks ≥ 3 require `lie-generated`.
+    /// D(2) expands into α₁ then α₂, each in the exact A(1) gauge.
+    /// Tori, exceptional blocks, and the trivial group return [`LieError::Unsupported`].
+    /// Single factors retain their evaluator and gauge. Composites use ordered
+    /// [`Product`] cover symbols and only restrict objects at admission.
+    /// B/C/D seed charges exceeding the default aggregate catalog budget return
+    /// [`LieError::Generation`]. No zero-weight label is allocated at setup.
     pub fn new(group: GroupId) -> Result<Self, LieError> {
-        let root = coefficient_root(&group)?;
-        if root == RootSystem::D(2) {
-            return Err(LieError::Unsupported {
-                requires: "D2 presentation",
-            });
+        coefficient_roots(&group)?;
+        if group.root_systems().len() != 1 || group.root_systems()[0] == RootSystem::D(2) {
+            #[cfg(feature = "lie-generated")]
+            let budget = bcd::catalog::DEFAULT_MAX_BYTES;
+            #[cfg(not(feature = "lie-generated"))]
+            let budget = 0;
+            return Self::composite(group, budget);
         }
+        let root = group.root_systems()[0];
         if matches!(root, RootSystem::B(r) | RootSystem::C(r) | RootSystem::D(r) if r >= 2) {
             #[cfg(feature = "lie-generated")]
             {
@@ -306,6 +383,7 @@ impl LieGroup {
                     .expect("the enclosing match restricts the root system to B/C/D");
                 return Ok(Self {
                     group,
+                    composite: None,
                     unit: std::sync::OnceLock::new(),
                     catalog: Some(std::sync::Arc::new(std::sync::Mutex::new(
                         bcd::CanonicalCatalog::new(series, root.rank())?,
@@ -326,6 +404,7 @@ impl LieGroup {
                 }
                 return Ok(Self {
                     group,
+                    composite: None,
                     unit: std::sync::OnceLock::new(),
                     catalog: None,
                 });
@@ -342,20 +421,36 @@ impl LieGroup {
         }
         Ok(Self {
             group,
+            composite: None,
             #[cfg(feature = "lie-generated")]
             catalog: None,
             #[cfg(feature = "lie-generated")]
             unit: std::sync::OnceLock::new(),
         })
     }
-    /// Construct a B/C/D group with a byte budget for retained generators.
+    /// Set the retained-generator budget for a group with B/C/D catalogs.
+    /// For composites, preflight the sum of all catalog seed charges, then
+    /// split the remaining bytes equally among catalogs in factor order,
+    /// giving the remainder to earlier factors. Each cap is its seed plus its
+    /// share. Without any catalog this returns [`LieError::Unsupported`].
     pub fn with_catalog_budget(group: GroupId, max_bytes: usize) -> Result<Self, LieError> {
-        let root = coefficient_root(&group)?;
+        coefficient_roots(&group)?;
+        if group.root_systems().len() != 1 || group.root_systems()[0] == RootSystem::D(2) {
+            let result = Self::composite(group, max_bytes)?;
+            if result.catalog_stats()?.1 == 0 {
+                return Err(LieError::Unsupported {
+                    requires: "B/C/D catalog",
+                });
+            }
+            return Ok(result);
+        }
+        let root = group.root_systems()[0];
         #[cfg(feature = "lie-generated")]
         if let Some(series) = bcd_series(root) {
             if root != RootSystem::D(2) && root.rank() >= 2 {
                 return Ok(Self {
                     group,
+                    composite: None,
                     unit: std::sync::OnceLock::new(),
                     catalog: Some(std::sync::Arc::new(std::sync::Mutex::new(
                         bcd::CanonicalCatalog::with_budget(series, root.rank(), max_bytes)?,
@@ -369,8 +464,104 @@ impl LieGroup {
             requires: "B/C/D catalog",
         })
     }
+    fn composite(group: GroupId, max_bytes: usize) -> Result<Self, LieError> {
+        let roots: Vec<_> = group
+            .root_systems()
+            .iter()
+            .flat_map(|&root| {
+                if root == RootSystem::D(2) {
+                    vec![RootSystem::A(1); 2]
+                } else {
+                    vec![root]
+                }
+            })
+            .collect();
+        #[cfg(feature = "lie-generated")]
+        let seeds = roots
+            .iter()
+            .map(
+                |&root| match bcd_series(root).filter(|_| root.rank() >= 2) {
+                    Some(series) => {
+                        bcd::CanonicalCatalog::seed_requirement(series, root.rank(), usize::MAX)
+                            .map(Some)
+                            .ok()
+                    }
+                    None => Some(None),
+                },
+            )
+            .collect::<Option<Vec<_>>>();
+        #[cfg(feature = "lie-generated")]
+        let (remaining, count, seeds) = {
+            let total = seeds.as_ref().and_then(|seeds| {
+                seeds
+                    .iter()
+                    .flatten()
+                    .try_fold(0usize, |n, seed| n.checked_add(*seed))
+            });
+            let total =
+                total
+                    .filter(|&n| n <= max_bytes)
+                    .ok_or(bcd::CatalogError::BudgetExceeded {
+                        limit: max_bytes,
+                        needed: total.unwrap_or(usize::MAX),
+                    })?;
+            let seeds = seeds.expect("aggregate preflight validated every seed");
+            (max_bytes - total, seeds.iter().flatten().count(), seeds)
+        };
+        let mut factors = Vec::with_capacity(roots.len());
+        #[cfg(feature = "lie-generated")]
+        let mut catalog_index = 0;
+        for (i, root) in roots.into_iter().enumerate() {
+            let cover = GroupId::cover(&[root], 0).expect("validated factor has a valid cover");
+            #[cfg(feature = "lie-generated")]
+            if let Some(seed) = seeds[i] {
+                let cap = seed + remaining / count + usize::from(catalog_index < remaining % count);
+                factors.push(Self::with_catalog_budget(cover, cap)?);
+                catalog_index += 1;
+                continue;
+            }
+            let _ = (i, max_bytes);
+            factors.push(Self::new(cover)?);
+        }
+        Ok(Self {
+            group,
+            composite: Some(Product::new(factors)),
+            #[cfg(feature = "lie-generated")]
+            catalog: None,
+            #[cfg(feature = "lie-generated")]
+            unit: std::sync::OnceLock::new(),
+        })
+    }
+    fn composite_label(group: &GroupId, factors: Vec<LieIrrep>) -> LieIrrep {
+        let label = LieIrrep {
+            group: group.clone(),
+            factors: Some(Arc::new(factors)),
+            dj: 0,
+            #[cfg(feature = "lie-generated")]
+            generated: None,
+            #[cfg(feature = "lie-generated")]
+            bcd: None,
+        };
+        debug_assert!(group.admits(&label.dynkin(), &[]));
+        label
+    }
+    fn factor_labels<'a>(&self, a: &'a LieIrrep) -> &'a Vec<LieIrrep> {
+        self.label(a);
+        a.factors
+            .as_ref()
+            .expect("composite object has factor labels")
+    }
     /// Retained generator bytes and byte budget, or `(0, 0)` without a catalog.
     pub fn catalog_stats(&self) -> Result<(usize, usize), LieError> {
+        if let Some(product) = &self.composite {
+            return product
+                .factors()
+                .iter()
+                .try_fold((0, 0), |(bytes, cap), factor| {
+                    let (b, c) = factor.catalog_stats()?;
+                    Ok((checked_count(bytes, b)?, checked_count(cap, c)?))
+                });
+        }
         #[cfg(feature = "lie-generated")]
         if let Some(cat) = &self.catalog {
             let cat = cat.lock().map_err(|_| poisoned_catalog())?;
@@ -380,6 +571,12 @@ impl LieGroup {
     }
     /// Reset retained generators to the base seeds; no-op without a catalog.
     pub fn reset_catalog(&self) -> Result<(), LieError> {
+        if let Some(product) = &self.composite {
+            for factor in product.factors() {
+                factor.reset_catalog()?;
+            }
+            return Ok(());
+        }
         #[cfg(feature = "lie-generated")]
         if let Some(cat) = &self.catalog {
             cat.lock().map_err(|_| poisoned_catalog())?.try_reset()?;
@@ -398,6 +595,20 @@ impl LieGroup {
         if !self.group.admits(dynkin, charges) {
             return Err(LieError::NotAdmissible);
         }
+        if let Some(product) = &self.composite {
+            let mut offset = 0;
+            let factors = product
+                .factors()
+                .iter()
+                .map(|factor| {
+                    let end = offset + factor.group.semisimple_rank();
+                    let label = factor.irrep(&dynkin[offset..end], &[]);
+                    offset = end;
+                    label
+                })
+                .collect::<Result<_, _>>()?;
+            return Ok(Self::composite_label(&self.group, factors));
+        }
         if dynkin
             .iter()
             .try_fold(0i64, |sum, &x| sum.checked_add(x))
@@ -409,6 +620,7 @@ impl LieGroup {
         if matches!(self.group.root_systems()[0], RootSystem::A(r) if r >= 2) {
             return Ok(LieIrrep {
                 group: self.group.clone(),
+                factors: None,
                 dj: 0,
                 generated: Some(sun::Irrep::from_dynkin(dynkin)?),
                 bcd: None,
@@ -418,6 +630,7 @@ impl LieGroup {
         if self.catalog.is_some() {
             return Ok(LieIrrep {
                 group: self.group.clone(),
+                factors: None,
                 dj: 0,
                 generated: None,
                 bcd: Some(bcd::Irrep::from_dynkin_in(&self.group, dynkin)?),
@@ -429,6 +642,7 @@ impl LieGroup {
         let dj = u32::try_from(*dj).map_err(|_| LieError::LabelOverflow)?;
         Ok(LieIrrep {
             group: self.group.clone(),
+            factors: None,
             dj,
             #[cfg(feature = "lie-generated")]
             generated: None,
@@ -448,6 +662,12 @@ impl LieGroup {
             _ => Err(EnumerationError::NotEnumerable),
         }
     }
+    fn enumerable_product(&self) -> Result<Option<&Product<Vec<LieGroup>>>, EnumerationError> {
+        if self.composite.is_some() && !self.group.is_cover() {
+            return Err(EnumerationError::NotEnumerable);
+        }
+        Ok(self.composite.as_ref())
+    }
     fn label(&self, a: &LieIrrep) -> u32 {
         assert_eq!(self.group, a.group, "foreign Lie object");
         a.dj
@@ -458,7 +678,7 @@ impl LieIrrep {
     pub fn charges(&self) -> impl ExactSizeIterator<Item = i64> + '_ {
         std::iter::empty()
     }
-    /// GT basis in the frozen gauge order; absent for rank-one and B/C/D groups.
+    /// GT basis in the frozen gauge order; absent for rank-one, B/C/D, and composite groups.
     pub fn gt_patterns(&self) -> Option<Vec<GtPattern>> {
         #[cfg(feature = "lie-generated")]
         if let Some(a) = &self.generated {
@@ -470,6 +690,9 @@ impl LieIrrep {
     /// Highest weight in Dynkin coordinates, materialized in an owned allocation.
     /// Use [`Self::dynkin_labels`] for allocation-free label reading on hot paths.
     pub fn dynkin(&self) -> Vec<i64> {
+        if self.factors.is_some() {
+            return self.dynkin_labels().collect();
+        }
         #[cfg(feature = "lie-generated")]
         if let Some(a) = &self.bcd {
             return a.dynkin();
@@ -483,7 +706,7 @@ impl LieIrrep {
 
     /// Iterate over every highest-weight Dynkin coordinate, including zeros,
     /// in the same order as [`Self::dynkin`]. Construction and consumption
-    /// allocate nothing; each coordinate takes O(1) time. `len()` reports
+    /// allocate nothing; composite coordinates follow factor order. `len()` reports
     /// the number of remaining coordinates.
     pub fn dynkin_labels(&self) -> impl ExactSizeIterator<Item = i64> + '_ {
         DynkinLabels {
@@ -494,6 +717,9 @@ impl LieIrrep {
 
     /// Exact dimension.
     pub fn dim_exact(&self) -> BigInt {
+        if let Some(factors) = &self.factors {
+            return factors.iter().map(Self::dim_exact).product();
+        }
         #[cfg(feature = "lie-generated")]
         if let Some(a) = &self.bcd {
             return a.dim();
@@ -507,6 +733,27 @@ impl LieIrrep {
     /// Weight multiplicities in Dynkin coordinates, in ascending coordinate order.
     /// Panics if an intermediate weight or multiplicity is unrepresentable.
     pub fn weight_multiplicities(&self) -> BTreeMap<Vec<i64>, u64> {
+        if let Some(factors) = &self.factors {
+            let mut weights = BTreeMap::from([(Vec::new(), 1u64)]);
+            for factor in factors.iter() {
+                let next = factor.weight_multiplicities();
+                weights = weights
+                    .into_iter()
+                    .flat_map(|(prefix, n)| {
+                        next.iter().map(move |(suffix, m)| {
+                            let mut key = prefix.clone();
+                            key.extend(suffix);
+                            (
+                                key,
+                                n.checked_mul(*m)
+                                    .expect("composite weight multiplicity exceeds u64"),
+                            )
+                        })
+                    })
+                    .collect();
+            }
+            return weights;
+        }
         #[cfg(feature = "lie-generated")]
         if let Some(a) = &self.bcd {
             return a.dynkin_weight_multiplicities();
@@ -537,10 +784,13 @@ impl LieIrrep {
 /// A1 magnetic index zero is the lowest weight, followed by raising in steps
 /// of two; higher A-series magnetic indices follow the frozen GT basis order.
 /// B/C/D indices follow the canonical bootstrap gauge in `docs/gauge_soN.md`.
+/// Composite CGCs use Product's last-factor-fastest decoding on every axis;
+/// D(2) factors are α₁ then α₂ in the exact A(1) gauge.
 /// A1 materialization uses the cached exact CG evaluator. Projection labels larger
 /// than `i32::MAX` are an unsupported capability of that evaluator.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LieCgc {
+    composite: Option<Vec<LieCgc>>,
     dims: [usize; 4],
     data: Vec<f64>,
     #[cfg(feature = "lie-generated")]
@@ -551,6 +801,9 @@ pub struct LieCgc {
 impl CgcBlock for LieCgc {
     /// Axis lengths, with multiplicity last (zero for an absent channel).
     fn dims(&self) -> [usize; 4] {
+        if let Some(blocks) = &self.composite {
+            return blocks.dims();
+        }
         #[cfg(feature = "lie-generated")]
         if let Some(c) = &self.generated {
             return c.dims();
@@ -562,6 +815,9 @@ impl CgcBlock for LieCgc {
     /// # Panics
     /// Panics if any index is outside its axis.
     fn at(&self, [m1, m2, m3, mu]: [usize; 4]) -> f64 {
+        if let Some(blocks) = &self.composite {
+            return blocks.at([m1, m2, m3, mu]);
+        }
         #[cfg(feature = "lie-generated")]
         if let Some(c) = &self.bcd {
             let dims = self.dims();
@@ -601,6 +857,9 @@ impl FusionCategory for LieGroup {
     type Fusion<'a> = LieFusion;
     type Error = LieError;
     fn fusion_style(&self) -> FusionStyle {
+        if let Some(product) = &self.composite {
+            return product.fusion_style();
+        }
         if self.group.semisimple_rank() >= 2 {
             FusionStyle::Generic
         } else {
@@ -608,9 +867,15 @@ impl FusionCategory for LieGroup {
         }
     }
     fn braiding_style(&self) -> BraidingStyle {
+        if let Some(product) = &self.composite {
+            return product.braiding_style();
+        }
         BraidingStyle::Bosonic
     }
     fn unit(&self) -> LieIrrep {
+        if let Some(product) = &self.composite {
+            return Self::composite_label(&self.group, product.unit());
+        }
         #[cfg(feature = "lie-generated")]
         if self.group.semisimple_rank() >= 2 {
             return self
@@ -623,6 +888,7 @@ impl FusionCategory for LieGroup {
         }
         LieIrrep {
             group: self.group.clone(),
+            factors: None,
             dj: 0,
             #[cfg(feature = "lie-generated")]
             generated: None,
@@ -637,6 +903,9 @@ impl FusionCategory for LieGroup {
     }
     fn dual(&self, a: &LieIrrep) -> LieIrrep {
         self.label(a);
+        if let Some(product) = &self.composite {
+            return Self::composite_label(&self.group, product.dual(self.factor_labels(a)));
+        }
         // Dual keys store one label in the tiers' existing shared slice layout.
         #[cfg(feature = "lie-generated")]
         use crate::cache::{
@@ -660,6 +929,7 @@ impl FusionCategory for LieGroup {
             };
             return LieIrrep {
                 group: self.group.clone(),
+                factors: None,
                 dj: 0,
                 generated: None,
                 bcd: Some(dual[0].0.clone()),
@@ -679,6 +949,7 @@ impl FusionCategory for LieGroup {
             });
             return LieIrrep {
                 group: self.group.clone(),
+                factors: None,
                 dj: 0,
                 generated: Some(value.channel(0).clone()),
                 bcd: None,
@@ -688,6 +959,9 @@ impl FusionCategory for LieGroup {
     }
     fn dim(&self, a: &LieIrrep) -> f64 {
         self.label(a);
+        if let Some(product) = &self.composite {
+            return product.dim(self.factor_labels(a));
+        }
         #[cfg(feature = "lie-generated")]
         if let Some(x) = &a.bcd {
             use num_traits::ToPrimitive;
@@ -700,8 +974,29 @@ impl FusionCategory for LieGroup {
         }
         f64::from(a.dj) + 1.0
     }
+    fn sqrt_dim(&self, a: &LieIrrep) -> f64 {
+        if let Some(product) = &self.composite {
+            return product.sqrt_dim(self.factor_labels(a));
+        }
+        self.dim(a).sqrt()
+    }
+    fn inv_sqrt_dim(&self, a: &LieIrrep) -> f64 {
+        if let Some(product) = &self.composite {
+            return product.inv_sqrt_dim(self.factor_labels(a));
+        }
+        self.sqrt_dim(a).recip()
+    }
+    fn inv_dim(&self, a: &LieIrrep) -> f64 {
+        if let Some(product) = &self.composite {
+            return product.inv_dim(self.factor_labels(a));
+        }
+        self.dim(a).recip()
+    }
     fn frobenius_schur_phase(&self, a: &LieIrrep) -> f64 {
         self.label(a);
+        if let Some(product) = &self.composite {
+            return product.frobenius_schur_phase(self.factor_labels(a));
+        }
         #[cfg(feature = "lie-generated")]
         if let Some(x) = &a.bcd {
             return x.frobenius_schur_phase();
@@ -714,6 +1009,9 @@ impl FusionCategory for LieGroup {
     }
     fn frobenius_schur_indicator(&self, a: &LieIrrep) -> f64 {
         self.label(a);
+        if let Some(product) = &self.composite {
+            return product.frobenius_schur_indicator(self.factor_labels(a));
+        }
         #[cfg(feature = "lie-generated")]
         if let Some(x) = &a.bcd {
             return f64::from(x.frobenius_schur());
@@ -726,6 +1024,9 @@ impl FusionCategory for LieGroup {
     }
     fn twist(&self, a: &LieIrrep) -> f64 {
         self.label(a);
+        if let Some(product) = &self.composite {
+            return product.twist(self.factor_labels(a));
+        }
         #[cfg(feature = "lie-generated")]
         if let Some(x) = &a.bcd {
             return x.twist();
@@ -735,6 +1036,16 @@ impl FusionCategory for LieGroup {
     fn fusion<'a>(&'a self, a: &LieIrrep, b: &LieIrrep) -> Result<Self::Fusion<'a>, LieError> {
         self.label(a);
         self.label(b);
+        if let Some(product) = &self.composite {
+            return Ok(LieFusion {
+                group: self.group.clone(),
+                inner: FusionInner::Composite(
+                    product
+                        .fusion(self.factor_labels(a), self.factor_labels(b))
+                        .map_err(LieError::from)?,
+                ),
+            });
+        }
         #[cfg(feature = "lie-generated")]
         if let (Some(a), Some(b)) = (&a.generated, &b.generated) {
             let product = sun::shared_directproduct(a, b)?;
@@ -782,6 +1093,15 @@ impl FusionCategory for LieGroup {
         self.label(a);
         self.label(b);
         self.label(c);
+        if let Some(product) = &self.composite {
+            return product
+                .try_nsymbol(
+                    self.factor_labels(a),
+                    self.factor_labels(b),
+                    self.factor_labels(c),
+                )
+                .map_err(LieError::from);
+        }
         #[cfg(feature = "lie-generated")]
         if let (Some(a), Some(b), Some(c)) = (&a.generated, &b.generated, &c.generated) {
             return Ok(sun::shared_directproduct(a, b)?.multiplicity(c));
@@ -807,6 +1127,18 @@ impl FusionCategory for LieGroup {
     ) -> Result<FBlock, LieError> {
         for x in [a, b, c, d, e, f] {
             self.label(x);
+        }
+        if let Some(product) = &self.composite {
+            return product
+                .f_symbol(
+                    self.factor_labels(a),
+                    self.factor_labels(b),
+                    self.factor_labels(c),
+                    self.factor_labels(d),
+                    self.factor_labels(e),
+                    self.factor_labels(f),
+                )
+                .map_err(LieError::from);
         }
         #[cfg(feature = "lie-generated")]
         if let [Some(a), Some(b), Some(c), Some(d), Some(e), Some(f)] =
@@ -843,6 +1175,15 @@ impl FusionCategory for LieGroup {
         self.label(a);
         self.label(b);
         self.label(c);
+        if let Some(product) = &self.composite {
+            return product
+                .r_symbol(
+                    self.factor_labels(a),
+                    self.factor_labels(b),
+                    self.factor_labels(c),
+                )
+                .map_err(LieError::from);
+        }
         #[cfg(feature = "lie-generated")]
         if let (Some(a), Some(b), Some(c)) = (&a.generated, &b.generated, &c.generated) {
             return Ok(sun::r_symbol(a, b, c)?);
@@ -866,6 +1207,10 @@ impl FusionCategory for LieGroup {
         })
     }
     fn a_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock, LieError> {
+        if let Some(product) = &self.composite {
+            let [a, b, c] = [a, b, c].map(|x| self.factor_labels(x));
+            return product.a_symbol(a, b, c).map_err(LieError::from);
+        }
         let n = checked_dimension(self.try_nsymbol(a, b, c)?)?;
         checked_size([n, n])?;
         if n == 0 {
@@ -880,6 +1225,10 @@ impl FusionCategory for LieGroup {
         ))
     }
     fn b_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock, LieError> {
+        if let Some(product) = &self.composite {
+            let [a, b, c] = [a, b, c].map(|x| self.factor_labels(x));
+            return product.b_symbol(a, b, c).map_err(LieError::from);
+        }
         let n = checked_dimension(self.try_nsymbol(a, b, c)?)?;
         checked_size([n, n])?;
         if n == 0 {
@@ -895,6 +1244,9 @@ impl FusionCategory for LieGroup {
     /// `false`: every group has an irrep of dimension `d > 1`, whose
     /// `|F^{a ā a}_a[𝟙, 𝟙]| = 1/d` (SU(2): `F^{½½½}_½[0, 0] = -1/2`).
     fn has_trivial_associator_gauge(&self) -> bool {
+        if let Some(product) = &self.composite {
+            return product.has_trivial_associator_gauge();
+        }
         false
     }
     // `true` for every group. The unit is the trivial irrep: self-dual, and
@@ -907,13 +1259,24 @@ impl FusionCategory for LieGroup {
     // two are the same isometry `x ⊗ y → z`, so the block is its column
     // orthonormality `Σ C_κ C_ν = δ_{κν}`: the identity, up to rounding.
     fn has_canonical_unit(&self) -> bool {
+        if let Some(product) = &self.composite {
+            return product.has_canonical_unit();
+        }
         true
     }
     fn object_count(&self) -> Result<Option<u64>, EnumerationError> {
+        if let Some(product) = self.enumerable_product()? {
+            return product.object_count();
+        }
         self.enumeration()?;
         Ok(None)
     }
     fn object_at(&self, index: u64) -> Result<LieIrrep, EnumerationError> {
+        if let Some(product) = self.enumerable_product()? {
+            return product
+                .object_at(index)
+                .map(|factors| Self::composite_label(&self.group, factors));
+        }
         let labels = match self.enumeration()? {
             LieEnumeration::RankOne { stride } => {
                 let dj = index
@@ -938,6 +1301,9 @@ impl FusionCategory for LieGroup {
     }
     fn object_index(&self, a: &LieIrrep) -> Result<u64, EnumerationError> {
         let dj = self.label(a);
+        if let Some(product) = self.enumerable_product()? {
+            return product.object_index(self.factor_labels(a));
+        }
         match self.enumeration()? {
             LieEnumeration::RankOne { stride } => Ok(u64::from(dj) / stride),
             LieEnumeration::Dynkin => {
@@ -949,6 +1315,9 @@ impl FusionCategory for LieGroup {
         }
     }
     fn authority_fingerprint(&self) -> &[u8] {
+        if let Some(product) = &self.composite {
+            return product.authority_fingerprint();
+        }
         #[cfg(feature = "lie-generated")]
         if self.catalog.is_some() {
             return bcd::bcd_authority_fingerprint();
@@ -966,9 +1335,29 @@ impl GroupRepresentations for LieGroup {
         self.label(a);
         self.label(b);
         self.label(c);
+        if let Some(product) = &self.composite {
+            return Ok(LieCgc {
+                composite: Some(
+                    product
+                        .cgc(
+                            self.factor_labels(a),
+                            self.factor_labels(b),
+                            self.factor_labels(c),
+                        )
+                        .map_err(LieError::from)?,
+                ),
+                dims: [0; 4],
+                data: Vec::new(),
+                #[cfg(feature = "lie-generated")]
+                generated: None,
+                #[cfg(feature = "lie-generated")]
+                bcd: None,
+            });
+        }
         #[cfg(feature = "lie-generated")]
         if let (Some(a), Some(b), Some(c)) = (&a.generated, &b.generated, &c.generated) {
             return Ok(LieCgc {
+                composite: None,
                 dims: [0; 4],
                 data: Vec::new(),
                 generated: Some(sun::cgc(a, b, c)?),
@@ -984,6 +1373,7 @@ impl GroupRepresentations for LieGroup {
                 bcd::fr::mult(a, b, c)?,
             ];
             return Ok(LieCgc {
+                composite: None,
                 dims,
                 data: Vec::new(),
                 generated: None,
@@ -1045,6 +1435,7 @@ impl GroupRepresentations for LieGroup {
             }
         }
         Ok(LieCgc {
+            composite: None,
             dims,
             data,
             #[cfg(feature = "lie-generated")]
@@ -1061,8 +1452,11 @@ pub struct LieFusion {
     group: GroupId,
     inner: FusionInner,
 }
+type CompositeFusion = <Product<Vec<LieGroup>> as FusionCategory>::Fusion<'static>;
+
 #[derive(Clone, Debug)]
 enum FusionInner {
+    Composite(CompositeFusion),
     #[cfg(feature = "lie-generated")]
     Bcd {
         product: std::sync::Arc<[(bcd::Irrep, u32)]>,
@@ -1080,6 +1474,12 @@ enum FusionInner {
 impl LieFusion {
     fn next_label(&mut self, reverse: bool) -> Option<LieIrrep> {
         match &mut self.inner {
+            FusionInner::Composite(inner) => (if reverse {
+                inner.next_back()
+            } else {
+                inner.next()
+            })
+            .map(|factors| LieGroup::composite_label(&self.group, factors)),
             #[cfg(feature = "lie-generated")]
             FusionInner::Bcd {
                 product,
@@ -1099,6 +1499,7 @@ impl LieFusion {
                 };
                 Some(LieIrrep {
                     group: self.group.clone(),
+                    factors: None,
                     dj: 0,
                     generated: None,
                     bcd: Some(product[i].0.clone()),
@@ -1111,6 +1512,7 @@ impl LieFusion {
             })
             .map(|a| LieIrrep {
                 group: self.group.clone(),
+                factors: None,
                 dj: a.dj(),
                 #[cfg(feature = "lie-generated")]
                 generated: None,
@@ -1136,6 +1538,7 @@ impl LieFusion {
                 };
                 Some(LieIrrep {
                     group: self.group.clone(),
+                    factors: None,
                     dj: 0,
                     generated: Some(product.channel(index).clone()),
                     bcd: None,
@@ -1151,6 +1554,7 @@ impl Iterator for LieFusion {
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
         let n = match &self.inner {
+            FusionInner::Composite(inner) => inner.len(),
             FusionInner::A1(inner) => inner.len(),
             #[cfg(feature = "lie-generated")]
             FusionInner::Generated { front, back, .. } | FusionInner::Bcd { front, back, .. } => {
@@ -1171,6 +1575,149 @@ impl ExactSizeIterator for LieFusion {}
 mod tests {
     use super::*;
     use std::error::Error;
+
+    #[test]
+    fn composite_seed_overflow_reports_caller_budget() {
+        let group = GroupId::cover(&[RootSystem::B(usize::MAX / 4), RootSystem::A(1)], 0).unwrap();
+        let error = LieGroup::with_catalog_budget(group, 1024).unwrap_err();
+        assert!(matches!(
+            error
+                .source()
+                .unwrap()
+                .source()
+                .unwrap()
+                .downcast_ref::<bcd::CatalogError>(),
+            Some(bcd::CatalogError::BudgetExceeded {
+                limit: 1024,
+                needed: usize::MAX,
+            })
+        ));
+    }
+
+    #[test]
+    fn composite_catalog_budget_split_and_reset() {
+        use RootSystem::{A, B, C, D};
+        let roots = [A(1), B(2), D(2), C(2)];
+        let group = GroupId::cover(&roots, 0).unwrap();
+        let seeds: Vec<_> = [(bcd::Series::B, 2), (bcd::Series::C, 2)]
+            .into_iter()
+            .map(|(s, r)| bcd::CanonicalCatalog::seed_requirement(s, r, usize::MAX).unwrap())
+            .collect();
+        let total: usize = seeds.iter().sum();
+        assert!(matches!(
+            LieGroup::with_catalog_budget(group.clone(), total - 1),
+            Err(LieError::Generation(_))
+        ));
+        for extra in [0, 5] {
+            let cat = LieGroup::with_catalog_budget(group.clone(), total + extra).unwrap();
+            let leaves = cat.composite.as_ref().unwrap().factors();
+            assert_eq!(
+                leaves[1].catalog_stats().unwrap(),
+                (seeds[0], seeds[0] + extra / 2 + extra % 2)
+            );
+            assert_eq!(
+                leaves[4].catalog_stats().unwrap(),
+                (seeds[1], seeds[1] + extra / 2)
+            );
+            assert_eq!(cat.catalog_stats().unwrap(), (total, total + extra));
+            cat.reset_catalog().unwrap();
+            assert_eq!(cat.catalog_stats().unwrap(), (total, total + extra));
+        }
+        assert_eq!(
+            LieGroup::new(group).unwrap().catalog_stats().unwrap(),
+            (total, bcd::catalog::DEFAULT_MAX_BYTES)
+        );
+    }
+
+    #[test]
+    fn composite_warm_calls_reuse_cover_caches() {
+        use std::sync::atomic::Ordering;
+        let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
+        crate::cache::reset();
+        // Cover and quotient share all generated leaf keys; D2's A1 leaves
+        // have exact closed forms and no numerical generation sweep.
+        let roots = [RootSystem::A(1), RootSystem::A(2), RootSystem::C(2)];
+        let cover = LieGroup::new(GroupId::cover(&roots, 0).unwrap()).unwrap();
+        let quotient = LieGroup::new(
+            GroupId::new(
+                &roots,
+                0,
+                &[
+                    vec![2, 0, 0, 0, 0],
+                    vec![0, 1, 0, 0, 0],
+                    vec![0, 0, 1, 0, 0],
+                    vec![0, 0, 0, 1, 0],
+                    vec![0, 0, 0, 0, 1],
+                ],
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let query = |cat: &LieGroup| {
+            let a = cat.irrep(&[2, 1, 1, 1, 0], &[]).unwrap();
+            let e = cat.irrep(&[2, 1, 1, 0, 0], &[]).unwrap();
+            cat.cgc(&a, &a, &e).unwrap();
+            cat.f_symbol(&a, &a, &a, &a, &e, &e).unwrap();
+            cat.r_symbol(&a, &a, &e).unwrap();
+            cat.a_symbol(&a, &a, &e).unwrap();
+            cat.b_symbol(&a, &a, &e).unwrap();
+        };
+        query(&cover);
+        let sun = sun::cgc::GENERATIONS.with(std::cell::Cell::get);
+        let bcd = bcd::fr::CGC_SWEEPS.load(Ordering::Relaxed);
+        assert!(sun > 0);
+        assert!(bcd > 0);
+        query(&cover);
+        query(&quotient);
+        assert_eq!(sun::cgc::GENERATIONS.with(std::cell::Cell::get), sun);
+        assert_eq!(bcd::fr::CGC_SWEEPS.load(Ordering::Relaxed), bcd);
+    }
+
+    #[test]
+    fn composite_error_mapping_retains_factor_path() {
+        let error = LieError::from(ProductError::Factor {
+            index: 2,
+            source: LieError::from(sun::SunError::Linalg("test failure".into())),
+        });
+        assert!(error.to_string().contains("factor 2"));
+        let source = error.source().unwrap().source().unwrap();
+        assert!(source.downcast_ref::<CompositeError>().is_some());
+        assert!(source
+            .source()
+            .unwrap()
+            .to_string()
+            .contains("test failure"));
+        assert_eq!(
+            LieError::from(ProductError::Factor {
+                index: 2,
+                source: LieError::LabelOverflow
+            }),
+            LieError::LabelOverflow
+        );
+        assert_eq!(
+            LieError::from(ProductError::Overflow),
+            LieError::LabelOverflow
+        );
+        let unsupported = LieError::Unsupported {
+            requires: "test capability",
+        };
+        assert_eq!(
+            LieError::from(ProductError::Factor {
+                index: 2,
+                source: unsupported.clone()
+            }),
+            unsupported
+        );
+        assert!(matches!(
+            LieError::from(ProductError::MalformedSymbolData {
+                factor: 2,
+                expected: vec![1, 1],
+                actual: vec![2, 2],
+                storage_len: 4,
+            }),
+            LieError::Generation(_)
+        ));
+    }
 
     #[test]
     fn generation_error_keeps_its_reason() {

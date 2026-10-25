@@ -11,7 +11,9 @@ CGC are the separate `GroupRepresentations` capability, read through `CgcBlock`.
 |---|---|---|
 | `lie::LieGroup`: SU(2), SO(3), Spin(3), Sp(2), PSU(2) | One Dynkin label, doubled spin `dj = 2j` | Base |
 | `lie::LieGroup`: SU(N), SU(N)/Z_k, PSU(N), N ≥ 3 | N−1 nonnegative Dynkin labels | `lie-generated` |
-| `lie::LieGroup`: SO(N), Spin(N), Sp(2r), supported quotients | Rank-many nonnegative Dynkin labels | `lie-generated` |
+| `lie::LieGroup`: SO(N)/Spin(N), N ≥ 5; Sp(2r), r ≥ 2; supported quotients | Rank-many nonnegative Dynkin labels | `lie-generated` |
+| `lie::LieGroup`: D₂ forms (Spin(4), SO(4), PSO(4), half-spin lattices) | Two ordered A₁ Dynkin labels | Base |
+| `lie::LieGroup`: semisimple products and central quotients | Concatenated factor Dynkin labels, restricted to the character lattice | Union of factor features |
 | `lie::U1` | `U1Irrep`: integer `i32` charge, excluding `i32::MIN` | Base |
 | `lie::CU1` = O(2) | `CU1Irrep`: `(twice_charge, s)` = `(0,0)`, `(0,1)`, or `(q>0,2)` | Base |
 | `finite::ZN` | `ZNIrrep`: charge and runtime nonzero `u32` modulus | Base |
@@ -28,8 +30,10 @@ data without adding a dependency. See `Cargo.toml::features`.
 Construct `GroupId`, then `LieGroup`, then `LieGroup::irrep(&dynkin, &[])`.
 Dynkin numbering follows Bourbaki. `GroupId::sp(2*r)` uses the defining
 dimension, not the rank. A1, B1 and C1 use the exact SU(2) implementation;
-SO(3) and PSU(2) admit only even doubled spins. D2 is unsupported: use an
-SU(2) product. Exceptional root-system variants have no coefficient engine.
+SO(3) and PSU(2) admit only even doubled spins. D₂ expands into α₁ then α₂,
+each in the exact A₁ gauge: dimensions are `(a+1)(b+1)`, and SO(4) admits
+`a+b` even while PSO(4) requires both labels even. Exceptional root-system
+variants have no coefficient engine.
 Apart from CU(1) = O(2), other O(N), Pin(N), and noncompact groups are unsupported.
 
 A global form filters labels through `src/lie/group.rs::GroupId::admits`;
@@ -52,11 +56,16 @@ sizes or unrepresentable HNF entries return typed `GroupError`s.
 `torus(t)` classifies the standard positive-rank torus; `u(n)` imposes
 `q ≡ Σ i·aᵢ (mod n)`. General constructors also classify coupled products,
 the empty datum, and exceptional central quotients. These classifications
-**enable no additional coefficient engines**: `LieGroup::new` rejects tori,
-products, D2, the trivial group, and exceptional groups with a specific
-`LieError::Unsupported`. Existing generated families still require
-`lie-generated`. Their B/C/D seeds are checked against the catalog budget
-before allocation (see [resources](user-guide/resources.md#bcd-generator-catalogs)).
+execute through `LieGroup::new` exactly when there is no torus and every
+root-system block has an engine (including D₂'s two A₁ factors). Arbitrary
+intermediate character lattices restrict objects without changing cover
+coefficients or removing fusion outcomes: `ν−λ−μ ∈ Q ⊆ X` proves closure.
+Composites delegate to `Product<Vec<LieGroup>>` of ordered simple covers;
+single non-D₂ factors retain their original evaluator. Tori, the trivial
+group, and exceptional blocks return specific `LieError::Unsupported` errors.
+Generated factors still require `lie-generated`. B/C/D seed totals are checked
+against the aggregate catalog budget before allocating generators (see
+[resources](user-guide/resources.md#bcd-generator-catalogs)).
 
 `GroupId` has private fields and shares immutable data through `Arc`; it is
 `Clone`, not `Copy`. Equality/hash/order use the ordered presentation and
@@ -72,14 +81,16 @@ them. Clones share weight buffers without allocation. Warm duals reuse shared
 labels in the existing `SunProduct` / `BcdCgc` tiers, charged to their byte
 budgets and subject to their FIFO eviction, trim and reset controls. Each irrep
 retains only its own weight; coefficient cache keys keep their existing charge.
-The unit is memoized per group. `dim_exact` returns `BigInt`; the category's
-`dim` returns `f64`.
+Single generated groups memoize the unit. Composite labels share their ordered
+factor labels through `Arc<Vec<LieIrrep>>`; their exact dimensions multiply and
+weight multiplicities form the Cartesian product with checked `u64` products.
+`dim_exact` returns `BigInt`; the category's `dim` returns `f64`.
 B/C/D dimensions and Frobenius–Schur data reuse immutable root data: one
 process-lifetime entry per constructed `(series, rank)`, with O(rank³) integers,
 independent of the number of labels or queries. Exact big-integer arithmetic
 can still allocate for large dimensions.
 `weight_multiplicities` uses Dynkin coordinates. `gt_patterns` gives the
-Gelfand–Tsetlin basis for A-series rank ≥ 2, and `None` for A1 and B/C/D.
+Gelfand–Tsetlin basis for A-series rank ≥ 2, and `None` for A1, B/C/D, and composites.
 
 Classification validates root ranks, basis shape, full rank, and root
 containment. Invalid ranks return `UnsupportedRank`; malformed or root-excluding
@@ -161,6 +172,11 @@ Finite counts can overflow while individual indices remain addressable.
 The frozen orders and unavailable enumerations are listed in the
 [TensorKitSectors comparison](tensorkitsectors-differences.md#object-enumeration).
 
+Composite Lie groups enumerate only when their lattice is the full cover
+lattice and all simple factors enumerate. They use Product's Manhattan order
+over those factors, with D₂ expanded in α₁, α₂ order. Every composite quotient
+returns `NotEnumerable`, including SO(4) and separable quotient lattices.
+
 Tuple products have 2..=12 immediate factors; `Product<Vec<C>>` accepts any
 number of homogeneous factors, including zero (the trivial category) and one.
 Vector objects must have exactly as many entries as factors; other lengths are
@@ -189,6 +205,10 @@ Runtime fusion uses checked mixed-radix front/back indices, implements
 `ExactSizeIterator` when the factors do, and `DoubleEndedIterator` when the
 factors do. It checks the outcome count for `usize` overflow before iteration.
 Runtime factor failures use `ProductError::Factor { index, source }`.
+The Lie facade retains that factor path in `LieError::Generation`'s source
+chain for generation and malformed-data failures. Overflow maps to
+`LabelOverflow`; factor `LabelOverflow` and `Unsupported` propagate directly
+so callers can still match their variants.
 
 Before composing a nonzero F/R/A/B block, Product checks each factor's
 storage axes against its checked N symbols and requires the exact row-major

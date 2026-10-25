@@ -220,6 +220,11 @@ pub fn cgc(s1: &Irrep, s2: &Irrep, s3: &Irrep) -> Result<Cgc, SunError> {
     Ok((*stored).clone())
 }
 
+#[cfg(test)]
+thread_local! {
+    pub(in crate::lie) static GENERATIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
 /// The pure generation pipeline (no cache). `expected_override` forces the
 /// multiplicity-gate target for the `#[cfg(test)]` forced-mismatch scenario;
 /// `None` uses the exact fusion multiplicity.
@@ -229,6 +234,8 @@ fn generate(
     s3: &Irrep,
     expected_override: Option<usize>,
 ) -> Result<Cgc, SunError> {
+    #[cfg(test)]
+    GENERATIONS.with(|n| n.set(n.get() + 1));
     let n = s1.rank();
     if s2.rank() != n || s3.rank() != n {
         return Err(SunError::RankMismatch {

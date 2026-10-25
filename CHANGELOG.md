@@ -21,9 +21,6 @@ value/gauge rule noted below.
 - Named quotient moduli must fit `i64`: `psu(n)` and `u(n)` return
   `GroupError::SizeOverflow` for n > `i64::MAX`. Named lattices are stored
   sparsely in O(rank) space.
-- `LieGroup::new` on a D(2) presentation reports
-  `Unsupported { requires: "D2 presentation" }` (was
-  `"Spin(4) = SU(2) × SU(2) product"`).
 - `LieGroup::irrep` checks admission before integer limits:
   `psu(2).irrep(&[i64::MAX], &[])` reports `NotAdmissible` (was `LabelOverflow`).
 
@@ -31,6 +28,14 @@ value/gauge rule noted below.
   move to that trait: import `CgcBlock` and use `at([m1, m2, m3, mu])`.
 
 ### Added
+
+- `LieGroup` executes D₂ forms (Spin(4), SO(4), PSO(4), half-spin lattices),
+  ordered semisimple products, and arbitrary central quotients of executable
+  classical factors (#183). D₂ uses α₁ then α₂ in the exact A₁ gauge.
+  Composites reuse Product cover symbols and lazy CGCs, Product fingerprints,
+  and cover-only Manhattan enumeration. B/C/D catalog budgets are aggregate:
+  preflight seed totals, then split spare bytes equally in factor order.
+  Existing single-factor values, gauges, fingerprints, and enumeration remain unchanged.
 
 - `Product<Vec<C>>` composes any runtime number of homogeneous categories,
   including the empty product, with checked symbol arithmetic, enumeration,
@@ -42,8 +47,8 @@ value/gauge rule noted below.
   exceptional quotients, with exact admission. New errors are `InvalidLattice`
   and `SizeOverflow`; normalization uses exact big-integer arithmetic.
 - `LieGroup::group_id` borrows its datum; `LieIrrep::charges` returns an empty
-  exact-size iterator. The executable support set, coefficient values, gauges,
-  fingerprints, and enumeration orders are unchanged.
+  exact-size iterator. Existing coefficient values, gauges, fingerprints, and
+  single-factor enumeration orders are unchanged.
 
 - The common `category::CgcBlock` contract, scalar CGCs for `finite::ZN`, and
   lazy tuple CGCs for products of group representations (2..=12 factors),

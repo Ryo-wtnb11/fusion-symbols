@@ -249,3 +249,22 @@ fn axis_overflow_factor_errors_and_foreign_objects() {
     ))
     .is_err());
 }
+
+#[test]
+fn d2_isometry_and_f() {
+    let cat = LieGroup::new(GroupId::spin(4).unwrap()).unwrap();
+    let a = cat.irrep(&[2, 2], &[]).unwrap();
+    assert_orthonormal(&cat.cgc(&a, &a, &a).unwrap());
+    assert_f_from_cgc(&cat, [&a; 6]);
+}
+
+#[cfg(feature = "lie-generated")]
+#[test]
+fn a1_a2_isometry_and_f() {
+    use fusion_symbols::lie::RootSystem::A;
+    let cat = LieGroup::new(GroupId::cover(&[A(1), A(2)], 0).unwrap()).unwrap();
+    let a = cat.irrep(&[1, 1, 1], &[]).unwrap();
+    let e = cat.irrep(&[2, 1, 1], &[]).unwrap();
+    assert_orthonormal(&cat.cgc(&a, &a, &e).unwrap());
+    assert_f_from_cgc(&cat, [&a, &a, &a, &a, &e, &e]);
+}

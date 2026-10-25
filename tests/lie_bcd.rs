@@ -7,11 +7,6 @@ use fusion_symbols::lie::{GroupId, LieError, LieGroup};
 
 #[test]
 fn excluded_rank_and_absent_catalog() {
-    for id in [GroupId::spin(4).unwrap(), GroupId::so(4).unwrap()] {
-        assert!(
-            matches!(LieGroup::new(id),Err(LieError::Unsupported { requires }) if requires == "D2 presentation")
-        );
-    }
     let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
     assert_eq!(su2.catalog_stats().unwrap(), (0, 0));
     su2.reset_catalog().unwrap();

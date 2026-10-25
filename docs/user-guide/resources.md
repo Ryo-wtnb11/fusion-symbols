@@ -48,6 +48,15 @@ Materialization stages a whole canonical-parent chain before committing it;
 budget failure leaves committed entries unchanged. Temporary generation memory
 is not bounded by the retained-byte budget. See `src/lie/bcd/catalog.rs::ensure`.
 
+For a composite Lie group, the same 256 MiB default (or explicit budget) is
+an aggregate over its B/C/D catalogs. Construction preflights all seed charges;
+if their sum fits, it divides the remaining bytes equally among catalogs in
+factor order, with remainder bytes assigned to earlier factors. Each factor's
+cap is its seed charge plus its share. Rank-one and A-series factors consume
+no catalog budget. `catalog_stats` sums retained bytes and caps with checked
+arithmetic; `reset_catalog` visits every catalog once. A composite without
+B/C/D catalogs reports `(0,0)` and rejects `with_catalog_budget`.
+
 `catalog_stats()` returns `Result<(usize,usize),LieError>` for `(bytes,budget)`,
 or `(0,0)` without a catalog. `reset_catalog()` re-seeds base representations
 and is a no-op for other groups. Both report a poisoned lock as

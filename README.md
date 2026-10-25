@@ -23,7 +23,7 @@ and a frozen coefficient gauge. Tables retain AnyonWiki's gauge. See
 | Module | Provides |
 |---|---|
 | `category` | Shared `FusionCategory` contract, symbol blocks, identity residuals |
-| `lie` | Exact rank-one symbols; U(1), CU(1) = O(2); generated SU(N), SO(N), Spin(N), Sp(2r) and supported global forms |
+| `lie` | Exact rank-one symbols; U(1), CU(1) = O(2); generated SU(N), SO(N), Spin(N), Sp(2r); their semisimple products and central quotients, including D₂ forms |
 | `finite`, `fermion` | Cyclic groups Z_N; fermion parity |
 | `table` | 74 unitary multiplicity-free AnyonWiki categories of rank ≤ 4, including Fibonacci and Ising |
 | `product` | Ordered Deligne products: tuples of 2..=12 or homogeneous vectors of any length, preserving nesting |
@@ -43,7 +43,9 @@ labels, capabilities and error contracts.
 
 `lie::GroupId` separately classifies ordered connected root data with exact
 character lattices, including products, tori, U(N), and exceptional quotients.
-These additional classifications remain unsupported by `LieGroup` engines.
+`LieGroup` executes semisimple data whenever every simple factor has an engine;
+D₂ expands to two exact A₁ factors. Tori, U(N), exceptional blocks, and the
+trivial group remain unsupported by `LieGroup` engines.
 See [Lie labels and lattices](docs/overview.md#lie-labels-and-global-forms).
 
 ## Example
