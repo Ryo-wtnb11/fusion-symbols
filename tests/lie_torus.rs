@@ -3,7 +3,7 @@ use fusion_symbols::{
     category::{
         CgcBlock, EnumerationError, FusionCategory, FusionStyle, GroupRepresentations, SymbolBlock,
     },
-    lie::{GroupId, LieError, LieGroup, LieIrrep, RootSystem::A},
+    lie::{GroupId, LieError, LieGroup, LieIrrep, RootSystem::A, U1Error, U1Irrep, U1},
     product::Product,
 };
 
@@ -90,25 +90,125 @@ fn u1_values_bounds_and_fingerprint() {
     for (a, b) in [(i64::from(i32::MAX), 1), (-i64::from(i32::MAX), -1)] {
         let (a, b) = (q(a), q(b));
         assert_eq!(g.fusion(&a, &b).unwrap_err(), LieError::LabelOverflow);
-        assert_eq!(
-            g.try_nsymbol(&a, &b, &g.unit()),
-            Err(LieError::LabelOverflow)
-        );
-        assert_eq!(
-            g.f_symbol(&a, &b, &g.unit(), &g.unit(), &g.unit(), &b),
-            Err(LieError::LabelOverflow)
-        );
-        assert_eq!(g.r_symbol(&a, &b, &g.unit()), Err(LieError::LabelOverflow));
-        assert_eq!(g.a_symbol(&a, &b, &g.unit()), Err(LieError::LabelOverflow));
-        assert_eq!(g.b_symbol(&a, &b, &g.unit()), Err(LieError::LabelOverflow));
-        assert_eq!(g.cgc(&a, &b, &g.unit()), Err(LieError::LabelOverflow));
-        assert!(std::panic::catch_unwind(|| g.nsymbol(&a, &b, &g.unit())).is_err());
+        assert_eq!(g.nsymbol(&a, &b, &g.unit()), 0);
+        assert_eq!(g.try_nsymbol(&a, &b, &g.unit()), Ok(0));
+        assert!(g
+            .f_symbol(&a, &b, &g.unit(), &g.unit(), &g.unit(), &b)
+            .unwrap()
+            .data()
+            .is_empty());
+        for block in [
+            g.r_symbol(&a, &b, &g.unit()),
+            g.a_symbol(&a, &b, &g.unit()),
+            g.b_symbol(&a, &b, &g.unit()),
+        ] {
+            assert_eq!(block.unwrap().dims(), [0, 0]);
+        }
+        assert_eq!(g.cgc(&a, &b, &g.unit()).unwrap().dims(), [1, 1, 1, 0]);
     }
 }
 
 #[test]
-fn torus_fast_path_preserves_axes_overflow_and_identity_checks() {
-    let g = group(GroupId::u(1).unwrap());
+fn typed_u1_matches_liegroup_bitwise() {
+    let g = group(U1.group_id());
+    assert_eq!(U1.group_id(), GroupId::u(1).unwrap());
+    assert_eq!(
+        U1.unit().charge(),
+        g.unit().charges().next().unwrap() as i32
+    );
+    assert_eq!(U1.fusion_style(), g.fusion_style());
+    assert_eq!(U1.braiding_style(), g.braiding_style());
+    assert_eq!(
+        U1.has_trivial_associator_gauge(),
+        g.has_trivial_associator_gauge()
+    );
+    assert_eq!(U1.has_canonical_unit(), g.has_canonical_unit());
+    assert_eq!(U1.authority_fingerprint(), g.authority_fingerprint());
+    assert_eq!(U1.object_count(), g.object_count());
+    for index in (0..100).chain([4_294_967_293, 4_294_967_294, 4_294_967_295, u64::MAX]) {
+        assert_eq!(
+            U1.object_at(index).map(|q| i64::from(q.charge())),
+            g.object_at(index).map(|q| q.charges().next().unwrap())
+        );
+    }
+    let charges = [
+        -i32::MAX,
+        -i32::MAX + 1,
+        -3,
+        -1,
+        0,
+        1,
+        3,
+        i32::MAX - 1,
+        i32::MAX,
+    ];
+    // Both calls are closed-form: no generation sweep or coefficient cache exists.
+    for _ in 0..2 {
+        for qa in charges {
+            let (a, la) = (U1Irrep::new(qa).unwrap(), charge(&g, i64::from(qa)));
+            // Independent oracle: equality alone cannot catch a shared broken dual.
+            assert_eq!(U1.dual(&a).charge(), -qa);
+            assert_eq!(g.dual(&la).charges().next(), Some(i64::from(-qa)));
+            assert_eq!(U1.object_index(&a), g.object_index(&la));
+            for (typed, general) in [
+                (U1.dim(&a), g.dim(&la)),
+                (U1.frobenius_schur_phase(&a), g.frobenius_schur_phase(&la)),
+                (
+                    U1.frobenius_schur_indicator(&a),
+                    g.frobenius_schur_indicator(&la),
+                ),
+                (U1.twist(&a), g.twist(&la)),
+            ] {
+                assert_eq!(typed.to_bits(), general.to_bits());
+            }
+            for qb in charges {
+                let (b, lb) = (U1Irrep::new(qb).unwrap(), charge(&g, i64::from(qb)));
+                let sum = i64::from(qa) + i64::from(qb);
+                match (U1.fusion(&a, &b), g.fusion(&la, &lb)) {
+                    (Ok(typed), Ok(general)) => {
+                        let typed: Vec<_> = typed.map(|q| i64::from(q.charge())).collect();
+                        let general: Vec<_> =
+                            general.map(|q| q.charges().next().unwrap()).collect();
+                        assert_eq!(typed, [sum]);
+                        assert_eq!(typed, general);
+                    }
+                    (Err(U1Error::U1ChargeOutOfRange { charge }), Err(LieError::LabelOverflow)) => {
+                        assert_eq!(charge, sum);
+                        assert!(sum.abs() > i64::from(i32::MAX));
+                    }
+                    other => panic!("fusion mismatch: {other:?}"),
+                }
+                for qc in charges {
+                    let (c, lc) = (U1Irrep::new(qc).unwrap(), charge(&g, i64::from(qc)));
+                    let n = u32::from(sum == i64::from(qc));
+                    assert_eq!(U1.nsymbol(&a, &b, &c), n);
+                    assert_eq!(g.nsymbol(&la, &lb, &lc), n);
+                    assert_eq!(U1.try_nsymbol(&a, &b, &c), Ok(n));
+                    assert_eq!(g.try_nsymbol(&la, &lb, &lc), Ok(n));
+                    let r = g.r_symbol(&la, &lb, &lc).unwrap();
+                    assert_eq!(r.dims(), [n as usize; 2]);
+                    assert_eq!(
+                        U1.r_symbol(&a, &b, &c).unwrap().to_bits(),
+                        r.data().first().copied().unwrap_or(0.0).to_bits()
+                    );
+                    same_block(
+                        U1.a_symbol(&a, &b, &c).unwrap(),
+                        g.a_symbol(&la, &lb, &lc).unwrap(),
+                    );
+                    same_block(
+                        U1.b_symbol(&a, &b, &c).unwrap(),
+                        g.b_symbol(&la, &lb, &lc).unwrap(),
+                    );
+                    let cg = g.cgc(&la, &lb, &lc).unwrap();
+                    assert_eq!(cg.dims(), [1, 1, 1, n as usize]);
+                    assert_eq!(
+                        U1.cgc(&a, &b, &c).unwrap().to_bits(),
+                        (if n == 0 { 0.0 } else { cg.at([0; 4]) }).to_bits()
+                    );
+                }
+            }
+        }
+    }
     // A separately constructed, equal datum must pass the identity check too.
     let equal = group(GroupId::u(1).unwrap());
     let charges = [-i64::from(i32::MAX), -1, 0, 1, i64::from(i32::MAX)];
@@ -124,22 +224,23 @@ fn torus_fast_path_preserves_axes_overflow_and_identity_checks() {
         let result = g.f_symbol(
             &labels[a], &labels[b], &labels[c], &labels[d], &labels[e], &labels[f],
         );
-        // Even an absent earlier vertex must not hide overflow on a later one.
-        if sums.iter().any(|q| q.abs() > i64::from(i32::MAX)) {
-            assert_eq!(result, Err(LieError::LabelOverflow));
-        } else {
-            let dims = std::array::from_fn(|i| usize::from(sums[i] == charges[vertices[i].2]));
-            let block = result.unwrap();
-            assert_eq!(block.dims(), dims);
-            assert_eq!(
-                block.data(),
-                if dims.contains(&0) {
-                    &[][..]
-                } else {
-                    &[1.0][..]
-                }
-            );
-        }
+        let dims = std::array::from_fn(|i| usize::from(sums[i] == charges[vertices[i].2]));
+        let block = result.unwrap();
+        assert_eq!(block.dims(), dims);
+        assert_eq!(
+            block.data(),
+            if dims.contains(&0) {
+                &[][..]
+            } else {
+                &[1.0][..]
+            }
+        );
+        let [a, b, c, d, e, f] =
+            [a, b, c, d, e, f].map(|i| U1Irrep::new(charges[i] as i32).unwrap());
+        assert_eq!(
+            U1.f_symbol(&a, &b, &c, &d, &e, &f).unwrap().to_bits(),
+            block.data().first().copied().unwrap_or(0.0).to_bits()
+        );
     }
     let foreign = group(GroupId::su(2).unwrap()).unit();
     let one = g.unit();
@@ -204,6 +305,7 @@ fn same_block<const R: usize>(
     b: impl SymbolBlock<R, Scalar = f64>,
 ) {
     assert_eq!(a.dims(), b.dims());
+    assert_eq!(a.as_slice().len(), b.as_slice().len());
     assert!(a
         .as_slice()
         .iter()

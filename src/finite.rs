@@ -274,9 +274,13 @@ impl GroupRepresentations for ZN {
 mod tests {
     use super::*;
     use crate::fermion::{FermionParity, FermionParityIrrep};
+    use crate::lie::{U1Error, U1Irrep, U1};
 
     fn zn(charge: i64, modulus: u32) -> ZNIrrep {
         ZNIrrep::new(charge, modulus).unwrap()
+    }
+    fn u1(charge: i32) -> U1Irrep {
+        U1Irrep::new(charge).unwrap()
     }
 
     #[test]
@@ -315,6 +319,41 @@ mod tests {
         assert_eq!(cat.dual(&edge), zn(1, u32::MAX));
         assert_eq!(ZN::new(5).unwrap().dual(&zn(0, 5)), zn(0, 5));
         assert_eq!(zn(5, 1), ZNIrrep::unit(1).unwrap());
+        assert_eq!(
+            U1Irrep::new(i32::MIN),
+            Err(U1Error::U1ChargeOutOfRange {
+                charge: i64::from(i32::MIN)
+            })
+        );
+        for q in [i32::MIN + 1, i32::MAX] {
+            assert_eq!(U1.dual(&U1.dual(&u1(q))), u1(q));
+            assert_eq!(U1.dual(&u1(q)).charge(), -q);
+        }
+    }
+
+    #[test]
+    fn overflow_only_fails_fusion() {
+        let (max, min) = (u1(i32::MAX), u1(i32::MIN + 1));
+        assert_eq!(
+            U1.fusion(&max, &u1(1)).unwrap_err(),
+            U1Error::U1ChargeOutOfRange {
+                charge: i64::from(i32::MAX) + 1
+            }
+        );
+        assert_eq!(
+            U1.fusion(&min, &u1(-1)).unwrap_err(),
+            U1Error::U1ChargeOutOfRange {
+                charge: i64::from(i32::MIN)
+            }
+        );
+        assert_eq!(U1.fusion(&max, &min).unwrap().next(), Some(U1Irrep::UNIT));
+        assert_eq!(U1.fusion(&max, &U1Irrep::UNIT).unwrap().next(), Some(max));
+        for c in [min, U1Irrep::UNIT, max] {
+            assert_eq!(U1.nsymbol(&max, &max, &c), 0);
+            assert_eq!(U1.r_symbol(&max, &max, &c), Ok(0.0));
+            assert_eq!(U1.f_symbol(&max, &max, &c, &c, &c, &c), Ok(0.0));
+        }
+        assert_eq!(U1.nsymbol(&max, &min, &U1Irrep::UNIT), 1);
     }
 
     #[test]
@@ -332,6 +371,14 @@ mod tests {
         assert_eq!(
             cat.f_symbol(&z(1), &z(1), &z(1), &z(0), &z(2), &z(2)),
             Ok(1.0)
+        );
+        assert_eq!(
+            U1.f_symbol(&u1(1), &u1(1), &u1(-1), &u1(1), &u1(2), &u1(0)),
+            Ok(1.0)
+        );
+        assert_eq!(
+            U1.f_symbol(&u1(1), &u1(1), &u1(-1), &u1(1), &u1(2), &u1(1)),
+            Ok(0.0)
         );
         for a in [false, true] {
             for b in [false, true] {
@@ -480,15 +527,41 @@ mod tests {
             }
         }
         assert_eq!(count, 8);
+        for q in -2..=2 {
+            assert_eq!(U1.dual(&u1(q)), u1(-q));
+            assert_eq!(
+                U1.fusion(&u1(q), &u1(1)).map(|mut it| it.next().unwrap()),
+                Ok(u1(q + 1))
+            );
+            assert_eq!(
+                (
+                    U1.dim(&u1(q)),
+                    U1.frobenius_schur_phase(&u1(q)),
+                    U1.twist(&u1(q))
+                ),
+                (1.0, 1.0, 1.0)
+            );
+        }
+        assert_eq!(
+            U1.f_symbol(&u1(1), &u1(1), &u1(-1), &u1(1), &u1(2), &u1(0))
+                .unwrap(),
+            1.0
+        );
+        assert_eq!(
+            U1.f_symbol(&u1(1), &u1(1), &u1(-1), &u1(1), &u1(2), &u1(1))
+                .unwrap(),
+            0.0
+        );
+        assert_eq!(U1.r_symbol(&u1(1), &u1(2), &u1(3)).unwrap(), 1.0);
+        assert_eq!(U1.r_symbol(&u1(1), &u1(2), &u1(2)).unwrap(), 0.0);
     }
 
     #[test]
     fn fingerprints_are_pinned_and_distinct() {
         let cyclic = ZN::new(2).unwrap();
-        let torus = crate::lie::LieGroup::new(crate::lie::GroupId::u(1).unwrap()).unwrap();
         let all = [
             cyclic.authority_fingerprint(),
-            torus.authority_fingerprint(),
+            U1.authority_fingerprint(),
             FermionParity.authority_fingerprint(),
         ];
         assert_eq!(

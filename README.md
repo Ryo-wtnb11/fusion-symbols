@@ -23,7 +23,7 @@ and a frozen coefficient gauge. Tables retain AnyonWiki's gauge. See
 | Module | Provides |
 |---|---|
 | `category` | Shared `FusionCategory` contract, symbol blocks, identity residuals |
-| `lie` | Exact rank-one symbols; U(1), CU(1) = O(2); generated SU(N), SO(N), Spin(N), Sp(2r); U(N), tori, and semisimple×torus products and central quotients, including D₂ forms |
+| `lie` | Exact rank-one symbols; typed `U1` alongside `LieGroup` U(1), CU(1) = O(2); generated SU(N), SO(N), Spin(N), Sp(2r); U(N), tori, and semisimple×torus products and central quotients, including D₂ forms |
 | `finite`, `fermion` | Cyclic groups Z_N; fermion parity |
 | `table` | 74 unitary multiplicity-free AnyonWiki categories of rank ≤ 4, including Fibonacci and Ising |
 | `product` | Ordered Deligne products: tuples of 2..=12 or homogeneous vectors of any length, preserving nesting |

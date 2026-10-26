@@ -66,13 +66,12 @@ consumer code. F/R conventions and contraction wiring are traced in
 ## Products
 
 ```rust
-use fusion_symbols::{lie::{GroupId, LieGroup}, category::FusionCategory,
+use fusion_symbols::{lie::{U1, U1Irrep}, category::FusionCategory,
     fermion::{FermionParity, FermionParityIrrep}, product};
-let u1 = LieGroup::new(GroupId::u(1).unwrap()).unwrap();
-let cat = product(u1.clone(), FermionParity);
-let odd = (u1.irrep(&[], &[1]).unwrap(), FermionParityIrrep::ODD);
+let cat = product(U1, FermionParity);
+let odd = (U1Irrep::new(1).unwrap(), FermionParityIrrep::ODD);
 assert_eq!(cat.twist(&odd), -1.0);
-let three = product![u1.clone(), FermionParity, u1,];
+let three = product![U1, FermionParity, U1,];
 assert_eq!(three.dim(&three.unit()), 1.0);
 ```
 
@@ -85,9 +84,9 @@ container; `into_factors` returns it. `product(product(a,b),c)` keeps labels
 within each symbol axis, `i = i_left * n_right + i_right` is last-factor-fast.
 When every factor implements `GroupRepresentations`, so does the product. Its
 CGC is a tuple or vector of factor blocks, read lazily as a Kronecker product
-through `CgcBlock`, with the last factor fastest on all four axes. U(1) through
-`LieGroup` and `ZN` use scalar CGC blocks, with shapes `[1,1,1,1]` (coefficient
-`1.0`) and `[1,1,1,0]` (absent channel). Product CGC queries report axis overflow
+through `CgcBlock`, with the last factor fastest on all four axes. `U1` and `ZN`
+use scalar CGCs: `1.0` for a present channel, `0.0` for an absent one, with
+shapes `[1,1,1,1]` and `[1,1,1,0]`. Product CGC queries report axis overflow
 as `ProductError::Overflow`; a hand-built tuple's `dims()` may panic on overflow.
 
 ## Identity checks

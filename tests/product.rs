@@ -1,9 +1,9 @@
-use crate::common::lie::{torus, u1_irrep};
 use fusion_symbols::{
     category::{BraidingStyle, FBlock, FusionCategory, FusionStyle, RBlock, SymbolBlock},
     fermion::{FermionParity, FermionParityIrrep as Parity},
     finite::ZN,
     lie::{GroupId, LieGroup},
+    lie::{U1Irrep, U1},
     product,
     product::{Product, ProductError},
     table::TableCategory,
@@ -27,9 +27,9 @@ fn complex_close(a: Complex64, b: Complex64) {
 
 #[test]
 fn fermionic_closed_forms_and_complex_promotion() {
-    let fu1 = product(torus(), FermionParity);
-    let a = (u1_irrep(1).unwrap(), Parity::ODD);
-    let b = (u1_irrep(-1).unwrap(), Parity::ODD);
+    let fu1 = product(U1, FermionParity);
+    let a = (U1Irrep::new(1).unwrap(), Parity::ODD);
+    let b = (U1Irrep::new(-1).unwrap(), Parity::ODD);
     assert_eq!(fu1.dual(&a), b);
     assert_eq!(
         fu1.fusion(&a, &b).unwrap().collect::<Vec<_>>(),
@@ -97,9 +97,9 @@ fn fermionic_closed_forms_and_complex_promotion() {
         reverse.twist(&(reverse.factors().0.unit(), tau)),
         fibsu2.twist(&x),
     );
-    let three = product![torus(), TableCategory::fibonacci(), FermionParity];
+    let three = product![U1, TableCategory::fibonacci(), FermionParity];
     complex_close(
-        three.twist(&(torus().unit(), tau, Parity::ODD)),
+        three.twist(&(U1.unit(), tau, Parity::ODD)),
         -fibsu2.twist(&x),
     );
 }
@@ -193,23 +193,10 @@ fn identity_framing_arity_and_macro_evaluation() {
     assert_ne!(a, swapped);
     assert_eq!(a.authority_fingerprint(), swapped.authority_fingerprint());
     assert_ne!(
-        product(torus(), FermionParity).authority_fingerprint(),
-        product(FermionParity, torus()).authority_fingerprint()
+        product(U1, FermionParity).authority_fingerprint(),
+        product(FermionParity, U1).authority_fingerprint()
     );
-    let max = product![
-        torus(),
-        torus(),
-        torus(),
-        torus(),
-        torus(),
-        torus(),
-        torus(),
-        torus(),
-        torus(),
-        torus(),
-        torus(),
-        torus(),
-    ];
+    let max = product![U1, U1, U1, U1, U1, U1, U1, U1, U1, U1, U1, U1,];
     assert_eq!(max.fusion(&max.unit(), &max.unit()).unwrap().count(), 1);
     assert_eq!(max.nsymbol(&max.unit(), &max.unit(), &max.unit()), 1);
     assert_eq!(
@@ -233,12 +220,12 @@ fn identity_framing_arity_and_macro_evaluation() {
     let mut count = 0;
     let mut next = || {
         count += 1;
-        torus()
+        U1
     };
     let _ = product![next(), next(), next(),];
     assert_eq!(count, 3);
-    let repeated = Product::new((torus(), torus()));
-    assert_eq!(repeated.into_factors(), (torus(), torus()));
+    let repeated = Product::new((U1, U1));
+    assert_eq!(repeated.into_factors(), (U1, U1));
     // Trivial factors change category identity but preserve projected mathematical queries.
     let trivial = product(su2(), ZN::new(1).unwrap());
     let h = trivial.factors().0.irrep(&[1], &[]).unwrap();
@@ -784,14 +771,14 @@ fn every_factor_position_obeys_validation_and_overflow_precedence() {
 #[test]
 fn empty_logical_axes_skip_errors_and_reject_real_foreign_objects() {
     let cat = product(
-        torus(),
+        U1,
         Probe {
             fail: true,
             ..Probe::default()
         },
     );
-    let a = (torus().unit(), 0);
-    let c = (u1_irrep(1).unwrap(), 0);
+    let a = (U1.unit(), 0);
+    let c = (U1Irrep::new(1).unwrap(), 0);
     assert!(cat
         .f_symbol(&a, &a, &a, &a, &c, &a)
         .unwrap()
@@ -803,15 +790,15 @@ fn empty_logical_axes_skip_errors_and_reject_real_foreign_objects() {
             fail: true,
             ..Probe::default()
         },
-        torus(),
+        U1,
     );
     assert!(reverse
-        .r_symbol(&(0, torus().unit()), &(0, torus().unit()), &(0, c.0))
+        .r_symbol(&(0, U1.unit()), &(0, U1.unit()), &(0, c.0))
         .unwrap()
         .data()
         .is_empty());
-    let cat = product(torus(), ZN::new(2).unwrap());
-    let foreign = (torus().unit(), ZN::new(3).unwrap().unit());
+    let cat = product(U1, ZN::new(2).unwrap());
+    let foreign = (U1.unit(), ZN::new(3).unwrap().unit());
     assert!(std::panic::catch_unwind(|| cat.f_symbol(
         &cat.unit(),
         &cat.unit(),
@@ -963,40 +950,17 @@ fn partial_zero_axes_use_logical_shapes_before_values() {
 
 #[test]
 fn u1_overflow_in_every_immediate_position() {
-    let cat = product![
-        torus(),
-        torus(),
-        torus(),
-        torus(),
-        torus(),
-        torus(),
-        torus(),
-        torus(),
-        torus(),
-        torus(),
-        torus(),
-        torus()
-    ];
+    let cat = product![U1, U1, U1, U1, U1, U1, U1, U1, U1, U1, U1, U1];
     for position in 0..12 {
-        let mut a: [_; 12] = std::array::from_fn(|_| torus().unit());
-        let mut b = a.clone();
-        a[position] = u1_irrep(i32::MAX).unwrap();
-        b[position] = u1_irrep(1).unwrap();
+        let mut a = [U1.unit(); 12];
+        let mut b = a;
+        a[position] = U1Irrep::new(i32::MAX).unwrap();
+        b[position] = U1Irrep::new(1).unwrap();
         macro_rules! obj {
             ($v:expr) => {
                 (
-                    $v[0].clone(),
-                    $v[1].clone(),
-                    $v[2].clone(),
-                    $v[3].clone(),
-                    $v[4].clone(),
-                    $v[5].clone(),
-                    $v[6].clone(),
-                    $v[7].clone(),
-                    $v[8].clone(),
-                    $v[9].clone(),
-                    $v[10].clone(),
-                    $v[11].clone(),
+                    $v[0], $v[1], $v[2], $v[3], $v[4], $v[5], $v[6], $v[7], $v[8], $v[9], $v[10],
+                    $v[11],
                 )
             };
         }
@@ -1057,9 +1021,9 @@ fn try_nsymbol_reports_overflow_and_zero_beats_it() {
     assert_eq!(fits.nsymbol(&z, &z, &z), 105);
     let su2 = su2();
     let s = su2.irrep(&[1], &[]).unwrap();
-    let cat = product(su2.clone(), torus());
-    let a = (s.clone(), u1_irrep(1).unwrap());
-    let c = (su2.irrep(&[2], &[]).unwrap(), u1_irrep(2).unwrap());
+    let cat = product(su2.clone(), U1);
+    let a = (s.clone(), U1Irrep::new(1).unwrap());
+    let c = (su2.irrep(&[2], &[]).unwrap(), U1Irrep::new(2).unwrap());
     assert_eq!(cat.try_nsymbol(&a, &a, &c).unwrap(), 1);
     assert_eq!(cat.try_nsymbol(&a, &a, &cat.unit()).unwrap(), 0);
     assert_eq!(su2.try_nsymbol(&s, &s, &su2.unit()).unwrap(), 1);

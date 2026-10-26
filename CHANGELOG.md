@@ -9,11 +9,6 @@ value/gauge rule noted below.
 
 ### Breaking
 
-- Removed public `lie::{U1,U1Irrep,U1Error}`. Use
-  `LieGroup::new(GroupId::u(1))`, `irrep(&[], &[q])`, and `charges()`;
-  charge failures are `LieError::LabelOverflow`. Fallible symbols report charge-sum
-  overflow too; infallible `nsymbol` panics. CU(1) = O(2) is unchanged.
-
 - `GroupId` now stores a validated ordered root datum and canonical row-HNF
   character lattice. Public `root_system`/`form` fields, `GlobalForm`, and
   `CenterSubgroup` are removed; use `root_systems()` and lattice constructors.
@@ -33,6 +28,8 @@ value/gauge rule noted below.
   move to that trait: import `CgcBlock` and use `at([m1, m2, m3, mu])`.
 
 ### Added
+
+- `U1::group_id()` returns the connected classification `GroupId::u(1)`.
 
 - `LieGroup` executes U(1), Tᵗ, U(N), semisimple×torus quotients, and the
   trivial group. U(2) works without default features; U(N) for N ≥ 3 requires
