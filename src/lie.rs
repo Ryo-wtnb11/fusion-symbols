@@ -93,13 +93,22 @@ impl std::hash::Hash for LieGroup {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LieIrrep {
     group: GroupId,
-    factors: Option<Arc<Vec<LieIrrep>>>,
-    dj: u32,
-    charge: i32,
+    payload: LiePayload,
+}
+
+// A group fixes its engine, so only values within a variant are compared after
+// GroupId. Their ordering is the former field ordering, including signed charges.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+// Avoid niche-discriminant decoding on the inline symbol paths.
+#[repr(u8)]
+enum LiePayload {
+    RankOne(u32),
+    Torus(U1Irrep),
     #[cfg(feature = "lie-generated")]
-    generated: Option<sun::Irrep>,
+    Generated(sun::Irrep),
     #[cfg(feature = "lie-generated")]
-    bcd: Option<bcd::Irrep>,
+    Bcd(bcd::Irrep),
+    Composite(Arc<Vec<LieIrrep>>),
 }
 
 struct DynkinLabels<'a> {
@@ -112,7 +121,7 @@ impl Iterator for DynkinLabels<'_> {
 
     fn next(&mut self) -> Option<i64> {
         let mut i = self.indices.next()?;
-        if let Some(factors) = &self.irrep.factors {
+        if let Some(factors) = self.irrep.factors() {
             for factor in factors.iter() {
                 let rank = factor.group.semisimple_rank();
                 if i < rank {
@@ -127,12 +136,12 @@ impl Iterator for DynkinLabels<'_> {
             unreachable!("composite rank equals the sum of leaf ranks");
         }
         #[cfg(feature = "lie-generated")]
-        if let Some(a) = &self.irrep.generated {
+        if let Some(a) = self.irrep.generated() {
             let w = a.weight();
             return Some(w[i] - w[i + 1]);
         }
         #[cfg(feature = "lie-generated")]
-        if let Some(a) = &self.irrep.bcd {
+        if let Some(a) = self.irrep.bcd() {
             let w = a.two_partition();
             return Some(if i + 1 < w.len() {
                 bcd::half_sum(w[i], -w[i + 1])
@@ -145,7 +154,7 @@ impl Iterator for DynkinLabels<'_> {
             });
         }
         let _ = i;
-        Some(i64::from(self.irrep.dj))
+        Some(i64::from(self.irrep.dj()))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -558,22 +567,14 @@ impl LieGroup {
     fn composite_label(group: &GroupId, factors: Vec<LieIrrep>) -> LieIrrep {
         let label = LieIrrep {
             group: group.clone(),
-            factors: Some(Arc::new(factors)),
-            dj: 0,
-            charge: 0,
-            #[cfg(feature = "lie-generated")]
-            generated: None,
-            #[cfg(feature = "lie-generated")]
-            bcd: None,
+            payload: LiePayload::Composite(Arc::new(factors)),
         };
         debug_assert!(group.admits(&label.dynkin(), &label.charges().collect::<Vec<_>>()));
         label
     }
+    // Callers have checked the outward group; factor tags are private and immutable.
     fn factor_labels<'a>(&self, a: &'a LieIrrep) -> &'a Vec<LieIrrep> {
-        self.label(a);
-        a.factors
-            .as_ref()
-            .expect("composite object has factor labels")
+        a.factors().expect("composite object has factor labels")
     }
     /// Retained generator bytes and byte budget, or `(0, 0)` without a catalog.
     pub fn catalog_stats(&self) -> Result<(usize, usize), LieError> {
@@ -653,22 +654,14 @@ impl LieGroup {
         if matches!(self.group.root_systems()[0], RootSystem::A(r) if r >= 2) {
             return Ok(LieIrrep {
                 group: self.group.clone(),
-                factors: None,
-                dj: 0,
-                charge: 0,
-                generated: Some(sun::Irrep::from_dynkin(dynkin)?),
-                bcd: None,
+                payload: LiePayload::Generated(sun::Irrep::from_dynkin(dynkin)?),
             });
         }
         #[cfg(feature = "lie-generated")]
         if self.catalog.is_some() {
             return Ok(LieIrrep {
                 group: self.group.clone(),
-                factors: None,
-                dj: 0,
-                charge: 0,
-                generated: None,
-                bcd: Some(bcd::Irrep::from_dynkin_in(&self.group, dynkin)?),
+                payload: LiePayload::Bcd(bcd::Irrep::from_dynkin_in(&self.group, dynkin)?),
             });
         }
         let [dj] = dynkin else {
@@ -677,29 +670,17 @@ impl LieGroup {
         let dj = u32::try_from(*dj).map_err(|_| LieError::LabelOverflow)?;
         Ok(LieIrrep {
             group: self.group.clone(),
-            factors: None,
-            dj,
-            charge: 0,
-            #[cfg(feature = "lie-generated")]
-            generated: None,
-            #[cfg(feature = "lie-generated")]
-            bcd: None,
+            payload: LiePayload::RankOne(dj),
         })
     }
     fn is_torus(&self) -> bool {
         self.composite.is_none() && self.group.root_systems().is_empty()
     }
     fn torus_label(&self, q: U1Irrep) -> LieIrrep {
-        let mut label = self.unit();
-        label.charge = q.charge();
-        label
-    }
-    #[inline]
-    fn is_rank_one(&self) -> bool {
-        matches!(
-            self.group.root_systems(),
-            [RootSystem::A(1) | RootSystem::B(1) | RootSystem::C(1)]
-        )
+        LieIrrep {
+            group: self.group.clone(),
+            payload: LiePayload::Torus(q),
+        }
     }
     fn enumeration(&self) -> Result<LieEnumeration, EnumerationError> {
         match self.group.root_systems()[0] {
@@ -722,28 +703,60 @@ impl LieGroup {
     #[inline]
     fn label(&self, a: &LieIrrep) -> u32 {
         assert_eq!(self.group, a.group, "foreign Lie object");
-        a.dj
+        a.dj()
     }
 }
 impl LieIrrep {
     #[inline]
+    fn dj(&self) -> u32 {
+        match self.payload {
+            LiePayload::RankOne(dj) => dj,
+            _ => 0,
+        }
+    }
+    fn charge(&self) -> i32 {
+        self.torus_label().charge()
+    }
+    fn factors(&self) -> Option<&Vec<LieIrrep>> {
+        match &self.payload {
+            LiePayload::Composite(factors) => Some(factors),
+            _ => None,
+        }
+    }
+    #[cfg(feature = "lie-generated")]
+    fn generated(&self) -> Option<&sun::Irrep> {
+        match &self.payload {
+            LiePayload::Generated(a) => Some(a),
+            _ => None,
+        }
+    }
+    #[cfg(feature = "lie-generated")]
+    fn bcd(&self) -> Option<&bcd::Irrep> {
+        match &self.payload {
+            LiePayload::Bcd(a) => Some(a),
+            _ => None,
+        }
+    }
+
+    #[inline]
     fn torus_label(&self) -> U1Irrep {
-        U1Irrep::new(self.charge).expect("validated torus charge has a representable dual")
+        match self.payload {
+            LiePayload::Torus(q) => q,
+            _ => U1Irrep::UNIT,
+        }
     }
     /// Integer torus charges, in the datum's charge-coordinate order.
     pub fn charges(&self) -> impl ExactSizeIterator<Item = i64> + '_ {
         (0..self.group.torus_rank()).map(|i| {
-            self.factors
-                .as_ref()
-                .map_or(i64::from(self.charge), |factors| {
-                    i64::from(factors[factors.len() - self.group.torus_rank() + i].charge)
-                })
+            self.factors().map_or(i64::from(self.charge()), |factors| {
+                i64::from(factors[factors.len() - self.group.torus_rank() + i].charge())
+            })
         })
     }
     /// GT basis in the frozen gauge order; absent for rank-one, B/C/D, and composite groups.
     pub fn gt_patterns(&self) -> Option<Vec<GtPattern>> {
         #[cfg(feature = "lie-generated")]
-        if let Some(a) = &self.generated {
+        if let Some(a) = self.generated() {
             return Some(a.patterns());
         }
         None
@@ -752,15 +765,15 @@ impl LieIrrep {
     /// Highest weight in Dynkin coordinates, materialized in an owned allocation.
     /// Use [`Self::dynkin_labels`] for allocation-free label reading on hot paths.
     pub fn dynkin(&self) -> Vec<i64> {
-        if self.factors.is_some() {
+        if self.factors().is_some() {
             return self.dynkin_labels().collect();
         }
         #[cfg(feature = "lie-generated")]
-        if let Some(a) = &self.bcd {
+        if let Some(a) = self.bcd() {
             return a.dynkin();
         }
         #[cfg(feature = "lie-generated")]
-        if let Some(a) = &self.generated {
+        if let Some(a) = self.generated() {
             return a.dynkin();
         }
         self.dynkin_labels().collect()
@@ -779,23 +792,23 @@ impl LieIrrep {
 
     /// Exact dimension.
     pub fn dim_exact(&self) -> BigInt {
-        if let Some(factors) = &self.factors {
+        if let Some(factors) = self.factors() {
             return factors.iter().map(Self::dim_exact).product();
         }
         #[cfg(feature = "lie-generated")]
-        if let Some(a) = &self.bcd {
+        if let Some(a) = self.bcd() {
             return a.dim();
         }
         #[cfg(feature = "lie-generated")]
-        if let Some(a) = &self.generated {
+        if let Some(a) = self.generated() {
             return a.dim();
         }
-        BigInt::from(u64::from(self.dj) + 1)
+        BigInt::from(u64::from(self.dj()) + 1)
     }
     /// Weight multiplicities in Dynkin-then-charge coordinates, in ascending order.
     /// Panics if an intermediate weight or multiplicity is unrepresentable.
     pub fn weight_multiplicities(&self) -> BTreeMap<Vec<i64>, u64> {
-        if let Some(factors) = &self.factors {
+        if let Some(factors) = self.factors() {
             let mut weights = BTreeMap::from([(Vec::new(), 1u64)]);
             for factor in factors.iter() {
                 let next = factor.weight_multiplicities();
@@ -817,11 +830,11 @@ impl LieIrrep {
             return weights;
         }
         #[cfg(feature = "lie-generated")]
-        if let Some(a) = &self.bcd {
+        if let Some(a) = self.bcd() {
             return a.dynkin_weight_multiplicities();
         }
         #[cfg(feature = "lie-generated")]
-        if let Some(a) = &self.generated {
+        if let Some(a) = self.generated() {
             let mut weights = BTreeMap::new();
             for p in a.patterns() {
                 let w = sun::cgc::pattern_weight(&p, p.rank()).expect(
@@ -837,10 +850,10 @@ impl LieIrrep {
             return weights;
         }
         if self.group.semisimple_rank() == 0 {
-            return BTreeMap::from([(vec![i64::from(self.charge)], 1)]);
+            return BTreeMap::from([(vec![i64::from(self.charge())], 1)]);
         }
-        (0..=self.dj)
-            .map(|i| (vec![i64::from(self.dj) - 2 * i64::from(i)], 1))
+        (0..=self.dj())
+            .map(|i| (vec![i64::from(self.dj()) - 2 * i64::from(i)], 1))
             .collect()
     }
 }
@@ -959,13 +972,11 @@ impl FusionCategory for LieGroup {
         }
         LieIrrep {
             group: self.group.clone(),
-            factors: None,
-            dj: 0,
-            charge: 0,
-            #[cfg(feature = "lie-generated")]
-            generated: None,
-            #[cfg(feature = "lie-generated")]
-            bcd: None,
+            payload: if self.is_torus() {
+                LiePayload::Torus(U1Irrep::UNIT)
+            } else {
+                LiePayload::RankOne(0)
+            },
         }
     }
     // The group is the whole identity: a B/C/D catalog is a cache that
@@ -988,7 +999,7 @@ impl FusionCategory for LieGroup {
             cache_bcd_cgc, cache_sun_product,
         };
         #[cfg(feature = "lie-generated")]
-        if let Some(x) = &a.bcd {
+        if let Some(x) = a.bcd() {
             let tier = cache_bcd_cgc();
             let key = BcdKey::Dual(x.clone());
             let value = tier.get(&key).unwrap_or_else(|| {
@@ -1004,15 +1015,11 @@ impl FusionCategory for LieGroup {
             };
             return LieIrrep {
                 group: self.group.clone(),
-                factors: None,
-                dj: 0,
-                charge: 0,
-                generated: None,
-                bcd: Some(dual[0].0.clone()),
+                payload: LiePayload::Bcd(dual[0].0.clone()),
             };
         }
         #[cfg(feature = "lie-generated")]
-        if let Some(x) = &a.generated {
+        if let Some(x) = a.generated() {
             let tier = cache_sun_product();
             let key = sun::SunProductKey::Dual(x.clone());
             let value = tier.get(&key).unwrap_or_else(|| {
@@ -1025,46 +1032,51 @@ impl FusionCategory for LieGroup {
             });
             return LieIrrep {
                 group: self.group.clone(),
-                factors: None,
-                dj: 0,
-                charge: 0,
-                generated: Some(value.channel(0).clone()),
-                bcd: None,
+                payload: LiePayload::Generated(value.channel(0).clone()),
             };
         }
         a.clone()
     }
+    #[inline(always)]
     fn dim(&self, a: &LieIrrep) -> f64 {
         self.label(a);
-        if let Some(product) = &self.composite {
-            return product.dim(self.factor_labels(a));
+        match &a.payload {
+            LiePayload::RankOne(dj) => f64::from(*dj) + 1.0,
+            LiePayload::Torus(_) => 1.0,
+            LiePayload::Composite(factors) => self
+                .composite
+                .as_ref()
+                .expect("composite object has a product")
+                .dim(factors),
+            #[cfg(feature = "lie-generated")]
+            LiePayload::Bcd(x) => {
+                use num_traits::ToPrimitive;
+                x.dim().to_f64().unwrap_or(f64::INFINITY)
+            }
+            #[cfg(feature = "lie-generated")]
+            LiePayload::Generated(x) => {
+                use num_traits::ToPrimitive;
+                x.dim().to_f64().unwrap_or(f64::INFINITY)
+            }
         }
-        #[cfg(feature = "lie-generated")]
-        if let Some(x) = &a.bcd {
-            use num_traits::ToPrimitive;
-            return x.dim().to_f64().unwrap_or(f64::INFINITY);
-        }
-        #[cfg(feature = "lie-generated")]
-        if let Some(x) = &a.generated {
-            use num_traits::ToPrimitive;
-            return x.dim().to_f64().unwrap_or(f64::INFINITY);
-        }
-        f64::from(a.dj) + 1.0
     }
     fn sqrt_dim(&self, a: &LieIrrep) -> f64 {
         if let Some(product) = &self.composite {
+            self.label(a);
             return product.sqrt_dim(self.factor_labels(a));
         }
         self.dim(a).sqrt()
     }
     fn inv_sqrt_dim(&self, a: &LieIrrep) -> f64 {
         if let Some(product) = &self.composite {
+            self.label(a);
             return product.inv_sqrt_dim(self.factor_labels(a));
         }
         self.sqrt_dim(a).recip()
     }
     fn inv_dim(&self, a: &LieIrrep) -> f64 {
         if let Some(product) = &self.composite {
+            self.label(a);
             return product.inv_dim(self.factor_labels(a));
         }
         self.dim(a).recip()
@@ -1075,14 +1087,14 @@ impl FusionCategory for LieGroup {
             return product.frobenius_schur_phase(self.factor_labels(a));
         }
         #[cfg(feature = "lie-generated")]
-        if let Some(x) = &a.bcd {
+        if let Some(x) = a.bcd() {
             return x.frobenius_schur_phase();
         }
         #[cfg(feature = "lie-generated")]
-        if let Some(x) = &a.generated {
+        if let Some(x) = a.generated() {
             return x.frobenius_schur_phase();
         }
-        su2::fs_phase(a.dj)
+        su2::fs_phase(a.dj())
     }
     fn frobenius_schur_indicator(&self, a: &LieIrrep) -> f64 {
         self.label(a);
@@ -1093,7 +1105,7 @@ impl FusionCategory for LieGroup {
             return U1.frobenius_schur_indicator(&a.torus_label());
         }
         #[cfg(feature = "lie-generated")]
-        if let Some(x) = &a.bcd {
+        if let Some(x) = a.bcd() {
             return f64::from(x.frobenius_schur());
         }
         if *a == self.dual(a) {
@@ -1108,10 +1120,10 @@ impl FusionCategory for LieGroup {
             return product.twist(self.factor_labels(a));
         }
         #[cfg(feature = "lie-generated")]
-        if let Some(x) = &a.bcd {
+        if let Some(x) = a.bcd() {
             return x.twist();
         }
-        su2::twist(a.dj)
+        su2::twist(a.dj())
     }
     fn fusion<'a>(&'a self, a: &LieIrrep, b: &LieIrrep) -> Result<Self::Fusion<'a>, LieError> {
         self.label(a);
@@ -1138,7 +1150,7 @@ impl FusionCategory for LieGroup {
             });
         }
         #[cfg(feature = "lie-generated")]
-        if let (Some(a), Some(b)) = (&a.generated, &b.generated) {
+        if let (Some(a), Some(b)) = (a.generated(), b.generated()) {
             let product = sun::shared_directproduct(a, b)?;
             let back = product.iter().count();
             return Ok(LieFusion {
@@ -1151,7 +1163,7 @@ impl FusionCategory for LieGroup {
             });
         }
         #[cfg(feature = "lie-generated")]
-        if let (Some(a), Some(b)) = (&a.bcd, &b.bcd) {
+        if let (Some(a), Some(b)) = (a.bcd(), b.bcd()) {
             let product = bcd::shared_directproduct(a, b)?;
             let back = product.len();
             return Ok(LieFusion {
@@ -1163,7 +1175,7 @@ impl FusionCategory for LieGroup {
                 },
             });
         }
-        let (a, b) = (a.dj, b.dj);
+        let (a, b) = (a.dj(), b.dj());
         let inner = su2::A1Irrep::new(a)
             .fusion(su2::A1Irrep::new(b))
             .map_err(|_| LieError::LabelOverflow)?;
@@ -1199,25 +1211,29 @@ impl FusionCategory for LieGroup {
     ) -> Result<u32, LieError> {
         if let Some(product) = &self.composite {
             return product
-                .try_nsymbol(
+                .__fusion_symbols_validated_try_nsymbol(
                     self.factor_labels(a),
                     self.factor_labels(b),
                     self.factor_labels(c),
+                    Validated(()),
                 )
                 .map_err(LieError::from);
         }
-        if self.is_torus() {
-            return Ok(U1.nsymbol(&a.torus_label(), &b.torus_label(), &c.torus_label()));
-        }
-        if self.is_rank_one() {
-            return Ok(u32::from(su2::triangle_ok(a.dj, b.dj, c.dj)));
+        match (&a.payload, &b.payload, &c.payload) {
+            (LiePayload::Torus(a), LiePayload::Torus(b), LiePayload::Torus(c)) => {
+                return Ok(U1.nsymbol(a, b, c))
+            }
+            (LiePayload::RankOne(a), LiePayload::RankOne(b), LiePayload::RankOne(c)) => {
+                return Ok(u32::from(su2::triangle_ok(*a, *b, *c)))
+            }
+            _ => {}
         }
         #[cfg(feature = "lie-generated")]
-        if let (Some(a), Some(b), Some(c)) = (&a.generated, &b.generated, &c.generated) {
+        if let (Some(a), Some(b), Some(c)) = (a.generated(), b.generated(), c.generated()) {
             return Ok(sun::shared_directproduct(a, b)?.multiplicity(c));
         }
         #[cfg(feature = "lie-generated")]
-        if let (Some(a), Some(b), Some(c)) = (&a.bcd, &b.bcd, &c.bcd) {
+        if let (Some(a), Some(b), Some(c)) = (a.bcd(), b.bcd(), c.bcd()) {
             return Ok(bcd::shared_directproduct(a, b)?
                 .iter()
                 .find(|(x, _)| x == c)
@@ -1249,7 +1265,7 @@ impl FusionCategory for LieGroup {
                 )
                 .map_err(LieError::from);
         }
-        if self.is_torus() {
+        if matches!(a.payload, LiePayload::Torus(_)) {
             let mut dims = [0; 4];
             for (n, (a, b, c)) in dims
                 .iter_mut()
@@ -1263,8 +1279,8 @@ impl FusionCategory for LieGroup {
                 FBlock::one(1.0)
             });
         }
-        if self.is_rank_one() {
-            let [a, b, c, d, e, f] = [a, b, c, d, e, f].map(|x| x.dj);
+        if matches!(a.payload, LiePayload::RankOne(_)) {
+            let [a, b, c, d, e, f] = [a, b, c, d, e, f].map(|x| x.dj());
             let dims = [(a, b, e), (e, c, d), (b, c, f), (a, f, d)]
                 .map(|(a, b, c)| usize::from(su2::triangle_ok(a, b, c)));
             return Ok(if dims.contains(&0) {
@@ -1275,13 +1291,13 @@ impl FusionCategory for LieGroup {
         }
         #[cfg(feature = "lie-generated")]
         if let [Some(a), Some(b), Some(c), Some(d), Some(e), Some(f)] =
-            [a, b, c, d, e, f].map(|x| x.generated.as_ref())
+            [a, b, c, d, e, f].map(|x| x.generated())
         {
             return Ok(sun::f_symbol(a, b, c, d, e, f)?);
         }
         #[cfg(feature = "lie-generated")]
         if let [Some(a), Some(b), Some(c), Some(d), Some(e), Some(f)] =
-            [a, b, c, d, e, f].map(|x| x.bcd.as_ref())
+            [a, b, c, d, e, f].map(|x| x.bcd())
         {
             return bcd::f_symbol(
                 self.catalog
@@ -1297,6 +1313,21 @@ impl FusionCategory for LieGroup {
         }
         unreachable!("higher-rank labels have a generated payload")
     }
+    fn __fusion_symbols_validated_f_symbol(
+        &self,
+        a: &LieIrrep,
+        b: &LieIrrep,
+        c: &LieIrrep,
+        d: &LieIrrep,
+        e: &LieIrrep,
+        f: &LieIrrep,
+        t: Validated,
+    ) -> Result<crate::category::sealed::SymbolWithAxes<FBlock, 4>, LieError> {
+        let block = self.f_symbol(a, b, c, d, e, f)?;
+        // Keep Product's independent N-axis gate without validating each label again.
+        let n = |x, y, z| self.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
+        Ok((block, [n(a, b, e)?, n(e, c, d)?, n(b, c, f)?, n(a, f, d)?]))
+    }
     fn r_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock, LieError> {
         self.label(a);
         self.label(b);
@@ -1310,7 +1341,7 @@ impl FusionCategory for LieGroup {
                 )
                 .map_err(LieError::from);
         }
-        if self.is_torus() {
+        if matches!(a.payload, LiePayload::Torus(_)) {
             return Ok(
                 if self.__fusion_symbols_validated_try_nsymbol(a, b, c, Validated(()))? == 0 {
                     RBlock::zeros(0)
@@ -1319,19 +1350,19 @@ impl FusionCategory for LieGroup {
                 },
             );
         }
-        if self.is_rank_one() {
-            return Ok(if su2::triangle_ok(a.dj, b.dj, c.dj) {
-                RBlock::one(su2::r_symbol(a.dj, b.dj, c.dj))
+        if matches!(a.payload, LiePayload::RankOne(_)) {
+            return Ok(if su2::triangle_ok(a.dj(), b.dj(), c.dj()) {
+                RBlock::one(su2::r_symbol(a.dj(), b.dj(), c.dj()))
             } else {
                 RBlock::zeros(0)
             });
         }
         #[cfg(feature = "lie-generated")]
-        if let (Some(a), Some(b), Some(c)) = (&a.generated, &b.generated, &c.generated) {
+        if let (Some(a), Some(b), Some(c)) = (a.generated(), b.generated(), c.generated()) {
             return Ok(sun::r_symbol(a, b, c)?);
         }
         #[cfg(feature = "lie-generated")]
-        if let (Some(a), Some(b), Some(c)) = (&a.bcd, &b.bcd, &c.bcd) {
+        if let (Some(a), Some(b), Some(c)) = (a.bcd(), b.bcd(), c.bcd()) {
             return bcd::r_symbol(
                 self.catalog
                     .as_ref()
@@ -1345,7 +1376,10 @@ impl FusionCategory for LieGroup {
     }
     fn a_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock, LieError> {
         if let Some(product) = &self.composite {
-            let [a, b, c] = [a, b, c].map(|x| self.factor_labels(x));
+            let [a, b, c] = [a, b, c].map(|x| {
+                self.label(x);
+                self.factor_labels(x)
+            });
             return product.a_symbol(a, b, c).map_err(LieError::from);
         }
         let n = checked_dimension(self.try_nsymbol(a, b, c)?)?;
@@ -1363,7 +1397,10 @@ impl FusionCategory for LieGroup {
     }
     fn b_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock, LieError> {
         if let Some(product) = &self.composite {
-            let [a, b, c] = [a, b, c].map(|x| self.factor_labels(x));
+            let [a, b, c] = [a, b, c].map(|x| {
+                self.label(x);
+                self.factor_labels(x)
+            });
             return product.b_symbol(a, b, c).map_err(LieError::from);
         }
         let n = checked_dimension(self.try_nsymbol(a, b, c)?)?;
@@ -1519,7 +1556,7 @@ impl GroupRepresentations for LieGroup {
             });
         }
         #[cfg(feature = "lie-generated")]
-        if let (Some(a), Some(b), Some(c)) = (&a.generated, &b.generated, &c.generated) {
+        if let (Some(a), Some(b), Some(c)) = (a.generated(), b.generated(), c.generated()) {
             return Ok(LieCgc {
                 composite: None,
                 dims: [0; 4],
@@ -1529,7 +1566,7 @@ impl GroupRepresentations for LieGroup {
             });
         }
         #[cfg(feature = "lie-generated")]
-        if let (Some(a), Some(b), Some(c)) = (&a.bcd, &b.bcd, &c.bcd) {
+        if let (Some(a), Some(b), Some(c)) = (a.bcd(), b.bcd(), c.bcd()) {
             let dims = [
                 checked_dimension(a.dim())?,
                 checked_dimension(b.dim())?,
@@ -1555,7 +1592,7 @@ impl GroupRepresentations for LieGroup {
                 },
             });
         }
-        let (a, b, c) = (self.label(a), self.label(b), self.label(c));
+        let (a, b, c) = (a.dj(), b.dj(), c.dj());
         // Exact evaluators take i32 projections; reject rather than truncate.
         if su2::triangle_ok(a, b, c) && [a, b, c].iter().any(|&dj| dj > i32::MAX as u32) {
             return Err(LieError::Unsupported {
@@ -1646,13 +1683,7 @@ impl LieFusion {
                     .group
                     .take()
                     .expect("torus fusion yields its group once"),
-                factors: None,
-                dj: 0,
-                charge: q.charge(),
-                #[cfg(feature = "lie-generated")]
-                generated: None,
-                #[cfg(feature = "lie-generated")]
-                bcd: None,
+                payload: LiePayload::Torus(q),
             }),
             FusionInner::Composite(inner) => (if reverse {
                 inner.next_back()
@@ -1681,11 +1712,7 @@ impl LieFusion {
                 };
                 Some(LieIrrep {
                     group: group.expect("fusion retains its group").clone(),
-                    factors: None,
-                    dj: 0,
-                    charge: 0,
-                    generated: None,
-                    bcd: Some(product[i].0.clone()),
+                    payload: LiePayload::Bcd(product[i].0.clone()),
                 })
             }
             FusionInner::A1(inner) => (if reverse {
@@ -1695,13 +1722,7 @@ impl LieFusion {
             })
             .map(|a| LieIrrep {
                 group: group.expect("fusion retains its group").clone(),
-                factors: None,
-                dj: a.dj(),
-                charge: 0,
-                #[cfg(feature = "lie-generated")]
-                generated: None,
-                #[cfg(feature = "lie-generated")]
-                bcd: None,
+                payload: LiePayload::RankOne(a.dj()),
             }),
             #[cfg(feature = "lie-generated")]
             FusionInner::Generated {
@@ -1722,11 +1743,7 @@ impl LieFusion {
                 };
                 Some(LieIrrep {
                     group: group.expect("fusion retains its group").clone(),
-                    factors: None,
-                    dj: 0,
-                    charge: 0,
-                    generated: Some(product.channel(index).clone()),
-                    bcd: None,
+                    payload: LiePayload::Generated(product.channel(index).clone()),
                 })
             }
         }
@@ -1955,6 +1972,59 @@ fn bcd_series(root: RootSystem) -> Option<bcd::Series> {
 #[cfg(test)]
 mod arithmetic_tests {
     use super::*;
+
+    #[test]
+    fn payload_order_matches_former_field_order() {
+        fn former_cmp(a: &LieIrrep, b: &LieIrrep) -> std::cmp::Ordering {
+            let order = a
+                .group
+                .cmp(&b.group)
+                .then_with(|| a.factors().cmp(&b.factors()))
+                .then_with(|| a.dj().cmp(&b.dj()))
+                .then_with(|| a.charge().cmp(&b.charge()));
+            #[cfg(feature = "lie-generated")]
+            let order = order
+                .then_with(|| a.generated().cmp(&b.generated()))
+                .then_with(|| a.bcd().cmp(&b.bcd()));
+            order
+        }
+        let groups = [
+            GroupId::u(1),
+            GroupId::su(2),
+            GroupId::spin(3),
+            GroupId::sp(2),
+            GroupId::u(2),
+            GroupId::spin(4),
+        ];
+        let mut groups: Vec<_> = groups.into_iter().map(Result::unwrap).collect();
+        #[cfg(feature = "lie-generated")]
+        groups.extend([
+            GroupId::su(3).unwrap(),
+            GroupId::sp(4).unwrap(),
+            GroupId::spin(5).unwrap(),
+        ]);
+        let mut labels = Vec::new();
+        for group in groups.drain(..) {
+            let cat = LieGroup::new(group).unwrap();
+            for bits in 0..1 << cat.group.semisimple_rank() {
+                let dynkin: Vec<_> = (0..cat.group.semisimple_rank())
+                    .map(|i| (bits >> i) & 1)
+                    .collect();
+                for q in -2..=2 {
+                    let charges = vec![q; cat.group.torus_rank()];
+                    if let Ok(label) = cat.irrep(&dynkin, &charges) {
+                        labels.push(label);
+                    }
+                }
+            }
+        }
+        for a in &labels {
+            for b in &labels {
+                assert_eq!(a.cmp(b), former_cmp(a, b));
+                assert_eq!(a == b, former_cmp(a, b).is_eq());
+            }
+        }
+    }
 
     #[test]
     fn dimension_and_buffer_bounds() {

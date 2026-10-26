@@ -572,7 +572,7 @@ macro_rules! product_queries {
                 let t = Validated(());
                 let n = |x, y, z| $this.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
                 let dims = shape::<Self::Scalar, 4>([n(a, b, e)?, n(e, c, d)?, n(b, c, f)?, n(a, f, d)?]).ok_or(ProductError::Overflow)?;
-                if dims.contains(&0) { return Ok(FBlock { dims, data: Storage::Empty }); }
+                if dims.contains(&0) { return Ok(FBlock::from_storage(dims, Storage::Empty)); }
                 let (block, _) = $this.__fusion_symbols_validated_f_symbol(a, b, c, d, e, f, t)?;
                 debug_assert_eq!(block.dims(), dims);
                 Ok(block)
@@ -585,7 +585,7 @@ macro_rules! product_queries {
                 let t = Validated(());
                 let n = |x, y, z| $this.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
                 let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(b, a, c)?]).ok_or(ProductError::Overflow)?;
-                if dims.contains(&0) { return Ok(RBlock { n: dims[0], data: Storage::Empty }); }
+                if dims.contains(&0) { return Ok(RBlock::from_storage(dims[0], Storage::Empty)); }
                 let (block, _) = $this.__fusion_symbols_validated_r_symbol(a, b, c, t)?;
                 debug_assert_eq!(block.dims(), dims);
                 Ok(block)
@@ -597,7 +597,7 @@ macro_rules! product_queries {
                 let t = Validated(());
                 let n = |x, y, z| $this.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
                 let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(&$this.__fusion_symbols_validated_dual(a, t), c, b)?]).ok_or(ProductError::Overflow)?;
-                if dims.contains(&0) { return Ok(RBlock { n: dims[0], data: Storage::Empty }); }
+                if dims.contains(&0) { return Ok(RBlock::from_storage(dims[0], Storage::Empty)); }
                 let (block, _) = $this.__fusion_symbols_validated_a_symbol(a, b, c, t)?;
                 debug_assert_eq!(block.dims(), dims);
                 Ok(block)
@@ -608,7 +608,7 @@ macro_rules! product_queries {
                 let t = Validated(());
                 let n = |x, y, z| $this.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
                 let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(c, &$this.__fusion_symbols_validated_dual(b, t), a)?]).ok_or(ProductError::Overflow)?;
-                if dims.contains(&0) { return Ok(RBlock { n: dims[0], data: Storage::Empty }); }
+                if dims.contains(&0) { return Ok(RBlock::from_storage(dims[0], Storage::Empty)); }
                 let (block, _) = $this.__fusion_symbols_validated_b_symbol(a, b, c, t)?;
                 debug_assert_eq!(block.dims(), dims);
                 Ok(block)
@@ -745,26 +745,26 @@ macro_rules! impl_product {
                 let (dims, data) = storage(Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_f_symbol(&a.0,&b.0,&c.0,&d.0,&e.0,&f.0,t).map_err(ProductError::Factor0)?)?);
                 $(let (dims, data) = kron(dims, data, Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_f_symbol(&a.$i,&b.$i,&c.$i,&d.$i,&e.$i,&f.$i,t).map_err(ProductError::$Err)?)?, |l, r| <$Prev as Promote<$C::Scalar>>::left(l) * <$Prev as Promote<$C::Scalar>>::right(r));)+
                 let [n0, n1, n2, n3] = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
-                Ok((FBlock { dims, data }, [n0?, n1?, n2?, n3?]))
+                Ok((FBlock::from_storage(dims, data), [n0?, n1?, n2?, n3?]))
             }
             // As for F; braiding of every factor has also been checked.
             fn __fusion_symbols_validated_r_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> Result<SymbolWithAxes<Self::RSymbol, 2>, Self::Error> {
                 let (dims, data) = storage(Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_r_symbol(&a.0,&b.0,&c.0,t).map_err(ProductError::Factor0)?)?);
                 $(let (dims, data) = kron(dims, data, Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_r_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?)?, |l, r| <$Prev as Promote<$C::Scalar>>::left(l) * <$Prev as Promote<$C::Scalar>>::right(r));)+
                 let [n0, n1] = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
-                Ok((RBlock { n: dims[0], data }, [n0?, n1?]))
+                Ok((RBlock::from_storage(dims[0], data), [n0?, n1?]))
             }
             fn __fusion_symbols_validated_a_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
                 let (dims, data) = storage(Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_a_symbol(&a.0,&b.0,&c.0,t).map_err(ProductError::Factor0)?)?);
                 $(let (dims, data) = kron(dims, data, Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_a_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?)?, |l, r| <$Prev as Promote<$C::Scalar>>::left(l) * <$Prev as Promote<$C::Scalar>>::right(r));)+
                 let [n0, n1] = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
-                Ok((RBlock { n: dims[0], data }, [n0?, n1?]))
+                Ok((RBlock::from_storage(dims[0], data), [n0?, n1?]))
             }
             fn __fusion_symbols_validated_b_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
                 let (dims, data) = storage(Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_b_symbol(&a.0,&b.0,&c.0,t).map_err(ProductError::Factor0)?)?);
                 $(let (dims, data) = kron(dims, data, Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_b_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?)?, |l, r| <$Prev as Promote<$C::Scalar>>::left(l) * <$Prev as Promote<$C::Scalar>>::right(r));)+
                 let [n0, n1] = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
-                Ok((RBlock { n: dims[0], data }, [n0?, n1?]))
+                Ok((RBlock::from_storage(dims[0], data), [n0?, n1?]))
             }
             fn authority_fingerprint(&self) -> &[u8] {
                 self.fingerprint.get_or_init(|| {
@@ -1120,7 +1120,7 @@ where
             }))?;
         let n = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
         let [n0, n1, n2, n3] = n;
-        Ok((FBlock { dims, data }, [n0?, n1?, n2?, n3?]))
+        Ok((FBlock::from_storage(dims, data), [n0?, n1?, n2?, n3?]))
     }
     fn __fusion_symbols_validated_r_symbol(
         &self,
@@ -1138,7 +1138,7 @@ where
             }))?;
         let n = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
         let [n0, n1] = n;
-        Ok((RBlock { n: dims[0], data }, [n0?, n1?]))
+        Ok((RBlock::from_storage(dims[0], data), [n0?, n1?]))
     }
     fn __fusion_symbols_validated_a_symbol(
         &self,
@@ -1156,7 +1156,7 @@ where
             }))?;
         let n = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
         let [n0, n1] = n;
-        Ok((RBlock { n: dims[0], data }, [n0?, n1?]))
+        Ok((RBlock::from_storage(dims[0], data), [n0?, n1?]))
     }
     fn __fusion_symbols_validated_b_symbol(
         &self,
@@ -1174,7 +1174,7 @@ where
             }))?;
         let n = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
         let [n0, n1] = n;
-        Ok((RBlock { n: dims[0], data }, [n0?, n1?]))
+        Ok((RBlock::from_storage(dims[0], data), [n0?, n1?]))
     }
     fn authority_fingerprint(&self) -> &[u8] {
         self.fingerprint.get_or_init(|| {
@@ -1501,10 +1501,10 @@ mod tests {
         }
         fn a_symbol(&self, _: &(), _: &(), _: &()) -> Result<RBlock<f64>, Infallible> {
             let block = self.block::<2>();
-            Ok(RBlock {
-                n: block.dims[0],
-                data: Storage::Shared(block.data.into()),
-            })
+            Ok(RBlock::from_storage(
+                block.dims[0],
+                Storage::Shared(block.data.into()),
+            ))
         }
         fn b_symbol(&self, a: &(), b: &(), c: &()) -> Result<RBlock<f64>, Infallible> {
             self.a_symbol(a, b, c)

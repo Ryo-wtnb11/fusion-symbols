@@ -66,6 +66,40 @@ fn torus(c: &mut Criterion) {
         })
     });
     c.bench_function("su2/dim", |b| b.iter(|| g.dim(black_box(&half))));
+    c.bench_function("su2/fusion_collect", |bench| {
+        bench.iter(|| {
+            g.fusion(black_box(&half), black_box(&half))
+                .unwrap()
+                .collect::<Vec<_>>()
+        })
+    });
+    let six = g.irrep(&[6], &[]).unwrap();
+    c.bench_function("su2/f_symbol_6", |bench| {
+        bench.iter(|| {
+            g.f_symbol(black_box(&six), &six, &six, &six, &six, &six)
+                .unwrap()
+        })
+    });
+
+    let g = LieGroup::new(GroupId::u(2).unwrap()).unwrap();
+    let a = g.irrep(&[1], &[1]).unwrap();
+    let b = g.irrep(&[1], &[-1]).unwrap();
+    let one = g.unit();
+    c.bench_function("u2/clone", |b| b.iter(|| black_box(&a).clone()));
+    c.bench_function("u2/fusion_collect", |bench| {
+        bench.iter(|| {
+            g.fusion(black_box(&a), black_box(&b))
+                .unwrap()
+                .collect::<Vec<_>>()
+        })
+    });
+    c.bench_function("u2/nsymbol", |bench| {
+        bench.iter(|| g.nsymbol(black_box(&a), black_box(&b), black_box(&one)))
+    });
+    c.bench_function("u2/f_symbol", |bench| {
+        bench.iter(|| g.f_symbol(black_box(&a), &b, &a, &a, &one, &one).unwrap())
+    });
+    c.bench_function("u2/dim", |b| b.iter(|| g.dim(black_box(&a))));
 }
 criterion_group!(benches, torus);
 criterion_main!(benches);
