@@ -103,17 +103,17 @@ where
 /// Compose 3..=12 factors, evaluating each expression once. A trailing comma is allowed.
 ///
 /// ```
-/// use fusion_symbols::{finite::ZN, fermion::FermionParity, product};
-/// let cat = product![ZN::new(2).unwrap(), FermionParity, ZN::new(2).unwrap(),];
-/// assert_eq!(cat.into_factors(), (ZN::new(2).unwrap(), FermionParity, ZN::new(2).unwrap()));
+/// use fusion_symbols::{lie::U1, fermion::FermionParity, product};
+/// let cat = product![U1, FermionParity, U1,];
+/// assert_eq!(cat.into_factors(), (U1, FermionParity, U1));
 /// ```
 /// ```compile_fail
-/// use fusion_symbols::{finite::ZN, product};
-/// let _ = product![ZN::new(2).unwrap()];
+/// use fusion_symbols::{lie::U1, product};
+/// let _ = product![U1];
 /// ```
 /// ```compile_fail
-/// use fusion_symbols::{finite::ZN, product};
-/// let _ = product![ZN::new(2).unwrap(),ZN::new(2).unwrap(),ZN::new(2).unwrap(),ZN::new(2).unwrap(),ZN::new(2).unwrap(),ZN::new(2).unwrap(),ZN::new(2).unwrap(),ZN::new(2).unwrap(),ZN::new(2).unwrap(),ZN::new(2).unwrap(),ZN::new(2).unwrap(),ZN::new(2).unwrap(),ZN::new(2).unwrap()];
+/// use fusion_symbols::{lie::U1, product};
+/// let _ = product![U1,U1,U1,U1,U1,U1,U1,U1,U1,U1,U1,U1,U1];
 /// ```
 #[macro_export]
 macro_rules! product {

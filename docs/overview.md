@@ -17,6 +17,7 @@ CGC are the separate `GroupRepresentations` capability, read through `CgcBlock`.
 | `lie::LieGroup`: U(1), Tᵗ, and torus quotients | Ordered integer charges in `-i32::MAX..=i32::MAX` | Base |
 | `lie::LieGroup`: U(N), semisimple×torus quotients | Dynkin labels then torus charges, restricted to the character lattice | Base for U(2); otherwise union of factor features |
 | `lie::LieGroup`: trivial group | Empty Dynkin and charge slices | Base |
+| `lie::U1` | `U1Irrep`: integer `i32` charge, excluding `i32::MIN` | Base |
 | `lie::CU1` = O(2) | `CU1Irrep`: `(twice_charge, s)` = `(0,0)`, `(0,1)`, or `(q>0,2)` | Base |
 | `finite::ZN` | `ZNIrrep`: charge and runtime nonzero `u32` modulus | Base |
 | `fermion::FermionParity` | `FermionParityIrrep`: even or odd | Base |
@@ -26,6 +27,22 @@ CGC are the separate `GroupRepresentations` capability, read through `CgcBlock`.
 Base means available with `default-features = false`. `lie-generated` is on by
 default; all dense dependencies are behind it. `anyonwiki-unitary` embeds more
 data without adding a dependency. See `Cargo.toml::features`.
+
+## Dedicated typed categories
+
+Every connected compact group is classified by `GroupId` and computed through
+`LieGroup` when its root systems have supported engines. A dedicated typed
+category is added only when its labels are fixed-size values and its symbols
+are closed-form, a measured hot-path need exists, it is the arithmetic authority
+called by `LieGroup`, and it provides `group_id()` plus a bitwise equivalence test.
+
+`U1` is the only connected group with a dedicated typed category. Its `Copy`
+labels and scalar symbols avoid the general label and block overhead measured
+by `benches/torus.rs::torus`; `tests/lie_torus.rs::typed_u1_matches_liegroup_bitwise`
+checks the equivalence contract. `U1::group_id()` returns `GroupId::u(1)`.
+For Tᵗ at typed speed, use a tuple `Product` of `U1` factors, such as
+`product![U1, U1, U1]`. `ZN`, `FermionParity`, and `CU1` are not connected
+groups and have no `group_id()`.
 
 ## Lie labels and global forms
 
@@ -64,7 +81,7 @@ intermediate character lattices restrict objects without changing cover
 coefficients or removing fusion outcomes: `ν−λ−μ ∈ Q ⊆ X` proves closure.
 Composites delegate to `Product<Vec<LieGroup>>` of ordered simple covers then
 rank-one torus covers. Single non-D₂ factors retain their original evaluator;
-standard U(1) stores its charge inline and uses private closed-form arithmetic.
+standard U(1) stores its charge inline and delegates to the closed-form `U1` arithmetic.
 The trivial group executes as an empty Product. Exceptional blocks return
 specific `LieError::Unsupported` errors.
 Generated factors still require `lie-generated`. B/C/D seed totals are checked
@@ -82,21 +99,6 @@ allocation-free exact-size iterator; `dynkin()` remains semisimple-only.
 Charges outside `-i32::MAX..=i32::MAX`, including `i32::MIN`, return `LabelOverflow`.
 U(1) label construction, clone, fusion iteration, and symbol/CGC queries allocate
 nothing. U(1) enumerates `0,1,−1,2,−2,…`, preserving its authority bytes.
-
-Migration from the removed public `lie::{U1,U1Irrep,U1Error}`:
-
-```rust
-use fusion_symbols::lie::{GroupId, LieGroup};
-let u1 = LieGroup::new(GroupId::u(1).unwrap()).unwrap();
-let a = u1.irrep(&[], &[3]).unwrap();
-assert_eq!(a.charges().collect::<Vec<_>>(), [3]);
-```
-
-Labels are `Clone` rather than `Copy`; replace `U1Irrep::UNIT` with `u1.unit()`
-(after importing `FusionCategory`). CGCs are now `LieCgc` blocks read through
-`CgcBlock`, rather than a bare `f64`.
-Charge overflow is now `LieError::LabelOverflow`, including fallible symbols;
-infallible `nsymbol` panics on arithmetic overflow.
 
 `LieIrrep::dynkin_labels` reads labels without allocation; `dynkin` collects
 them. Clones share weight buffers without allocation. Warm duals reuse shared
@@ -142,11 +144,14 @@ hashing represent mathematical identity, independently of fingerprints.
 - Lie constructors distinguish invalid labels, excluded global-form weights,
   label overflow and unsupported capabilities. Generated failures are opaque
   `LieError::Generation` diagnostics with an error source.
-- Lie fusion and fallible N/F/R/A/B/CGC paths report `LieError::LabelOverflow`
+- Generated Lie fusion and fallible N/F/R/A/B/CGC paths report `LieError::LabelOverflow`
   when a label, weight, dimension or multiplicity exceeds its integer range.
   Infallible weight-multiplicity queries panic on such failures. Dimension and
   phase formulas use exact or parity arithmetic without fixed-width overflow.
-- U(1), CU(1) and rank-one Lie fusion report label overflow. `ZN` and parity
+- U(1) symbols decide charge conservation exactly in `i64`, including zero
+  channels when the sum is outside the label range. Only fusion reports that
+  overflow (`U1Error` on `U1`, `LieError::LabelOverflow` on `LieGroup`).
+  CU(1) and rank-one Lie fusion also report label overflow. `ZN` and parity
   category errors are `Infallible`; their constructors still validate labels.
   `ZNIrrep::new` reduces charges, whereas `from_canonical` rejects them outside
   `0..N`. CU(1) uses the full `u32` twice-charge range.

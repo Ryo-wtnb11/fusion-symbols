@@ -1,10 +1,10 @@
 //! Positive-dimensional compact Lie groups: root systems and global forms via
-//! [`LieGroup`] (including tori), and closed-form [`CU1`].
+//! [`LieGroup`] (including tori), and closed-form [`U1`] and [`CU1`].
 
 mod cu1;
 mod u1;
 pub use cu1::{CU1Error, CU1Fusion, CU1Irrep, CU1};
-use u1::{U1Irrep, U1};
+pub use u1::{U1Error, U1Irrep, U1};
 
 #[cfg(feature = "lie-generated")]
 pub(crate) mod bcd;
@@ -1179,8 +1179,9 @@ impl FusionCategory for LieGroup {
         self.try_nsymbol(a, b, c)
             .expect("Lie fusion arithmetic failed; use try_nsymbol for a typed error")
     }
-    /// Fusion checks label/weight sums and multiplicities, returning
-    /// [`LieError::LabelOverflow`] on overflow. Rank-one N is always zero or one.
+    /// Generated fusion checks label/weight sums and multiplicities, returning
+    /// [`LieError::LabelOverflow`] on overflow. Torus N is exact even when the
+    /// sum is not a representable label. Rank-one N is always zero or one.
     #[inline]
     fn try_nsymbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<u32, LieError> {
         self.label(a);
@@ -1206,9 +1207,7 @@ impl FusionCategory for LieGroup {
                 .map_err(LieError::from);
         }
         if self.is_torus() {
-            return U1
-                .try_nsymbol(&a.torus_label(), &b.torus_label(), &c.torus_label())
-                .map_err(|_| LieError::LabelOverflow);
+            return Ok(U1.nsymbol(&a.torus_label(), &b.torus_label(), &c.torus_label()));
         }
         if self.is_rank_one() {
             return Ok(u32::from(su2::triangle_ok(a.dj, b.dj, c.dj)));
@@ -1256,9 +1255,7 @@ impl FusionCategory for LieGroup {
                 .iter_mut()
                 .zip([(a, b, e), (e, c, d), (b, c, f), (a, f, d)])
             {
-                *n = U1
-                    .try_nsymbol(&a.torus_label(), &b.torus_label(), &c.torus_label())
-                    .map_err(|_| LieError::LabelOverflow)? as usize;
+                *n = U1.nsymbol(&a.torus_label(), &b.torus_label(), &c.torus_label()) as usize;
             }
             return Ok(if dims.contains(&0) {
                 FBlock::zeros(dims)

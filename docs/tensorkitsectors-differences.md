@@ -44,7 +44,7 @@ and independent of object `Ord` or fusion-iterator order.
 |---|---|
 | `ZN(N)` | Charges `0,…,N−1` |
 | `FermionParity` | Even, odd |
-| U(1) through `LieGroup` | `0,1,−1,2,−2,…`; integer subsequence of TKS's `0,½,−½,1,−1,…`, reindexed densely |
+| `U1` or U(1) through `LieGroup` | `0,1,−1,2,−2,…`; integer subsequence of TKS's `0,½,−½,1,−1,…`, reindexed densely |
 | `CU1` | `0+`, `0−`, then `twice_charge = 1,2,…` |
 | Rank-one Lie | Admitted doubled spins increasing; SO(3)/PSU(2) skip odd labels |
 | SU(N), N ≥ 3, simply connected | Dynkin labels by increasing total, then lexicographic (SUNRepresentations 0.4.0 order) |
@@ -142,16 +142,23 @@ needs no epoch bump; equal fingerprints do not equate outward group identities.
 ### Connected torus integration guards
 
 The arithmetic authority remains `src/lie/u1.rs::{U1Irrep::from_exact,U1::fusion,U1::dual}`.
-The adapter `src/lie.rs::{LieGroup::irrep,LieGroup::try_nsymbol}` maps the symmetric
-i32 charge domain and sum representability to typed `LieError::LabelOverflow`;
-`LieGroup::nsymbol` documents its loud panic. Excluding MIN proves dual negation safe.
+The adapters `src/lie.rs::{LieGroup::irrep,LieGroup::fusion}` map invalid
+charges and unrepresentable fusion outcomes to typed `LieError::LabelOverflow`.
+`src/lie/u1.rs::U1Irrep::new` rejects `i32::MIN` with `U1Error`, proving dual
+negation safe. `src/lie/u1.rs::U1::nsymbol` decides the vertex condition exactly
+in `i64`; `try_nsymbol` uses the infallible default. An unrepresentable sum
+cannot equal a representable output charge, so every symbol returns an exact
+zero channel. `tests/lie_torus.rs::typed_u1_matches_liegroup_bitwise` checks
+both paths, including boundaries and the independent dual oracle.
 `LieGroup::label` checks full datum identity before every symbol shortcut.
 `LieGroup::composite_label` asserts lattice closure: root containment and additive
 charges keep every fusion outcome admitted. Ordered cover factors and Product's
-checked shape/storage/multiplicity guards are reused unchanged. Torus F/R/CGC
-blocks use the same fallible charge gates as fusion; A/B call those gates too.
+checked shape/storage/multiplicity guards are reused unchanged. Torus F/R/A/B/CGC
+blocks use the same exact vertex condition, including every shortcut.
 The closed forms are exact zeros and ones, so numerical generation gates are
 vacuous; tensor products and lattice restriction preserve factor identities.
+Closed-form U1 calls never generate or sweep, including warm repeats in the
+bitwise equivalence test; no coefficient cache is needed.
 There is no new numerical or external constructor port (additional SUN/CU1
 reference guards are N/A). Warm generated calls are checked directly with
 `src/lie.rs::tests::torus_composites_warm_calls_do_not_generate` and the existing
