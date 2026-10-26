@@ -20,8 +20,6 @@
 //! conjugation is the identity and is elided; the port is value-identical (see
 //! the `frcore` core).
 
-use std::sync::Arc;
-
 use super::{cgc, shared_directproduct, Irrep, SunError};
 use crate::frcore::{f_block_raw, r_block_raw, Family, MEntry};
 
@@ -144,20 +142,20 @@ pub fn f_symbol(
     // key is the six labels as given; distinct requests never collide, and no
     // canonicalization can silently merge two genuinely different blocks.
     let cache = crate::cache::cache_sun_f();
-    let key = (
-        a.clone(),
-        b.clone(),
-        c.clone(),
-        d.clone(),
-        e.clone(),
-        f.clone(),
-    );
-    if let Some(hit) = cache.get(&key) {
-        return Ok((*hit).clone());
-    }
-    let block = f_block_raw(&mut SunFamily, a, b, c, d, e, f)?;
-    let stored = cache.insert(key, Arc::new(block));
-    Ok((*stored).clone())
+    cache.get_or_try_compute(
+        &crate::cache::Sextuple(a, b, c, d, e, f),
+        || {
+            (
+                a.clone(),
+                b.clone(),
+                c.clone(),
+                d.clone(),
+                e.clone(),
+                f.clone(),
+            )
+        },
+        || f_block_raw(&mut SunFamily, a, b, c, d, e, f),
+    )
 }
 
 // ---------------------------------------------------------------------------

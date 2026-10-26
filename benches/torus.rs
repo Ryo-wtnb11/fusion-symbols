@@ -100,6 +100,42 @@ fn torus(c: &mut Criterion) {
         bench.iter(|| g.f_symbol(black_box(&a), &b, &a, &a, &one, &one).unwrap())
     });
     c.bench_function("u2/dim", |b| b.iter(|| g.dim(black_box(&a))));
+
+    #[cfg(feature = "lie-generated")]
+    {
+        // Keep group/label construction outside the timed warm lookup.
+        let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+        let octet = su3.irrep(&[1, 1], &[]).unwrap();
+        let _ = su3
+            .f_symbol(&octet, &octet, &octet, &octet, &octet, &octet)
+            .unwrap();
+        c.bench_function("su3/f_symbol_octet", |bench| {
+            bench.iter(|| {
+                su3.f_symbol(black_box(&octet), &octet, &octet, &octet, &octet, &octet)
+                    .unwrap()
+            })
+        });
+        let b2 = LieGroup::new(GroupId::so(5).unwrap()).unwrap();
+        let unit = b2.unit();
+        let vector = b2.irrep(&[1, 0], &[]).unwrap();
+        let adjoint = b2.irrep(&[0, 2], &[]).unwrap();
+        let _ = b2
+            .f_symbol(&unit, &vector, &vector, &adjoint, &vector, &adjoint)
+            .unwrap();
+        c.bench_function("b2/f_symbol", |bench| {
+            bench.iter(|| {
+                b2.f_symbol(
+                    black_box(&unit),
+                    &vector,
+                    &vector,
+                    &adjoint,
+                    &vector,
+                    &adjoint,
+                )
+                .unwrap()
+            })
+        });
+    }
 }
 criterion_group!(benches, torus);
 criterion_main!(benches);

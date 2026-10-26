@@ -11,7 +11,7 @@ provenance is in [category conventions](references_categories.md).
 | Local authority (`file::symbol`, paths relative to `src/`) | Pinned reference | Contract or intentional difference |
 |---|---|---|
 | `lie/su2.rs::{wigner_3j,wigner_6j,clebsch_gordan}`; `exact.rs::SignedSqrtRational`; `primefactor.rs` | [WignerSymbols.jl 2.0.0](https://github.com/Jutho/WignerSymbols.jl/tree/v2.0.0), `src/WignerSymbols.jl::{_wigner3j,_wigner6j,compute6jseries}` and `src/primefactorization.jl` | Exact Racah sums; one final rounding |
-| `lie/su2.rs::{canonical_regge_3j,canonical_regge_6j}`; `cache.rs::FifoCache` | WignerSymbols.jl `reorder3j`, per-kind Wigner caches | Complete deterministic tie-breaking; bounded FIFO rather than LRU |
+| `lie/su2.rs::{canonical_regge_3j,canonical_regge_6j}`; `cache.rs::CoefficientCache` | WignerSymbols.jl `reorder3j`, per-kind Wigner caches | Complete deterministic tie-breaking; byte-weighted sharded Clock-PRO rather than LRU |
 | `lie/su2.rs::{f_symbol_exact,r_symbol,fs_phase}` | TensorKitSectors `src/irreps/su2irrep.jl::{Fsymbol,Rsymbol}` | Phase, normalization and argument order fixed in [gauge §12](gauge.md#12-the-base-su2-family) |
 | `lie/sun.rs::{Irrep,shared_directproduct,directproduct_uncached}` | [SUNRepresentations.jl 0.4.0](https://github.com/QuantumKitHub/SUNRepresentations.jl/tree/v0.4.0), `src/gtpatterns.jl::{GTPatternIterator,creation,directproduct}` | Exact structure and index-for-index GT basis order |
 | `lie/sun/cgc.rs::{cgc,highest_weight_cgc,lower_weight_cgc,cref,purge}` | SUNRepresentations.jl `src/clebschgordan.jl::{_CGC,highest_weight_CGC,lower_weight_CGC!,cref!,purge!}` | Joint nullspace gauge, descent and cuts fixed in [gauge](gauge.md) |

@@ -32,6 +32,7 @@ anyonwiki-unitary = []
 lie-generated = ["dep:t4a-faer"]
 
 [dependencies]
+quick_cache = "0.7"
 num-bigint = "0.4"
 num-rational = "0.4"
 num-traits = "0.2"
@@ -51,6 +52,10 @@ criterion = "0.5"
 
 [[bench]]
 name = "torus"
+harness = false
+
+[[bench]]
+name = "cache_concurrency"
 harness = false
 
 [[bench]]

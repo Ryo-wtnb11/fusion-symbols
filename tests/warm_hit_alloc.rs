@@ -1,8 +1,7 @@
 //! A warm F/CGC cache hit hands out the cached coefficients without copying
 //! them: `FBlock` and `lie::LieCgc` share their buffers, so no
-//! allocation on a hit is as large as the coefficient buffer. The hit still
-//! allocates the owned cache key (one small buffer per label), independent of
-//! the coefficient count.
+//! allocation on a hit is as large as the coefficient buffer. Complete
+//! zero-allocation tier coverage is in `cache_hit_alloc.rs`.
 
 #![cfg(feature = "lie-generated")]
 

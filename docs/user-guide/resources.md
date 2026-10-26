@@ -2,7 +2,7 @@
 
 ## Coefficient caches
 
-Every coefficient-cache tier is process-global, FIFO and independently bounded
+Every coefficient-cache tier is process-global, byte-weighted Clock-PRO and independently bounded
 (`src/cache.rs`). Default retained-entry charge caps are:
 
 | Tiers | Aggregate cap |
@@ -30,11 +30,51 @@ observes the effective policy and therefore also freezes configuration.
 
 `base_cache_stats()` and, with generation enabled, `generated_cache_stats()`
 report entries, charge, hits, misses and evictions. Each tier snapshot is
-consistent under its lock; totals combine independent snapshots.
-`trim_to(tier,target)` removes oldest entries to the target charge;
+consistent under the tier's publication lock; totals combine independent snapshots.
+`trim_to(tier,target)` removes entries in unspecified traversal order until the
+retained charge is at most the target; it preserves the configured capacity.
+A zero target removes all retained values. In-flight computations can publish
+after trimming. Each removed entry increments evictions; hits/misses are preserved.
+
 `reset()` clears all tiers and counters. Concurrent fills can change occupancy
 after either call. **The application owns this process-wide policy; libraries
 must not call reset or trim.** Neither operation promises to lower RSS.
+
+All tiers use `quick_cache` 0.7 with its default foldhash hasher, parking_lot
+locks and exactly one shard per tier. Hits use borrowed `Equivalent` queries and a
+read lock, without constructing owned keys or copying coefficient buffers.
+Exact SU(2) values share their immutable rational payload; generated F blocks
+are stored directly, sharing their existing coefficient storage. Concurrent
+misses on a key share one successful computation; waiters count as hits.
+Errors are not retained. Whole-product B/C/D sweeps also publish other channels.
+
+Each entry's real charge is one owned key (including label backing), its value
+and one cached charge word, rather than FIFO's two key copies. For a tier with
+byte cap `B` and positive entry cap `E`, its quick_cache weight is
+`max(real_charge, ceil(B / E))`. The single shard has capacity `B` and
+`hot_allocation = 1.0`, so its admission limit is exactly `B`, with no margin:
+an entry is eligible for retention iff its real charge is at most `B`.
+Zero-budget and oversize entries are returned normally without displacing
+retained values; each rejection counts as an eviction. Admission does not exempt
+an entry from later capacity eviction. These rules do not depend on CPU count.
+Sharding was considered and rejected because shard-local admission loses large
+generated coefficients that fit the tier cap; reconsider it only with contention
+measurements and a solution preserving full-tier admission.
+
+The minimum weight enforces at most `floor(B / ceil(B / E)) <= E` resident
+entries when `B > 0`, using quick_cache's amortized O(1) Clock-PRO eviction
+rather than scanning residents on insertion. Nondivisible caps can retain fewer
+than `E` entries; the minimum weight can also leave real-byte headroom unused.
+Statistics and trim reports count real charge, excluding weight padding;
+real bytes are tracked separately through publication and eviction, so snapshots
+do not scan residents. Hits count retained or shared in-flight results. Misses count successful computations/publications;
+a sweep recheck served by another publication counts one hit and no miss, and
+publishing an already-retained key adds no miss. Errors add neither counter.
+Eviction victims and trim survivors are unspecified, replacing the previous FIFO order.
+Ghost history contains hashes, not owned labels or coefficient payloads, and
+belongs to excluded container scaffolding. Reset also invalidates in-flight
+placeholders: their callers still receive computed values, but those values may
+not be retained. Returned values remain valid across trim, eviction and reset.
 
 ## B/C/D generator catalogs
 

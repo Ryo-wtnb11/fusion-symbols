@@ -8,7 +8,7 @@
 //! counters — same reasoning as `tests/sun_cgc_cache.rs`).
 //!
 //! Forcing eviction on the real global caches is intentionally NOT attempted:
-//! the production caps are 64 MiB / 256 MiB per tier. The FIFO bound /
+//! the production caps are 64 MiB / 256 MiB per tier. The entry bound /
 //! byte-eviction / oversize-eviction machinery is covered deterministically on
 //! local caches in `src/cache.rs`; here we prove per-tier hit/miss accounting on
 //! deterministic accesses, the aggregate retained-charge cap, the const/cap tie, `total()`

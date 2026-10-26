@@ -728,7 +728,7 @@ fn resources_2() {
     let _ = stats.six_j.entries; // per-tier entries / bytes / hits / misses / evictions
     let _ = stats.total(); // field-wise sum across the base tiers
 
-    // Release one tier down to a target charge, oldest entries first.
+    // Release one tier down to a target charge, with unspecified removal order.
     let report = trim_to(CoefficientCacheTier::SixJ, 0);
     let _ = report.removed_entries;
 
