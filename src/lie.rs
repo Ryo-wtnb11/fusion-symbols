@@ -995,14 +995,14 @@ impl FusionCategory for LieGroup {
         // Dual keys store one label in the tiers' existing shared slice layout.
         #[cfg(feature = "lie-generated")]
         use crate::cache::{
-            bcd_cgc_cache::{BcdKey, BcdValue},
+            bcd_cgc_cache::{BcdKey, BcdRef, BcdValue},
             cache_bcd_cgc, cache_sun_product,
         };
         #[cfg(feature = "lie-generated")]
         if let Some(x) = a.bcd() {
             let tier = cache_bcd_cgc();
-            let key = BcdKey::Dual(x.clone());
-            let value = tier.get(&key).unwrap_or_else(|| {
+            let value = tier.get(&BcdRef::Dual(x)).unwrap_or_else(|| {
+                let key = BcdKey::Dual(x.clone());
                 let dual = x.dual();
                 tier.insert(
                     BcdKey::Dual(dual.clone()),
@@ -1021,8 +1021,8 @@ impl FusionCategory for LieGroup {
         #[cfg(feature = "lie-generated")]
         if let Some(x) = a.generated() {
             let tier = cache_sun_product();
-            let key = sun::SunProductKey::Dual(x.clone());
-            let value = tier.get(&key).unwrap_or_else(|| {
+            let value = tier.get(&sun::SunProductRef::Dual(x)).unwrap_or_else(|| {
+                let key = sun::SunProductKey::Dual(x.clone());
                 let dual = x.dual();
                 tier.insert(
                     sun::SunProductKey::Dual(dual.clone()),

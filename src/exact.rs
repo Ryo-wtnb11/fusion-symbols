@@ -6,6 +6,8 @@
 //! root times a rational alternating sum. We keep the value in this exact form
 //! all the way through and round to `f64` exactly once, in [`SignedSqrtRational::to_f64`].
 
+use std::sync::Arc;
+
 use num_bigint::{BigInt, BigUint};
 use num_rational::Ratio;
 use num_traits::{One, Signed, Zero};
@@ -18,10 +20,12 @@ use num_traits::{One, Signed, Zero};
 /// Exact equality (`Eq`) compares `sign` and `radicand`, so two values are
 /// equal iff they denote the same real number (the representation is canonical
 /// because `radicand` is reduced and `sign == 0` iff `radicand == 0`).
+/// Clones share the immutable rational payload; arithmetic uses copy-on-write.
+/// Zero has no allocation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SignedSqrtRational {
     sign: i8,
-    radicand: Ratio<BigInt>,
+    radicand: Option<Arc<Ratio<BigInt>>>,
 }
 
 impl SignedSqrtRational {
@@ -29,7 +33,7 @@ impl SignedSqrtRational {
     pub fn zero() -> Self {
         SignedSqrtRational {
             sign: 0,
-            radicand: Ratio::zero(),
+            radicand: None,
         }
     }
 
@@ -47,7 +51,10 @@ impl SignedSqrtRational {
         let sign: i8 = if s.is_negative() { -1 } else { 1 };
         let d = if d.is_negative() { -d } else { d };
         let radicand = (&s * &s) * d;
-        SignedSqrtRational { sign, radicand }
+        SignedSqrtRational {
+            sign,
+            radicand: Some(Arc::new(radicand)),
+        }
     }
 
     /// The sign: `-1`, `0`, or `+1`.
@@ -57,7 +64,8 @@ impl SignedSqrtRational {
 
     /// The nonnegative radicand `r` such that the value is `sign * sqrt(r)`.
     pub fn radicand(&self) -> &Ratio<BigInt> {
-        &self.radicand
+        static ZERO: Ratio<BigInt> = Ratio::new_raw(BigInt::ZERO, BigInt::ONE);
+        self.radicand.as_deref().unwrap_or(&ZERO)
     }
 
     /// The signed square `sign * radicand`. This is the natural exact
@@ -66,8 +74,8 @@ impl SignedSqrtRational {
     pub fn signed_square(&self) -> Ratio<BigInt> {
         match self.sign {
             0 => Ratio::zero(),
-            1 => self.radicand.clone(),
-            _ => -self.radicand.clone(),
+            1 => self.radicand().clone(),
+            _ => -self.radicand().clone(),
         }
     }
 
@@ -80,7 +88,7 @@ impl SignedSqrtRational {
             self.sign = -self.sign;
         }
         let k2 = BigInt::from(k) * BigInt::from(k);
-        self.radicand *= Ratio::from(k2);
+        *Arc::make_mut(self.radicand.as_mut().expect("nonzero radicand")) *= Ratio::from(k2);
         self
     }
 
@@ -91,7 +99,8 @@ impl SignedSqrtRational {
         if n == 0 || self.sign == 0 {
             return Self::zero();
         }
-        self.radicand *= Ratio::from(BigInt::from(n));
+        *Arc::make_mut(self.radicand.as_mut().expect("nonzero radicand")) *=
+            Ratio::from(BigInt::from(n));
         self
     }
 
@@ -125,8 +134,8 @@ impl SignedSqrtRational {
         if self.sign == 0 {
             return 0.0;
         }
-        let n = self.radicand.numer();
-        let d = self.radicand.denom();
+        let n = self.radicand().numer();
+        let d = self.radicand().denom();
         // radicand is nonnegative and reduced; numer/denom are nonnegative.
         let n = n.magnitude(); // BigUint
         let d = d.magnitude();
@@ -149,7 +158,10 @@ impl std::ops::Mul for SignedSqrtRational {
         }
         SignedSqrtRational {
             sign: self.sign * other.sign,
-            radicand: self.radicand * other.radicand,
+            radicand: Some(Arc::new(
+                Arc::unwrap_or_clone(self.radicand.unwrap())
+                    * Arc::unwrap_or_clone(other.radicand.unwrap()),
+            )),
         }
     }
 }

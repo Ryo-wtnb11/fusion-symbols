@@ -7,6 +7,24 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Changed
+
+- Coefficient caches use `quick_cache = "0.7"` with default features (foldhash,
+  parking_lot) and one shard per tier (#117, #201). Borrowed warm lookups avoid
+  owned keys; generated F blocks omit their redundant outer Arc, and exact
+  SU(2) radicands share storage. No coefficient/gauge or public signature changes.
+- Eviction is Clock-PRO instead of FIFO. `trim_to` removes an unspecified subset
+  to its byte target and preserves capacity. Entry charges cover one key, value
+  and cached charge word; byte/entry ceilings and one-shot budgets are unchanged.
+  Admission uses the whole tier cap (`hot_allocation = 1.0`); sharding was
+  considered and rejected because it loses large generated coefficients within
+  that cap. Weight is `max(real_charge, ceil(byte_cap / entry_cap))`, enforcing
+  entry caps through amortized O(1) eviction without a resident scan. Statistics
+  and trims report real charge, excluding weight padding. Oversize/zero-budget
+  rejections count as evictions. Concurrent waiters count as hits rather than
+  duplicate misses. Reset invalidates in-flight placeholders (returned values
+  remain valid). See `docs/user-guide/resources.md` for the resource contract.
+
 ### Breaking
 
 - `GroupId` now stores a validated ordered root datum and canonical row-HNF

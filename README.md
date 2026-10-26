@@ -14,7 +14,7 @@ Clebsch–Gordan coefficients (CGC), and F/R symbols.
 
 This is a standalone mathematical provider. Consumers own tensors and tensor
 operations. Intentional differences include runtime generation for higher-rank
-Lie groups, explicit category values, validated Rust labels, bounded caches,
+Lie groups, explicit category values, validated Rust labels, byte-bounded coefficient caches with borrowed warm lookups,
 and a frozen coefficient gauge. Tables retain AnyonWiki's gauge. See
 [differences from TensorKitSectors](docs/tensorkitsectors-differences.md).
 

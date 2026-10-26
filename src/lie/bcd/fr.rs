@@ -26,7 +26,7 @@
 //! are the identity and elided (as for SU(N)); see [`crate::frcore`].
 
 use super::{CanonicalCatalog, CatalogCgc, Irrep};
-use crate::cache::bcd_cgc_cache::{BcdKey, BcdValue};
+use crate::cache::bcd_cgc_cache::{BcdKey, BcdRef, BcdValue};
 use crate::frcore::{f_block_raw, r_block_raw, Family, MEntry};
 use crate::lie::{poisoned_catalog, LieError};
 pub use crate::lie::{FBlock, RBlock};
@@ -66,16 +66,21 @@ pub(crate) fn cached_cgc(
     c: &Irrep,
 ) -> Result<Arc<CatalogCgc>, LieError> {
     let tier = crate::cache::cache_bcd_cgc();
-    let key = BcdKey::Cgc(a.clone(), b.clone(), c.clone());
-    if let Some(BcdValue::Cgc(hit)) = tier.get(&key) {
+    if let Some(BcdValue::Cgc(hit)) = tier.get(&BcdRef::Cgc(a, b, c)) {
         return Ok(hit);
     }
-    let mut cat = cat.lock().map_err(|_| poisoned_catalog())?;
-    if let Some(BcdValue::Cgc(hit)) = tier.get(&key) {
-        return Ok(hit);
-    }
-    CGC_SWEEPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let value = tier.insert(key, BcdValue::Cgc(Arc::new(cat.cgc(a, b, c)?)));
+    let value = tier.get_or_try_compute(
+        &BcdRef::Cgc(a, b, c),
+        || BcdKey::Cgc(a.clone(), b.clone(), c.clone()),
+        || {
+            let mut cat = cat.lock().map_err(|_| poisoned_catalog())?;
+            if let Some(hit) = tier.peek(&BcdRef::Cgc(a, b, c)) {
+                return Ok(hit);
+            }
+            CGC_SWEEPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok::<_, LieError>(BcdValue::Cgc(Arc::new(cat.cgc(a, b, c)?)))
+        },
+    )?;
     let BcdValue::Cgc(value) = value else {
         unreachable!("CGC key stores a CGC")
     };
@@ -89,30 +94,39 @@ fn cached_product_cgc(
     c: &Irrep,
 ) -> Result<Arc<CatalogCgc>, LieError> {
     let tier = crate::cache::cache_bcd_cgc();
-    let key = BcdKey::Cgc(a.clone(), b.clone(), c.clone());
-    if let Some(BcdValue::Cgc(hit)) = tier.get(&key) {
+    if let Some(BcdValue::Cgc(hit)) = tier.get(&BcdRef::Cgc(a, b, c)) {
         return Ok(hit);
     }
-    let mut cat = cat.lock().map_err(|_| poisoned_catalog())?;
-    if let Some(BcdValue::Cgc(hit)) = tier.get(&key) {
-        return Ok(hit);
-    }
-    CGC_SWEEPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let channels = cat.cgc_product(a, b)?;
-    let mut wanted = None;
-    for ch in channels {
-        let stored = tier.insert(
-            BcdKey::Cgc(a.clone(), b.clone(), ch.s3().clone()),
-            BcdValue::Cgc(Arc::new(ch)),
-        );
-        let BcdValue::Cgc(stored) = stored else {
-            unreachable!("CGC key stores a CGC")
-        };
-        if stored.s3() == c {
-            wanted = Some(stored);
-        }
-    }
-    Ok(wanted.expect("the sweep passed its exact support gate for this nonempty channel"))
+    let value = tier.get_or_try_compute(
+        &BcdRef::Cgc(a, b, c),
+        || BcdKey::Cgc(a.clone(), b.clone(), c.clone()),
+        || {
+            let mut cat = cat.lock().map_err(|_| poisoned_catalog())?;
+            if let Some(hit) = tier.peek(&BcdRef::Cgc(a, b, c)) {
+                return Ok(hit);
+            }
+            CGC_SWEEPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let channels = cat.cgc_product(a, b)?;
+            let mut wanted = None;
+            for ch in channels {
+                if ch.s3() == c {
+                    wanted = Some(BcdValue::Cgc(Arc::new(ch)));
+                } else {
+                    tier.insert(
+                        BcdKey::Cgc(a.clone(), b.clone(), ch.s3().clone()),
+                        BcdValue::Cgc(Arc::new(ch)),
+                    );
+                }
+            }
+            Ok::<_, LieError>(
+                wanted.expect("the sweep passed its exact support gate for this nonempty channel"),
+            )
+        },
+    )?;
+    let BcdValue::Cgc(value) = value else {
+        unreachable!("CGC key stores a CGC")
+    };
+    Ok(value)
 }
 
 fn magnetic_index(value: usize) -> Result<u32, LieError> {
@@ -159,19 +173,20 @@ pub fn f_symbol(
     f: &Irrep,
 ) -> Result<FBlock, LieError> {
     let cache = crate::cache::cache_bcd_f();
-    let key = (
-        a.clone(),
-        b.clone(),
-        c.clone(),
-        d.clone(),
-        e.clone(),
-        f.clone(),
-    );
-    if let Some(hit) = cache.get(&key) {
-        return Ok((*hit).clone());
-    }
-    let block = f_block_raw(&mut BcdFamily { cat }, a, b, c, d, e, f)?;
-    Ok((*cache.insert(key, Arc::new(block))).clone())
+    cache.get_or_try_compute(
+        &crate::cache::Sextuple(a, b, c, d, e, f),
+        || {
+            (
+                a.clone(),
+                b.clone(),
+                c.clone(),
+                d.clone(),
+                e.clone(),
+                f.clone(),
+            )
+        },
+        || f_block_raw(&mut BcdFamily { cat }, a, b, c, d, e, f),
+    )
 }
 pub fn r_symbol(
     cat: &Mutex<CanonicalCatalog>,

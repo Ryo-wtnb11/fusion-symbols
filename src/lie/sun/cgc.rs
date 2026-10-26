@@ -210,13 +210,11 @@ pub fn cgc(s1: &Irrep, s2: &Irrep, s3: &Irrep) -> Result<Cgc, SunError> {
     // coefficient copy). A miss surfaces its error uncached (errors are not
     // stored).
     use std::sync::Arc;
-    let key = (s1.clone(), s2.clone(), s3.clone());
-    let cache = crate::cache::cache_cgc();
-    if let Some(hit) = cache.get(&key) {
-        return Ok((*hit).clone());
-    }
-    let value = Arc::new(generate(s1, s2, s3, None)?);
-    let stored = cache.insert(key, value);
+    let stored = crate::cache::cache_cgc().get_or_try_compute(
+        &crate::cache::Triple(s1, s2, s3),
+        || (s1.clone(), s2.clone(), s3.clone()),
+        || generate(s1, s2, s3, None).map(Arc::new),
+    )?;
     Ok((*stored).clone())
 }
 

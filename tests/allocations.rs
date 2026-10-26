@@ -5,6 +5,7 @@ mod common;
 #[global_allocator]
 static ALLOCATOR: common::counting_alloc::Counting = common::counting_alloc::Counting;
 
+mod cache_hit_alloc;
 mod lie_a1_alloc;
 mod lie_dynkin_labels;
 mod lie_generated_label_alloc;

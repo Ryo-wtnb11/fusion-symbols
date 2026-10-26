@@ -191,6 +191,22 @@ pub(crate) enum SunProductKey {
     Dual(Irrep),
 }
 
+#[derive(Hash)]
+pub(crate) enum SunProductRef<'a> {
+    Product(&'a Irrep, &'a Irrep),
+    Dual(&'a Irrep),
+}
+
+impl quick_cache::Equivalent<SunProductKey> for SunProductRef<'_> {
+    fn equivalent(&self, key: &SunProductKey) -> bool {
+        match (self, key) {
+            (Self::Product(a, b), SunProductKey::Product(x, y)) => *a == x && *b == y,
+            (Self::Dual(a), SunProductKey::Dual(x)) => *a == x,
+            _ => false,
+        }
+    }
+}
+
 impl SunProductKey {
     pub(crate) fn new(a: &Irrep, b: &Irrep) -> Self {
         let (left, right) = if a <= b { (a, b) } else { (b, a) };
@@ -726,12 +742,12 @@ pub fn shared_directproduct(a: &Irrep, b: &Irrep) -> Result<SunProduct, SunError
             b: b.rank(),
         });
     }
-    let key = SunProductKey::new(a, b);
-    let cache = crate::cache::cache_sun_product();
-    if let Some(hit) = cache.get(&key) {
-        return Ok(hit);
-    }
-    Ok(cache.insert(key, directproduct_uncached(a, b)?))
+    let (left, right) = if a <= b { (a, b) } else { (b, a) };
+    crate::cache::cache_sun_product().get_or_try_compute(
+        &SunProductRef::Product(left, right),
+        || SunProductKey::new(left, right),
+        || directproduct_uncached(a, b),
+    )
 }
 
 fn directproduct_uncached(a: &Irrep, b: &Irrep) -> Result<SunProduct, SunError> {

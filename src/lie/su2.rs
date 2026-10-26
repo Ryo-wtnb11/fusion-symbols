@@ -446,7 +446,7 @@ fn f_symbol_exact(
 /// re-run the big-integer `sqrt` in [`SignedSqrtRational::to_f64`] on the hot
 /// path. This tier caches the rounded scalar, so a warm hit is a hash lookup
 /// returning a `Copy` `f64` -- the only `to_f64` call happens inside the miss
-/// closure, which the private `FifoCache::get_or_compute` provably skips on
+/// closure, which the private `CoefficientCache::get_or_compute` provably skips on
 /// a hit (see the f64-tier test in `cache.rs`).
 ///
 /// Layering (the reference splits `@cached Fsymbol` from the coefficient
@@ -464,13 +464,11 @@ pub(crate) fn f_symbol(dj1: u32, dj2: u32, dj3: u32, dj4: u32, dj5: u32, dj6: u3
     // See FKey for the key-completeness argument.
     match canonical_regge_6j(dj1, dj2, dj5, dj3, dj4, dj6) {
         Ok(regge) => {
-            let key = FKey {
+            let key = FKey::new(
                 regge,
-                dim: ((dj5 as u64) + 1) * ((dj6 as u64) + 1),
-                phase_neg: phase_is_negative(
-                    ((dj1 as i64) + (dj2 as i64) + (dj3 as i64) + (dj4 as i64)) / 2,
-                ),
-            };
+                ((dj5 as u64) + 1) * ((dj6 as u64) + 1),
+                phase_is_negative(((dj1 as i64) + (dj2 as i64) + (dj3 as i64) + (dj4 as i64)) / 2),
+            );
             cache_f().get_or_compute(key, || {
                 f_symbol_exact(dj1, dj2, dj3, dj4, dj5, dj6).to_f64()
             })
@@ -568,11 +566,32 @@ impl Regge6j {
 /// key: no collision returns a wrong value and no determinant is omitted.
 /// Overflow-scale 6j labels have no Regge class and bypass the tier entirely
 /// (computed directly), so a truncated key can never be formed here.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Eq)]
 pub(crate) struct FKey {
-    regge: Regge6j,
+    packed: u128,
     dim: u64,
-    phase_neg: bool,
+}
+
+impl std::hash::Hash for FKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::hash::Hash::hash(&(self.packed, self.dim), state);
+    }
+}
+
+impl PartialEq for FKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.packed == other.packed && self.dim == other.dim
+    }
+}
+
+impl FKey {
+    pub(crate) fn new(regge: Regge6j, dim: u64, phase_neg: bool) -> Self {
+        let mut packed = u128::from(phase_neg) << 96;
+        for (i, label) in regge.0.into_iter().enumerate() {
+            packed |= u128::from(label) << (16 * i);
+        }
+        Self { packed, dim }
+    }
 }
 
 /// Why a 6j label set has no canonical Regge key.

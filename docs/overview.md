@@ -103,7 +103,11 @@ nothing. U(1) enumerates `0,1,−1,2,−2,…`, preserving its authority bytes.
 `LieIrrep::dynkin_labels` reads labels without allocation; `dynkin` collects
 them. Clones share weight buffers without allocation. Warm duals reuse shared
 labels in the existing `SunProduct` / `BcdCgc` tiers, charged to their byte
-budgets and subject to their FIFO eviction, trim and reset controls. Each irrep
+budgets and subject to their Clock-PRO eviction, trim and reset controls.
+All coefficient tiers use one byte-weighted `quick_cache` wrapper, borrowed
+lookups and miss-only key ownership; F blocks share their storage directly.
+See [resources](user-guide/resources.md#coefficient-caches) for full-tier admission, weight-based entry caps,
+statistics and the unspecified removal order of explicit trims. Each irrep
 retains only its own weight; coefficient cache keys keep their existing charge.
 Single generated groups memoize the unit. Composite labels share their ordered
 factor labels through `Arc<Vec<LieIrrep>>`; their exact dimensions multiply and
