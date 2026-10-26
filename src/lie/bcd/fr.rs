@@ -106,6 +106,7 @@ fn cached_product_cgc(
                 return Ok(hit);
             }
             CGC_SWEEPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let epoch = tier.epoch();
             let channels = cat.cgc_product(a, b)?;
             let mut wanted = None;
             for ch in channels {
@@ -113,6 +114,7 @@ fn cached_product_cgc(
                     wanted = Some(BcdValue::Cgc(Arc::new(ch)));
                 } else {
                     tier.insert(
+                        epoch,
                         BcdKey::Cgc(a.clone(), b.clone(), ch.s3().clone()),
                         BcdValue::Cgc(Arc::new(ch)),
                     );

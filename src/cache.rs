@@ -791,22 +791,68 @@ impl<K, V> quick_cache::Lifecycle<K, Charged<V>> for Evictions {
     }
 }
 
-/// Byte-weighted Clock-PRO cache. Hits take only quick_cache's shard read lock.
-/// Publication, explicit removal and snapshots share a miss-path-only lock.
+/// Hit-counter stripes per tier: twice quick_cache's eight `sharded-lock`
+/// reader stripes, so round-robin thread indices keep 16 concurrent readers on
+/// distinct counter lines while a snapshot sums only 16 lines.
+const HIT_STRIPES: usize = 16;
+
+#[repr(align(128))]
+#[derive(Default)]
+struct PaddedCounter(AtomicU64);
+
+/// This thread's hit stripe, assigned round-robin on first use.
+fn hit_stripe() -> usize {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    thread_local! {
+        static STRIPE: usize = NEXT.fetch_add(1, Ordering::Relaxed);
+    }
+    // Reduced here rather than at assignment so the index bound is visible at
+    // the array access and needs no bounds check.
+    STRIPE.try_with(|stripe| *stripe).unwrap_or(0) % HIT_STRIPES
+}
+
+type Guard<'a, K, V> = quick_cache::sync::PlaceholderGuard<
+    'a,
+    K,
+    Charged<V>,
+    ByteWeighter,
+    quick_cache::DefaultHashBuilder,
+    Evictions,
+>;
+
+type Store<K, V> = quick_cache::sync::Cache<
+    K,
+    Charged<V>,
+    ByteWeighter,
+    quick_cache::DefaultHashBuilder,
+    Evictions,
+>;
+
+/// Byte-weighted Clock-PRO cache. Hits take one quick_cache reader stripe and
+/// one hit-counter stripe. Publication, explicit removal and snapshots share a
+/// miss-path-only lock.
 pub(crate) struct CoefficientCache<K, V> {
-    inner: quick_cache::sync::Cache<
-        K,
-        Charged<V>,
-        ByteWeighter,
-        quick_cache::DefaultHashBuilder,
-        Evictions,
-    >,
+    inner: Store<K, V>,
     publication: std::sync::Mutex<()>,
-    hits: AtomicU64,
+    /// Advanced by reset; sibling publications from an older sweep are dropped.
+    epoch: AtomicU64,
+    hits: [PaddedCounter; HIT_STRIPES],
     misses: AtomicU64,
     evictions: std::sync::Arc<AtomicU64>,
     retained_bytes: std::sync::Arc<AtomicUsize>,
     max_bytes: usize,
+    /// Test-only observations of the waiter paths quick_cache keeps private.
+    #[cfg(test)]
+    probes: Probes,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct Probes {
+    /// Values a waiter received from another loader's placeholder.
+    joined: AtomicU64,
+    /// Guards issued, including ones handed off by a failed loader.
+    guards: AtomicU64,
 }
 
 impl<K: Clone + Eq + Hash + CacheKeyCharge, V: Clone + CacheCharge> CoefficientCache<K, V> {
@@ -836,18 +882,24 @@ impl<K: Clone + Eq + Hash + CacheKeyCharge, V: Clone + CacheCharge> CoefficientC
         Self {
             inner,
             publication: std::sync::Mutex::new(()),
-            hits: AtomicU64::new(0),
+            epoch: AtomicU64::new(0),
+            hits: Default::default(),
             misses: AtomicU64::new(0),
             evictions,
             retained_bytes,
             max_bytes,
+            #[cfg(test)]
+            probes: Probes::default(),
         }
     }
 
+    fn hit(&self, value: Charged<V>) -> V {
+        self.hits[hit_stripe()].0.fetch_add(1, Ordering::Relaxed);
+        value.value
+    }
+
     pub(crate) fn get<Q: Hash + quick_cache::Equivalent<K> + ?Sized>(&self, key: &Q) -> Option<V> {
-        let value = self.inner.get(key)?;
-        self.hits.fetch_add(1, Ordering::Relaxed);
-        Some(value.value)
+        self.inner.get(key).map(|value| self.hit(value))
     }
 
     pub(crate) fn get_or_compute(&self, key: K, compute: impl FnOnce() -> V) -> V {
@@ -859,8 +911,9 @@ impl<K: Clone + Eq + Hash + CacheKeyCharge, V: Clone + CacheCharge> CoefficientC
         .unwrap()
     }
 
-    /// Borrow before owning the key. Only the elected loader computes; errors
-    /// remove its placeholder and are never retained.
+    /// Borrow before owning the key. Only the guard holder computes; dropping
+    /// the guard on error or panic hands it to one waiter, and errors are never
+    /// retained.
     pub(crate) fn get_or_try_compute<Q: Hash + quick_cache::Equivalent<K> + ?Sized, E>(
         &self,
         key: &Q,
@@ -871,42 +924,117 @@ impl<K: Clone + Eq + Hash + CacheKeyCharge, V: Clone + CacheCharge> CoefficientC
             return Ok(value);
         }
         let key = own();
-        let mut publication = None;
-        let mut computed = None;
-        let result = self.inner.get_or_insert_with(&key, || {
-            let value = compute()?;
-            // Hold through publication, never during recursive generation.
-            publication = Some(self.publication.lock().unwrap());
-            if let Some(stored) = self.inner.peek(&key) {
-                return Ok(stored);
-            }
-            self.misses.fetch_add(1, Ordering::Relaxed);
-            let bytes = entry_charge(&key, &value);
-            computed = Some((bytes, self.evictions.load(Ordering::Relaxed)));
-            self.retained_bytes.fetch_add(bytes, Ordering::Relaxed);
-            debug_assert_eq!(self.inner.capacity(), self.max_bytes as u64);
-            Ok(Charged { value, bytes })
-        });
-        if let Some((bytes, evictions)) = computed {
-            // reset can invalidate the placeholder during generation. Failed
-            // publication has no eviction callback, so undo its provisional charge.
-            if self.evictions.load(Ordering::Relaxed) == evictions && !self.inner.contains_key(&key)
-            {
-                self.retained_bytes.fetch_sub(bytes, Ordering::Relaxed);
-            }
-        } else if result.is_ok() {
-            self.hits.fetch_add(1, Ordering::Relaxed);
-        }
-        drop(publication);
-        result.map(|value| value.value)
+        let guard = match self.guard(&key) {
+            Ok(guard) => guard,
+            Err(value) => return Ok(self.hit(value)),
+        };
+        let value = compute()?;
+        // Hold through publication, never during recursive generation.
+        let _publication = self.publication.lock().unwrap();
+        Ok(self.fill(guard, &key, value))
     }
 
-    /// Publish additional sweep channels or symmetric dual seeds without
-    /// waiting on placeholders whose loaders may be waiting on the catalog.
+    /// Single-flight entry for an owned key: `Err` carries a resident or
+    /// waited-for value. A sibling publication replaces a placeholder without
+    /// filling it, so a guard (possibly handed off) may cover a resident key;
+    /// its winner is then delivered to the waiters instead of recomputed.
+    fn guard(&self, key: &K) -> Result<Guard<'_, K, V>, Charged<V>> {
+        let guard = match self.inner.get_value_or_guard(key, None) {
+            quick_cache::sync::GuardResult::Value(value) => {
+                #[cfg(test)]
+                self.probes.joined.fetch_add(1, Ordering::Relaxed);
+                return Err(value);
+            }
+            quick_cache::sync::GuardResult::Guard(guard) => guard,
+            quick_cache::sync::GuardResult::Timeout => unreachable!("waits without timeout"),
+        };
+        #[cfg(test)]
+        self.probes.guards.fetch_add(1, Ordering::Relaxed);
+        match self.inner.peek(key) {
+            Some(stored) => {
+                let _ = guard.insert(stored.clone());
+                Err(stored)
+            }
+            None => Ok(guard),
+        }
+    }
+
+    /// Publish through a guard; the caller holds the publication mutex.
+    fn fill(&self, guard: Guard<'_, K, V>, key: &K, value: V) -> V {
+        if let Some(stored) = self.inner.peek(key) {
+            let _ = guard.insert(stored.clone());
+            return self.hit(stored);
+        }
+        self.misses.fetch_add(1, Ordering::Relaxed);
+        let bytes = entry_charge(key, &value);
+        self.retained_bytes.fetch_add(bytes, Ordering::Relaxed);
+        debug_assert_eq!(self.inner.capacity(), self.max_bytes as u64);
+        // `Ok` includes oversize rejection, which the eviction callback
+        // accounts. `Err` means reset invalidated the placeholder: no callback
+        // runs, and a plain insert would defeat that invalidation.
+        if guard
+            .insert(Charged {
+                value: value.clone(),
+                bytes,
+            })
+            .is_err()
+        {
+            self.retained_bytes.fetch_sub(bytes, Ordering::Relaxed);
+        }
+        value
+    }
+
+    /// Single-flight lookup whose computation also yields a reverse lookup
+    /// (such as `dual(dual(x)) = x`), seeded only after the requested guard
+    /// completes, so opposing requests never wait on each other.
     #[cfg(feature = "lie-generated")]
-    pub(crate) fn insert(&self, key: K, value: V) -> V {
+    pub(crate) fn get_or_compute_seeding<Q: Hash + quick_cache::Equivalent<K> + ?Sized>(
+        &self,
+        key: &Q,
+        own: impl FnOnce() -> K,
+        compute: impl FnOnce() -> (V, (K, V)),
+    ) -> V {
+        let mut reverse = None;
+        let value = self
+            .get_or_try_compute(key, own, || {
+                let epoch = self.epoch.load(Ordering::Relaxed);
+                let (value, seed) = compute();
+                reverse = Some((epoch, seed));
+                Ok::<_, std::convert::Infallible>(value)
+            })
+            .unwrap();
+        if let Some((epoch, (key, value))) = reverse {
+            self.seed(epoch, key, value);
+        }
+        value
+    }
+
+    #[cfg(feature = "lie-generated")]
+    fn seed(&self, epoch: u64, key: K, value: V) {
+        if let Ok(guard) = self.guard(&key) {
+            let _publication = self.publication.lock().unwrap();
+            if self.epoch.load(Ordering::Relaxed) == epoch {
+                self.fill(guard, &key, value);
+            }
+        }
+    }
+
+    /// Reset epoch for [`Self::insert`]; capture it before generating.
+    #[cfg(feature = "lie-generated")]
+    pub(crate) fn epoch(&self) -> u64 {
+        self.epoch.load(Ordering::Relaxed)
+    }
+
+    /// Publish additional B/C/D sweep channels without waiting on
+    /// placeholders whose loaders may be waiting on the catalog.
+    /// Values generated before a later reset are returned but not retained.
+    #[cfg(feature = "lie-generated")]
+    pub(crate) fn insert(&self, epoch: u64, key: K, value: V) -> V {
         let _publication = self.publication.lock().unwrap();
-        if let Some(stored) = self.inner.get(&key) {
+        if self.epoch.load(Ordering::Relaxed) != epoch {
+            return value;
+        }
+        if let Some(stored) = self.inner.peek(&key) {
             return stored.value;
         }
         self.misses.fetch_add(1, Ordering::Relaxed);
@@ -930,9 +1058,12 @@ impl<K: Clone + Eq + Hash + CacheKeyCharge, V: Clone + CacheCharge> CoefficientC
 
     fn reset(&self) {
         let _publication = self.publication.lock().unwrap();
+        self.epoch.fetch_add(1, Ordering::Relaxed);
         self.inner.clear();
         self.retained_bytes.store(0, Ordering::Relaxed);
-        self.hits.store(0, Ordering::Relaxed);
+        for stripe in &self.hits {
+            stripe.0.store(0, Ordering::Relaxed);
+        }
         self.misses.store(0, Ordering::Relaxed);
         self.evictions.store(0, Ordering::Relaxed);
     }
@@ -969,7 +1100,11 @@ impl<K: Clone + Eq + Hash + CacheKeyCharge, V: Clone + CacheCharge> CoefficientC
         TierStats {
             entries: self.inner.len(),
             bytes: self.retained_bytes.load(Ordering::Relaxed),
-            hits: self.hits.load(Ordering::Relaxed),
+            hits: self
+                .hits
+                .iter()
+                .map(|stripe| stripe.0.load(Ordering::Relaxed))
+                .sum(),
             misses: self.misses.load(Ordering::Relaxed),
             evictions: self.evictions.load(Ordering::Relaxed),
         }
@@ -1590,6 +1725,11 @@ mod tests {
             assert_eq!(loads, 1);
             assert_eq!(cache.tier_stats().misses, before.misses);
             assert_eq!(cache.tier_stats().hits, 1);
+            // Trim removes without shrinking capacity, so admission stays full-cap.
+            cache.trim_to(0);
+            cache.get_or_compute(key.clone(), || Arc::new(cgc(&a, &a, &a).unwrap()));
+            assert_eq!(cache.tier_stats().entries, 1);
+            assert_eq!(cache.inner.capacity() as usize, budget);
         }
     }
 
@@ -1609,8 +1749,8 @@ mod tests {
             })
         });
         started_rx.recv().unwrap();
-        assert_eq!(cache.insert(1, 1.0f64), 1.0);
-        assert_eq!(cache.insert(1, 2.0f64), 1.0);
+        assert_eq!(cache.insert(0, 1, 1.0f64), 1.0);
+        assert_eq!(cache.insert(0, 1, 2.0f64), 1.0);
         assert_eq!(cache.tier_stats().misses, 1);
         resume_tx.send(()).unwrap();
         assert_eq!(worker.join().unwrap(), 1.0);
@@ -1929,7 +2069,7 @@ mod tests {
             (SunIrrep::from_dynkin(&[1, 1]).unwrap(), 1),
         ]));
         let local = CoefficientCache::new(16, 1 << 20);
-        local.insert(key, external.clone());
+        local.insert(0, key, external.clone());
         let before = external.strong_count();
         assert!(
             before >= 2,
@@ -1954,8 +2094,8 @@ mod tests {
         let one_entry_budget = entry_charge(&first, &1.0f64);
         let cache: CoefficientCache<CgcKey, f64> =
             CoefficientCache::new(usize::MAX, one_entry_budget);
-        cache.insert(first.clone(), 1.0);
-        cache.insert(second, 2.0);
+        cache.insert(0, first.clone(), 1.0);
+        cache.insert(0, second, 2.0);
         assert_eq!(cache.tier_stats().entries, 1);
         assert_eq!(cache.tier_stats().evictions, 1);
         cache.reset();
@@ -1974,7 +2114,7 @@ mod tests {
         assert!(entry_charge(&bcd_key, &1.0f64) > shallow_only);
         let oversize: CoefficientCache<BcdFKey, f64> =
             CoefficientCache::new(usize::MAX, shallow_only);
-        oversize.insert(bcd_key, 1.0);
+        oversize.insert(0, bcd_key, 1.0);
         assert_eq!(oversize.tier_stats().entries, 0);
         assert_eq!(oversize.tier_stats().bytes, 0);
         assert_eq!(oversize.tier_stats().evictions, 1);
@@ -2001,8 +2141,8 @@ mod tests {
         let kb = (irr(&[1, 1]), irr(&[1, 1]), irr(&[1, 1]));
         let budget = a.value_bytes().max(b.value_bytes()) + ka.key_bytes() + 8;
         let c: CoefficientCache<CgcKey, Arc<Cgc>> = CoefficientCache::new(1_000_000, budget);
-        c.insert(ka.clone(), a);
-        c.insert(kb, b);
+        c.insert(0, ka.clone(), a);
+        c.insert(0, kb, b);
         let (_, _, entries, bytes) = c.snapshot();
         assert!(entries <= 1, "retained-charge cap kept {entries} entries");
         assert!(
@@ -2053,8 +2193,8 @@ mod tests {
         );
         let budget = a.value_bytes() + ka.key_bytes() + 8;
         let c: CoefficientCache<SunFKey, FBlock> = CoefficientCache::new(1_000_000, budget);
-        c.insert(ka.clone(), a);
-        c.insert(kb, b);
+        c.insert(0, ka.clone(), a);
+        c.insert(0, kb, b);
         let (_, _, entries, bytes) = c.snapshot();
         assert!(entries <= 1, "retained-charge cap kept {entries} entries");
         assert!(
@@ -2086,7 +2226,7 @@ mod tests {
         assert_eq!(value.value_bytes(), expected);
         let charge = entry_charge(&key, &value);
         let local = CoefficientCache::new(16, charge - 1);
-        let BcdValue::Product(returned) = local.insert(key, value) else {
+        let BcdValue::Product(returned) = local.insert(0, key, value) else {
             panic!("product value")
         };
         assert!(Arc::ptr_eq(&product, &returned));
@@ -2363,5 +2503,331 @@ mod tests {
             }
             Err(error) => panic!("unexpected configuration result: {error}"),
         }
+    }
+
+    /// Leader blocked in generation while one waiter joins its placeholder;
+    /// `during` runs before the leader resumes. quick_cache keeps its waiter
+    /// list private, so parking is observed afterwards through `probe` rather
+    /// than awaited: an attempt whose waiter came too late is repeated with a
+    /// longer head start.
+    fn with_parked_waiter(
+        max_bytes: usize,
+        leader: impl Fn() -> f64 + Send + Sync + 'static,
+        during: impl Fn(&CoefficientCache<u32, f64>),
+        probe: impl Fn(&Probes) -> bool,
+    ) -> (
+        Arc<CoefficientCache<u32, f64>>,
+        std::thread::Result<f64>,
+        f64,
+    ) {
+        use std::sync::mpsc;
+        let leader = Arc::new(leader);
+        for attempt in 0..16 {
+            let cache = Arc::new(CoefficientCache::new(16, max_bytes));
+            let (started_tx, started_rx) = mpsc::channel();
+            let (resume_tx, resume_rx) = mpsc::channel::<()>();
+            let leader_thread = {
+                let (cache, leader) = (Arc::clone(&cache), Arc::clone(&leader));
+                std::thread::spawn(move || {
+                    cache.get_or_compute(1, || {
+                        started_tx.send(()).unwrap();
+                        resume_rx.recv().unwrap();
+                        leader()
+                    })
+                })
+            };
+            started_rx.recv().unwrap();
+            let waiter_computed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let waiter = {
+                let (cache, computed) = (Arc::clone(&cache), Arc::clone(&waiter_computed));
+                std::thread::spawn(move || {
+                    cache.get_or_compute(1, || {
+                        computed.store(true, Ordering::Relaxed);
+                        f64::NAN
+                    })
+                })
+            };
+            std::thread::sleep(std::time::Duration::from_micros(100 << attempt));
+            during(&cache);
+            resume_tx.send(()).unwrap();
+            let leader_result = leader_thread.join();
+            let waited = waiter.join().unwrap();
+            if probe(&cache.probes) {
+                // A waiter that joined or was handed a resident key never computes.
+                assert!(!waiter_computed.load(Ordering::Relaxed));
+                return (cache, leader_result, waited);
+            }
+        }
+        panic!("the waiter never parked on the leader's placeholder");
+    }
+
+    fn joined(probes: &Probes) -> bool {
+        probes.joined.load(Ordering::Relaxed) == 1
+    }
+
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn waiters_receive_a_sibling_published_winner() {
+        let (cache, leader, waiter) = with_parked_waiter(
+            1024,
+            || 2.0,
+            |cache| assert_eq!(cache.insert(cache.epoch(), 1, 1.0), 1.0),
+            joined,
+        );
+        assert_eq!((leader.unwrap(), waiter), (1.0, 1.0));
+        let stats = cache.tier_stats();
+        assert_eq!((stats.entries, stats.misses, stats.hits), (1, 1, 2));
+        assert_eq!(stats.bytes, entry_charge(&1u32, &1.0f64));
+    }
+
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn handed_off_guard_delivers_a_resident_winner_without_computing() {
+        let (cache, leader, waiter) = with_parked_waiter(
+            1024,
+            || panic!("generation panicked"),
+            |cache| assert_eq!(cache.insert(cache.epoch(), 1, 1.0), 1.0),
+            // The leader's guard plus the one it handed to the parked waiter.
+            |probes| probes.guards.load(Ordering::Relaxed) == 2,
+        );
+        assert!(leader.is_err());
+        assert_eq!(waiter, 1.0);
+        let stats = cache.tier_stats();
+        assert_eq!((stats.entries, stats.misses, stats.hits), (1, 1, 1));
+    }
+
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn seeding_lookups_share_one_computation_and_never_wait_on_each_other() {
+        use std::sync::Barrier;
+        // Phase 0: every thread requests 1. Phase 1: requests of 3 and of its
+        // reverse 4 race; each seeds the other's key after its own guard.
+        for phase in 0..2u32 {
+            let cache = Arc::new(CoefficientCache::new(16, 1024));
+            let start = Arc::new(Barrier::new(8));
+            let computations = Arc::new(AtomicU64::new(0));
+            let threads = (0..8u32)
+                .map(|t| {
+                    let (cache, start, computations) = (
+                        Arc::clone(&cache),
+                        Arc::clone(&start),
+                        Arc::clone(&computations),
+                    );
+                    let key = if phase == 1 && t % 2 == 1 {
+                        4
+                    } else {
+                        1 + 2 * phase
+                    };
+                    let reverse = if phase == 0 { 2 } else { 7 - key };
+                    std::thread::spawn(move || {
+                        start.wait();
+                        let value = cache.get_or_compute_seeding(
+                            &key,
+                            || key,
+                            || {
+                                computations.fetch_add(1, Ordering::Relaxed);
+                                std::thread::sleep(std::time::Duration::from_millis(5));
+                                (f64::from(reverse), (reverse, f64::from(key)))
+                            },
+                        );
+                        assert_eq!(value, f64::from(reverse));
+                    })
+                })
+                .collect::<Vec<_>>();
+            for thread in threads {
+                thread.join().unwrap();
+            }
+            assert!(computations.load(Ordering::Relaxed) <= 1 + u64::from(phase));
+            assert_eq!(
+                cache.get(&(if phase == 0 { 2 } else { 4 })),
+                Some(f64::from(1 + 2 * phase))
+            );
+            assert_eq!(cache.tier_stats().entries, 2);
+        }
+    }
+
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn reverse_seeds_are_publications_not_lookups() {
+        let cache = CoefficientCache::<u32, f64>::new(16, 1024);
+        let lookup = |key: u32, dual: u32| {
+            cache.get_or_compute_seeding(&key, || key, || (f64::from(dual), (dual, f64::from(key))))
+        };
+        let counters = || {
+            let stats = cache.tier_stats();
+            (stats.entries, stats.misses, stats.hits)
+        };
+        assert_eq!(lookup(1, 2), 2.0);
+        assert_eq!(
+            counters(),
+            (2, 2, 0),
+            "cold request publishes both directions"
+        );
+        assert_eq!((lookup(1, 2), lookup(2, 1)), (2.0, 1.0));
+        assert_eq!(counters(), (2, 2, 2), "both directions then hit");
+        assert_eq!(lookup(3, 3), 3.0);
+        assert_eq!(
+            counters(),
+            (3, 3, 2),
+            "a self-dual seed finds its own publication"
+        );
+        assert_eq!(lookup(3, 3), 3.0);
+        assert_eq!(counters(), (3, 3, 3));
+    }
+
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn reset_between_seeding_computation_and_publication_retains_nothing() {
+        let cache = CoefficientCache::<u32, f64>::new(16, 1024);
+        let value = cache.get_or_compute_seeding(
+            &1,
+            || 1,
+            || {
+                cache.reset();
+                (2.0, (2, 1.0))
+            },
+        );
+        assert_eq!(value, 2.0);
+        let stats = cache.tier_stats();
+        assert_eq!((stats.entries, stats.bytes), (0, 0));
+    }
+
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn reset_during_a_sweep_drops_its_later_sibling_publications() {
+        let cache = CoefficientCache::<u32, f64>::new(16, 1024);
+        let epoch = cache.epoch();
+        cache.reset();
+        assert_eq!(cache.insert(epoch, 2, 2.0), 2.0);
+        let stats = cache.tier_stats();
+        assert_eq!((stats.entries, stats.bytes, stats.misses), (0, 0, 0));
+        assert_eq!(cache.insert(cache.epoch(), 2, 2.0), 2.0);
+        assert_eq!(cache.tier_stats().entries, 1);
+    }
+
+    #[test]
+    fn oversize_value_is_still_delivered_to_waiters() {
+        let charge = entry_charge(&1u32, &1.0f64);
+        let (cache, leader, waiter) = with_parked_waiter(charge - 1, || 3.0, |_| {}, joined);
+        assert_eq!((leader.unwrap(), waiter), (3.0, 3.0));
+        let stats = cache.tier_stats();
+        assert_eq!(
+            (stats.entries, stats.bytes, stats.misses, stats.evictions),
+            (0, 0, 1, 1)
+        );
+    }
+
+    #[test]
+    fn contended_failed_leader_hands_off_to_exactly_one_new_leader() {
+        use std::sync::Barrier;
+        let cache = Arc::new(CoefficientCache::new(16, 1024));
+        let start = Arc::new(Barrier::new(8));
+        let computations = Arc::new(AtomicU64::new(0));
+        let results = (0..8)
+            .map(|_| {
+                let cache = Arc::clone(&cache);
+                let start = Arc::clone(&start);
+                let computations = Arc::clone(&computations);
+                std::thread::spawn(move || {
+                    start.wait();
+                    cache.get_or_try_compute(
+                        &3u32,
+                        || 3,
+                        || {
+                            let attempt = computations.fetch_add(1, Ordering::Relaxed);
+                            std::thread::sleep(std::time::Duration::from_millis(20));
+                            if attempt == 0 {
+                                Err("first attempt fails")
+                            } else {
+                                Ok(3.0f64)
+                            }
+                        },
+                    )
+                })
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(computations.load(Ordering::Relaxed), 2);
+        assert_eq!(results.iter().filter(|r| r.is_err()).count(), 1);
+        assert!(results.iter().flatten().all(|&v| v == 3.0));
+        let stats = cache.tier_stats();
+        assert_eq!((stats.entries, stats.misses, stats.hits), (1, 1, 6));
+    }
+
+    #[test]
+    fn panicking_computation_releases_its_guard() {
+        let cache = CoefficientCache::<u32, f64>::new(16, 1024);
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            cache.get_or_compute(5, || panic!("generation panicked"))
+        }));
+        assert!(panicked.is_err());
+        assert_eq!(cache.get_or_compute(5, || 5.0), 5.0);
+        let stats = cache.tier_stats();
+        assert_eq!((stats.entries, stats.misses, stats.hits), (1, 1, 0));
+    }
+
+    #[test]
+    fn concurrent_readers_and_writers_share_one_tier_consistently() {
+        use std::sync::Barrier;
+        let charge = entry_charge(&0u32, &0.0f64);
+        let cache = Arc::new(CoefficientCache::new(64, 64 * charge));
+        let start = Arc::new(Barrier::new(9));
+        let readers = (0..8)
+            .map(|_| {
+                let cache = Arc::clone(&cache);
+                let start = Arc::clone(&start);
+                std::thread::spawn(move || {
+                    start.wait();
+                    for i in 0..20_000u32 {
+                        let key = i % 128;
+                        assert_eq!(cache.get_or_compute(key, || f64::from(key)), f64::from(key));
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        start.wait();
+        for round in 0..200 {
+            match round % 3 {
+                0 => {
+                    cache.trim_to(8 * charge);
+                }
+                1 => cache.reset(),
+                _ => {
+                    let stats = cache.tier_stats();
+                    assert!(stats.bytes <= 64 * charge);
+                    assert_eq!(stats.bytes, stats.entries * charge);
+                }
+            }
+        }
+        for reader in readers {
+            reader.join().unwrap();
+        }
+        let stats = cache.tier_stats();
+        assert_eq!(stats.entries, cache.inner.len());
+        assert_eq!(
+            stats.bytes,
+            cache.inner.iter().map(|(_, v)| v.bytes).sum::<usize>()
+        );
+
+        // Quiescent striped hit counts are exact across threads.
+        cache.reset();
+        cache.get_or_compute(1, || 1.0);
+        let hitters = (0..16)
+            .map(|_| {
+                let cache = Arc::clone(&cache);
+                std::thread::spawn(move || {
+                    for _ in 0..1000 {
+                        assert_eq!(cache.get(&1), Some(1.0));
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        for hitter in hitters {
+            hitter.join().unwrap();
+        }
+        let stats = cache.tier_stats();
+        assert_eq!((stats.hits, stats.misses), (16_000, 1));
     }
 }

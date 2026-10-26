@@ -9,21 +9,27 @@ value/gauge rule noted below.
 
 ### Changed
 
-- Coefficient caches use `quick_cache = "0.7"` with default features (foldhash,
-  parking_lot) and one shard per tier (#117, #201). Borrowed warm lookups avoid
-  owned keys; generated F blocks omit their redundant outer Arc, and exact
-  SU(2) radicands share storage. No coefficient/gauge or public signature changes.
-- Eviction is Clock-PRO instead of FIFO. `trim_to` removes an unspecified subset
-  to its byte target and preserves capacity. Entry charges cover one key, value
-  and cached charge word; byte/entry ceilings and one-shot budgets are unchanged.
-  Admission uses the whole tier cap (`hot_allocation = 1.0`); sharding was
-  considered and rejected because it loses large generated coefficients within
-  that cap. Weight is `max(real_charge, ceil(byte_cap / entry_cap))`, enforcing
-  entry caps through amortized O(1) eviction without a resident scan. Statistics
-  and trims report real charge, excluding weight padding. Oversize/zero-budget
-  rejections count as evictions. Concurrent waiters count as hits rather than
-  duplicate misses. Reset invalidates in-flight placeholders (returned values
-  remain valid). See `docs/user-guide/resources.md` for the resource contract.
+- Coefficient caches are rebuilt on `quick_cache` 0.7 (#117, #201, #202),
+  built without default features and with `sharded-lock` and `custom-hasher`
+  (foldhash). Each tier is one full-cap store (`hot_allocation = 1.0`): an
+  entry is eligible for admission iff its real charge fits the tier cap. Eviction is
+  Clock-PRO; victims and `trim_to` survivors are unspecified, and `trim_to`
+  preserves capacity. Weight is `max(real_charge, ceil(byte_cap / entry_cap))`,
+  so entry caps hold without a resident scan; statistics and trims report real
+  charge (one key, value and charge word). Oversize/zero-budget rejections count
+  as evictions. Byte/entry ceilings and one-shot budgets are unchanged.
+- Warm hits take a borrowed key, one of eight reader stripes of the tier lock
+  and one of 16 per-thread hit-counter stripes, reducing contention between
+  threads. Scaling is workload-dependent: hits on one shared Arc-backed block
+  (such as the SU(3) octet F block) still contend on its reference count.
+  Hit counts in a snapshot are exact once readers are quiescent.
+- Concurrent misses on a key share one computation (including `LieGroup` dual
+  lookups); waiters count as hits, and a failed or panicking computation hands
+  the key to one waiter. Reset invalidates in-flight computations and B/C/D
+  sweeps that started before it; returned values remain valid. Generated F
+  blocks omit their redundant outer Arc, and exact SU(2) radicands share
+  storage. No coefficient/gauge or public signature changes. See
+  `docs/user-guide/resources.md` for the resource contract.
 
 ### Breaking
 
