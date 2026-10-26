@@ -60,38 +60,58 @@ impl<S> Storage<S> {
 /// cache hit hands out the cached block without copying its data.
 #[derive(Clone, Debug)]
 pub struct FBlock<S = f64> {
-    pub(crate) dims: [usize; 4],
-    /// Row-major over `[μ, ν, κ, λ]`.
-    pub(crate) data: Storage<S>,
+    data: FStorage<S>,
+}
+
+#[derive(Clone, Debug)]
+enum FStorage<S> {
+    One(S),
+    Empty([usize; 4]),
+    // Nonempty row-major data determines the last axis; no extra allocation.
+    Shared([usize; 3], Arc<[S]>),
 }
 
 impl<S: Scalar> FBlock<S> {
     /// A single coefficient, stored inline without allocation.
     pub fn one(value: S) -> Self {
         Self {
-            dims: [1; 4],
-            data: Storage::One(value),
+            data: FStorage::One(value),
         }
     }
 
     pub(crate) fn zeros(dims: [usize; 4]) -> Self {
         if dims.contains(&0) {
             Self {
-                dims,
-                data: Storage::Empty,
+                data: FStorage::Empty(dims),
             }
         } else {
-            Self::from_vec(dims, vec![S::zero(); dims[0] * dims[1] * dims[2] * dims[3]])
+            Self::from_vec(dims, vec![S::zero(); dims.iter().product()])
         }
     }
 
     pub(crate) fn from_vec(dims: [usize; 4], data: Vec<S>) -> Self {
-        FBlock {
-            dims,
-            data: match data.len() {
-                0 => Storage::Empty,
-                1 => Storage::One(data[0]),
-                _ => Storage::Shared(data.into()),
+        let data = match data.len() {
+            0 => Storage::Empty,
+            1 => Storage::One(data[0]),
+            _ => Storage::Shared(data.into()),
+        };
+        Self::from_storage(dims, data)
+    }
+
+    pub(crate) fn from_storage(dims: [usize; 4], data: Storage<S>) -> Self {
+        debug_assert_eq!(
+            data.as_slice().len(),
+            if dims.contains(&0) {
+                0
+            } else {
+                dims.iter().product()
+            }
+        );
+        Self {
+            data: match data {
+                Storage::Empty => FStorage::Empty(dims),
+                Storage::One(value) => FStorage::One(value),
+                Storage::Shared(data) => FStorage::Shared([dims[0], dims[1], dims[2]], data),
             },
         }
     }
@@ -109,15 +129,19 @@ impl<S: Scalar> FBlock<S> {
 
     /// The axis lengths $[N^e_{ab}, N^d_{ec}, N^f_{bc}, N^d_{af}]$ ($\mu,\nu,\kappa,\lambda$).
     pub fn dims(&self) -> [usize; 4] {
-        self.dims
+        match &self.data {
+            FStorage::One(_) => [1; 4],
+            FStorage::Empty(dims) => *dims,
+            FStorage::Shared([a, b, c], data) => [*a, *b, *c, data.len() / (a * b * c)],
+        }
     }
 
     /// The row-major `[μ, ν, κ, λ]` coefficient data.
     pub fn data(&self) -> &[S] {
-        if self.dims.contains(&0) {
-            &[]
-        } else {
-            self.data.as_slice()
+        match &self.data {
+            FStorage::One(value) => std::slice::from_ref(value),
+            FStorage::Empty(_) => &[],
+            FStorage::Shared(_, data) => data,
         }
     }
 
@@ -127,11 +151,12 @@ impl<S: Scalar> FBlock<S> {
     ///
     /// Panics if any index is out of range for [`FBlock::dims`].
     pub fn at(&self, mu: usize, nu: usize, kappa: usize, lambda: usize) -> S {
+        let dims = self.dims();
         assert!(
-            mu < self.dims[0] && nu < self.dims[1] && kappa < self.dims[2] && lambda < self.dims[3],
+            mu < dims[0] && nu < dims[1] && kappa < dims[2] && lambda < dims[3],
             "FBlock index out of range"
         );
-        self.data.as_slice()[Self::flat(self.dims, mu, nu, kappa, lambda)]
+        self.data()[Self::flat(dims, mu, nu, kappa, lambda)]
     }
 }
 
@@ -142,27 +167,44 @@ impl<S: Scalar> FBlock<S> {
 /// is square. For a multiplicity-free family it is the single braiding phase.
 #[derive(Clone, Debug)]
 pub struct RBlock<S = f64> {
-    pub(crate) n: usize,
-    /// Row-major `n × n`.
-    pub(crate) data: Storage<S>,
+    data: RStorage<S>,
+}
+
+#[derive(Clone, Debug)]
+enum RStorage<S> {
+    One(S),
+    Empty(usize),
+    Shared(usize, Arc<[S]>),
 }
 
 impl<S: Scalar> RBlock<S> {
     /// A single coefficient, stored inline without allocation.
     pub fn one(value: S) -> Self {
         Self {
-            n: 1,
-            data: Storage::One(value),
+            data: RStorage::One(value),
         }
     }
 
     pub(crate) fn from_vec(n: usize, data: Vec<S>) -> Self {
-        Self {
+        Self::from_storage(
             n,
-            data: match data.len() {
+            match data.len() {
                 0 => Storage::Empty,
                 1 => Storage::One(data[0]),
                 _ => Storage::Shared(data.into()),
+            },
+        )
+    }
+
+    pub(crate) fn from_storage(n: usize, data: Storage<S>) -> Self {
+        Self {
+            data: match data {
+                Storage::Empty => RStorage::Empty(n),
+                Storage::One(value) => {
+                    debug_assert_eq!(n, 1);
+                    RStorage::One(value)
+                }
+                Storage::Shared(data) => RStorage::Shared(n, data),
             },
         }
     }
@@ -175,7 +217,7 @@ impl<S: Scalar> RBlock<S> {
             1 => Storage::One(data.next().expect("one entry")),
             _ => Storage::Shared(data.collect()),
         };
-        Self { n, data }
+        Self::from_storage(n, data)
     }
 
     pub(crate) fn zeros(n: usize) -> Self {
@@ -184,15 +226,18 @@ impl<S: Scalar> RBlock<S> {
 
     /// The multiplicity `N^c_{ab}` (both the row and column count).
     pub fn dim(&self) -> usize {
-        self.n
+        match &self.data {
+            RStorage::One(_) => 1,
+            RStorage::Empty(n) | RStorage::Shared(n, _) => *n,
+        }
     }
 
     /// The row-major coefficient data (`N × N`, rows `μ`, cols `ν`).
     pub fn data(&self) -> &[S] {
-        if self.n == 0 {
-            &[]
-        } else {
-            self.data.as_slice()
+        match &self.data {
+            RStorage::One(value) => std::slice::from_ref(value),
+            RStorage::Empty(_) | RStorage::Shared(0, _) => &[],
+            RStorage::Shared(_, data) => data,
         }
     }
 
@@ -202,8 +247,9 @@ impl<S: Scalar> RBlock<S> {
     ///
     /// Panics if `mu` or `nu` is `>= dim()`.
     pub fn at(&self, mu: usize, nu: usize) -> S {
-        assert!(mu < self.n && nu < self.n, "RBlock index out of range");
-        self.data.as_slice()[mu * self.n + nu]
+        let n = self.dim();
+        assert!(mu < n && nu < n, "RBlock index out of range");
+        self.data()[mu * n + nu]
     }
 }
 
@@ -234,12 +280,12 @@ impl<S: Scalar> SymbolBlock<2> for RBlock<S> {
 
 impl<S: Scalar> PartialEq for FBlock<S> {
     fn eq(&self, other: &Self) -> bool {
-        self.dims == other.dims && self.data() == other.data()
+        self.dims() == other.dims() && self.data() == other.data()
     }
 }
 impl<S: Scalar> PartialEq for RBlock<S> {
     fn eq(&self, other: &Self) -> bool {
-        self.n == other.n && self.data() == other.data()
+        self.dim() == other.dim() && self.data() == other.data()
     }
 }
 
@@ -247,27 +293,41 @@ impl<S: Scalar> PartialEq for RBlock<S> {
 mod tests {
     use super::*;
     #[test]
+    fn compact_shapes_preserve_axes_and_entries() {
+        for axis in 0..4 {
+            let mut dims = [usize::MAX; 4];
+            dims[axis] = 0;
+            let block = FBlock::<f64>::zeros(dims);
+            assert_eq!(block.clone().dims(), dims);
+            assert!(block.data().is_empty());
+        }
+        let block = FBlock::from_vec([2, 1, 3, 4], (0..24).map(f64::from).collect());
+        assert_eq!(block.clone().dims(), [2, 1, 3, 4]);
+        assert_eq!(block.at(1, 0, 2, 3), 23.0);
+        let block = RBlock::from_vec(3, (0..9).map(f64::from).collect());
+        assert_eq!(block.clone().dim(), 3);
+        assert_eq!(block.at(2, 1), 7.0);
+    }
+
+    #[test]
     fn equality_compares_values_not_storage() {
         assert_eq!(
             FBlock::one(0.5),
-            FBlock {
-                dims: [1; 4],
-                data: Storage::Shared(vec![0.5].into())
-            }
+            FBlock::from_storage([1; 4], Storage::Shared(vec![0.5].into()))
         );
         assert!(matches!(
             FBlock::from_vec([1; 4], vec![0.5]).data,
-            Storage::One(0.5)
+            FStorage::One(0.5)
         ));
         assert!(matches!(
             RBlock::from_vec(1, vec![-1.0]).data,
-            Storage::One(-1.0)
+            RStorage::One(-1.0)
         ));
         let empty = FBlock::<num_complex::Complex64>::zeros([0, 2, 1, 1]);
-        assert!(matches!(empty.data, Storage::Empty));
+        assert!(matches!(empty.data, FStorage::Empty(_)));
         assert!(empty.data().is_empty());
         let empty = RBlock::<num_complex::Complex64>::zeros(0);
-        assert!(matches!(empty.data, Storage::Empty));
+        assert!(matches!(empty.data, RStorage::Empty(0)));
         assert!(empty.data().is_empty());
         assert_eq!(
             FBlock::<f64>::zeros([0, 1, 1, 1]),
@@ -277,11 +337,11 @@ mod tests {
         // A/B blocks: a single entry stays inline, an absent channel is empty.
         assert!(matches!(
             RBlock::from_row_major(1, std::iter::once(-1.0)).data,
-            Storage::One(-1.0)
+            RStorage::One(-1.0)
         ));
         assert!(matches!(
             RBlock::<f64>::from_row_major(0, std::iter::empty()).data,
-            Storage::Empty
+            RStorage::Empty(0)
         ));
     }
 }

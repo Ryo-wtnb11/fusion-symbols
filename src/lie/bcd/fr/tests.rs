@@ -19,9 +19,9 @@ fn warm_calls_do_not_lock_or_resweep() {
     // The same sweep populates every channel, including this unrequested one.
     assert!(cache::cache_bcd_cgc()
         .get(&crate::cache::bcd_cgc_cache::BcdKey::Cgc(
-            v.bcd.clone().unwrap(),
-            v.bcd.clone().unwrap(),
-            other.bcd.unwrap()
+            v.bcd().unwrap().clone(),
+            v.bcd().unwrap().clone(),
+            other.bcd().unwrap().clone()
         ))
         .is_some());
     let sweeps = super::CGC_SWEEPS.load(std::sync::atomic::Ordering::Relaxed);
@@ -75,16 +75,12 @@ fn warm_product_is_shared_without_resweeping() {
     let cat = LieGroup::new(GroupId::spin(5).unwrap()).unwrap();
     let a = cat.irrep(&[0, 1], &[]).unwrap();
     let first = cat.fusion(&a, &a).unwrap().collect::<Vec<_>>();
-    let product =
-        super::super::shared_directproduct(a.bcd.as_ref().unwrap(), a.bcd.as_ref().unwrap())
-            .unwrap();
+    let product = super::super::shared_directproduct(a.bcd().unwrap(), a.bcd().unwrap()).unwrap();
     assert_eq!(cat.fusion(&a, &a).unwrap().collect::<Vec<_>>(), first);
     for c in first {
         assert_eq!(cat.nsymbol(&a, &a, &c), 1);
     }
-    let second =
-        super::super::shared_directproduct(a.bcd.as_ref().unwrap(), a.bcd.as_ref().unwrap())
-            .unwrap();
+    let second = super::super::shared_directproduct(a.bcd().unwrap(), a.bcd().unwrap()).unwrap();
     assert!(std::sync::Arc::ptr_eq(&product, &second));
     let before_owners = std::sync::Arc::strong_count(&product);
     cache::trim_to(cache::CoefficientCacheTier::BcdCgc, 0);
