@@ -31,9 +31,9 @@ and a frozen coefficient gauge. Tables retain AnyonWiki's gauge. See
 
 ```toml
 [dependencies]
-fusion-symbols = "0.8"
+fusion-symbols = "0.9"
 # Omit generated Lie coefficients and the dense backend:
-# fusion-symbols = { version = "0.8", default-features = false }
+# fusion-symbols = { version = "0.9", default-features = false }
 ```
 
 `lie-generated` is enabled by default and uses sequential t4a-faer kernels;
