@@ -1,5 +1,5 @@
 //! Isolated process: cold/reset/exact aggregate counters exclude unrelated cache traffic.
-//! Derived-f64 SU(N) F-symbol cache behaviour through the public API: a warm
+//! Derived-f64 SU(N) F- and R-symbol cache behaviour through the public API: a warm
 //! hit returns the identical block, `reset` clears it, `stats` accounts it, and concurrent generation is race-free.
 //!
 //! The entry bound / byte-eviction / eviction-never-changes-values machinery is
@@ -12,7 +12,7 @@ mod common;
 
 use crate::common::lie as lie_test;
 use fusion_symbols::lie::LieIrrep as Irrep;
-use lie_test::f_symbol;
+use lie_test::{f_symbol, r_symbol};
 
 use std::sync::{Arc, Barrier};
 use std::thread;
@@ -77,6 +77,34 @@ fn f_symbol_cache_hit_reset_stats_and_concurrency() {
     assert_eq!(
         stats.misses, 1,
         "one successful F computation under contention"
+    );
+    assert_eq!(stats.hits, 8 * 16 - 1, "all other callers share the result");
+
+    // --- R tier: the same single-flight contract ---
+    cache::reset();
+    let want = r_symbol(&e8, &e8, &e8).unwrap();
+    cache::reset();
+    let mut handles = Vec::new();
+    for _ in 0..8 {
+        let e8 = Arc::clone(&e8);
+        let want = want.clone();
+        let start = Arc::clone(&start);
+        handles.push(thread::spawn(move || {
+            start.wait();
+            for _ in 0..16 {
+                let got = r_symbol(&e8, &e8, &e8).unwrap();
+                assert_eq!(got, want, "concurrent R block diverged");
+            }
+        }));
+    }
+    for h in handles {
+        h.join().unwrap();
+    }
+    let stats = cache::generated_cache_stats().sun_r;
+    assert_eq!(stats.entries, 1, "one R entry survives the race");
+    assert_eq!(
+        stats.misses, 1,
+        "one successful R computation under contention"
     );
     assert_eq!(stats.hits, 8 * 16 - 1, "all other callers share the result");
 }

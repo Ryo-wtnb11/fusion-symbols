@@ -3,14 +3,15 @@
 //!
 //! Coefficient generation is the expensive step, so `fusion-symbols` caches: the base
 //! SU(2) tiers (3j, 6j, derived-F) keyed by canonical Regge classes, and — with
-//! `lie-generated` — five generated tiers (SU(N) product / CGC / F, B/C/D product+CGC / F).
+//! `lie-generated` — seven generated tiers (SU(N) product / CGC / F / R, B/C/D product+CGC /
+//! F / R).
 //! The SU(N) product and B/C/D product+CGC tiers also retain `LieGroup` dual lookups.
 //! Every tier is process-global, byte-weighted Clock-PRO, and independently bounded.
 //!
 //! # What a consumer needs from this module
 //!
 //! - **A ceiling.** [`BASE_CACHE_MAX_BYTES`] (192 MiB) and
-//!   [`GENERATED_CACHE_MAX_BYTES`] (640 MiB + 128 KiB) are the documented sums
+//!   [`GENERATED_CACHE_MAX_BYTES`] (768 MiB + 128 KiB) are the documented sums
 //!   of the per-tier retained-entry charge caps. They bound *cache-owned entry
 //!   charge*, not RSS.
 //! - **A smaller ceiling, if you want one.** [`configure_cache_budgets`],
@@ -85,7 +86,7 @@ use crate::exact::SignedSqrtRational;
 use crate::lie::su2::{FKey, Regge3j, Regge6j};
 #[cfg(feature = "lie-generated")]
 use crate::{
-    frcore::FBlock,
+    frcore::{FBlock, RBlock},
     lie::{bcd, sun},
 };
 #[cfg(feature = "lie-generated")]
@@ -131,11 +132,17 @@ pub struct CoefficientCacheBudgets {
     /// SU(N) F-symbol retained-charge cap.
     sun_f_bytes: usize,
     #[cfg(feature = "lie-generated")]
+    /// SU(N) R-symbol retained-charge cap.
+    sun_r_bytes: usize,
+    #[cfg(feature = "lie-generated")]
     /// Shared B/C/D exact-product, CGC and Lie dual-lookup retained-charge cap.
     bcd_cgc_bytes: usize,
     #[cfg(feature = "lie-generated")]
     /// B/C/D F-symbol retained-charge cap.
     bcd_f_bytes: usize,
+    #[cfg(feature = "lie-generated")]
+    /// B/C/D R-symbol retained-charge cap.
+    bcd_r_bytes: usize,
 }
 
 /// One existing coefficient-cache tier.
@@ -158,11 +165,17 @@ pub enum CoefficientCacheTier {
     /// SU(N) F-symbol tier.
     SunF,
     #[cfg(feature = "lie-generated")]
+    /// SU(N) R-symbol tier.
+    SunR,
+    #[cfg(feature = "lie-generated")]
     /// B/C/D exact-product and CGC tier, also retaining Lie dual lookups.
     BcdCgc,
     #[cfg(feature = "lie-generated")]
     /// B/C/D F-symbol tier.
     BcdF,
+    #[cfg(feature = "lie-generated")]
+    /// B/C/D R-symbol tier.
+    BcdR,
 }
 
 impl std::fmt::Display for CoefficientCacheTier {
@@ -178,9 +191,13 @@ impl std::fmt::Display for CoefficientCacheTier {
             #[cfg(feature = "lie-generated")]
             Self::SunF => "sun_f",
             #[cfg(feature = "lie-generated")]
+            Self::SunR => "sun_r",
+            #[cfg(feature = "lie-generated")]
             Self::BcdCgc => "bcd_cgc",
             #[cfg(feature = "lie-generated")]
             Self::BcdF => "bcd_f",
+            #[cfg(feature = "lie-generated")]
+            Self::BcdR => "bcd_r",
         })
     }
 }
@@ -224,8 +241,10 @@ impl CoefficientCacheBudgets {
             CoefficientCacheTier::SunProduct,
             CoefficientCacheTier::SunCgc,
             CoefficientCacheTier::SunF,
+            CoefficientCacheTier::SunR,
             CoefficientCacheTier::BcdCgc,
             CoefficientCacheTier::BcdF,
+            CoefficientCacheTier::BcdR,
         ] {
             budgets = budgets.with_limit(tier, 0);
         }
@@ -245,9 +264,13 @@ impl CoefficientCacheBudgets {
             #[cfg(feature = "lie-generated")]
             CoefficientCacheTier::SunF => self.sun_f_bytes = bytes,
             #[cfg(feature = "lie-generated")]
+            CoefficientCacheTier::SunR => self.sun_r_bytes = bytes,
+            #[cfg(feature = "lie-generated")]
             CoefficientCacheTier::BcdCgc => self.bcd_cgc_bytes = bytes,
             #[cfg(feature = "lie-generated")]
             CoefficientCacheTier::BcdF => self.bcd_f_bytes = bytes,
+            #[cfg(feature = "lie-generated")]
+            CoefficientCacheTier::BcdR => self.bcd_r_bytes = bytes,
         }
         self
     }
@@ -265,9 +288,13 @@ impl CoefficientCacheBudgets {
             #[cfg(feature = "lie-generated")]
             CoefficientCacheTier::SunF => self.sun_f_bytes,
             #[cfg(feature = "lie-generated")]
+            CoefficientCacheTier::SunR => self.sun_r_bytes,
+            #[cfg(feature = "lie-generated")]
             CoefficientCacheTier::BcdCgc => self.bcd_cgc_bytes,
             #[cfg(feature = "lie-generated")]
             CoefficientCacheTier::BcdF => self.bcd_f_bytes,
+            #[cfg(feature = "lie-generated")]
+            CoefficientCacheTier::BcdR => self.bcd_r_bytes,
         }
     }
 }
@@ -285,9 +312,13 @@ impl Default for CoefficientCacheBudgets {
             #[cfg(feature = "lie-generated")]
             sun_f_bytes: sun_f_cache::SUN_F_MAX_BYTES,
             #[cfg(feature = "lie-generated")]
+            sun_r_bytes: sun_r_cache::SUN_R_MAX_BYTES,
+            #[cfg(feature = "lie-generated")]
             bcd_cgc_bytes: bcd_cgc_cache::BCD_CGC_MAX_BYTES,
             #[cfg(feature = "lie-generated")]
             bcd_f_bytes: bcd_f_cache::BCD_F_MAX_BYTES,
+            #[cfg(feature = "lie-generated")]
+            bcd_r_bytes: bcd_r_cache::BCD_R_MAX_BYTES,
         }
     }
 }
@@ -432,6 +463,12 @@ fn validate_budgets(b: CoefficientCacheBudgets) -> Result<(), CacheBudgetError> 
         ),
         #[cfg(feature = "lie-generated")]
         (
+            CoefficientCacheTier::SunR,
+            b.sun_r_bytes,
+            maximum.sun_r_bytes,
+        ),
+        #[cfg(feature = "lie-generated")]
+        (
             CoefficientCacheTier::BcdCgc,
             b.bcd_cgc_bytes,
             maximum.bcd_cgc_bytes,
@@ -441,6 +478,12 @@ fn validate_budgets(b: CoefficientCacheBudgets) -> Result<(), CacheBudgetError> 
             CoefficientCacheTier::BcdF,
             b.bcd_f_bytes,
             maximum.bcd_f_bytes,
+        ),
+        #[cfg(feature = "lie-generated")]
+        (
+            CoefficientCacheTier::BcdR,
+            b.bcd_r_bytes,
+            maximum.bcd_r_bytes,
         ),
     ];
     let mut total = 0usize;
@@ -482,9 +525,9 @@ pub const BASE_CACHE_MAX_BYTES: usize = 192 << 20;
 // shared `DEFAULT_MAX_BYTES` they are all built from is the enforceable tie.)
 const _: () = assert!(BASE_CACHE_MAX_BYTES == 3 * DEFAULT_MAX_BYTES);
 
-/// Aggregate conservative retained-charge cap for the five generated `lie-generated` tiers
-/// (SU(N) product, SU(N) CGC, SU(N) F, B/C/D product+CGC, B/C/D F):
-/// `640 MiB + 128 KiB` = `128 KiB + 256 MiB + 64 MiB + 256 MiB + 64 MiB`.
+/// Aggregate conservative retained-charge cap for the seven generated `lie-generated` tiers
+/// (SU(N) product, SU(N) CGC, SU(N) F, SU(N) R, B/C/D product+CGC, B/C/D F, B/C/D R):
+/// `768 MiB + 128 KiB` = `128 KiB + 256 MiB + 64 MiB + 64 MiB + 256 MiB + 64 MiB + 64 MiB`.
 ///
 /// **Unstable: shape may change.** There is no Cargo-feature way to express an
 /// instability tier, so this doc label is the marker.
@@ -512,7 +555,7 @@ const _: () = assert!(BASE_CACHE_MAX_BYTES == 3 * DEFAULT_MAX_BYTES);
 /// budget, per-`LieGroup` lifecycle) and is intentionally excluded from
 /// this budget and from these stats.
 #[cfg(feature = "lie-generated")]
-pub const GENERATED_CACHE_MAX_BYTES: usize = (640 << 20) + (128 << 10);
+pub const GENERATED_CACHE_MAX_BYTES: usize = (768 << 20) + (128 << 10);
 
 // Compile-time tie: if any generated-tier retained-charge cap changes, this constant must
 // be reconciled in the same edit or the crate stops building (the same drift
@@ -523,8 +566,10 @@ const _: () = assert!(
         == cgc_cache::CGC_MAX_BYTES
             + sun_product_cache::SUN_PRODUCT_MAX_BYTES
             + sun_f_cache::SUN_F_MAX_BYTES
+            + sun_r_cache::SUN_R_MAX_BYTES
             + bcd_cgc_cache::BCD_CGC_MAX_BYTES
             + bcd_f_cache::BCD_F_MAX_BYTES
+            + bcd_r_cache::BCD_R_MAX_BYTES
 );
 
 /// Snapshot of the aggregate cache counters (3j and 6j kinds summed).
@@ -602,8 +647,8 @@ impl BaseCacheStats {
     }
 }
 
-/// Per-tier statistics for the five generated `lie-generated` tiers (SU(N) product,
-/// SU(N) CGC, SU(N) F, B/C/D product+CGC, B/C/D F).
+/// Per-tier statistics for the seven generated `lie-generated` tiers (SU(N) product,
+/// SU(N) CGC, SU(N) F, SU(N) R, B/C/D product+CGC, B/C/D F, B/C/D R).
 ///
 /// **Unstable: shape may change.** The struct is `#[non_exhaustive]` — it is
 /// constructed only inside the crate (by [`generated_cache_stats`]); consumers
@@ -619,7 +664,7 @@ impl BaseCacheStats {
 ///
 /// Each per-tier [`TierStats`] is internally consistent (taken under that tier's
 /// publication lock). [`total`](GeneratedCacheStats::total) is a field-wise sum of the
-/// five per-tier snapshots, **not** a single global atomic snapshot: a
+/// seven per-tier snapshots, **not** a single global atomic snapshot: a
 /// concurrent filler can interleave between the tier reads, so the total is only
 /// eventually consistent. This crate does not take a global lock spanning the tiers —
 /// that would serialize otherwise-independent lookups for no correctness gain
@@ -635,15 +680,19 @@ pub struct GeneratedCacheStats {
     pub sun_cgc: TierStats,
     /// The derived-f64 SU(N) F-symbol tier.
     pub sun_f: TierStats,
+    /// The derived-f64 SU(N) R-symbol tier.
+    pub sun_r: TierStats,
     /// The B/C/D exact-product and CGC value tier.
     pub bcd_cgc: TierStats,
     /// The derived-f64 B/C/D F-symbol tier.
     pub bcd_f: TierStats,
+    /// The derived-f64 B/C/D R-symbol tier.
+    pub bcd_r: TierStats,
 }
 
 #[cfg(feature = "lie-generated")]
 impl GeneratedCacheStats {
-    /// Field-wise sum of the five generated tiers. See the type-level snapshot-
+    /// Field-wise sum of the seven generated tiers. See the type-level snapshot-
     /// consistency note: this is a sum of per-tier snapshots, not an atomic
     /// whole-cache snapshot.
     pub fn total(&self) -> TierStats {
@@ -651,28 +700,38 @@ impl GeneratedCacheStats {
             entries: self.sun_product.entries
                 + self.sun_cgc.entries
                 + self.sun_f.entries
+                + self.sun_r.entries
                 + self.bcd_cgc.entries
-                + self.bcd_f.entries,
+                + self.bcd_f.entries
+                + self.bcd_r.entries,
             bytes: self.sun_product.bytes
                 + self.sun_cgc.bytes
                 + self.sun_f.bytes
+                + self.sun_r.bytes
                 + self.bcd_cgc.bytes
-                + self.bcd_f.bytes,
+                + self.bcd_f.bytes
+                + self.bcd_r.bytes,
             hits: self.sun_product.hits
                 + self.sun_cgc.hits
                 + self.sun_f.hits
+                + self.sun_r.hits
                 + self.bcd_cgc.hits
-                + self.bcd_f.hits,
+                + self.bcd_f.hits
+                + self.bcd_r.hits,
             misses: self.sun_product.misses
                 + self.sun_cgc.misses
                 + self.sun_f.misses
+                + self.sun_r.misses
                 + self.bcd_cgc.misses
-                + self.bcd_f.misses,
+                + self.bcd_f.misses
+                + self.bcd_r.misses,
             evictions: self.sun_product.evictions
                 + self.sun_cgc.evictions
                 + self.sun_f.evictions
+                + self.sun_r.evictions
                 + self.bcd_cgc.evictions
-                + self.bcd_f.evictions,
+                + self.bcd_f.evictions
+                + self.bcd_r.evictions,
         }
     }
 }
@@ -1216,6 +1275,21 @@ fn f_block<I: Clone + Eq + Hash + CacheKeyCharge, E>(
     store.get_or_try_compute(&labels, || labels.to_key(), compute)
 }
 
+/// One R block through `store`: the three labels as given are the key.
+#[cfg(feature = "lie-generated")]
+#[inline]
+fn r_block<I: Clone + Eq + Hash + CacheKeyCharge, E>(
+    store: &CoefficientCache<(I, I, I), RBlock>,
+    [a, b, c]: [&I; 3],
+    compute: impl FnOnce() -> Result<RBlock, E>,
+) -> Result<RBlock, E> {
+    store.get_or_try_compute(
+        &Triple(a, b, c),
+        || (a.clone(), b.clone(), c.clone()),
+        compute,
+    )
+}
+
 #[cfg(feature = "lie-generated")]
 impl<I: PartialEq> quick_cache::Equivalent<(I, I, I, I, I, I)> for Sextuple<'_, I> {
     fn equivalent(&self, key: &(I, I, I, I, I, I)) -> bool {
@@ -1453,9 +1527,6 @@ pub(crate) fn sun_dual(x: &sun::Irrep, dual: impl FnOnce() -> sun::Irrep) -> sun
 /// GT-basis F blocks (the 6j symmetry group that lets the exact SU(2) F tier
 /// key on a canonical class has no analogue here).
 ///
-/// R needs no cache: it is a single sparse join of two CGC (no four-way
-/// contraction), cheap enough that a cache slot would not pay for itself.
-///
 /// In-memory only, same argument as the CGC tier: the values are
 /// gauge/algorithm-dependent, so a persisted store would need a version key;
 /// keeping it process-local means it is always consistent with the generator.
@@ -1506,6 +1577,57 @@ pub(crate) fn sun_f<E>(
     )
 }
 
+/// Bounded, byte-accounted derived-f64 SU(N) R-symbol cache (`lie-generated`).
+///
+/// An R block is one sparse join of two CGC, but even with warm CGC a query
+/// rebuilds two hash maps over the `m_c = 0` slices and allocates the result,
+/// tens of times the cost of a warm F hit. SUNRepresentations
+/// (`sector.jl:Rsymbol`, `RCACHE`) caches R blocks for the same reason. Keyed
+/// by the **plain ordered triple** `(a, b, c)`: `R^{ab}_c` and `R^{ba}_c` are
+/// different blocks, so no label canonicalization applies. Same entry/byte
+/// caps, lifecycle and in-memory-only argument as the F tier.
+#[cfg(feature = "lie-generated")]
+mod sun_r_cache {
+    use super::{CacheCharge, CoefficientCache};
+    use crate::lie::{sun::Irrep, RBlock};
+    use std::sync::LazyLock;
+
+    /// Canonical cache key: the ordered irrep labels `(a, b, c)`.
+    pub(crate) type SunRKey = (Irrep, Irrep, Irrep);
+
+    impl CacheCharge for RBlock {
+        fn value_bytes(&self) -> usize {
+            std::mem::size_of::<RBlock>()
+                + if self.data().len() > 1 {
+                    super::ARC_COUNTS_BYTES + std::mem::size_of_val(self.data())
+                } else {
+                    0
+                }
+        }
+    }
+
+    /// Entry cap; the retained-charge cap is the real backstop.
+    const SUN_R_MAX_ENTRIES: usize = 1 << 16;
+    /// Retained-charge cap (64 MiB), as for F. `pub(super)` for the
+    /// [`super::GENERATED_CACHE_MAX_BYTES`] drift assertion.
+    pub(super) const SUN_R_MAX_BYTES: usize = 64 << 20;
+
+    pub(super) static CACHE_SUN_R: LazyLock<CoefficientCache<SunRKey, RBlock>> =
+        LazyLock::new(|| {
+            CoefficientCache::new(SUN_R_MAX_ENTRIES, super::effective_budgets().sun_r_bytes)
+        });
+}
+
+/// SU(N) R block for the three labels as given.
+#[cfg(feature = "lie-generated")]
+#[inline]
+pub(crate) fn sun_r<E>(
+    labels: [&sun::Irrep; 3],
+    compute: impl FnOnce() -> Result<RBlock, E>,
+) -> Result<RBlock, E> {
+    r_block(&sun_r_cache::CACHE_SUN_R, labels, compute)
+}
+
 /// Bounded, byte-accounted derived-f64 B/C/D F-symbol cache (`lie-generated`).
 ///
 /// The B/C/D analogue of [`sun_f`]: an F block is the contraction of four
@@ -1515,9 +1637,6 @@ pub(crate) fn sun_f<E>(
 /// GT/sweep-basis F blocks; see the Why-comment in `sun::fr::f_symbol`), the
 /// shared `FBlock` [`CacheCharge`] impl, in-memory only (values are
 /// gauge/algorithm-dependent, so a persisted store would need a version key).
-///
-/// R needs no cache: it is a single sparse join of two CGC, and no measurement
-/// shows a benefit from caching it.
 #[cfg(feature = "lie-generated")]
 mod bcd_f_cache {
     use super::CoefficientCache;
@@ -1552,6 +1671,43 @@ pub(crate) fn bcd_f<E>(
         Sextuple(a, b, c, d, e, f),
         compute,
     )
+}
+
+/// Bounded, byte-accounted derived-f64 B/C/D R-symbol cache (`lie-generated`).
+///
+/// The B/C/D analogue of [`sun_r`]: same ordered-triple key, shared `RBlock`
+/// [`CacheCharge`] impl, caps and lifecycle. Like the F tier, its key omits the
+/// global form and is not invalidated by a generator-catalog reset.
+#[cfg(feature = "lie-generated")]
+mod bcd_r_cache {
+    use super::CoefficientCache;
+    use crate::frcore::RBlock;
+    use crate::lie::bcd::Irrep;
+    use std::sync::LazyLock;
+
+    /// Canonical cache key: the ordered B/C/D irrep labels `(a, b, c)`.
+    pub(crate) type BcdRKey = (Irrep, Irrep, Irrep);
+
+    /// Entry cap; the retained-charge cap is the real backstop.
+    const BCD_R_MAX_ENTRIES: usize = 1 << 16;
+    /// Retained-charge cap (64 MiB), as for F.
+    /// `pub(super)` for the [`super::GENERATED_CACHE_MAX_BYTES`] drift assertion.
+    pub(super) const BCD_R_MAX_BYTES: usize = 64 << 20;
+
+    pub(super) static CACHE_BCD_R: LazyLock<CoefficientCache<BcdRKey, RBlock>> =
+        LazyLock::new(|| {
+            CoefficientCache::new(BCD_R_MAX_ENTRIES, super::effective_budgets().bcd_r_bytes)
+        });
+}
+
+/// B/C/D R block for the three labels as given.
+#[cfg(feature = "lie-generated")]
+#[inline]
+pub(crate) fn bcd_r<E>(
+    labels: [&bcd::Irrep; 3],
+    compute: impl FnOnce() -> Result<RBlock, E>,
+) -> Result<RBlock, E> {
+    r_block(&bcd_r_cache::CACHE_BCD_R, labels, compute)
 }
 
 /// Bounded, byte-accounted B/C/D exact-product, CGC and Lie dual-lookup tier.
@@ -1776,9 +1932,13 @@ const TIERS: &[CoefficientCacheTier] = &[
     #[cfg(feature = "lie-generated")]
     CoefficientCacheTier::SunF,
     #[cfg(feature = "lie-generated")]
+    CoefficientCacheTier::SunR,
+    #[cfg(feature = "lie-generated")]
     CoefficientCacheTier::BcdCgc,
     #[cfg(feature = "lie-generated")]
     CoefficientCacheTier::BcdF,
+    #[cfg(feature = "lie-generated")]
+    CoefficientCacheTier::BcdR,
 ];
 
 fn control(tier: CoefficientCacheTier) -> &'static dyn TierControl {
@@ -1793,14 +1953,18 @@ fn control(tier: CoefficientCacheTier) -> &'static dyn TierControl {
         #[cfg(feature = "lie-generated")]
         CoefficientCacheTier::SunF => &*sun_f_cache::CACHE_SUN_F,
         #[cfg(feature = "lie-generated")]
+        CoefficientCacheTier::SunR => &*sun_r_cache::CACHE_SUN_R,
+        #[cfg(feature = "lie-generated")]
         CoefficientCacheTier::BcdCgc => &*bcd_cgc_cache::CACHE_BCD_CGC,
         #[cfg(feature = "lie-generated")]
         CoefficientCacheTier::BcdF => &*bcd_f_cache::CACHE_BCD_F,
+        #[cfg(feature = "lie-generated")]
+        CoefficientCacheTier::BcdR => &*bcd_r_cache::CACHE_BCD_R,
     }
 }
 
 /// Clear the 3j, 6j, and derived-f64 F-symbol caches (and, under `lie-generated`, the
-/// SU(N) product and SU(N)/B/C/D CGC/F caches) and *all* their counters — entries, bytes,
+/// SU(N) product and SU(N)/B/C/D CGC/F/R caches) and *all* their counters — entries, bytes,
 /// hits, misses, and evictions all return to zero.
 ///
 /// # Reset ownership (process-global, single-owner)
@@ -1878,8 +2042,9 @@ pub fn base_cache_stats() -> BaseCacheStats {
     }
 }
 
-/// Per-tier and total statistics for the five generated `lie-generated` tiers
-/// (SU(N) product, SU(N) CGC, SU(N) F, B/C/D product+CGC, B/C/D F).
+/// Per-tier and total statistics for the seven generated `lie-generated` tiers
+/// (SU(N) product, SU(N) CGC, SU(N) F, SU(N) R, B/C/D product+CGC, B/C/D F,
+/// B/C/D R).
 ///
 /// The generated-family analogue of [`base_cache_stats`]: unlike the aggregate
 /// [`stats`] (which sums base *and* generated tiers into one flat
@@ -1894,8 +2059,10 @@ pub fn generated_cache_stats() -> GeneratedCacheStats {
         sun_product: sun_product_cache::CACHE_SUN_PRODUCT.tier_stats(),
         sun_cgc: cgc_cache::CACHE_CGC.tier_stats(),
         sun_f: sun_f_cache::CACHE_SUN_F.tier_stats(),
+        sun_r: sun_r_cache::CACHE_SUN_R.tier_stats(),
         bcd_cgc: bcd_cgc_cache::CACHE_BCD_CGC.tier_stats(),
         bcd_f: bcd_f_cache::CACHE_BCD_F.tier_stats(),
+        bcd_r: bcd_r_cache::CACHE_BCD_R.tier_stats(),
     }
 }
 
@@ -2472,6 +2639,41 @@ mod tests {
         let budget = a.value_bytes() + ka.key_bytes() + 8;
         let c: CoefficientCache<SunFKey, FBlock> = CoefficientCache::new(1_000_000, budget);
         c.publisher().publish(ka.clone(), a);
+        c.publisher().publish(kb, b);
+        let (_, _, entries, bytes) = c.snapshot();
+        assert!(entries <= 1, "retained-charge cap kept {entries} entries");
+        assert!(
+            bytes <= budget,
+            "retained charge exceeded cap: {bytes} > {budget}"
+        );
+        assert!(c.tier_stats().evictions > 0);
+    }
+
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn sun_r_tier_charges_block_bytes_and_evicts_by_bytes() {
+        use super::sun_r_cache::SunRKey;
+        use crate::lie::{
+            sun::{r_symbol, Irrep},
+            RBlock,
+        };
+        let irr = |d: &[i64]| Irrep::from_dynkin(d).unwrap();
+        // The 2×2 octet block shares an Arc; a 1×1 block is inline.
+        let e8 = irr(&[1, 1]);
+        let a = r_symbol(&e8, &e8, &e8).unwrap();
+        let (three, bar) = (irr(&[1, 0]), irr(&[0, 1]));
+        let b = r_symbol(&three, &bar, &e8).unwrap();
+        assert_eq!(
+            a.value_bytes(),
+            ARC_COUNTS_BYTES + std::mem::size_of_val(a.data()) + std::mem::size_of::<RBlock>()
+        );
+        assert_eq!(b.value_bytes(), std::mem::size_of::<RBlock>());
+
+        let ka: SunRKey = (e8.clone(), e8.clone(), e8.clone());
+        let kb: SunRKey = (three, bar, e8);
+        let budget = a.value_bytes() + ka.key_bytes() + 8;
+        let c: CoefficientCache<SunRKey, RBlock> = CoefficientCache::new(1_000_000, budget);
+        c.publisher().publish(ka, a);
         c.publisher().publish(kb, b);
         let (_, _, entries, bytes) = c.snapshot();
         assert!(entries <= 1, "retained-charge cap kept {entries} entries");

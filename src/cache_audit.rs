@@ -64,7 +64,7 @@ fn emit(phase: &str, measurement: Option<Measurement>) {
         concat!(
             "COEFFICIENT_CACHE_AUDIT {{\"kind\":\"phase\",\"phase\":\"{}\",\"elapsed_ns\":{},",
             "\"base\":[[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}]],",
-            "\"generated\":[[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}]],",
+            "\"generated\":[[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}]],",
             "\"factorial_rows\":{},\"primes\":{},\"table_capacity_bytes\":{},",
             "\"system_requested_live_start_bytes\":{},\"system_requested_live_end_bytes\":{},\"system_requested_live_peak_bytes\":{},\"system_requested_live_transient_lower_bound_bytes\":{},\"rss_bytes\":{} }}"
         ),
@@ -78,6 +78,8 @@ fn emit(phase: &str, measurement: Option<Measurement>) {
         generated.sun_f.entries, generated.sun_f.bytes, generated.sun_f.hits, generated.sun_f.misses, generated.sun_f.evictions,
         generated.bcd_cgc.entries, generated.bcd_cgc.bytes, generated.bcd_cgc.hits, generated.bcd_cgc.misses, generated.bcd_cgc.evictions,
         generated.bcd_f.entries, generated.bcd_f.bytes, generated.bcd_f.hits, generated.bcd_f.misses, generated.bcd_f.evictions,
+        generated.sun_r.entries, generated.sun_r.bytes, generated.sun_r.hits, generated.sun_r.misses, generated.sun_r.evictions,
+        generated.bcd_r.entries, generated.bcd_r.bytes, generated.bcd_r.hits, generated.bcd_r.misses, generated.bcd_r.evictions,
         table.factorial_rows, table.primes, table.retained_capacity_bytes,
         start_live,
         end_live,

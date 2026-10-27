@@ -19,9 +19,13 @@ fn stats(tier: Tier) -> TierStats {
         #[cfg(feature = "lie-generated")]
         Tier::SunF => cache::generated_cache_stats().sun_f,
         #[cfg(feature = "lie-generated")]
+        Tier::SunR => cache::generated_cache_stats().sun_r,
+        #[cfg(feature = "lie-generated")]
         Tier::BcdCgc => cache::generated_cache_stats().bcd_cgc,
         #[cfg(feature = "lie-generated")]
         Tier::BcdF => cache::generated_cache_stats().bcd_f,
+        #[cfg(feature = "lie-generated")]
+        Tier::BcdR => cache::generated_cache_stats().bcd_r,
         _ => unreachable!(),
     }
 }
@@ -64,6 +68,8 @@ fn every_coefficient_tier_has_zero_allocation_warm_hits() {
             su3.f_symbol(&octet, &octet, &octet, &octet, &octet, &octet)
                 .unwrap()
         });
+        // The 2×2 multiplicity block is shared, not copied.
+        check(Tier::SunR, || su3.r_symbol(&octet, &octet, &octet).unwrap());
         let b2 = LieGroup::new(GroupId::so(5).unwrap()).unwrap();
         let unit = b2.unit();
         let vector = b2.irrep(&[1, 0], &[]).unwrap();
@@ -76,6 +82,9 @@ fn every_coefficient_tier_has_zero_allocation_warm_hits() {
         check(Tier::BcdF, || {
             b2.f_symbol(&unit, &vector, &vector, &adjoint, &vector, &adjoint)
                 .unwrap()
+        });
+        check(Tier::BcdR, || {
+            b2.r_symbol(&vector, &vector, &adjoint).unwrap()
         });
     }
 }

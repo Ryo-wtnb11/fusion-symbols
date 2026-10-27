@@ -4,7 +4,7 @@
 //! **family-generic** [`crate::frcore`] core, shared with `crate::lie::sun::fr`; this
 //! module is the B/C/D binding of that core. The provider is [`BcdFamily`],
 //! wrapping the per-group `Mutex<CanonicalCatalog>`, locked only after the global
-//! F/CGC caches miss. It materializes canonical generator bases
+//! F/R/CGC caches miss. It materializes canonical generator bases
 //! on demand and adapts each dense [`CatalogCgc`] isometry into the sparse
 //! `(m1, m2, m3, mu, value)` entries the core consumes.
 //!
@@ -160,7 +160,7 @@ pub fn r_symbol(
     b: &Irrep,
     c: &Irrep,
 ) -> Result<RBlock, LieError> {
-    r_block_raw(&mut BcdFamily { cat }, a, b, c)
+    crate::cache::bcd_r([a, b, c], || r_block_raw(&mut BcdFamily { cat }, a, b, c))
 }
 #[cfg(test)]
 mod tests;

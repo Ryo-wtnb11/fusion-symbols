@@ -1,8 +1,8 @@
 //! Isolated process: exact generated reset/counter assertions exclude unrelated cache traffic.
 //! Generated-tier coefficient-cache resource contract.
 //!
-//! The `lie-generated` analogue of `tests/base_cache_contract.rs`: the five generated
-//! tiers (SU(N) product, SU(N) CGC, SU(N) F, B/C/D CGC, B/C/D F) are process-global and
+//! The `lie-generated` analogue of `tests/base_cache_contract.rs`: the seven generated
+//! tiers (SU(N) product, SU(N) CGC, SU(N) F, SU(N) R, B/C/D CGC, B/C/D F, B/C/D R) are process-global and
 //! `cache::reset()`/`generated_cache_stats()` act on shared state, so this is
 //! kept in one `#[test]` (splitting into parallel tests would race the shared
 //! counters — same reasoning as `tests/sun_cgc_cache.rs`).
@@ -36,13 +36,13 @@ fn bcd_irr(s: Series, d: &[i64]) -> fusion_symbols::lie::LieIrrep {
 
 #[test]
 fn generated_cache_resource_contract() {
-    // ---- the const is the documented sum of the five tier caps ----
+    // ---- the const is the documented sum of the seven tier caps ----
     // (The compile-time assertion in src/cache.rs is the real drift guard; this
     // pins the human-facing value.)
     assert_eq!(
         GENERATED_CACHE_MAX_BYTES,
-        ((256 + 64 + 256 + 64) << 20) + (128 << 10),
-        "640 MiB + 128 KiB = SU(N) product + CGC/F + BCD CGC/F"
+        ((256 + 64 + 64 + 256 + 64 + 64) << 20) + (128 << 10),
+        "768 MiB + 128 KiB = SU(N) product + CGC/F/R + BCD CGC/F/R"
     );
 
     // ---- per-tier hit/miss accounting on deterministic accesses ----
@@ -79,6 +79,14 @@ fn generated_cache_resource_contract() {
     let g = cache::generated_cache_stats();
     assert!(g.sun_f.misses >= 1 && g.sun_f.hits >= 1, "sun F miss + hit");
 
+    // SU(N) R tier: exact miss then hit on the 2×2 octet block.
+    let r = lie_test::r_symbol(&e8, &e8, &e8).unwrap();
+    let g = cache::generated_cache_stats();
+    assert_eq!((g.sun_r.misses, g.sun_r.hits, g.sun_r.entries), (1, 0, 1));
+    assert!(g.sun_r.bytes > 0);
+    assert_eq!(lie_test::r_symbol(&e8, &e8, &e8).unwrap(), r);
+    assert_eq!(cache::generated_cache_stats().sun_r.hits, 1, "sun R hit");
+
     // B/C/D CGC + F tiers: the public `bcd_test::f_symbol` owns the BCD F tier and
     // its CGC materialization owns the BCD CGC tier. Sextet from the crate's own
     // doctest (Sp(4), F = 1×1×1×1 identity). Miss then hit.
@@ -95,6 +103,11 @@ fn generated_cache_resource_contract() {
     let _ = bcd_test::f_symbol(&cat, &triv, &v, &v, &adj, &v, &adj).unwrap(); // hit
     let g = cache::generated_cache_stats();
     assert!(g.bcd_f.hits >= 1, "second F block hits the BCD F tier");
+    let r = bcd_test::r_symbol(&cat, &v, &v, &adj).unwrap();
+    let g = cache::generated_cache_stats();
+    assert_eq!((g.bcd_r.misses, g.bcd_r.hits, g.bcd_r.entries), (1, 0, 1));
+    assert_eq!(bcd_test::r_symbol(&cat, &v, &v, &adj).unwrap(), r);
+    assert_eq!(cache::generated_cache_stats().bcd_r.hits, 1, "BCD R hit");
 
     // Product only assembles handles/blocks: warm factor queries must not sweep.
     use fusion_symbols::{
@@ -125,6 +138,7 @@ fn generated_cache_resource_contract() {
         (cold.sun_product, warm.sun_product),
         (cold.sun_cgc, warm.sun_cgc),
         (cold.sun_f, warm.sun_f),
+        (cold.sun_r, warm.sun_r),
     ] {
         assert_eq!(
             cold.misses, warm.misses,
@@ -151,23 +165,35 @@ fn generated_cache_resource_contract() {
         "an F tier is over its 64 MiB cap"
     );
     assert!(
+        g.sun_r.bytes <= (64 << 20) && g.bcd_r.bytes <= (64 << 20),
+        "an R tier is over its 64 MiB cap"
+    );
+    assert!(
         total.bytes <= GENERATED_CACHE_MAX_BYTES,
         "aggregate over GENERATED_CACHE_MAX_BYTES: {} > {}",
         total.bytes,
         GENERATED_CACHE_MAX_BYTES
     );
-    // total() is the field-wise sum of the five tiers.
+    // total() is the field-wise sum of the seven tiers.
     assert_eq!(
         total.entries,
         g.sun_product.entries
             + g.sun_cgc.entries
             + g.sun_f.entries
+            + g.sun_r.entries
             + g.bcd_cgc.entries
             + g.bcd_f.entries
+            + g.bcd_r.entries
     );
     assert_eq!(
         total.bytes,
-        g.sun_product.bytes + g.sun_cgc.bytes + g.sun_f.bytes + g.bcd_cgc.bytes + g.bcd_f.bytes
+        g.sun_product.bytes
+            + g.sun_cgc.bytes
+            + g.sun_f.bytes
+            + g.sun_r.bytes
+            + g.bcd_cgc.bytes
+            + g.bcd_f.bytes
+            + g.bcd_r.bytes
     );
     assert!(total.entries > 0, "the accesses retained entries");
 
@@ -183,7 +209,9 @@ fn generated_cache_resource_contract() {
     assert_eq!(g.sun_product, zero, "sun_product not cleared");
     assert_eq!(g.sun_cgc, zero, "sun_cgc not cleared");
     assert_eq!(g.sun_f, zero, "sun_f not cleared");
+    assert_eq!(g.sun_r, zero, "sun_r not cleared");
     assert_eq!(g.bcd_cgc, zero, "bcd_cgc not cleared");
     assert_eq!(g.bcd_f, zero, "bcd_f not cleared");
+    assert_eq!(g.bcd_r, zero, "bcd_r not cleared");
     assert_eq!(g.total(), zero, "total not cleared");
 }
