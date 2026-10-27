@@ -1264,7 +1264,6 @@ fn permute_rec(v: &[i64], idx: &mut Vec<usize>, k: usize, set: &mut HashSet<Vec<
 /// `w(ξ) − ρ`. All arithmetic is exact integer; `ρ`-shifts are carried at
 /// twice scale to keep `B`'s half-integer `ρ` integral.
 pub(crate) fn shared_directproduct(a: &Irrep, b: &Irrep) -> Result<Arc<[(Irrep, u32)]>, BcdError> {
-    use crate::cache::bcd_cgc_cache::{BcdKey, BcdRef, BcdValue};
     if a.series != b.series || a.rank() != b.rank() {
         return Err(BcdError::GroupMismatch {
             a: (a.series, a.rank()),
@@ -1272,19 +1271,9 @@ pub(crate) fn shared_directproduct(a: &Irrep, b: &Irrep) -> Result<Arc<[(Irrep, 
         });
     }
     let (left, right) = if a <= b { (a, b) } else { (b, a) };
-    let cache = crate::cache::cache_bcd_cgc();
-    let value = cache.get_or_try_compute(
-        &BcdRef::Product(left, right),
-        || BcdKey::Product(left.clone(), right.clone()),
-        || {
-            directproduct_uncached(left, right)
-                .map(|product| BcdValue::Product(product.into_iter().collect()))
-        },
-    )?;
-    let BcdValue::Product(product) = value else {
-        unreachable!("product key stores an exact product")
-    };
-    Ok(product)
+    crate::cache::bcd_product(left, right, || {
+        directproduct_uncached(left, right).map(|product| product.into_iter().collect())
+    })
 }
 
 pub fn directproduct(a: &Irrep, b: &Irrep) -> Result<BTreeMap<Irrep, u32>, BcdError> {

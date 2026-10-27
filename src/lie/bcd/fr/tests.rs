@@ -17,13 +17,11 @@ fn warm_calls_do_not_lock_or_resweep() {
     let first = cat.f_symbol(&one, &v, &v, &adj, &v, &adj).unwrap();
     let cgc = cat.cgc(&v, &v, &adj).unwrap();
     // The same sweep populates every channel, including this unrequested one.
-    assert!(cache::cache_bcd_cgc()
-        .get(&crate::cache::bcd_cgc_cache::BcdKey::Cgc(
-            v.bcd().unwrap().clone(),
-            v.bcd().unwrap().clone(),
-            other.bcd().unwrap().clone()
-        ))
-        .is_some());
+    assert!(cache::bcd_cgc_is_resident(
+        v.bcd().unwrap(),
+        v.bcd().unwrap(),
+        other.bcd().unwrap()
+    ));
     let sweeps = super::CGC_SWEEPS.load(std::sync::atomic::Ordering::Relaxed);
     let clone = cat.clone();
     let lock = cat.catalog.as_ref().unwrap().lock().unwrap();

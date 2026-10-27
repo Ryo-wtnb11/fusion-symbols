@@ -79,3 +79,19 @@ fn every_coefficient_tier_has_zero_allocation_warm_hits() {
         });
     }
 }
+
+#[test]
+fn warm_hit_on_a_new_thread_allocates_only_on_its_first_query() {
+    let _serial = counting_alloc::serial();
+    std::hint::black_box(su2::wigner_6j(40, 40, 40, 40, 40, 40));
+    std::thread::spawn(|| {
+        // First query on this thread may register its reader-stripe and counter indices.
+        std::hint::black_box(su2::wigner_6j(40, 40, 40, 40, 40, 40));
+        let (calls, bytes, _, value) =
+            counting_alloc::measure(|| su2::wigner_6j(40, 40, 40, 40, 40, 40));
+        std::hint::black_box(value);
+        assert_eq!((calls, bytes), (0, 0), "warm hit after thread setup");
+    })
+    .join()
+    .unwrap();
+}

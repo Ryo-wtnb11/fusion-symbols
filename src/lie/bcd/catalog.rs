@@ -256,7 +256,7 @@ impl CatalogCgc {
     }
 
     /// Conservative retained-byte charge for the value cache tier
-    /// ([`crate::cache::cache_bcd_cgc`]): the dense coefficient buffer plus a
+    /// ([`crate::cache::bcd_cgc`]): the dense coefficient buffer plus a
     /// fixed shell. Mirrors [`crate::lie::sun::Cgc::storage_bytes`].
     pub(crate) fn storage_bytes(&self) -> usize {
         self.cols
@@ -477,7 +477,7 @@ impl CanonicalCatalog {
     /// [`cgc`](Self::cgc)`(s1, s2, s3)`).
     ///
     /// This is the sweep-once-per-product primitive the B/C/D F/R value tier
-    /// ([`crate::cache::cache_bcd_cgc`]) is built on: the associativity/braiding
+    /// ([`crate::cache::bcd_cgc`]) is built on: the associativity/braiding
     /// gates request many different `s3` from the same `s1 ⊗ s2`, and
     /// [`cgc`](Self::cgc) re-runs the full `s1 ⊗ s2` sweep for each — this runs it
     /// once and hands back all channels. `pub(crate)`: the

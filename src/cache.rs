@@ -83,6 +83,13 @@ use std::sync::{LazyLock, OnceLock};
 
 use crate::exact::SignedSqrtRational;
 use crate::lie::su2::{FKey, Regge3j, Regge6j};
+#[cfg(feature = "lie-generated")]
+use crate::{
+    frcore::FBlock,
+    lie::{bcd, sun},
+};
+#[cfg(feature = "lie-generated")]
+use std::sync::Arc;
 
 /// Default entry cap per kind (3j and 6j each). Matches the reference order of
 /// magnitude (WignerSymbols.jl uses `10^6`); the retained-charge cap is the real
@@ -791,22 +798,68 @@ impl<K, V> quick_cache::Lifecycle<K, Charged<V>> for Evictions {
     }
 }
 
-/// Byte-weighted Clock-PRO cache. Hits take only quick_cache's shard read lock.
-/// Publication, explicit removal and snapshots share a miss-path-only lock.
-pub(crate) struct CoefficientCache<K, V> {
-    inner: quick_cache::sync::Cache<
-        K,
-        Charged<V>,
-        ByteWeighter,
-        quick_cache::DefaultHashBuilder,
-        Evictions,
-    >,
+/// Hit-counter stripes per tier: twice quick_cache's eight `sharded-lock`
+/// reader stripes, so round-robin thread indices keep 16 concurrent readers on
+/// distinct counter lines while a snapshot sums only 16 lines.
+const HIT_STRIPES: usize = 16;
+
+#[repr(align(128))]
+#[derive(Default)]
+struct PaddedCounter(AtomicU64);
+
+/// This thread's hit stripe, assigned round-robin on first use.
+fn hit_stripe() -> usize {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    thread_local! {
+        static STRIPE: usize = NEXT.fetch_add(1, Ordering::Relaxed);
+    }
+    // Reduced here rather than at assignment so the index bound is visible at
+    // the array access and needs no bounds check.
+    STRIPE.try_with(|stripe| *stripe).unwrap_or(0) % HIT_STRIPES
+}
+
+type Guard<'a, K, V> = quick_cache::sync::PlaceholderGuard<
+    'a,
+    K,
+    Charged<V>,
+    ByteWeighter,
+    quick_cache::DefaultHashBuilder,
+    Evictions,
+>;
+
+type Store<K, V> = quick_cache::sync::Cache<
+    K,
+    Charged<V>,
+    ByteWeighter,
+    quick_cache::DefaultHashBuilder,
+    Evictions,
+>;
+
+/// Byte-weighted Clock-PRO cache. Hits take one quick_cache reader stripe and
+/// one hit-counter stripe. Publication, explicit removal and snapshots share a
+/// miss-path-only lock.
+struct CoefficientCache<K, V> {
+    inner: Store<K, V>,
     publication: std::sync::Mutex<()>,
-    hits: AtomicU64,
+    /// Advanced by reset; sibling publications from an older sweep are dropped.
+    epoch: AtomicU64,
+    hits: [PaddedCounter; HIT_STRIPES],
     misses: AtomicU64,
     evictions: std::sync::Arc<AtomicU64>,
     retained_bytes: std::sync::Arc<AtomicUsize>,
     max_bytes: usize,
+    /// Test-only observations of the waiter paths quick_cache keeps private.
+    #[cfg(test)]
+    probes: Probes,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct Probes {
+    /// Values a waiter received from another loader's placeholder.
+    joined: AtomicU64,
+    /// Guards issued, including ones handed off by a failed loader.
+    guards: AtomicU64,
 }
 
 impl<K: Clone + Eq + Hash + CacheKeyCharge, V: Clone + CacheCharge> CoefficientCache<K, V> {
@@ -836,21 +889,28 @@ impl<K: Clone + Eq + Hash + CacheKeyCharge, V: Clone + CacheCharge> CoefficientC
         Self {
             inner,
             publication: std::sync::Mutex::new(()),
-            hits: AtomicU64::new(0),
+            epoch: AtomicU64::new(0),
+            hits: Default::default(),
             misses: AtomicU64::new(0),
             evictions,
             retained_bytes,
             max_bytes,
+            #[cfg(test)]
+            probes: Probes::default(),
         }
     }
 
-    pub(crate) fn get<Q: Hash + quick_cache::Equivalent<K> + ?Sized>(&self, key: &Q) -> Option<V> {
-        let value = self.inner.get(key)?;
-        self.hits.fetch_add(1, Ordering::Relaxed);
-        Some(value.value)
+    fn hit(&self, value: Charged<V>) -> V {
+        self.hits[hit_stripe()].0.fetch_add(1, Ordering::Relaxed);
+        value.value
     }
 
-    pub(crate) fn get_or_compute(&self, key: K, compute: impl FnOnce() -> V) -> V {
+    fn get<Q: Hash + quick_cache::Equivalent<K> + ?Sized>(&self, key: &Q) -> Option<V> {
+        self.inner.get(key).map(|value| self.hit(value))
+    }
+
+    #[inline]
+    fn get_or_compute(&self, key: K, compute: impl FnOnce() -> V) -> V {
         self.get_or_try_compute(
             &key,
             || key.clone(),
@@ -859,80 +919,174 @@ impl<K: Clone + Eq + Hash + CacheKeyCharge, V: Clone + CacheCharge> CoefficientC
         .unwrap()
     }
 
-    /// Borrow before owning the key. Only the elected loader computes; errors
-    /// remove its placeholder and are never retained.
-    pub(crate) fn get_or_try_compute<Q: Hash + quick_cache::Equivalent<K> + ?Sized, E>(
+    /// Borrow before owning the key. Only the guard holder computes; dropping
+    /// the guard on error or panic hands it to one waiter, and errors are never
+    /// retained.
+    #[inline]
+    fn get_or_try_compute<Q: Hash + quick_cache::Equivalent<K> + ?Sized, E>(
         &self,
         key: &Q,
         own: impl FnOnce() -> K,
         compute: impl FnOnce() -> Result<V, E>,
     ) -> Result<V, E> {
-        if let Some(value) = self.get(key) {
-            return Ok(value);
-        }
-        let key = own();
-        let mut publication = None;
-        let mut computed = None;
-        let result = self.inner.get_or_insert_with(&key, || {
-            let value = compute()?;
-            // Hold through publication, never during recursive generation.
-            publication = Some(self.publication.lock().unwrap());
-            if let Some(stored) = self.inner.peek(&key) {
-                return Ok(stored);
-            }
-            self.misses.fetch_add(1, Ordering::Relaxed);
-            let bytes = entry_charge(&key, &value);
-            computed = Some((bytes, self.evictions.load(Ordering::Relaxed)));
-            self.retained_bytes.fetch_add(bytes, Ordering::Relaxed);
-            debug_assert_eq!(self.inner.capacity(), self.max_bytes as u64);
-            Ok(Charged { value, bytes })
-        });
-        if let Some((bytes, evictions)) = computed {
-            // reset can invalidate the placeholder during generation. Failed
-            // publication has no eviction callback, so undo its provisional charge.
-            if self.evictions.load(Ordering::Relaxed) == evictions && !self.inner.contains_key(&key)
-            {
-                self.retained_bytes.fetch_sub(bytes, Ordering::Relaxed);
-            }
-        } else if result.is_ok() {
-            self.hits.fetch_add(1, Ordering::Relaxed);
-        }
-        drop(publication);
-        result.map(|value| value.value)
+        self.get_or_try_sweep(key, own, |_| compute())
     }
 
-    /// Publish additional sweep channels or symmetric dual seeds without
-    /// waiting on placeholders whose loaders may be waiting on the catalog.
-    #[cfg(feature = "lie-generated")]
-    pub(crate) fn insert(&self, key: K, value: V) -> V {
+    /// As [`Self::get_or_try_compute`]; `compute` may also publish other
+    /// results of the same generation through the supplied [`Publisher`],
+    /// whose reset epoch is captured before generating.
+    #[inline]
+    fn get_or_try_sweep<Q: Hash + quick_cache::Equivalent<K> + ?Sized, E>(
+        &self,
+        key: &Q,
+        own: impl FnOnce() -> K,
+        compute: impl FnOnce(&Publisher<'_, K, V>) -> Result<V, E>,
+    ) -> Result<V, E> {
+        match self.get(key) {
+            Some(value) => Ok(value),
+            None => self.miss(own, compute),
+        }
+    }
+
+    /// Kept out of line so a warm hit neither materializes the miss closures'
+    /// captures nor pays for the miss path's frame.
+    #[cold]
+    #[inline(never)]
+    fn miss<E>(
+        &self,
+        own: impl FnOnce() -> K,
+        compute: impl FnOnce(&Publisher<'_, K, V>) -> Result<V, E>,
+    ) -> Result<V, E> {
+        let key = own();
+        let guard = match self.guard(&key) {
+            Ok(guard) => guard,
+            Err(value) => return Ok(self.hit(value)),
+        };
+        let value = compute(&self.publisher())?;
+        // Hold through publication, never during recursive generation.
         let _publication = self.publication.lock().unwrap();
-        if let Some(stored) = self.inner.get(&key) {
-            return stored.value;
+        Ok(self.fill(guard, &key, value))
+    }
+
+    /// Single-flight entry for an owned key: `Err` carries a resident or
+    /// waited-for value. A sibling publication replaces a placeholder without
+    /// filling it, so a guard (possibly handed off) may cover a resident key;
+    /// its winner is then delivered to the waiters instead of recomputed.
+    fn guard(&self, key: &K) -> Result<Guard<'_, K, V>, Charged<V>> {
+        let guard = match self.inner.get_value_or_guard(key, None) {
+            quick_cache::sync::GuardResult::Value(value) => {
+                #[cfg(test)]
+                self.probes.joined.fetch_add(1, Ordering::Relaxed);
+                return Err(value);
+            }
+            quick_cache::sync::GuardResult::Guard(guard) => guard,
+            quick_cache::sync::GuardResult::Timeout => unreachable!("waits without timeout"),
+        };
+        #[cfg(test)]
+        self.probes.guards.fetch_add(1, Ordering::Relaxed);
+        match self.inner.peek(key) {
+            Some(stored) => {
+                let _ = guard.insert(stored.clone());
+                Err(stored)
+            }
+            None => Ok(guard),
+        }
+    }
+
+    /// Publish through a guard; the caller holds the publication mutex.
+    fn fill(&self, guard: Guard<'_, K, V>, key: &K, value: V) -> V {
+        if let Some(stored) = self.inner.peek(key) {
+            let _ = guard.insert(stored.clone());
+            return self.hit(stored);
         }
         self.misses.fetch_add(1, Ordering::Relaxed);
-        let bytes = entry_charge(&key, &value);
+        let bytes = entry_charge(key, &value);
         self.retained_bytes.fetch_add(bytes, Ordering::Relaxed);
-        self.inner.insert(
-            key,
-            Charged {
-                bytes,
+        debug_assert_eq!(self.inner.capacity(), self.max_bytes as u64);
+        // `Ok` includes oversize rejection, which the eviction callback
+        // accounts. `Err` means reset invalidated the placeholder: no callback
+        // runs, and a plain insert would defeat that invalidation.
+        if guard
+            .insert(Charged {
                 value: value.clone(),
-            },
-        );
+                bytes,
+            })
+            .is_err()
+        {
+            self.retained_bytes.fetch_sub(bytes, Ordering::Relaxed);
+        }
         value
     }
 
-    /// Recheck a sweep publication without counting another lookup.
+    /// Single-flight lookup whose computation also yields a reverse lookup
+    /// (such as `dual(dual(x)) = x`), seeded only after the requested guard
+    /// completes, so opposing requests never wait on each other.
     #[cfg(feature = "lie-generated")]
-    pub(crate) fn peek<Q: Hash + quick_cache::Equivalent<K> + ?Sized>(&self, key: &Q) -> Option<V> {
-        self.inner.peek(key).map(|value| value.value)
+    fn get_or_compute_seeding<Q: Hash + quick_cache::Equivalent<K> + ?Sized>(
+        &self,
+        key: &Q,
+        own: impl FnOnce() -> K,
+        compute: impl FnOnce() -> (V, (K, V)),
+    ) -> V {
+        let mut reverse = None;
+        let value = self
+            .get_or_try_sweep(key, own, |publisher| {
+                let (value, seed) = compute();
+                reverse = Some((publisher.epoch, seed));
+                Ok::<_, std::convert::Infallible>(value)
+            })
+            .unwrap();
+        if let Some((epoch, (key, value))) = reverse {
+            self.seed(epoch, key, value);
+        }
+        value
     }
 
+    #[cfg(feature = "lie-generated")]
+    fn seed(&self, epoch: u64, key: K, value: V) {
+        if let Ok(guard) = self.guard(&key) {
+            let _publication = self.publication.lock().unwrap();
+            if self.epoch.load(Ordering::Relaxed) == epoch {
+                self.fill(guard, &key, value);
+            }
+        }
+    }
+
+    fn publisher(&self) -> Publisher<'_, K, V> {
+        Publisher {
+            cache: self,
+            epoch: self.epoch.load(Ordering::Relaxed),
+        }
+    }
+}
+
+/// Type-erased controls, so the public lifecycle functions treat every tier's
+/// typed store alike.
+trait TierControl: Sync {
+    fn reset(&self);
+    fn trim_to(&self, target_bytes: usize) -> (usize, usize, usize, usize);
+    fn tier_stats(&self) -> TierStats;
+
+    #[cfg(test)]
+    fn snapshot(&self) -> (u64, u64, usize, usize) {
+        let stats = self.tier_stats();
+        (stats.hits, stats.misses, stats.entries, stats.bytes)
+    }
+}
+
+impl<K, V> TierControl for CoefficientCache<K, V>
+where
+    K: Clone + Eq + Hash + CacheKeyCharge + Send + Sync,
+    V: Clone + CacheCharge + Send + Sync,
+{
     fn reset(&self) {
         let _publication = self.publication.lock().unwrap();
+        self.epoch.fetch_add(1, Ordering::Relaxed);
         self.inner.clear();
         self.retained_bytes.store(0, Ordering::Relaxed);
-        self.hits.store(0, Ordering::Relaxed);
+        for stripe in &self.hits {
+            stripe.0.store(0, Ordering::Relaxed);
+        }
         self.misses.store(0, Ordering::Relaxed);
         self.evictions.store(0, Ordering::Relaxed);
     }
@@ -969,22 +1123,61 @@ impl<K: Clone + Eq + Hash + CacheKeyCharge, V: Clone + CacheCharge> CoefficientC
         TierStats {
             entries: self.inner.len(),
             bytes: self.retained_bytes.load(Ordering::Relaxed),
-            hits: self.hits.load(Ordering::Relaxed),
+            hits: self
+                .hits
+                .iter()
+                .map(|stripe| stripe.0.load(Ordering::Relaxed))
+                .sum(),
             misses: self.misses.load(Ordering::Relaxed),
             evictions: self.evictions.load(Ordering::Relaxed),
         }
     }
+}
 
-    fn snapshot(&self) -> (u64, u64, usize, usize) {
-        let stats = self.tier_stats();
-        (stats.hits, stats.misses, stats.entries, stats.bytes)
+/// Non-waiting publication sink for one generation's additional results:
+/// they replace placeholders without waiting on loaders that may be waiting on
+/// a lock this generation holds. Results generated before a later reset are
+/// returned but not retained.
+#[cfg_attr(not(feature = "lie-generated"), allow(dead_code))]
+struct Publisher<'a, K, V> {
+    cache: &'a CoefficientCache<K, V>,
+    epoch: u64,
+}
+
+#[cfg(feature = "lie-generated")]
+impl<K: Clone + Eq + Hash + CacheKeyCharge, V: Clone + CacheCharge> Publisher<'_, K, V> {
+    fn publish(&self, key: K, value: V) -> V {
+        let cache = self.cache;
+        let _publication = cache.publication.lock().unwrap();
+        if cache.epoch.load(Ordering::Relaxed) != self.epoch {
+            return value;
+        }
+        if let Some(stored) = cache.inner.peek(&key) {
+            return stored.value;
+        }
+        cache.misses.fetch_add(1, Ordering::Relaxed);
+        let bytes = entry_charge(&key, &value);
+        cache.retained_bytes.fetch_add(bytes, Ordering::Relaxed);
+        cache.inner.insert(
+            key,
+            Charged {
+                bytes,
+                value: value.clone(),
+            },
+        );
+        value
+    }
+
+    /// Uncounted recheck for a generation that waited on an engine lock.
+    fn peek<Q: Hash + quick_cache::Equivalent<K> + ?Sized>(&self, key: &Q) -> Option<V> {
+        self.cache.inner.peek(key).map(|value| value.value)
     }
 }
 
 /// Ordered generated labels, borrowed without cloning their Arc handles.
 #[cfg(feature = "lie-generated")]
 #[derive(Hash)]
-pub(crate) struct Triple<'a, I>(pub &'a I, pub &'a I, pub &'a I);
+struct Triple<'a, I>(&'a I, &'a I, &'a I);
 
 #[cfg(feature = "lie-generated")]
 impl<I: PartialEq> quick_cache::Equivalent<(I, I, I)> for Triple<'_, I> {
@@ -995,14 +1188,33 @@ impl<I: PartialEq> quick_cache::Equivalent<(I, I, I)> for Triple<'_, I> {
 
 #[cfg(feature = "lie-generated")]
 #[derive(Hash)]
-pub(crate) struct Sextuple<'a, I>(
-    pub &'a I,
-    pub &'a I,
-    pub &'a I,
-    pub &'a I,
-    pub &'a I,
-    pub &'a I,
-);
+struct Sextuple<'a, I>(&'a I, &'a I, &'a I, &'a I, &'a I, &'a I);
+
+#[cfg(feature = "lie-generated")]
+impl<I: Clone> Sextuple<'_, I> {
+    fn to_key(&self) -> (I, I, I, I, I, I) {
+        let Self(a, b, c, d, e, f) = *self;
+        (
+            a.clone(),
+            b.clone(),
+            c.clone(),
+            d.clone(),
+            e.clone(),
+            f.clone(),
+        )
+    }
+}
+
+/// One F block through `store`: the six labels as given are the key.
+#[cfg(feature = "lie-generated")]
+#[inline]
+fn f_block<I: Clone + Eq + Hash + CacheKeyCharge, E>(
+    store: &CoefficientCache<(I, I, I, I, I, I), FBlock>,
+    labels: Sextuple<'_, I>,
+    compute: impl FnOnce() -> Result<FBlock, E>,
+) -> Result<FBlock, E> {
+    store.get_or_try_compute(&labels, || labels.to_key(), compute)
+}
 
 #[cfg(feature = "lie-generated")]
 impl<I: PartialEq> quick_cache::Equivalent<(I, I, I, I, I, I)> for Sextuple<'_, I> {
@@ -1021,12 +1233,22 @@ static CACHE_3J: LazyLock<CoefficientCache<Regge3j, SignedSqrtRational>> =
 static CACHE_6J: LazyLock<CoefficientCache<Regge6j, SignedSqrtRational>> =
     LazyLock::new(|| CoefficientCache::new(DEFAULT_MAX_ENTRIES, effective_budgets().six_j_bytes));
 
-pub(crate) fn cache_3j() -> &'static CoefficientCache<Regge3j, SignedSqrtRational> {
-    &CACHE_3J
+/// Exact 3j value of the canonical class `key`.
+#[inline]
+pub(crate) fn wigner_3j(
+    key: Regge3j,
+    compute: impl FnOnce() -> SignedSqrtRational,
+) -> SignedSqrtRational {
+    CACHE_3J.get_or_compute(key, compute)
 }
 
-pub(crate) fn cache_6j() -> &'static CoefficientCache<Regge6j, SignedSqrtRational> {
-    &CACHE_6J
+/// Exact 6j value of the canonical class `key`.
+#[inline]
+pub(crate) fn wigner_6j(
+    key: Regge6j,
+    compute: impl FnOnce() -> SignedSqrtRational,
+) -> SignedSqrtRational {
+    CACHE_6J.get_or_compute(key, compute)
 }
 
 /// Derived-f64 F-symbol tier. Stores the rounded `f64` F-symbol so a warm
@@ -1038,15 +1260,17 @@ static CACHE_F: LazyLock<CoefficientCache<FKey, f64>> = LazyLock::new(|| {
     CoefficientCache::new(DEFAULT_MAX_ENTRIES, effective_budgets().derived_f_bytes)
 });
 
-pub(crate) fn cache_f() -> &'static CoefficientCache<FKey, f64> {
-    &CACHE_F
+/// Derived SU(2) F-symbol for `key`.
+#[inline]
+pub(crate) fn su2_f(key: FKey, compute: impl FnOnce() -> f64) -> f64 {
+    CACHE_F.get_or_compute(key, compute)
 }
 
 /// Bounded, byte-accounted SU(N) CGC cache (`lie-generated`).
 ///
 /// CGC tensors are large and expensive (a full SVD/QR/least-squares pipeline),
 /// so unlike the exact 3j/6j tiers this cache is charged by *actual sparse
-/// storage bytes* ([`crate::lie::sun::Cgc`] entry vector + labels) and holds
+/// storage bytes* ([`sun::Cgc`] entry vector + labels) and holds
 /// `Arc<Cgc>` for cheap hit-path cloning. Keyed by the canonical
 /// `(s1, s2, s3)` labels.
 ///
@@ -1095,16 +1319,26 @@ mod cgc_cache {
     /// to it in a compile-time assertion (the same drift guard the base tiers use).
     pub(super) const CGC_MAX_BYTES: usize = 256 << 20;
 
-    pub(crate) static CACHE_CGC: LazyLock<CoefficientCache<CgcKey, Arc<Cgc>>> =
+    pub(super) static CACHE_CGC: LazyLock<CoefficientCache<CgcKey, Arc<Cgc>>> =
         LazyLock::new(|| {
             CoefficientCache::new(CGC_MAX_ENTRIES, super::effective_budgets().sun_cgc_bytes)
         });
 }
 
+/// SU(N) CGC of the ordered triple.
 #[cfg(feature = "lie-generated")]
-pub(crate) fn cache_cgc(
-) -> &'static CoefficientCache<cgc_cache::CgcKey, std::sync::Arc<crate::lie::sun::Cgc>> {
-    &cgc_cache::CACHE_CGC
+#[inline]
+pub(crate) fn sun_cgc<E>(
+    s1: &sun::Irrep,
+    s2: &sun::Irrep,
+    s3: &sun::Irrep,
+    compute: impl FnOnce() -> Result<Arc<sun::Cgc>, E>,
+) -> Result<Arc<sun::Cgc>, E> {
+    cgc_cache::CACHE_CGC.get_or_try_compute(
+        &Triple(s1, s2, s3),
+        || (s1.clone(), s2.clone(), s3.clone()),
+        compute,
+    )
 }
 
 /// Bounded exact SU(N) tensor-product and dual-lookup tier (`lie-generated`).
@@ -1119,9 +1353,41 @@ pub(crate) fn cache_cgc(
 /// lifecycle, without growing coefficient keys or values.
 #[cfg(feature = "lie-generated")]
 mod sun_product_cache {
-    use super::CoefficientCache;
-    use crate::lie::sun::{SunProduct, SunProductKey};
+    use super::{CacheKeyCharge, CoefficientCache};
+    use crate::lie::sun::{Irrep, SunProduct};
     use std::sync::LazyLock;
+
+    /// Order-normalized product pair, or one label for a `LieGroup` dual lookup.
+    #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+    pub(super) enum SunProductKey {
+        Product(Irrep, Irrep),
+        Dual(Irrep),
+    }
+
+    #[derive(Hash)]
+    pub(super) enum SunProductRef<'a> {
+        Product(&'a Irrep, &'a Irrep),
+        Dual(&'a Irrep),
+    }
+
+    impl quick_cache::Equivalent<SunProductKey> for SunProductRef<'_> {
+        fn equivalent(&self, key: &SunProductKey) -> bool {
+            match (self, key) {
+                (Self::Product(a, b), SunProductKey::Product(x, y)) => *a == x && *b == y,
+                (Self::Dual(a), SunProductKey::Dual(x)) => *a == x,
+                _ => false,
+            }
+        }
+    }
+
+    impl CacheKeyCharge for SunProductKey {
+        fn key_bytes(&self) -> usize {
+            match self {
+                Self::Product(a, b) => a.key_bytes().saturating_add(b.key_bytes()),
+                Self::Dual(a) => std::mem::size_of::<Self>().saturating_add(a.weight_bytes()),
+            }
+        }
+    }
 
     // Original FIFO collectors retained 102 pairs / 38,600 charged bytes and
     // 85 pairs / 54,504 charged bytes. Preserve their approved ceilings below;
@@ -1130,7 +1396,7 @@ mod sun_product_cache {
     pub(super) const SUN_PRODUCT_MAX_ENTRIES: usize = 256;
     pub(super) const SUN_PRODUCT_MAX_BYTES: usize = 128 << 10;
 
-    pub(crate) static CACHE_SUN_PRODUCT: LazyLock<CoefficientCache<SunProductKey, SunProduct>> =
+    pub(super) static CACHE_SUN_PRODUCT: LazyLock<CoefficientCache<SunProductKey, SunProduct>> =
         LazyLock::new(|| {
             CoefficientCache::new(
                 SUN_PRODUCT_MAX_ENTRIES,
@@ -1139,10 +1405,43 @@ mod sun_product_cache {
         });
 }
 
+/// Exact SU(N) product of an order-normalized pair (`left <= right`).
 #[cfg(feature = "lie-generated")]
-pub(crate) fn cache_sun_product(
-) -> &'static CoefficientCache<crate::lie::sun::SunProductKey, crate::lie::sun::SunProduct> {
-    &sun_product_cache::CACHE_SUN_PRODUCT
+#[inline]
+pub(crate) fn sun_product<E>(
+    left: &sun::Irrep,
+    right: &sun::Irrep,
+    compute: impl FnOnce() -> Result<sun::SunProduct, E>,
+) -> Result<sun::SunProduct, E> {
+    use sun_product_cache::{SunProductKey, SunProductRef, CACHE_SUN_PRODUCT};
+    CACHE_SUN_PRODUCT.get_or_try_compute(
+        &SunProductRef::Product(left, right),
+        || SunProductKey::Product(left.clone(), right.clone()),
+        compute,
+    )
+}
+
+/// Dual of an SU(N) label; a miss also records the reverse dual.
+#[cfg(feature = "lie-generated")]
+pub(crate) fn sun_dual(x: &sun::Irrep, dual: impl FnOnce() -> sun::Irrep) -> sun::Irrep {
+    use crate::lie::sun::SunProduct;
+    use std::collections::BTreeMap;
+    use sun_product_cache::{SunProductKey, SunProductRef, CACHE_SUN_PRODUCT};
+    let singleton = |label| SunProduct::from_map(BTreeMap::from([(label, 1)]));
+    CACHE_SUN_PRODUCT
+        .get_or_compute_seeding(
+            &SunProductRef::Dual(x),
+            || SunProductKey::Dual(x.clone()),
+            || {
+                let dual = dual();
+                (
+                    singleton(dual.clone()),
+                    (SunProductKey::Dual(dual), singleton(x.clone())),
+                )
+            },
+        )
+        .channel(0)
+        .clone()
 }
 
 /// Bounded, byte-accounted derived-f64 SU(N) F-symbol cache (`lie-generated`).
@@ -1187,21 +1486,29 @@ mod sun_f_cache {
     /// [`super::GENERATED_CACHE_MAX_BYTES`] drift assertion.
     pub(super) const SUN_F_MAX_BYTES: usize = 64 << 20;
 
-    pub(crate) static CACHE_SUN_F: LazyLock<CoefficientCache<SunFKey, FBlock>> =
+    pub(super) static CACHE_SUN_F: LazyLock<CoefficientCache<SunFKey, FBlock>> =
         LazyLock::new(|| {
             CoefficientCache::new(SUN_F_MAX_ENTRIES, super::effective_budgets().sun_f_bytes)
         });
 }
 
+/// SU(N) F block for the six labels as given.
 #[cfg(feature = "lie-generated")]
-pub(crate) fn cache_sun_f(
-) -> &'static CoefficientCache<sun_f_cache::SunFKey, crate::lie::sun::FBlock> {
-    &sun_f_cache::CACHE_SUN_F
+#[inline]
+pub(crate) fn sun_f<E>(
+    [a, b, c, d, e, f]: [&sun::Irrep; 6],
+    compute: impl FnOnce() -> Result<FBlock, E>,
+) -> Result<FBlock, E> {
+    f_block(
+        &sun_f_cache::CACHE_SUN_F,
+        Sextuple(a, b, c, d, e, f),
+        compute,
+    )
 }
 
 /// Bounded, byte-accounted derived-f64 B/C/D F-symbol cache (`lie-generated`).
 ///
-/// The B/C/D analogue of [`cache_sun_f`]: an F block is the contraction of four
+/// The B/C/D analogue of [`sun_f`]: an F block is the contraction of four
 /// catalog-driven CGC, real work even with warm generators, so the derived
 /// `[μ,ν,κ,λ]` block is cached. Same design as the SU(N) tier — the **plain
 /// ordered six-label key** `(a,b,c,d,e,f)` (no Regge canonicalization exists for
@@ -1227,16 +1534,24 @@ mod bcd_f_cache {
     /// `pub(super)` for the [`super::GENERATED_CACHE_MAX_BYTES`] drift assertion.
     pub(super) const BCD_F_MAX_BYTES: usize = 64 << 20;
 
-    pub(crate) static CACHE_BCD_F: LazyLock<CoefficientCache<BcdFKey, FBlock>> =
+    pub(super) static CACHE_BCD_F: LazyLock<CoefficientCache<BcdFKey, FBlock>> =
         LazyLock::new(|| {
             CoefficientCache::new(BCD_F_MAX_ENTRIES, super::effective_budgets().bcd_f_bytes)
         });
 }
 
+/// B/C/D F block for the six labels as given.
 #[cfg(feature = "lie-generated")]
-pub(crate) fn cache_bcd_f() -> &'static CoefficientCache<bcd_f_cache::BcdFKey, crate::frcore::FBlock>
-{
-    &bcd_f_cache::CACHE_BCD_F
+#[inline]
+pub(crate) fn bcd_f<E>(
+    [a, b, c, d, e, f]: [&bcd::Irrep; 6],
+    compute: impl FnOnce() -> Result<FBlock, E>,
+) -> Result<FBlock, E> {
+    f_block(
+        &bcd_f_cache::CACHE_BCD_F,
+        Sextuple(a, b, c, d, e, f),
+        compute,
+    )
 }
 
 /// Bounded, byte-accounted B/C/D exact-product, CGC and Lie dual-lookup tier.
@@ -1253,7 +1568,7 @@ pub(crate) fn cache_bcd_f() -> &'static CoefficientCache<bcd_f_cache::BcdFKey, c
 /// `LieGroup` dual lookups share this tier's budget and lifecycle. Their private
 /// keys fit inside the existing shell; values reuse singleton product slices.
 #[cfg(feature = "lie-generated")]
-pub(crate) mod bcd_cgc_cache {
+mod bcd_cgc_cache {
     use super::{CacheCharge, CacheKeyCharge, CoefficientCache};
     use crate::lie::bcd::{CatalogCgc, Irrep};
     use std::sync::{Arc, LazyLock};
@@ -1272,13 +1587,13 @@ pub(crate) mod bcd_cgc_cache {
     /// inadmissible weight cannot reach the cache at all: no `Irrep` for it is
     /// ever constructed.
     #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-    pub(crate) enum BcdKey {
+    pub(super) enum BcdKey {
         Product(Irrep, Irrep),
         Cgc(Irrep, Irrep, Irrep),
         Dual(Irrep),
     }
     #[derive(Hash)]
-    pub(crate) enum BcdRef<'a> {
+    pub(super) enum BcdRef<'a> {
         Product(&'a Irrep, &'a Irrep),
         Cgc(&'a Irrep, &'a Irrep, &'a Irrep),
         Dual(&'a Irrep),
@@ -1304,7 +1619,7 @@ pub(crate) mod bcd_cgc_cache {
         }
     }
     #[derive(Clone, Debug)]
-    pub(crate) enum BcdValue {
+    pub(super) enum BcdValue {
         Product(Arc<[(Irrep, u32)]>),
         Cgc(Arc<CatalogCgc>),
     }
@@ -1333,7 +1648,7 @@ pub(crate) mod bcd_cgc_cache {
     /// `pub(super)` for the [`super::GENERATED_CACHE_MAX_BYTES`] drift assertion.
     pub(super) const BCD_CGC_MAX_BYTES: usize = 256 << 20;
 
-    pub(crate) static CACHE_BCD_CGC: LazyLock<CoefficientCache<BcdKey, BcdValue>> =
+    pub(super) static CACHE_BCD_CGC: LazyLock<CoefficientCache<BcdKey, BcdValue>> =
         LazyLock::new(|| {
             CoefficientCache::new(
                 BCD_CGC_MAX_ENTRIES,
@@ -1343,9 +1658,145 @@ pub(crate) mod bcd_cgc_cache {
 }
 
 #[cfg(feature = "lie-generated")]
-pub(crate) fn cache_bcd_cgc(
-) -> &'static CoefficientCache<bcd_cgc_cache::BcdKey, bcd_cgc_cache::BcdValue> {
-    &bcd_cgc_cache::CACHE_BCD_CGC
+type BcdChannels = Arc<[(bcd::Irrep, u32)]>;
+
+/// Exact B/C/D product of an order-normalized pair (`left <= right`).
+#[cfg(feature = "lie-generated")]
+#[inline]
+pub(crate) fn bcd_product<E>(
+    left: &bcd::Irrep,
+    right: &bcd::Irrep,
+    compute: impl FnOnce() -> Result<BcdChannels, E>,
+) -> Result<BcdChannels, E> {
+    use bcd_cgc_cache::{BcdKey, BcdRef, BcdValue, CACHE_BCD_CGC};
+    let value = CACHE_BCD_CGC.get_or_try_compute(
+        &BcdRef::Product(left, right),
+        || BcdKey::Product(left.clone(), right.clone()),
+        || compute().map(BcdValue::Product),
+    )?;
+    let BcdValue::Product(product) = value else {
+        unreachable!("product key stores an exact product")
+    };
+    Ok(product)
+}
+
+/// Dual of a B/C/D label; a miss also records the reverse dual.
+#[cfg(feature = "lie-generated")]
+pub(crate) fn bcd_dual(x: &bcd::Irrep, dual: impl FnOnce() -> bcd::Irrep) -> bcd::Irrep {
+    use bcd_cgc_cache::{BcdKey, BcdRef, BcdValue, CACHE_BCD_CGC};
+    let singleton = |label| BcdValue::Product(Arc::from([(label, 1)]));
+    let value = CACHE_BCD_CGC.get_or_compute_seeding(
+        &BcdRef::Dual(x),
+        || BcdKey::Dual(x.clone()),
+        || {
+            let dual = dual();
+            (
+                singleton(dual.clone()),
+                (BcdKey::Dual(dual), singleton(x.clone())),
+            )
+        },
+    );
+    let BcdValue::Product(dual) = value else {
+        unreachable!("dual key stores a dual")
+    };
+    dual[0].0.clone()
+}
+
+/// One B/C/D CGC generation, which may cover every channel of `a ⊗ b`.
+#[cfg(feature = "lie-generated")]
+pub(crate) struct BcdCgcSweep<'a> {
+    publisher: &'a Publisher<'a, bcd_cgc_cache::BcdKey, bcd_cgc_cache::BcdValue>,
+    a: &'a bcd::Irrep,
+    b: &'a bcd::Irrep,
+    c: &'a bcd::Irrep,
+}
+
+#[cfg(feature = "lie-generated")]
+impl BcdCgcSweep<'_> {
+    /// The requested channel if another sweep published it meanwhile; call it
+    /// after acquiring the lock that serializes sweeps.
+    pub(crate) fn resident(&self) -> Option<Arc<bcd::CatalogCgc>> {
+        match self
+            .publisher
+            .peek(&bcd_cgc_cache::BcdRef::Cgc(self.a, self.b, self.c))?
+        {
+            bcd_cgc_cache::BcdValue::Cgc(cgc) => Some(cgc),
+            bcd_cgc_cache::BcdValue::Product(_) => unreachable!("CGC key stores a CGC"),
+        }
+    }
+
+    /// Publish another channel of `a ⊗ b` produced by this sweep.
+    pub(crate) fn publish(&self, channel: bcd::CatalogCgc) {
+        self.publisher.publish(
+            bcd_cgc_cache::BcdKey::Cgc(self.a.clone(), self.b.clone(), channel.s3().clone()),
+            bcd_cgc_cache::BcdValue::Cgc(Arc::new(channel)),
+        );
+    }
+}
+
+/// B/C/D CGC of the ordered triple.
+#[cfg(feature = "lie-generated")]
+pub(crate) fn bcd_cgc<E>(
+    a: &bcd::Irrep,
+    b: &bcd::Irrep,
+    c: &bcd::Irrep,
+    compute: impl FnOnce(&BcdCgcSweep<'_>) -> Result<Arc<bcd::CatalogCgc>, E>,
+) -> Result<Arc<bcd::CatalogCgc>, E> {
+    use bcd_cgc_cache::{BcdKey, BcdRef, BcdValue, CACHE_BCD_CGC};
+    let value = CACHE_BCD_CGC.get_or_try_sweep(
+        &BcdRef::Cgc(a, b, c),
+        || BcdKey::Cgc(a.clone(), b.clone(), c.clone()),
+        |publisher| {
+            let sweep = BcdCgcSweep { publisher, a, b, c };
+            compute(&sweep).map(BcdValue::Cgc)
+        },
+    )?;
+    let BcdValue::Cgc(value) = value else {
+        unreachable!("CGC key stores a CGC")
+    };
+    Ok(value)
+}
+
+#[cfg(all(test, feature = "lie-generated"))]
+pub(crate) fn bcd_cgc_is_resident(a: &bcd::Irrep, b: &bcd::Irrep, c: &bcd::Irrep) -> bool {
+    bcd_cgc_cache::CACHE_BCD_CGC
+        .inner
+        .peek(&bcd_cgc_cache::BcdRef::Cgc(a, b, c))
+        .is_some()
+}
+
+const TIERS: &[CoefficientCacheTier] = &[
+    CoefficientCacheTier::ThreeJ,
+    CoefficientCacheTier::SixJ,
+    CoefficientCacheTier::DerivedF,
+    #[cfg(feature = "lie-generated")]
+    CoefficientCacheTier::SunProduct,
+    #[cfg(feature = "lie-generated")]
+    CoefficientCacheTier::SunCgc,
+    #[cfg(feature = "lie-generated")]
+    CoefficientCacheTier::SunF,
+    #[cfg(feature = "lie-generated")]
+    CoefficientCacheTier::BcdCgc,
+    #[cfg(feature = "lie-generated")]
+    CoefficientCacheTier::BcdF,
+];
+
+fn control(tier: CoefficientCacheTier) -> &'static dyn TierControl {
+    match tier {
+        CoefficientCacheTier::ThreeJ => &*CACHE_3J,
+        CoefficientCacheTier::SixJ => &*CACHE_6J,
+        CoefficientCacheTier::DerivedF => &*CACHE_F,
+        #[cfg(feature = "lie-generated")]
+        CoefficientCacheTier::SunProduct => &*sun_product_cache::CACHE_SUN_PRODUCT,
+        #[cfg(feature = "lie-generated")]
+        CoefficientCacheTier::SunCgc => &*cgc_cache::CACHE_CGC,
+        #[cfg(feature = "lie-generated")]
+        CoefficientCacheTier::SunF => &*sun_f_cache::CACHE_SUN_F,
+        #[cfg(feature = "lie-generated")]
+        CoefficientCacheTier::BcdCgc => &*bcd_cgc_cache::CACHE_BCD_CGC,
+        #[cfg(feature = "lie-generated")]
+        CoefficientCacheTier::BcdF => &*bcd_f_cache::CACHE_BCD_F,
+    }
 }
 
 /// Clear the 3j, 6j, and derived-f64 F-symbol caches (and, under `lie-generated`, the
@@ -1361,16 +1812,8 @@ pub(crate) fn cache_bcd_cgc(
 /// clear a cache another component is relying on, since there is one shared
 /// coefficient-value authority per process (consumers must not keep a mirror).
 pub fn reset() {
-    CACHE_3J.reset();
-    CACHE_6J.reset();
-    CACHE_F.reset();
-    #[cfg(feature = "lie-generated")]
-    {
-        sun_product_cache::CACHE_SUN_PRODUCT.reset();
-        cgc_cache::CACHE_CGC.reset();
-        sun_f_cache::CACHE_SUN_F.reset();
-        bcd_f_cache::CACHE_BCD_F.reset();
-        bcd_cgc_cache::CACHE_BCD_CGC.reset();
+    for &tier in TIERS {
+        control(tier).reset();
     }
 }
 
@@ -1395,25 +1838,7 @@ pub fn reset() {
 /// report's linearization-point and memory-accounting boundaries.
 pub fn trim_to(tier: CoefficientCacheTier, target_charged_bytes: usize) -> CacheTrimReport {
     let (removed_entries, removed_charged_bytes, remaining_entries, remaining_charged_bytes) =
-        match tier {
-            CoefficientCacheTier::ThreeJ => CACHE_3J.trim_to(target_charged_bytes),
-            CoefficientCacheTier::SixJ => CACHE_6J.trim_to(target_charged_bytes),
-            CoefficientCacheTier::DerivedF => CACHE_F.trim_to(target_charged_bytes),
-            #[cfg(feature = "lie-generated")]
-            CoefficientCacheTier::SunProduct => {
-                sun_product_cache::CACHE_SUN_PRODUCT.trim_to(target_charged_bytes)
-            }
-            #[cfg(feature = "lie-generated")]
-            CoefficientCacheTier::SunCgc => cgc_cache::CACHE_CGC.trim_to(target_charged_bytes),
-            #[cfg(feature = "lie-generated")]
-            CoefficientCacheTier::SunF => sun_f_cache::CACHE_SUN_F.trim_to(target_charged_bytes),
-            #[cfg(feature = "lie-generated")]
-            CoefficientCacheTier::BcdCgc => {
-                bcd_cgc_cache::CACHE_BCD_CGC.trim_to(target_charged_bytes)
-            }
-            #[cfg(feature = "lie-generated")]
-            CoefficientCacheTier::BcdF => bcd_f_cache::CACHE_BCD_F.trim_to(target_charged_bytes),
-        };
+        control(tier).trim_to(target_charged_bytes);
     CacheTrimReport {
         tier,
         removed_entries,
@@ -1426,31 +1851,15 @@ pub fn trim_to(tier: CoefficientCacheTier, target_charged_bytes: usize) -> Cache
 /// Aggregate hit/miss/entry/byte statistics across the 3j, 6j, and derived-f64
 /// F-symbol caches.
 pub fn stats() -> CacheStats {
-    let (h3, m3, e3, b3) = CACHE_3J.snapshot();
-    let (h6, m6, e6, b6) = CACHE_6J.snapshot();
-    let (hf, mf, ef, bf) = CACHE_F.snapshot();
-    #[cfg(feature = "lie-generated")]
-    let (hc, mc, ec, bc) = {
-        let (hp, mp, ep, bp) = sun_product_cache::CACHE_SUN_PRODUCT.snapshot();
-        let (h, m, e, b) = cgc_cache::CACHE_CGC.snapshot();
-        let (h2, m2, e2, b2) = sun_f_cache::CACHE_SUN_F.snapshot();
-        let (h3, m3, e3, b3) = bcd_f_cache::CACHE_BCD_F.snapshot();
-        let (h4, m4, e4, b4) = bcd_cgc_cache::CACHE_BCD_CGC.snapshot();
-        (
-            hp + h + h2 + h3 + h4,
-            mp + m + m2 + m3 + m4,
-            ep + e + e2 + e3 + e4,
-            bp + b + b2 + b3 + b4,
-        )
-    };
-    #[cfg(not(feature = "lie-generated"))]
-    let (hc, mc, ec, bc) = (0u64, 0u64, 0usize, 0usize);
-    CacheStats {
-        hits: h3 + h6 + hf + hc,
-        misses: m3 + m6 + mf + mc,
-        entries: e3 + e6 + ef + ec,
-        bytes: b3 + b6 + bf + bc,
-    }
+    TIERS
+        .iter()
+        .map(|&tier| control(tier).tier_stats())
+        .fold(CacheStats::default(), |sum, tier| CacheStats {
+            hits: sum.hits + tier.hits,
+            misses: sum.misses + tier.misses,
+            entries: sum.entries + tier.entries,
+            bytes: sum.bytes + tier.bytes,
+        })
 }
 
 /// Per-tier and total statistics for the three base SU(2) coefficient tiers
@@ -1590,6 +1999,11 @@ mod tests {
             assert_eq!(loads, 1);
             assert_eq!(cache.tier_stats().misses, before.misses);
             assert_eq!(cache.tier_stats().hits, 1);
+            // Trim removes without shrinking capacity, so admission stays full-cap.
+            cache.trim_to(0);
+            cache.get_or_compute(key.clone(), || Arc::new(cgc(&a, &a, &a).unwrap()));
+            assert_eq!(cache.tier_stats().entries, 1);
+            assert_eq!(cache.inner.capacity() as usize, budget);
         }
     }
 
@@ -1605,12 +2019,12 @@ mod tests {
             worker_cache.get_or_compute(1u32, || {
                 started_tx.send(()).unwrap();
                 resume_rx.recv().unwrap();
-                worker_cache.peek(&1).unwrap()
+                worker_cache.inner.peek(&1).unwrap().value
             })
         });
         started_rx.recv().unwrap();
-        assert_eq!(cache.insert(1, 1.0f64), 1.0);
-        assert_eq!(cache.insert(1, 2.0f64), 1.0);
+        assert_eq!(cache.publisher().publish(1, 1.0f64), 1.0);
+        assert_eq!(cache.publisher().publish(1, 2.0f64), 1.0);
         assert_eq!(cache.tier_stats().misses, 1);
         resume_tx.send(()).unwrap();
         assert_eq!(worker.join().unwrap(), 1.0);
@@ -1803,8 +2217,9 @@ mod tests {
     #[test]
     fn dual_keys_preserve_existing_entry_sizes() {
         use super::bcd_cgc_cache::{BcdKey, BcdValue};
+        use super::sun_product_cache::SunProductKey;
         use crate::lie::bcd::{Irrep as BcdIrrep, Series};
-        use crate::lie::sun::{Irrep as SunIrrep, SunProductKey};
+        use crate::lie::sun::Irrep as SunIrrep;
         use std::{mem::size_of, sync::Arc};
 
         // Original Product/Cgc layouts, before adding dual-key variants.
@@ -1827,8 +2242,9 @@ mod tests {
     #[cfg(feature = "lie-generated")]
     #[test]
     fn sun_product_tier_caps_charge_and_oversize_eviction_are_exact() {
+        use super::sun_product_cache::SunProductKey;
         use super::sun_product_cache::{SUN_PRODUCT_MAX_BYTES, SUN_PRODUCT_MAX_ENTRIES};
-        use crate::lie::sun::{Irrep as SunIrrep, SunProduct, SunProductKey};
+        use crate::lie::sun::{Irrep as SunIrrep, SunProduct};
         use std::collections::BTreeMap;
 
         assert_eq!(SUN_PRODUCT_MAX_ENTRIES, 256);
@@ -1836,7 +2252,7 @@ mod tests {
 
         let a = SunIrrep::from_dynkin(&[2, 1]).unwrap();
         let b = SunIrrep::from_dynkin(&[1, 2]).unwrap();
-        let key = SunProductKey::new(&a, &b);
+        let key = SunProductKey::Product(a.clone(), b.clone());
         let key_bytes = 2 * std::mem::size_of::<SunIrrep>()
             + 2 * ARC_COUNTS_BYTES
             + (a.rank() + b.rank()) * std::mem::size_of::<i64>();
@@ -1874,13 +2290,14 @@ mod tests {
     #[cfg(feature = "lie-generated")]
     #[test]
     fn concurrent_sun_product_misses_compute_once() {
-        use crate::lie::sun::{Irrep as SunIrrep, SunProduct, SunProductKey};
+        use super::sun_product_cache::SunProductKey;
+        use crate::lie::sun::{Irrep as SunIrrep, SunProduct};
         use std::collections::BTreeMap;
         use std::sync::{Arc, Barrier};
 
         let a = SunIrrep::trivial(3).unwrap();
         let b = SunIrrep::from_dynkin(&[1, 0]).unwrap();
-        let key = SunProductKey::new(&a, &b);
+        let key = SunProductKey::Product(a.clone(), b.clone());
         let channel = b.clone();
         let cache = Arc::new(CoefficientCache::new(16, 1 << 20));
         let start = Arc::new(Barrier::new(8));
@@ -1918,18 +2335,19 @@ mod tests {
     #[cfg(feature = "lie-generated")]
     #[test]
     fn local_trim_releases_one_sun_product_arc_owner() {
-        use crate::lie::sun::{Irrep as SunIrrep, SunProduct, SunProductKey};
+        use super::sun_product_cache::SunProductKey;
+        use crate::lie::sun::{Irrep as SunIrrep, SunProduct};
         use std::collections::BTreeMap;
 
         let three = SunIrrep::from_dynkin(&[1, 0]).unwrap();
         let three_bar = SunIrrep::from_dynkin(&[0, 1]).unwrap();
-        let key = SunProductKey::new(&three, &three_bar);
+        let key = SunProductKey::Product(three.clone(), three_bar.clone());
         let external = SunProduct::from_map(BTreeMap::from([
             (SunIrrep::trivial(3).unwrap(), 1),
             (SunIrrep::from_dynkin(&[1, 1]).unwrap(), 1),
         ]));
         let local = CoefficientCache::new(16, 1 << 20);
-        local.insert(key, external.clone());
+        local.publisher().publish(key, external.clone());
         let before = external.strong_count();
         assert!(
             before >= 2,
@@ -1954,8 +2372,8 @@ mod tests {
         let one_entry_budget = entry_charge(&first, &1.0f64);
         let cache: CoefficientCache<CgcKey, f64> =
             CoefficientCache::new(usize::MAX, one_entry_budget);
-        cache.insert(first.clone(), 1.0);
-        cache.insert(second, 2.0);
+        cache.publisher().publish(first.clone(), 1.0);
+        cache.publisher().publish(second, 2.0);
         assert_eq!(cache.tier_stats().entries, 1);
         assert_eq!(cache.tier_stats().evictions, 1);
         cache.reset();
@@ -1974,7 +2392,7 @@ mod tests {
         assert!(entry_charge(&bcd_key, &1.0f64) > shallow_only);
         let oversize: CoefficientCache<BcdFKey, f64> =
             CoefficientCache::new(usize::MAX, shallow_only);
-        oversize.insert(bcd_key, 1.0);
+        oversize.publisher().publish(bcd_key, 1.0);
         assert_eq!(oversize.tier_stats().entries, 0);
         assert_eq!(oversize.tier_stats().bytes, 0);
         assert_eq!(oversize.tier_stats().evictions, 1);
@@ -2001,8 +2419,8 @@ mod tests {
         let kb = (irr(&[1, 1]), irr(&[1, 1]), irr(&[1, 1]));
         let budget = a.value_bytes().max(b.value_bytes()) + ka.key_bytes() + 8;
         let c: CoefficientCache<CgcKey, Arc<Cgc>> = CoefficientCache::new(1_000_000, budget);
-        c.insert(ka.clone(), a);
-        c.insert(kb, b);
+        c.publisher().publish(ka.clone(), a);
+        c.publisher().publish(kb, b);
         let (_, _, entries, bytes) = c.snapshot();
         assert!(entries <= 1, "retained-charge cap kept {entries} entries");
         assert!(
@@ -2053,8 +2471,8 @@ mod tests {
         );
         let budget = a.value_bytes() + ka.key_bytes() + 8;
         let c: CoefficientCache<SunFKey, FBlock> = CoefficientCache::new(1_000_000, budget);
-        c.insert(ka.clone(), a);
-        c.insert(kb, b);
+        c.publisher().publish(ka.clone(), a);
+        c.publisher().publish(kb, b);
         let (_, _, entries, bytes) = c.snapshot();
         assert!(entries <= 1, "retained-charge cap kept {entries} entries");
         assert!(
@@ -2086,7 +2504,7 @@ mod tests {
         assert_eq!(value.value_bytes(), expected);
         let charge = entry_charge(&key, &value);
         let local = CoefficientCache::new(16, charge - 1);
-        let BcdValue::Product(returned) = local.insert(key, value) else {
+        let BcdValue::Product(returned) = local.publisher().publish(key, value) else {
             panic!("product value")
         };
         assert!(Arc::ptr_eq(&product, &returned));
@@ -2193,8 +2611,9 @@ mod tests {
     #[test]
     fn borrowed_generated_views_hit_before_owning_keys() {
         use super::bcd_cgc_cache::{BcdKey, BcdRef};
+        use super::sun_product_cache::{SunProductKey, SunProductRef};
         use crate::lie::bcd::{Irrep as BcdIrrep, Series};
-        use crate::lie::sun::{Irrep, SunProductKey, SunProductRef};
+        use crate::lie::sun::Irrep;
 
         fn hit<K: Clone + Eq + Hash + CacheKeyCharge, Q: Hash + quick_cache::Equivalent<K>>(
             owned: K,
@@ -2225,7 +2644,10 @@ mod tests {
             ),
             &Sextuple(&a, &b, &a, &b, &a, &b),
         );
-        hit(SunProductKey::new(&a, &b), &SunProductRef::Product(&a, &b));
+        hit(
+            SunProductKey::Product(a.clone(), b.clone()),
+            &SunProductRef::Product(&a, &b),
+        );
         hit(SunProductKey::Dual(a.clone()), &SunProductRef::Dual(&a));
         let a = BcdIrrep::trivial(Series::B, 2).unwrap();
         let b = BcdIrrep::from_dynkin(Series::B, &[1, 0]).unwrap();
@@ -2363,5 +2785,339 @@ mod tests {
             }
             Err(error) => panic!("unexpected configuration result: {error}"),
         }
+    }
+
+    /// Leader blocked in generation while one waiter joins its placeholder;
+    /// `during` runs before the leader resumes. quick_cache keeps its waiter
+    /// list private, so parking is observed afterwards through `probe` rather
+    /// than awaited: an attempt whose waiter came too late is repeated with a
+    /// longer head start.
+    fn with_parked_waiter(
+        max_bytes: usize,
+        leader: impl Fn() -> f64 + Send + Sync + 'static,
+        during: impl Fn(&CoefficientCache<u32, f64>),
+        probe: impl Fn(&Probes) -> bool,
+    ) -> (
+        Arc<CoefficientCache<u32, f64>>,
+        std::thread::Result<f64>,
+        f64,
+    ) {
+        use std::sync::mpsc;
+        let leader = Arc::new(leader);
+        for attempt in 0..16 {
+            let cache = Arc::new(CoefficientCache::new(16, max_bytes));
+            let (started_tx, started_rx) = mpsc::channel();
+            let (resume_tx, resume_rx) = mpsc::channel::<()>();
+            let leader_thread = {
+                let (cache, leader) = (Arc::clone(&cache), Arc::clone(&leader));
+                std::thread::spawn(move || {
+                    cache.get_or_compute(1, || {
+                        started_tx.send(()).unwrap();
+                        resume_rx.recv().unwrap();
+                        leader()
+                    })
+                })
+            };
+            started_rx.recv().unwrap();
+            let waiter_computed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let waiter = {
+                let (cache, computed) = (Arc::clone(&cache), Arc::clone(&waiter_computed));
+                std::thread::spawn(move || {
+                    cache.get_or_compute(1, || {
+                        computed.store(true, Ordering::Relaxed);
+                        f64::NAN
+                    })
+                })
+            };
+            std::thread::sleep(std::time::Duration::from_micros(100 << attempt));
+            during(&cache);
+            resume_tx.send(()).unwrap();
+            let leader_result = leader_thread.join();
+            let waited = waiter.join().unwrap();
+            if probe(&cache.probes) {
+                // A waiter that joined or was handed a resident key never computes.
+                assert!(!waiter_computed.load(Ordering::Relaxed));
+                return (cache, leader_result, waited);
+            }
+        }
+        panic!("the waiter never parked on the leader's placeholder");
+    }
+
+    fn joined(probes: &Probes) -> bool {
+        probes.joined.load(Ordering::Relaxed) == 1
+    }
+
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn waiters_receive_a_sibling_published_winner() {
+        let (cache, leader, waiter) = with_parked_waiter(
+            1024,
+            || 2.0,
+            |cache| assert_eq!(cache.publisher().publish(1, 1.0), 1.0),
+            joined,
+        );
+        assert_eq!((leader.unwrap(), waiter), (1.0, 1.0));
+        let stats = cache.tier_stats();
+        assert_eq!((stats.entries, stats.misses, stats.hits), (1, 1, 2));
+        assert_eq!(stats.bytes, entry_charge(&1u32, &1.0f64));
+    }
+
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn handed_off_guard_delivers_a_resident_winner_without_computing() {
+        let (cache, leader, waiter) = with_parked_waiter(
+            1024,
+            || panic!("generation panicked"),
+            |cache| assert_eq!(cache.publisher().publish(1, 1.0), 1.0),
+            // The leader's guard plus the one it handed to the parked waiter.
+            |probes| probes.guards.load(Ordering::Relaxed) == 2,
+        );
+        assert!(leader.is_err());
+        assert_eq!(waiter, 1.0);
+        let stats = cache.tier_stats();
+        assert_eq!((stats.entries, stats.misses, stats.hits), (1, 1, 1));
+    }
+
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn seeding_lookups_share_one_computation_and_never_wait_on_each_other() {
+        use std::sync::Barrier;
+        // Phase 0: every thread requests 1. Phase 1: requests of 3 and of its
+        // reverse 4 race; each seeds the other's key after its own guard.
+        for phase in 0..2u32 {
+            let cache = Arc::new(CoefficientCache::new(16, 1024));
+            let start = Arc::new(Barrier::new(8));
+            let computations = Arc::new(AtomicU64::new(0));
+            let threads = (0..8u32)
+                .map(|t| {
+                    let (cache, start, computations) = (
+                        Arc::clone(&cache),
+                        Arc::clone(&start),
+                        Arc::clone(&computations),
+                    );
+                    let key = if phase == 1 && t % 2 == 1 {
+                        4
+                    } else {
+                        1 + 2 * phase
+                    };
+                    let reverse = if phase == 0 { 2 } else { 7 - key };
+                    std::thread::spawn(move || {
+                        start.wait();
+                        let value = cache.get_or_compute_seeding(
+                            &key,
+                            || key,
+                            || {
+                                computations.fetch_add(1, Ordering::Relaxed);
+                                std::thread::sleep(std::time::Duration::from_millis(5));
+                                (f64::from(reverse), (reverse, f64::from(key)))
+                            },
+                        );
+                        assert_eq!(value, f64::from(reverse));
+                    })
+                })
+                .collect::<Vec<_>>();
+            for thread in threads {
+                thread.join().unwrap();
+            }
+            assert!(computations.load(Ordering::Relaxed) <= 1 + u64::from(phase));
+            assert_eq!(
+                cache.get(&(if phase == 0 { 2 } else { 4 })),
+                Some(f64::from(1 + 2 * phase))
+            );
+            assert_eq!(cache.tier_stats().entries, 2);
+        }
+    }
+
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn reverse_seeds_are_publications_not_lookups() {
+        let cache = CoefficientCache::<u32, f64>::new(16, 1024);
+        let lookup = |key: u32, dual: u32| {
+            cache.get_or_compute_seeding(&key, || key, || (f64::from(dual), (dual, f64::from(key))))
+        };
+        let counters = || {
+            let stats = cache.tier_stats();
+            (stats.entries, stats.misses, stats.hits)
+        };
+        assert_eq!(lookup(1, 2), 2.0);
+        assert_eq!(
+            counters(),
+            (2, 2, 0),
+            "cold request publishes both directions"
+        );
+        assert_eq!((lookup(1, 2), lookup(2, 1)), (2.0, 1.0));
+        assert_eq!(counters(), (2, 2, 2), "both directions then hit");
+        assert_eq!(lookup(3, 3), 3.0);
+        assert_eq!(
+            counters(),
+            (3, 3, 2),
+            "a self-dual seed finds its own publication"
+        );
+        assert_eq!(lookup(3, 3), 3.0);
+        assert_eq!(counters(), (3, 3, 3));
+    }
+
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn reset_between_seeding_computation_and_publication_retains_nothing() {
+        let cache = CoefficientCache::<u32, f64>::new(16, 1024);
+        let value = cache.get_or_compute_seeding(
+            &1,
+            || 1,
+            || {
+                cache.reset();
+                (2.0, (2, 1.0))
+            },
+        );
+        assert_eq!(value, 2.0);
+        let stats = cache.tier_stats();
+        assert_eq!((stats.entries, stats.bytes), (0, 0));
+    }
+
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn reset_during_a_sweep_drops_its_later_sibling_publications() {
+        let cache = CoefficientCache::<u32, f64>::new(16, 1024);
+        let requested = cache.get_or_try_sweep(
+            &1,
+            || 1,
+            |sweep| {
+                cache.reset();
+                assert_eq!(sweep.publish(2, 2.0), 2.0);
+                Ok::<_, ()>(1.0)
+            },
+        );
+        assert_eq!(requested, Ok(1.0));
+        let stats = cache.tier_stats();
+        // The stale requested publication still counts its computation.
+        assert_eq!((stats.entries, stats.bytes, stats.misses), (0, 0, 1));
+        assert_eq!(cache.publisher().publish(2, 2.0), 2.0);
+        assert_eq!(cache.tier_stats().entries, 1);
+    }
+
+    #[test]
+    fn oversize_value_is_still_delivered_to_waiters() {
+        let charge = entry_charge(&1u32, &1.0f64);
+        let (cache, leader, waiter) = with_parked_waiter(charge - 1, || 3.0, |_| {}, joined);
+        assert_eq!((leader.unwrap(), waiter), (3.0, 3.0));
+        let stats = cache.tier_stats();
+        assert_eq!(
+            (stats.entries, stats.bytes, stats.misses, stats.evictions),
+            (0, 0, 1, 1)
+        );
+    }
+
+    #[test]
+    fn contended_failed_leader_hands_off_to_exactly_one_new_leader() {
+        use std::sync::Barrier;
+        let cache = Arc::new(CoefficientCache::new(16, 1024));
+        let start = Arc::new(Barrier::new(8));
+        let computations = Arc::new(AtomicU64::new(0));
+        let results = (0..8)
+            .map(|_| {
+                let cache = Arc::clone(&cache);
+                let start = Arc::clone(&start);
+                let computations = Arc::clone(&computations);
+                std::thread::spawn(move || {
+                    start.wait();
+                    cache.get_or_try_compute(
+                        &3u32,
+                        || 3,
+                        || {
+                            let attempt = computations.fetch_add(1, Ordering::Relaxed);
+                            std::thread::sleep(std::time::Duration::from_millis(20));
+                            if attempt == 0 {
+                                Err("first attempt fails")
+                            } else {
+                                Ok(3.0f64)
+                            }
+                        },
+                    )
+                })
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(computations.load(Ordering::Relaxed), 2);
+        assert_eq!(results.iter().filter(|r| r.is_err()).count(), 1);
+        assert!(results.iter().flatten().all(|&v| v == 3.0));
+        let stats = cache.tier_stats();
+        assert_eq!((stats.entries, stats.misses, stats.hits), (1, 1, 6));
+    }
+
+    #[test]
+    fn panicking_computation_releases_its_guard() {
+        let cache = CoefficientCache::<u32, f64>::new(16, 1024);
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            cache.get_or_compute(5, || panic!("generation panicked"))
+        }));
+        assert!(panicked.is_err());
+        assert_eq!(cache.get_or_compute(5, || 5.0), 5.0);
+        let stats = cache.tier_stats();
+        assert_eq!((stats.entries, stats.misses, stats.hits), (1, 1, 0));
+    }
+
+    #[test]
+    fn concurrent_readers_and_writers_share_one_tier_consistently() {
+        use std::sync::Barrier;
+        let charge = entry_charge(&0u32, &0.0f64);
+        let cache = Arc::new(CoefficientCache::new(64, 64 * charge));
+        let start = Arc::new(Barrier::new(9));
+        let readers = (0..8)
+            .map(|_| {
+                let cache = Arc::clone(&cache);
+                let start = Arc::clone(&start);
+                std::thread::spawn(move || {
+                    start.wait();
+                    for i in 0..20_000u32 {
+                        let key = i % 128;
+                        assert_eq!(cache.get_or_compute(key, || f64::from(key)), f64::from(key));
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        start.wait();
+        for round in 0..200 {
+            match round % 3 {
+                0 => {
+                    cache.trim_to(8 * charge);
+                }
+                1 => cache.reset(),
+                _ => {
+                    let stats = cache.tier_stats();
+                    assert!(stats.bytes <= 64 * charge);
+                    assert_eq!(stats.bytes, stats.entries * charge);
+                }
+            }
+        }
+        for reader in readers {
+            reader.join().unwrap();
+        }
+        let stats = cache.tier_stats();
+        assert_eq!(stats.entries, cache.inner.len());
+        assert_eq!(
+            stats.bytes,
+            cache.inner.iter().map(|(_, v)| v.bytes).sum::<usize>()
+        );
+
+        // Quiescent striped hit counts are exact across threads.
+        cache.reset();
+        cache.get_or_compute(1, || 1.0);
+        let hitters = (0..16)
+            .map(|_| {
+                let cache = Arc::clone(&cache);
+                std::thread::spawn(move || {
+                    for _ in 0..1000 {
+                        assert_eq!(cache.get(&1), Some(1.0));
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        for hitter in hitters {
+            hitter.join().unwrap();
+        }
+        let stats = cache.tier_stats();
+        assert_eq!((stats.hits, stats.misses), (16_000, 1));
     }
 }

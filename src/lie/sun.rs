@@ -184,51 +184,12 @@ pub(crate) struct Irrep {
     weight: Arc<[i64]>,
 }
 
-/// Order-normalized product pair, or one label for a LieGroup dual lookup.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum SunProductKey {
-    Product(Irrep, Irrep),
-    Dual(Irrep),
-}
-
-#[derive(Hash)]
-pub(crate) enum SunProductRef<'a> {
-    Product(&'a Irrep, &'a Irrep),
-    Dual(&'a Irrep),
-}
-
-impl quick_cache::Equivalent<SunProductKey> for SunProductRef<'_> {
-    fn equivalent(&self, key: &SunProductKey) -> bool {
-        match (self, key) {
-            (Self::Product(a, b), SunProductKey::Product(x, y)) => *a == x && *b == y,
-            (Self::Dual(a), SunProductKey::Dual(x)) => *a == x,
-            _ => false,
-        }
-    }
-}
-
-impl SunProductKey {
-    pub(crate) fn new(a: &Irrep, b: &Irrep) -> Self {
-        let (left, right) = if a <= b { (a, b) } else { (b, a) };
-        Self::Product(left.clone(), right.clone())
-    }
-}
-
-impl crate::cache::CacheKeyCharge for SunProductKey {
-    fn key_bytes(&self) -> usize {
-        match self {
-            Self::Product(a, b) => a.key_bytes().saturating_add(b.key_bytes()),
-            Self::Dual(a) => std::mem::size_of::<Self>().saturating_add(a.weight_bytes()),
-        }
-    }
-}
-
 /// Shared, sorted channels of one SU(N) tensor-product decomposition.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SunProduct(Arc<[(Irrep, u32)]>);
 
 impl SunProduct {
-    pub(super) fn channel(&self, index: usize) -> &Irrep {
+    pub(crate) fn channel(&self, index: usize) -> &Irrep {
         &self.0[index].0
     }
 
@@ -299,7 +260,7 @@ impl crate::cache::CacheKeyCharge for Irrep {
 
 impl Irrep {
     /// Shared weight allocation: counts plus payload.
-    fn weight_bytes(&self) -> usize {
+    pub(crate) fn weight_bytes(&self) -> usize {
         crate::cache::ARC_COUNTS_BYTES.saturating_add(std::mem::size_of_val(self.weight.as_ref()))
     }
 
@@ -743,11 +704,7 @@ pub fn shared_directproduct(a: &Irrep, b: &Irrep) -> Result<SunProduct, SunError
         });
     }
     let (left, right) = if a <= b { (a, b) } else { (b, a) };
-    crate::cache::cache_sun_product().get_or_try_compute(
-        &SunProductRef::Product(left, right),
-        || SunProductKey::new(left, right),
-        || directproduct_uncached(a, b),
-    )
+    crate::cache::sun_product(left, right, || directproduct_uncached(a, b))
 }
 
 fn directproduct_uncached(a: &Irrep, b: &Irrep) -> Result<SunProduct, SunError> {

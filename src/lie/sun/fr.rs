@@ -141,21 +141,9 @@ pub fn f_symbol(
     // block is not invariant under the naive label permutations anyway. So the
     // key is the six labels as given; distinct requests never collide, and no
     // canonicalization can silently merge two genuinely different blocks.
-    let cache = crate::cache::cache_sun_f();
-    cache.get_or_try_compute(
-        &crate::cache::Sextuple(a, b, c, d, e, f),
-        || {
-            (
-                a.clone(),
-                b.clone(),
-                c.clone(),
-                d.clone(),
-                e.clone(),
-                f.clone(),
-            )
-        },
-        || f_block_raw(&mut SunFamily, a, b, c, d, e, f),
-    )
+    crate::cache::sun_f([a, b, c, d, e, f], || {
+        f_block_raw(&mut SunFamily, a, b, c, d, e, f)
+    })
 }
 
 // ---------------------------------------------------------------------------

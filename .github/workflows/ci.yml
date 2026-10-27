@@ -35,6 +35,12 @@ jobs:
       - run: cargo clippy --all-targets
       - run: cargo clippy --all-targets --no-default-features
       - run: cargo clippy --all-targets --all-features
+      # Feature unification can re-enable these; `parking_lot` overrides the
+      # sharded reader lock and `stats` adds shared hit-path writes.
+      - name: quick_cache features exclude parking_lot and stats
+        run: |
+          cargo tree --all-features -e features -i quick_cache > quick_cache-features.txt
+          ! grep -E 'feature "(parking_lot|stats)"' quick_cache-features.txt
 
   # Parallel full suites shorten latency without narrowing all-features coverage.
   # Clippy and rustdoc stay independent so they do not lengthen this path.

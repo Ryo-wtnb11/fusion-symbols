@@ -992,47 +992,18 @@ impl FusionCategory for LieGroup {
         if self.is_torus() {
             return self.torus_label(U1.dual(&a.torus_label()));
         }
-        // Dual keys store one label in the tiers' existing shared slice layout.
-        #[cfg(feature = "lie-generated")]
-        use crate::cache::{
-            bcd_cgc_cache::{BcdKey, BcdRef, BcdValue},
-            cache_bcd_cgc, cache_sun_product,
-        };
         #[cfg(feature = "lie-generated")]
         if let Some(x) = a.bcd() {
-            let tier = cache_bcd_cgc();
-            let value = tier.get(&BcdRef::Dual(x)).unwrap_or_else(|| {
-                let key = BcdKey::Dual(x.clone());
-                let dual = x.dual();
-                tier.insert(
-                    BcdKey::Dual(dual.clone()),
-                    BcdValue::Product(std::sync::Arc::from([(x.clone(), 1)])),
-                );
-                tier.insert(key, BcdValue::Product(std::sync::Arc::from([(dual, 1)])))
-            });
-            let BcdValue::Product(dual) = value else {
-                unreachable!("dual key stores a dual")
-            };
             return LieIrrep {
                 group: self.group.clone(),
-                payload: LiePayload::Bcd(dual[0].0.clone()),
+                payload: LiePayload::Bcd(crate::cache::bcd_dual(x, || x.dual())),
             };
         }
         #[cfg(feature = "lie-generated")]
         if let Some(x) = a.generated() {
-            let tier = cache_sun_product();
-            let value = tier.get(&sun::SunProductRef::Dual(x)).unwrap_or_else(|| {
-                let key = sun::SunProductKey::Dual(x.clone());
-                let dual = x.dual();
-                tier.insert(
-                    sun::SunProductKey::Dual(dual.clone()),
-                    sun::SunProduct::from_map(BTreeMap::from([(x.clone(), 1)])),
-                );
-                tier.insert(key, sun::SunProduct::from_map(BTreeMap::from([(dual, 1)])))
-            });
             return LieIrrep {
                 group: self.group.clone(),
-                payload: LiePayload::Generated(value.channel(0).clone()),
+                payload: LiePayload::Generated(crate::cache::sun_dual(x, || x.dual())),
             };
         }
         a.clone()
