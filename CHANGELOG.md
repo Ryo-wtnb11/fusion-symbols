@@ -7,13 +7,28 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Added
+
+- G₂ coefficients through `LieGroup` (`lie-generated`): irreps, fusion, F, R,
+  A, B and CGC from the exact engine of
+  [`docs/gauge_exceptional.md`](docs/gauge_exceptional.md), with a new
+  authority fingerprint (`lie-exceptional`, epoch 1). Values are exact until
+  one rounding, so equal fingerprints mean bit-identical values. Every G₂
+  irrep is self-dual and real. Composites with G₂ factors use the ordered
+  product rules. Each G₂ group owns a memo bounded by entries and estimated
+  bytes instead of a global cache tier; `reset_catalog` also drops it. No
+  existing value or fingerprint changes.
+- `GroupId::{g2, f4, e6, e7, e8}`, the simply connected exceptional forms.
+  F₄, E₆, E₇ and E₈ are constructible but `LieGroup::new` still returns
+  `LieError::Unsupported { requires: "<X> coefficient engine" }` for them.
+
 ### Documentation
 
 - The README, user guide, design reference and crate-level docs are rewritten
   for the 0.9.0 API. The user guide is now task-oriented: choosing a category,
   building groups by name and by root data (`GroupId`), labels, symbols, CGC,
   abelian categories, tables, products, errors and caches. Capability limits
-  are stated explicitly: exceptional groups return `Unsupported`, CU(1) is
+  are stated explicitly: F₄, E₆, E₇ and E₈ return `Unsupported`, CU(1) is
   the only disconnected group (#191), and finite non-abelian Rep(G) is not
   provided (#192). Every README and user-guide example is compiled and run by
   `tests/doc_examples.rs`.

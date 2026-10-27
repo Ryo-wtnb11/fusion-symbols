@@ -26,13 +26,14 @@ byte-bounded and application-owned; tables keep AnyonWiki's gauge. See
 | Rank one: SU(2), SO(3), Spin(3), Sp(2), PSU(2); exact 3j/6j/CG | `lie::LieGroup`, `lie::su2` | base |
 | D₂ forms: Spin(4), SO(4), PSO(4) | `lie::LieGroup` | base |
 | SU(N), SO(N), Spin(N), Sp(2r) of higher rank, and their central quotients | `lie::LieGroup` | `lie-generated` |
+| G₂, with exact coefficients | `lie::LieGroup` | `lie-generated` |
 | U(1), tori Tᵗ, U(N), semisimple × torus products and quotients | `lie::LieGroup` | base when every simple factor is rank one or D₂ (such as U(2)); otherwise `lie-generated` |
 | U(1) with `Copy` labels; CU(1) = O(2) | `lie::U1`, `lie::CU1` | base |
 | Z_N, fermion parity | `finite::ZN`, `fermion::FermionParity` | base |
 | Unitary multiplicity-free AnyonWiki categories (Fibonacci, Ising, …) | `table::TableCategory` | rank ≤ 4 (74) base; rank 5–7 (303 more) with `anyonwiki-unitary` |
 | Deligne products of any of the above | `product::Product` | base |
 
-Exceptional groups (G₂, F₄, E₆–E₈) are classified by `GroupId`, but
+The exceptional groups F₄, E₆, E₇ and E₈ are classified by `GroupId`, but
 `LieGroup::new` returns `LieError::Unsupported`. CU(1) is the only disconnected group. Finite
 non-abelian groups Rep(G) are not provided.
 

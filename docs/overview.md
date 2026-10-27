@@ -10,8 +10,8 @@ This page is the contract reference; task-oriented examples are in the
 ## Capability boundaries
 
 - Connected compact Lie groups are classified by `GroupId` for every root
-  system, but coefficients exist only for classical factors (A, B, C, D) and
-  tori. Exceptional factors (G₂, F₄, E₆, E₇, E₈) make `LieGroup::new` return
+  system, but coefficients exist only for classical factors (A, B, C, D), G₂
+  and tori. F₄, E₆, E₇ and E₈ factors make `LieGroup::new` return
   `LieError::Unsupported`.
 - CU(1) = O(2) is the only disconnected group. Other O(N), Pin(N) and general
   disconnected groups are not provided (tracked in
@@ -67,8 +67,10 @@ Dynkin numbering follows Bourbaki. `GroupId::sp(2*r)` uses the defining
 dimension, not the rank. A1, B1 and C1 use the exact SU(2) implementation;
 SO(3) and PSU(2) admit only even doubled spins. D₂ expands into α₁ then α₂,
 each in the exact A₁ gauge: dimensions are `(a+1)(b+1)`, and SO(4) admits
-`a+b` even while PSO(4) requires both labels even. Exceptional root-system
-variants have no coefficient engine.
+`a+b` even while PSO(4) requires both labels even. G₂ uses the exact
+engine of [gauge_exceptional.md](gauge_exceptional.md) (`lie-generated`); its
+irreps are all self-dual and real. F₄, E₆, E₇ and E₈ have no coefficient
+engine yet. `GroupId::{g2, f4, e6, e7, e8}` build the simply connected forms.
 
 A global form filters labels through `src/lie/group.rs::GroupId::admits`;
 it does not change coefficients on shared irreps. Spin(N) admits spinors that
@@ -97,8 +99,8 @@ coefficients or removing fusion outcomes: `ν−λ−μ ∈ Q ⊆ X` proves clos
 Composites delegate to `Product<Vec<LieGroup>>` of ordered simple covers then
 rank-one torus covers. A single non-D₂ factor uses that factor's own evaluator and gauge;
 standard U(1) stores its charge inline and delegates to the closed-form `U1` arithmetic.
-The trivial group executes as an empty Product. Exceptional blocks return
-specific `LieError::Unsupported` errors.
+The trivial group executes as an empty Product. F₄, E₆, E₇ and E₈ blocks
+return specific `LieError::Unsupported` errors.
 Generated factors require `lie-generated`. B/C/D seed totals are checked
 against the aggregate catalog budget before allocating generators (see
 [resources](user-guide/resources.md#bcd-generator-catalogs)).
@@ -206,10 +208,11 @@ products take the conjunction. All built-in families have a canonical unit;
 U(1), Z_N and parity have trivial associators, as do qualifying pointed tables.
 These are gauge-dependent certificates, not substitutes for N or braiding checks.
 
-Gauge rules are frozen in [gauge.md](gauge.md) and [gauge_soN.md](gauge_soN.md).
+Gauge rules are frozen in [gauge.md](gauge.md), [gauge_soN.md](gauge_soN.md)
+and [gauge_exceptional.md](gauge_exceptional.md).
 Persisted derived data should carry the opaque authority fingerprint; compare
-bytes without parsing. Generated fingerprints identify conventions, not
-cross-process bit-identical coefficients. See [resources](user-guide/resources.md).
+bytes without parsing. SU(N) and B/C/D fingerprints identify conventions, not
+cross-process bit-identical coefficients; the G₂ fingerprint identifies values. See [resources](user-guide/resources.md).
 
 ## Enumeration and products
 

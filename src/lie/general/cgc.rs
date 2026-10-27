@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use num_traits::{One, Zero};
 
-use super::module::{IrrepModule, Q};
+use super::module::{labels_bytes, q_heap, qs_bytes, IrrepModule, Q};
 use super::roots::CartanData;
 use crate::exact::SignedSqrtRational;
 use crate::frcore::{Family, MEntry};
@@ -119,6 +119,28 @@ impl Ladders {
         self.module.dim
     }
 
+    /// Estimated retained bytes, including the module and both ladder sets.
+    fn bytes(&self) -> usize {
+        let ops = |ops: &Vec<Op>| -> usize {
+            ops.iter()
+                .map(|op| {
+                    op.capacity() * std::mem::size_of::<Vec<(usize, Q)>>()
+                        + op.iter()
+                            .map(|row| {
+                                row.capacity() * std::mem::size_of::<(usize, Q)>()
+                                    + row.iter().map(|(_, x)| q_heap(x)).sum::<usize>()
+                            })
+                            .sum::<usize>()
+                })
+                .sum()
+        };
+        self.module.bytes()
+            + qs_bytes(&self.norm)
+            + self.space.capacity() * std::mem::size_of::<usize>()
+            + ops(&self.lower)
+            + ops(&self.raise)
+    }
+
     /// `sign ⟨low| L^h |high⟩` with `L = Σ_i f_i` (§6.3). Positive rescalings
     /// keep the sign, so the rational basis `b` gives it exactly.
     fn principal_sign(&self, lambda: &[i64]) -> Result<i8, LieError> {
@@ -209,6 +231,7 @@ fn coproduct(op_a: &Op, op_b: &Op, from: &ProductSpace, to: &ProductSpace, v: &[
 pub(super) struct Channel {
     pub(super) mult: usize,
     /// The pivot rows `p_1 < … < p_N` of §5.3, as indices into `P`.
+    #[cfg(test)]
     pub(super) pivots: Vec<usize>,
     /// `N_μ = ⟨B_μ, B_μ⟩`.
     pub(super) seed_norms: Vec<Q>,
@@ -248,7 +271,7 @@ impl Channel {
                 }
             }
         }
-        let (pivots, echelon) = echelon_nullspace(rows, p.len());
+        let (_pivots, echelon) = echelon_nullspace(rows, p.len());
         if echelon.len() != multiplicity {
             return Err(CgcError::NullityMismatch {
                 a: a.module.weights[0].mu.clone(),
@@ -335,7 +358,8 @@ impl Channel {
         }
         Ok(Self {
             mult: multiplicity,
-            pivots,
+            #[cfg(test)]
+            pivots: _pivots,
             seed_norms,
             spaces,
             phi,
@@ -434,12 +458,13 @@ type Decomposition = BTreeMap<Vec<i64>, u32>;
 /// with F and R from the generic `frcore` contractions (§7).
 ///
 /// Modules, tensor products and channels are memoized for the lifetime of the
-/// value only.
+/// value only; `bytes` is the estimated retained size of all three.
 pub(crate) struct GeneralFamily {
     data: CartanData,
     modules: HashMap<Vec<i64>, Ladders>,
     products: HashMap<(Vec<i64>, Vec<i64>), Decomposition>,
     channels: HashMap<[Vec<i64>; 3], Vec<MEntry>>,
+    bytes: usize,
 }
 
 impl GeneralFamily {
@@ -449,16 +474,31 @@ impl GeneralFamily {
             modules: HashMap::new(),
             products: HashMap::new(),
             channels: HashMap::new(),
+            bytes: 0,
         }
     }
 
+    #[cfg(test)]
     pub(super) fn data(&self) -> &CartanData {
         &self.data
+    }
+
+    /// Retained memo entries over modules, products and channels.
+    pub(super) fn memo_len(&self) -> usize {
+        self.modules.len() + self.products.len() + self.channels.len()
+    }
+
+    /// Estimated retained bytes of the memo (capacity-based, saturating).
+    pub(super) fn memo_bytes(&self) -> usize {
+        self.bytes
     }
 
     pub(super) fn module(&mut self, lambda: &[i64]) -> Result<&Ladders, LieError> {
         if !self.modules.contains_key(lambda) {
             let built = Ladders::new(&self.data, lambda)?;
+            self.bytes = self
+                .bytes
+                .saturating_add(labels_bytes(lambda) + built.bytes());
             self.modules.insert(lambda.to_vec(), built);
         }
         Ok(&self.modules[lambda])
@@ -469,6 +509,13 @@ impl GeneralFamily {
         let key = (a.to_vec(), b.to_vec());
         if !self.products.contains_key(&key) {
             let n = self.data.tensor_product(a, b)?;
+            let entries: usize = n
+                .keys()
+                .map(|c| labels_bytes(c) + std::mem::size_of::<u32>())
+                .sum();
+            self.bytes = self
+                .bytes
+                .saturating_add(labels_bytes(a) + labels_bytes(b) + entries);
             self.products.insert(key.clone(), n);
         }
         Ok(&self.products[&key])
@@ -543,6 +590,10 @@ impl Family for GeneralFamily {
                 })
             })
             .collect::<Result<Vec<_>, LieError>>()?;
+        let key_bytes: usize = key.iter().map(|l| labels_bytes(l)).sum();
+        self.bytes = self
+            .bytes
+            .saturating_add(key_bytes + entries.capacity() * std::mem::size_of::<MEntry>());
         self.channels.insert(key, entries.clone());
         Ok(entries)
     }

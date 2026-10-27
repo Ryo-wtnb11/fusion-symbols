@@ -18,7 +18,7 @@ Categories that are representation categories of groups also implement
 
 | You need | Use | Objects |
 |---|---|---|
-| A compact connected Lie group: SU(N), SO(N), Spin(N), Sp(2r), U(N), tori, products, quotients | `lie::LieGroup` built from a `lie::GroupId` | `LieIrrep` |
+| A compact connected Lie group: SU(N), SO(N), Spin(N), Sp(2r), G₂, U(N), tori, products, quotients | `lie::LieGroup` built from a `lie::GroupId` | `LieIrrep` |
 | Exact SU(2) 3j, 6j or CG values as rationals under a square root | `lie::su2::{wigner_3j, wigner_6j, clebsch_gordan}` | doubled spins `u32` |
 | U(1) with `Copy` labels and scalar symbols | `lie::U1` | `U1Irrep` |
 | CU(1) = O(2) | `lie::CU1` | `CU1Irrep` |
@@ -27,8 +27,8 @@ Categories that are representation categories of groups also implement
 | Fibonacci, Ising, or another unitary multiplicity-free category of rank ≤ 7 | `table::TableCategory` | `TableObject` |
 | Several symmetries at once | `product::Product` | tuples or vectors of factor objects |
 
-Not provided: exceptional groups (they are classified by `GroupId`, but
-`LieGroup::new` returns `LieError::Unsupported`), disconnected groups other
+Not provided: the exceptional groups F₄, E₆, E₇ and E₈ (they are classified
+by `GroupId`, but `LieGroup::new` returns `LieError::Unsupported`), disconnected groups other
 than CU(1), noncompact groups, finite non-abelian groups Rep(G), and
 categories with multiplicity that are not Lie groups.
 
@@ -84,9 +84,14 @@ assert_eq!(g.group_id().semisimple_rank(), 3);
 let u2 = GroupId::new(&[RootSystem::A(1)], 1, &[vec![1, 1], vec![0, 2]])?;
 assert_eq!(u2, GroupId::u(2)?);
 
-// Exceptional root systems are classified but have no coefficient engine.
-let g2 = GroupId::cover(&[RootSystem::G2], 0)?;
-assert!(matches!(LieGroup::new(g2), Err(LieError::Unsupported { .. })));
+// G₂ has exact coefficients (with `lie-generated`); F₄, E₆, E₇ and E₈ are
+// classified but have no coefficients yet.
+let g2 = LieGroup::new(GroupId::g2())?;
+assert_eq!(g2.group_id(), &GroupId::cover(&[RootSystem::G2], 0)?);
+assert_eq!(
+    LieGroup::new(GroupId::e8()),
+    Err(LieError::Unsupported { requires: "E8 coefficient engine" })
+);
 ```
 
 `GroupId::new(roots, torus_rank, generators)` takes square integer row
@@ -342,7 +347,7 @@ Each category has one error type: `LieError`, `U1Error`, `CU1Error`,
 | Z_N modulus zero, or `ZNIrrep::from_canonical` charge outside `0..N` | `ZNError::ZeroModulus`, `ZNError::NonCanonicalCharge` |
 | Invalid CU(1) label `(twice_charge, s)` | `CU1Error::InvalidLabel` |
 | Cache budgets configured after a cache operation or a second time | `CacheBudgetError::AlreadyInitialized` |
-| Group needs `lie-generated` or is exceptional | `LieError::Unsupported { requires }` |
+| Group needs `lie-generated`, or is F₄, E₆, E₇ or E₈ | `LieError::Unsupported { requires }` |
 | Numerical generation failed its checks | `LieError::Generation` with an error source |
 | Invalid rank or lattice | `GroupError::UnsupportedRank`, `InvalidLattice`, `NotACenterSubgroup`, `SizeOverflow` |
 | R on a fusion-only table or product factor | `TableError::NoBraiding`, `ProductError::NoBraiding { factor }` |

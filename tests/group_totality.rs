@@ -282,7 +282,6 @@ fn tori_trivial_data_and_exceptional_engine_boundary() {
     assert!(coupled.admits(&[1, 1], &[]));
     assert!(!coupled.admits(&[1, 0], &[]));
     for (g, requires) in [
-        (GroupId::cover(&[G2], 0).unwrap(), "G2 coefficient engine"),
         (GroupId::cover(&[F4], 0).unwrap(), "F4 coefficient engine"),
         (GroupId::cover(&[E7], 0).unwrap(), "E7 coefficient engine"),
         (GroupId::cover(&[E8], 0).unwrap(), "E8 coefficient engine"),

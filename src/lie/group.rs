@@ -533,6 +533,37 @@ impl GroupId {
         Ok(Self::named(&[root], 0, hnf))
     }
 
+    /// G₂, the simply connected (and adjoint) form: the center is trivial.
+    /// Infallible, like the other exceptional constructors: the rank is fixed.
+    /// G₂ coefficients require `lie-generated`.
+    pub fn g2() -> Self {
+        Self::named(&[RootSystem::G2], 0, Vec::new())
+    }
+    /// F₄, the simply connected (and adjoint) form: the center is trivial.
+    /// Classified only: [`super::LieGroup::new`] returns
+    /// [`super::LieError::Unsupported`] for it.
+    pub fn f4() -> Self {
+        Self::named(&[RootSystem::F4], 0, Vec::new())
+    }
+    /// Simply connected E₆ (center `Z3`); quotients come from [`Self::new`].
+    /// Classified only: [`super::LieGroup::new`] returns
+    /// [`super::LieError::Unsupported`] for it.
+    pub fn e6() -> Self {
+        Self::named(&[RootSystem::E6], 0, Vec::new())
+    }
+    /// Simply connected E₇ (center `Z2`); quotients come from [`Self::new`].
+    /// Classified only: [`super::LieGroup::new`] returns
+    /// [`super::LieError::Unsupported`] for it.
+    pub fn e7() -> Self {
+        Self::named(&[RootSystem::E7], 0, Vec::new())
+    }
+    /// E₈, the simply connected (and adjoint) form: the center is trivial.
+    /// Classified only: [`super::LieGroup::new`] returns
+    /// [`super::LieError::Unsupported`] for it.
+    pub fn e8() -> Self {
+        Self::named(&[RootSystem::E8], 0, Vec::new())
+    }
+
     /// Half-spin form retaining `[ω_r]` (`λ_r=+1/2`), Slansky's Ss(n).
     /// Requires n ≥ 8 divisible by 4. With `t=Σ_(i odd ≤ r−2) aᵢ`,
     /// admission is `p=a_(r−1)+t` even; the vector class is excluded.

@@ -228,6 +228,28 @@ fn g2_27x27_to_27_pivot_rule() {
     assert!(!psi[1][0].is_zero());
 }
 
+/// §9.5 on every channel of E6 `27 ⊗ 27̄ = 1 + 78 + 650`.
+#[test]
+fn e6_27x27bar_is_exact() {
+    let (a, b) = (unit(6, 0), unit(6, 5));
+    assert_eq!(
+        decomposition(RootSystem::E6, &a, &b),
+        [(1, 1), (78, 1), (650, 1)]
+    );
+    check_product(RootSystem::E6, &a, &b);
+}
+
+/// §9.5 on every channel of F4 `26 ⊗ 26 = 1 + 26 + 52 + 273 + 324`.
+#[test]
+fn f4_26x26_is_exact() {
+    let v = unit(4, 3);
+    assert_eq!(
+        decomposition(RootSystem::F4, &v, &v),
+        [(1, 1), (26, 1), (52, 1), (273, 1), (324, 1)]
+    );
+    check_product(RootSystem::F4, &v, &v);
+}
+
 #[test]
 fn nullity_gate_rejects_a_wrong_multiplicity() {
     let data = CartanData::new(RootSystem::G2);
@@ -334,6 +356,8 @@ fn regeneration_is_byte_identical() {
 /// prototype. §10 also bounds the radicands by 5-digit numerators and 7-digit
 /// denominators; the extremes over both channels are pinned: numerator 33856
 /// (`33856/268191`, in → 64) and denominator 7051968 (`18769/7051968`, in → 27).
+/// The numerator 33856 is a tie (`33856/268191` and `33856/446985`);
+/// `max_by_key` keeps the last maximum in entry order, which is the one pinned.
 #[test]
 fn g2_27x27_golden_counts() {
     let mut fam = GeneralFamily::new(RootSystem::G2);
@@ -346,6 +370,7 @@ fn g2_27x27_golden_counts() {
     }
     let max_numer = radicands.iter().max_by_key(|r| r.numer().clone()).unwrap();
     let max_denom = radicands.iter().max_by_key(|r| r.denom().clone()).unwrap();
+    assert!(radicands.contains(&q(33856, 446985)));
     assert_eq!(*max_numer, q(33856, 268191));
     assert_eq!(*max_denom, q(18769, 7051968));
 }

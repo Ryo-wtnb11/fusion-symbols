@@ -627,7 +627,7 @@ mod sun_forms {
     #[test]
     fn constructor_rejects_an_unsupported_root_system_and_a_wrong_length_label() {
         assert!(matches!(
-            lie_test::irrep_in(&GroupId::cover(&[RootSystem::G2], 0).unwrap(), &[1, 0]),
+            lie_test::irrep_in(&GroupId::f4(), &[1, 0, 0, 0]),
             Err(LieError::Unsupported { .. })
         ));
         assert!(matches!(

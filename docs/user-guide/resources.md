@@ -144,23 +144,44 @@ without B/C/D catalogs reports all-zero stats and rejects `with_catalog_budget`.
 
 `catalog_stats()` returns `Result<CatalogStats, LieError>` with the retained
 generator sets (`entries`, including the seeded base cases), their charged
-`bytes`, and the `budget`; all three are zero without a catalog. `reset_catalog()` re-seeds base representations
-and is a no-op for other groups. Both report a poisoned lock as
-`LieError::Generation`. Global coefficient caches survive catalog reset;
+`bytes`, and the `budget`; all three are zero without a catalog. `reset_catalog()` re-seeds base representations,
+drops the G₂ coefficient memo, and is a no-op for other groups. Both report a poisoned B/C/D catalog
+lock as `LieError::Generation`; a poisoned G₂ memo is dropped and rebuilt. Global coefficient caches survive catalog reset;
 warm CGC/F/R calls consult those caches before locking the catalog.
+
+## G₂ coefficient memo
+
+G₂ coefficients bypass the global coefficient caches and their budgets. Each
+G₂ `LieGroup` (and each G₂ factor of a composite) owns a memo of exact
+modules, tensor products and CGC channels; clones share it. Once it holds 512
+entries or an estimated 256 MiB, the next query starts from an empty memo.
+The bounds are checked only between queries: one query adds at most 14
+entries, and its transient working set may exceed 256 MiB. A single entry for
+an irrep of a few hundred dimensions can be tens of MiB (the exact rational
+module and its ladder operators), so a few entries can reach the byte bound.
+The estimate counts stored data only; resident memory runs about twice it.
+Fusion outcomes and N use only root-system combinatorics and never wait for
+the memo; F, R and CGC queries on one G₂ group run one at a time.
+
+`reset_catalog()` drops the memo (on any clone, and on every G₂ factor of a
+composite); dropping the last clone frees it too. The memo does not appear in
+`catalog_stats`, and `with_catalog_budget` rejects G₂ with
+`LieError::Unsupported`. Every value is exact until one rounding, so the memo
+state never changes a returned bit.
 
 ## Exactness and fingerprints
 
 Lie combinatorics and discrete conventions are exact. SU(2) closed forms
-round once; generated Lie coefficient values are verification-gated `f64`.
+and G₂ coefficients round once; other generated Lie coefficient values are
+verification-gated `f64`.
 Table values are offline binary64 projections; their dimensions are derived
 numerically from F. See [design](../overview.md#numerical-and-capability-contracts).
-No cross-process bit identity is promised for generated coefficients. Discrete
+No cross-process bit identity is promised for SU(N) and B/C/D coefficients. Discrete
 sign, basis or multiplicity-order changes are not ordinary round-off.
 
 Persist `FusionCategory::authority_fingerprint()` next to derived data and
-compare bytes on load; never parse them. The SU(2) fingerprint identifies
-values; generated-family fingerprints identify conventions, pipeline and
+compare bytes on load; never parse them. The SU(2) and G₂ fingerprints identify
+values; the SU(N) and B/C/D fingerprints identify conventions, pipeline and
 tolerance policy, with numerical agreement established by gates and oracles.
 Generated fingerprint bytes and generated cache statistics/ceiling are marked
 unstable in rustdoc.
@@ -170,4 +191,5 @@ family's epoch bump, CHANGELOG breaking-change entry and regenerated golden
 values in one change. Ordinary prose or cache edits require no epoch bump.
 Fingerprint `racah:` prefixes remain permanent identifiers. Normative rules:
 [SU(2)/SU(N)](../gauge.md#status-frozen-normative-specification),
-[B/C/D](../gauge_soN.md#status-frozen-normative-specification).
+[B/C/D](../gauge_soN.md#status-frozen-normative-specification),
+[exceptional](../gauge_exceptional.md#status-frozen-normative-specification).

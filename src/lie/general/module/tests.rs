@@ -4,6 +4,7 @@
 //! by hand from §3–§4.
 
 use super::*;
+use crate::exact::SignedSqrtRational;
 use crate::lie::RootSystem;
 use std::collections::{BTreeMap, BTreeSet};
 
