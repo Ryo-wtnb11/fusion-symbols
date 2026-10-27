@@ -7,46 +7,6 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
-### Added
-
-- Generated R blocks have their own coefficient-cache tiers (#207):
-  `CoefficientCacheTier::SunR` (`sun_r`) and `CoefficientCacheTier::BcdR`
-  (`bcd_r`), with matching `CoefficientCacheBudgets` limits; read them with
-  `cache::tier_stats`. Keys are the ordered `(a, b, c)`
-  labels; caps follow the F tiers (2^16 entries, 64 MiB), so
-  `GENERATED_CACHE_MAX_BYTES` grows to 768 MiB + 128 KiB. Errors are not
-  cached.
-
-### Performance
-
-- A warm SU(N) or B/C/D R query is a cache hit returning the shared block
-  instead of re-joining two CGC (#207); product R inherits this through its
-  leaf queries. Values are bit-identical to the uncached computation.
-
-### Changed
-
-- Coefficient caches are rebuilt on `quick_cache` 0.7 (#117, #201, #202),
-  built without default features and with `sharded-lock` and `custom-hasher`
-  (foldhash). Each tier is one full-cap store (`hot_allocation = 1.0`): an
-  entry is eligible for admission iff its real charge fits the tier cap. Eviction is
-  Clock-PRO; victims and `trim_to` survivors are unspecified, and `trim_to`
-  preserves capacity. Weight is `max(real_charge, ceil(byte_cap / entry_cap))`,
-  so entry caps hold without a resident scan; statistics and trims report real
-  charge (one key, value and charge word). Oversize/zero-budget rejections count
-  as evictions. Byte/entry ceilings and one-shot budgets are unchanged.
-- Warm hits take a borrowed key, one of eight reader stripes of the tier lock
-  and one of 16 per-thread hit-counter stripes, reducing contention between
-  threads. Scaling is workload-dependent: hits on one shared Arc-backed block
-  (such as the SU(3) octet F block) still contend on its reference count.
-  Hit counts in a snapshot are exact once readers are quiescent.
-- Concurrent misses on a key share one computation (including `LieGroup` dual
-  lookups); waiters count as hits, and a failed or panicking computation hands
-  the key to one waiter. Reset invalidates in-flight computations and B/C/D
-  sweeps that started before it; returned values remain valid. Generated F
-  blocks omit their redundant outer Arc, and exact SU(2) radicands share
-  storage. No coefficient/gauge or public signature changes. See
-  `docs/user-guide/resources.md` for the resource contract.
-
 ### Breaking
 
 - Cache statistics now go through one per-tier function:
@@ -90,7 +50,6 @@ value/gauge rule noted below.
   catalog.
 - `FusionStyle` and `BraidingStyle` are `#[non_exhaustive]`; downstream
   matches need a wildcard arm.
-
 - `GroupId` now stores a validated ordered root datum and canonical row-HNF
   character lattice. Public `root_system`/`form` fields, `GlobalForm`, and
   `CenterSubgroup` are removed; use `root_systems()` and lattice constructors.
@@ -105,21 +64,25 @@ value/gauge rule noted below.
   sparsely in O(rank) space.
 - `LieGroup::irrep` checks admission before integer limits:
   `psu(2).irrep(&[i64::MAX], &[])` reports `NotAdmissible` (was `LabelOverflow`).
-
 - `GroupRepresentations::Cgc` now requires `CgcBlock`. `LieCgc` accessors
   move to that trait: import `CgcBlock` and use `at([m1, m2, m3, mu])`.
 
 ### Added
 
+- Generated R blocks have their own coefficient-cache tiers (#207):
+  `CoefficientCacheTier::SunR` (`sun_r`) and `CoefficientCacheTier::BcdR`
+  (`bcd_r`), with matching `CoefficientCacheBudgets` limits; read them with
+  `cache::tier_stats`. Keys are the ordered `(a, b, c)`
+  labels; caps follow the F tiers (2^16 entries, 64 MiB), so
+  `GENERATED_CACHE_MAX_BYTES` grows to 768 MiB + 128 KiB. Errors are not
+  cached.
 - `U1::group_id()` returns the connected classification `GroupId::u(1)`.
-
 - `LieGroup` executes U(1), Tᵗ, U(N), semisimple×torus quotients, and the
   trivial group. U(2) works without default features; U(N) for N ≥ 3 requires
   `lie-generated`. Standard U(1) labels and scalar queries allocate nothing and
   retain the old arithmetic, enumeration, and authority fingerprint. Composite
   covers enumerate via Product iff all factors do; composite quotients return
   `NotEnumerable`. Added a compile-checked torus Criterion benchmark.
-
 - `LieGroup` executes D₂ forms (Spin(4), SO(4), PSO(4), half-spin lattices),
   ordered semisimple products, and arbitrary central quotients of executable
   classical factors (#183). D₂ uses α₁ then α₂ in the exact A₁ gauge.
@@ -127,12 +90,10 @@ value/gauge rule noted below.
   and cover-only Manhattan enumeration. B/C/D catalog budgets are aggregate:
   preflight seed totals, then split spare bytes equally in factor order.
   Existing single-factor values, gauges, fingerprints, and enumeration remain unchanged.
-
 - `Product<Vec<C>>` composes any runtime number of homogeneous categories,
   including the empty product, with checked symbol arithmetic, enumeration,
   indexed factor errors, and lazy vector CGCs. Runtime fusion supports exact
   lengths and reverse iteration when the factor iterators do.
-
 - `GroupId::{new,cover,torus,u,root_systems,semisimple_rank,torus_rank,character_lattice}`
   classify connected compact groups, including torus-coupled lattices and
   exceptional quotients, with exact admission. New errors are `InvalidLattice`
@@ -140,10 +101,37 @@ value/gauge rule noted below.
 - `LieGroup::group_id` borrows its datum; `LieIrrep::charges` returns an allocation-free
   exact-size iterator over torus coordinates. Existing coefficient values, gauges, fingerprints, and
   single-factor enumeration orders are unchanged.
-
 - The common `category::CgcBlock` contract, scalar CGCs for `finite::ZN`, and
   lazy tuple CGCs for products of group representations (2..=12 factors),
   with the last factor fastest on every axis.
+
+### Changed
+
+- Coefficient caches are rebuilt on `quick_cache` 0.7 (#117, #201, #202),
+  built without default features and with `sharded-lock` and `custom-hasher`
+  (foldhash). Each tier is one full-cap store (`hot_allocation = 1.0`): an
+  entry is eligible for admission iff its real charge fits the tier cap. Eviction is
+  Clock-PRO; victims and `trim_to` survivors are unspecified, and `trim_to`
+  preserves capacity. Weight is `max(real_charge, ceil(byte_cap / entry_cap))`,
+  so entry caps hold without a resident scan; statistics and trims report real
+  charge (one key, value and charge word). Oversize/zero-budget rejections count
+  as evictions. Byte/entry ceilings and one-shot budgets are unchanged.
+- Warm hits take a borrowed key, one of eight reader stripes of the tier lock
+  and one of 16 per-thread hit-counter stripes, reducing contention between
+  threads. Scaling is workload-dependent: hits on one shared Arc-backed block
+  (such as the SU(3) octet F block) still contend on its reference count.
+  Hit counts in a snapshot are exact once readers are quiescent.
+- Concurrent misses on a key share one computation (including `LieGroup` dual
+  lookups); waiters count as hits, and a failed or panicking computation hands
+  the key to one waiter. Reset invalidates in-flight computations and B/C/D
+  sweeps that started before it; returned values remain valid. Generated F
+  blocks omit their redundant outer Arc, and exact SU(2) radicands share
+  storage. The cache rebuild itself changes no coefficient, gauge or public signature. See
+  `docs/user-guide/resources.md` for the resource contract.
+- The B/C/D catalog byte budget now charges the trivial and defining seeds:
+  `with_catalog_budget(group, 0)` returns `LieError::Generation`, and with the
+  default 256 MiB budget `LieGroup::new` rejects B/C/D ranks whose defining
+  generators exceed it (roughly rank 200); raise the budget for larger ranks.
 
 ### Fixed
 
@@ -151,7 +139,6 @@ value/gauge rule noted below.
   multiplicities and integer conversions. `LieGroup::try_nsymbol`, fusion and
   F/R/A/B/CGC propagate `LieError::LabelOverflow`; infallible `nsymbol` reports
   failure with a clear panic. Coefficient values and gauge epochs are unchanged (#185).
-
 - Degenerate roots such as `B(0)` are rejected during `GroupId` validation
   (#184). Named constructors store canonical lattices sparsely, preserving
   large-rank classification without dense allocation. Actual size or entry
@@ -159,15 +146,11 @@ value/gauge rule noted below.
   checked against their catalog budget (#187).
 - `GroupError::UnsupportedRank` docs list a rejected `half_spin_plus` example (#186).
 
-### Changed
-
-- The B/C/D catalog byte budget now charges the trivial and defining seeds:
-  `with_catalog_budget(group, 0)` returns `LieError::Generation`, and with the
-  default 256 MiB budget `LieGroup::new` rejects B/C/D ranks whose defining
-  generators exceed it (roughly rank 200); raise the budget for larger ranks.
-
 ### Performance
 
+- A warm SU(N) or B/C/D R query is a cache hit returning the shared block
+  instead of re-joining two CGC (#207); product R inherits this through its
+  leaf queries. Values are bit-identical to the uncached computation.
 - Products validate factor objects with the O(1) `contains` instead of
   evaluating factor dimensions, which for SU(N) and B/C/D groups is an exact
   Weyl-formula evaluation (SU(3)×SU(3) octet F: about 9.4 → 1.8 µs). Values are
@@ -188,6 +171,10 @@ value/gauge rule noted below.
   does with machine `Rational{Int}`; `Ratio<BigInt>` remains the exact fallback
   when a dimension or a reduced intermediate exceeds `u128`. `LieGroup::dim`
   and `sqrt_dim` no longer allocate and are bit-identical (#206).
+- `LieIrrep` stores only the active engine's payload (64 → 40 bytes) and
+  single-element F/R blocks stay an inline scalar (`FBlock` 56 → 48 bytes);
+  warm `LieGroup` U(1)/U(2) `N`, `F` and `dim` get faster (#200). Values and
+  `Eq`/`Ord`/`Hash` are unchanged.
 
 ## [0.8.1] - 2026-10-24
 
