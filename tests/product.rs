@@ -1170,28 +1170,50 @@ fn runtime_complex_scalars_and_enumeration_overflow() {
     }
 }
 
-type Flat<const R: usize> = ([usize; R], Vec<u64>);
-fn flat<const R: usize>(b: &impl SymbolBlock<R, Scalar = f64>) -> Flat<R> {
-    (b.dims(), b.as_slice().iter().map(|x| x.to_bits()).collect())
+type Flat<const R: usize, V = u64> = ([usize; R], Vec<V>);
+type Frab<V = u64> = (Flat<4, V>, [Flat<2, V>; 3]);
+fn values<const R: usize, S: Copy>(b: &impl SymbolBlock<R, Scalar = S>) -> Flat<R, S> {
+    (b.dims(), b.as_slice().to_vec())
 }
-/// F, then R, A and B at fixed objects, as storage shapes and value bits.
-fn frab<C: FusionCategory<Scalar = f64>>(
+/// F, then R, A and B at fixed objects, as storage shapes and values.
+fn frab_values<C: FusionCategory>(
     cat: &C,
     [a, b, c]: [&C::Object; 3],
     [fa, fb, fc, fd, fe, ff]: [&C::Object; 6],
-) -> (Flat<4>, [Flat<2>; 3]) {
+) -> Frab<C::Scalar> {
     (
-        flat(&cat.f_symbol(fa, fb, fc, fd, fe, ff).unwrap()),
+        values(&cat.f_symbol(fa, fb, fc, fd, fe, ff).unwrap()),
         [
-            flat(&cat.r_symbol(a, b, c).unwrap()),
-            flat(&cat.a_symbol(a, b, c).unwrap()),
-            flat(&cat.b_symbol(a, b, c).unwrap()),
+            values(&cat.r_symbol(a, b, c).unwrap()),
+            values(&cat.a_symbol(a, b, c).unwrap()),
+            values(&cat.b_symbol(a, b, c).unwrap()),
         ],
     )
 }
+fn map_frab<V, W>((f, rab): Frab<V>, g: impl Fn(V) -> W) -> Frab<W> {
+    fn map<const R: usize, V, W>((d, v): Flat<R, V>, g: &impl Fn(V) -> W) -> Flat<R, W> {
+        (d, v.into_iter().map(g).collect())
+    }
+    (map(f, &g), rab.map(|x| map(x, &g)))
+}
+/// As [`frab_values`], as value bits.
+fn frab<C: FusionCategory<Scalar = f64>>(
+    cat: &C,
+    objects: [&C::Object; 3],
+    f_objects: [&C::Object; 6],
+) -> Frab {
+    map_frab(frab_values(cat, objects, f_objects), f64::to_bits)
+}
+fn complex_bits(z: Complex64) -> (u64, u64) {
+    (z.re.to_bits(), z.im.to_bits())
+}
 /// Row-major Kronecker product, decoding each output element independently:
 /// every axis index is `left_index * right_dim + right_index`.
-fn naive_kron<const R: usize>((ld, l): &Flat<R>, (rd, r): &Flat<R>) -> Flat<R> {
+fn kron_by<const R: usize, L: Copy, M: Copy, O>(
+    (ld, l): &Flat<R, L>,
+    (rd, r): &Flat<R, M>,
+    multiply: impl Fn(L, M) -> O,
+) -> Flat<R, O> {
     let dims: [usize; R] = std::array::from_fn(|i| ld[i] * rd[i]);
     let offset = |idx: [usize; R], dims: [usize; R]| (0..R).fold(0, |o, i| o * dims[i] + idx[i]);
     let data = (0..dims.iter().product())
@@ -1201,22 +1223,34 @@ fn naive_kron<const R: usize>((ld, l): &Flat<R>, (rd, r): &Flat<R>) -> Flat<R> {
                 idx[i] = k % dims[i];
                 k /= dims[i];
             }
-            let x = f64::from_bits(l[offset(std::array::from_fn(|i| idx[i] / rd[i]), *ld)]);
-            let y = f64::from_bits(r[offset(std::array::from_fn(|i| idx[i] % rd[i]), *rd)]);
-            (x * y).to_bits()
+            let x = l[offset(std::array::from_fn(|i| idx[i] / rd[i]), *ld)];
+            let y = r[offset(std::array::from_fn(|i| idx[i] % rd[i]), *rd)];
+            multiply(x, y)
         })
         .collect();
     (dims, data)
 }
-/// Left fold of the leaf factors' F/R/A/B, as the product promises.
-fn naive_product(leaves: &[(Flat<4>, [Flat<2>; 3])]) -> (Flat<4>, [Flat<2>; 3]) {
-    let (first, rest) = leaves.split_first().unwrap();
-    rest.iter().fold(first.clone(), |(f, rab), (g, sab)| {
-        (
-            naive_kron(&f, g),
-            std::array::from_fn(|i| naive_kron(&rab[i], &sab[i])),
-        )
+/// F/R/A/B Kronecker products of two factors, multiplying as `multiply`.
+fn kron_frab<L: Copy, M: Copy, O>(
+    (f, rab): &Frab<L>,
+    (g, sab): &Frab<M>,
+    multiply: impl Fn(L, M) -> O + Copy,
+) -> Frab<O> {
+    (
+        kron_by(f, g, multiply),
+        std::array::from_fn(|i| kron_by(&rab[i], &sab[i], multiply)),
+    )
+}
+fn real_kron(l: &Frab, r: &Frab) -> Frab {
+    kron_frab(l, r, |x, y| {
+        (f64::from_bits(x) * f64::from_bits(y)).to_bits()
     })
+}
+/// Left fold of the leaf factors' F/R/A/B, as the product promises.
+fn naive_product(leaves: &[Frab]) -> Frab {
+    let (first, rest) = leaves.split_first().unwrap();
+    rest.iter()
+        .fold(first.clone(), |acc, leaf| real_kron(&acc, leaf))
 }
 
 // Validation must not perturb values: product F/R/A/B equal, bit for bit, the
@@ -1277,5 +1311,105 @@ fn multiplicity_free_product_symbols_are_bitwise_leaf_kronecker_products() {
             frab(&s, [&h, &h, &z], [&h, &h, &h, &h, &z, &z]),
             frab(&U1, [&p1, &m1, &u0], [&p1, &m1, &p1, &p1, &u0, &u0]),
         ])
+    );
+}
+
+// Composition order must not perturb values either: a right-nested product
+// multiplies each element as `l * (m * r)`, a `Vec` product (also nested as a
+// factor) folds left like a tuple.
+#[cfg(feature = "lie-generated")]
+#[test]
+fn nested_and_vec_product_symbols_are_bitwise_leaf_kronecker_products() {
+    let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+    let o = su3.irrep(&[1, 1], &[]).unwrap();
+    let leaf = frab(&su3, [&o; 3], [&o; 6]);
+    let pair = real_kron(&leaf, &leaf);
+
+    let right = product(su3.clone(), product(su3.clone(), su3.clone()));
+    let x = (o.clone(), (o.clone(), o.clone()));
+    assert_eq!(frab(&right, [&x; 3], [&x; 6]), real_kron(&leaf, &pair));
+
+    let flat3 = Product::new(vec![su3.clone(); 3]);
+    let x = vec![o.clone(); 3];
+    assert_eq!(frab(&flat3, [&x; 3], [&x; 6]), real_kron(&pair, &leaf));
+
+    let held = product(Product::new(vec![su3.clone(); 2]), su3.clone());
+    let x = (vec![o.clone(); 2], o.clone());
+    assert_eq!(frab(&held, [&x; 3], [&x; 6]), real_kron(&pair, &leaf));
+    let held = product(su3.clone(), Product::new(vec![su3.clone(); 2]));
+    let x = (o.clone(), vec![o.clone(); 2]);
+    assert_eq!(frab(&held, [&x; 3], [&x; 6]), real_kron(&leaf, &pair));
+}
+
+/// Real-by-complex F/R/A/B products, promoting each real entry as `Promote` does.
+fn real_complex(l: &Frab<f64>, r: &Frab<Complex64>) -> Frab<(u64, u64)> {
+    map_frab(kron_frab(l, r, |x, y| Complex64::from(x) * y), complex_bits)
+}
+#[cfg(feature = "lie-generated")]
+fn complex_real(l: &Frab<Complex64>, r: &Frab<f64>) -> Frab<(u64, u64)> {
+    map_frab(kron_frab(l, r, |x, y| x * Complex64::from(y)), complex_bits)
+}
+
+// A real factor met by a complex one is promoted entry by entry, after the real
+// prefix has been multiplied in f64, exactly as a per-element left fold would.
+#[test]
+fn real_complex_product_symbols_are_bitwise_promoted_kronecker_products() {
+    let fib = TableCategory::fibonacci();
+    let tau = fib.object(2).unwrap();
+    let (p1, m1, u0) = (
+        U1Irrep::new(1).unwrap(),
+        U1Irrep::new(-1).unwrap(),
+        U1.unit(),
+    );
+    let p = product(U1, fib.clone());
+    let [a, b, c] = [(p1, tau), (m1, tau), (u0, tau)];
+    let cat = |x: &Frab<Complex64>| map_frab(x.clone(), complex_bits);
+    assert_eq!(
+        cat(&frab_values(&p, [&a, &b, &c], [&a, &b, &a, &a, &c, &c])),
+        real_complex(
+            &frab_values(&U1, [&p1, &m1, &u0], [&p1, &m1, &p1, &p1, &u0, &u0]),
+            &frab_values(&fib, [&tau; 3], [&tau; 6]),
+        )
+    );
+}
+
+#[cfg(feature = "lie-generated")]
+#[test]
+fn multiplicity_real_complex_product_symbols_are_bitwise_promoted_kronecker_products() {
+    let fib = TableCategory::fibonacci();
+    let tau = fib.object(2).unwrap();
+    let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+    let o = su3.irrep(&[1, 1], &[]).unwrap();
+    let real = frab_values(&su3, [&o; 3], [&o; 6]);
+    let complex = frab_values(&fib, [&tau; 3], [&tau; 6]);
+    let pair = kron_frab(&real, &real, |x, y| x * y);
+    let bits = |x: Frab<Complex64>| map_frab(x, complex_bits);
+
+    // A 16-element real prefix leaves its f64 buffer for a complex one.
+    let p = product(su3.clone(), fib.clone());
+    let x = (o.clone(), tau);
+    assert_eq!(
+        bits(frab_values(&p, [&x; 3], [&x; 6])),
+        real_complex(&real, &complex)
+    );
+    let p = product!(su3.clone(), su3.clone(), fib.clone());
+    let x = (o.clone(), o.clone(), tau);
+    assert_eq!(
+        bits(frab_values(&p, [&x; 3], [&x; 6])),
+        real_complex(&pair, &complex)
+    );
+    // A complex prefix promotes each later real entry instead.
+    let p = product(fib.clone(), su3.clone());
+    let x = (tau, o.clone());
+    assert_eq!(
+        bits(frab_values(&p, [&x; 3], [&x; 6])),
+        complex_real(&complex, &real)
+    );
+    let p = product!(su3.clone(), fib.clone(), su3.clone());
+    let x = (o.clone(), tau, o.clone());
+    let left = kron_frab(&real, &complex, |x, y| Complex64::from(x) * y);
+    assert_eq!(
+        bits(frab_values(&p, [&x; 3], [&x; 6])),
+        complex_real(&left, &real)
     );
 }

@@ -222,8 +222,12 @@ with the last factor fastest on each magnetic and multiplicity axis. Combined
 axis overflow returns `ProductError::Overflow`. Products add no coefficient cache.
 With inline dimension arithmetic, warm single-factor A/B queries allocate only their
 returned coefficient buffer (zero for empty or inline blocks).
-Product A/B, like F, compose factor blocks on
-each query and also allocate their storage copies and Kronecker buffers.
+Product F/R/A/B compose factor blocks on each query: beyond the factors' own
+allocations, a warm query allocates one buffer per product level whose block
+has more than one coefficient, and nothing when every level is a single one.
+A `Vec` product nested as a factor also holds its factor blocks in one `Vec`,
+and a real prefix of more than one coefficient meeting a complex factor costs
+one transient real buffer.
 
 All factors' objects are validated before capability or shape checks. R reports
 `ProductError::NoBraiding { factor }` even when N = 0; twist panics on absent

@@ -92,11 +92,11 @@ and `sectors.jl` style `&` methods. Their relevant guards and assumptions map as
 
 | Reference guard or invariant | Rust mapping |
 |---|---|
-| `SectorTuple`, same sector type `I` for symbol inputs | Compile-time tuple/object types and factor `dim` preflight; vector lengths must equal the factor count. Foreign labels panic loudly. |
+| `SectorTuple`, same sector type `I` for symbol inputs | Compile-time tuple/object types and factor `contains` preflight; vector lengths must equal the factor count. Foreign labels panic loudly. |
 | Runtime Cartesian indices and lazy CGC axes fit their public index types | Fusion checks the product length for `usize` overflow; CGC checks each axis, without imposing a dense element-count limit. Empty products use one scalar entry. |
 | `unit` rejects `GenericUnit` | N/A: `category::FusionCategory::unit` requires one simple unit. |
 | Scalar `_kron_promote` fills the logical N-derived shape | Logical axes queried independently of `SymbolBlock::dims`; zero axes skip values, all-one axes stay inline. |
-| `_kron` assumes matching ranks and valid Cartesian indices | Fixed block ranks and per-axis decoding; shape/count/byte overflow is a typed `Overflow`. |
+| `_kron` assumes matching ranks and valid Cartesian indices | Fixed block ranks; each level expands in place with per-axis digit countdowns, last factor fastest; shape/count/byte overflow is a typed `Overflow`. |
 | Julia product iteration can restart each component | Clone initialized iterators; nonempty reset is a documented loud-panic invariant. A valid clone preserves the initialized iterator sequence. |
 | Styles restrict braiding and symbol availability | R capability errors and twist panic after full preflight; no special-case branch bypasses validation. |
 | Julia multiplicity/product arithmetic fits its representation | Checked Rust arithmetic, zero-wins N, documented `nsymbol` panic or typed `try_nsymbol`/F/R `Overflow`. |
