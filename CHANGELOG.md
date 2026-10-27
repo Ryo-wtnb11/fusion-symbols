@@ -7,6 +7,8 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-27
+
 ### Breaking
 
 - Cache statistics now go through one per-tier function:
@@ -920,7 +922,8 @@ SU(2) provider this rule is mechanized by `su2_authority_fingerprint()`: its
 epoch is bumped only on such a value-affecting release, so a fingerprint change
 and a breaking release are one reviewable event.
 
-[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.6.0...v0.7.0
