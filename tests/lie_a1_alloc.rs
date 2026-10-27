@@ -1,7 +1,7 @@
 use crate::common::counting_alloc;
 use fusion_symbols::{
-    category::FusionCategory,
-    lie::{FBlock, GroupId, LieGroup, RBlock},
+    category::{FBlock, FusionCategory, RBlock},
+    lie::{GroupId, LieGroup},
 };
 
 #[test]
@@ -20,8 +20,8 @@ fn inline_blocks_and_warm_a1_symbols_allocate_nothing() {
     std::hint::black_box(label.clone());
     std::hint::black_box(cat.group_id().clone());
     assert_eq!(label.charges().len(), 0);
-    std::hint::black_box(FBlock::one(0.5));
-    std::hint::black_box(RBlock::one(-1.0));
+    std::hint::black_box(FBlock::one(0.5f64));
+    std::hint::black_box(RBlock::one(-1.0f64));
     let f = cat
         .f_symbol(&half, &half, &half, &half, &zero, &zero)
         .unwrap();

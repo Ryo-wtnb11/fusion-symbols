@@ -138,12 +138,13 @@ an aggregate over its B/C/D catalogs. Construction preflights all seed charges;
 if their sum fits, it divides the remaining bytes equally among catalogs in
 factor order, with remainder bytes assigned to earlier factors. Each factor's
 cap is its seed charge plus its share. Rank-one and A-series factors consume
-no catalog budget. `catalog_stats` sums retained bytes and caps with checked
-arithmetic; `reset_catalog` visits every catalog once. A composite without
-B/C/D catalogs reports `(0,0)` and rejects `with_catalog_budget`.
+no catalog budget. `catalog_stats` sums retained entries, bytes and caps with
+checked arithmetic; `reset_catalog` visits every catalog once. A composite
+without B/C/D catalogs reports all-zero stats and rejects `with_catalog_budget`.
 
-`catalog_stats()` returns `Result<(usize,usize),LieError>` for `(bytes,budget)`,
-or `(0,0)` without a catalog. `reset_catalog()` re-seeds base representations
+`catalog_stats()` returns `Result<CatalogStats, LieError>` with the retained
+generator sets (`entries`, including the seeded base cases), their charged
+`bytes`, and the `budget`; all three are zero without a catalog. `reset_catalog()` re-seeds base representations
 and is a no-op for other groups. Both report a poisoned lock as
 `LieError::Generation`. Global coefficient caches survive catalog reset;
 warm CGC/F/R calls consult those caches before locking the catalog.

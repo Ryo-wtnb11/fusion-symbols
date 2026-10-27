@@ -1,143 +1,19 @@
 //! Self-consistency and robustness gates that do not depend on the oracle:
-//! Regge orbit invariance, exact orthogonality identities, the zero convention,
-//! and a no-panic property over arbitrary inputs.
+//! exact orthogonality identities, the zero convention, and a no-panic
+//! property over arbitrary inputs. Regge orbit invariance is a unit test of the
+//! crate-private key in `src/lie/su2.rs`.
 
 use num_bigint::BigInt;
 use num_rational::Ratio;
-use num_traits::{One, Zero};
+use num_traits::{One, Signed, Zero};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
-use fusion_symbols::lie::su2::{
-    canonical_regge_6j, clebsch_gordan, wigner_3j, wigner_6j, SignedSqrtRational,
-};
+use fusion_symbols::lie::su2::{clebsch_gordan, wigner_3j, wigner_6j, SignedSqrtRational};
 
 fn tri(a: u32, b: u32, c: u32) -> bool {
     let (a, b, c) = (a as i64, b as i64, c as i64);
     (a + b + c) % 2 == 0 && c >= (a - b).abs() && c <= a + b
-}
-
-fn admissible_6j(dj: [u32; 6]) -> bool {
-    tri(dj[0], dj[1], dj[2])
-        && tri(dj[0], dj[4], dj[5])
-        && tri(dj[3], dj[1], dj[5])
-        && tri(dj[3], dj[4], dj[2])
-}
-
-/// The 24 tetrahedral symmetries of a 6j: permute the three columns
-/// `(j1,j4),(j2,j5),(j3,j6)` and flip top/bottom in an even number of columns.
-fn tetrahedral_images(dj: [u32; 6]) -> Vec<[u32; 6]> {
-    let cols = [[dj[0], dj[3]], [dj[1], dj[4]], [dj[2], dj[5]]];
-    let perms = [
-        [0, 1, 2],
-        [0, 2, 1],
-        [1, 0, 2],
-        [1, 2, 0],
-        [2, 0, 1],
-        [2, 1, 0],
-    ];
-    // Row-flip patterns that flip an even number of columns (0 or 2): these are
-    // the value-preserving classical symmetries.
-    let flips = [
-        [false, false, false],
-        [true, true, false],
-        [true, false, true],
-        [false, true, true],
-    ];
-    let mut out = Vec::with_capacity(24);
-    for p in perms {
-        for f in flips {
-            let mut c = [[0u32; 2]; 3];
-            for slot in 0..3 {
-                let src = cols[p[slot]];
-                c[slot] = if f[slot] { [src[1], src[0]] } else { src };
-            }
-            out.push([c[0][0], c[1][0], c[2][0], c[0][1], c[1][1], c[2][1]]);
-        }
-    }
-    out
-}
-
-/// The non-classical Regge symmetry generator: fix `(j1,j4)`, map each of
-/// `(j2,j3,j5,j6)` to `rho - j_i` with `rho = (j2+j3+j5+j6)/2`. Together with
-/// the 24 classical images this generates the full 144-element symmetry group.
-/// Returns `None` if an image spin would be negative (never for admissible
-/// input, but guard against underflow rather than panic).
-fn regge_map(dj: [u32; 6]) -> Option<[u32; 6]> {
-    let s = (dj[1] as i64 + dj[2] as i64 + dj[4] as i64 + dj[5] as i64) / 2;
-    let m = |x: u32| -> Option<u32> {
-        let v = s - x as i64;
-        (v >= 0).then_some(v as u32)
-    };
-    Some([dj[0], m(dj[1])?, m(dj[2])?, dj[3], m(dj[4])?, m(dj[5])?])
-}
-
-/// The full symmetry orbit of a 6j label set: closure under the 24 classical
-/// images and the Regge generator.
-fn full_orbit(dj: [u32; 6]) -> Vec<[u32; 6]> {
-    let mut seen = std::collections::HashSet::new();
-    let mut stack = vec![dj];
-    seen.insert(dj);
-    while let Some(x) = stack.pop() {
-        let mut neighbours = tetrahedral_images(x);
-        if let Some(r) = regge_map(x) {
-            neighbours.push(r);
-        }
-        for n in neighbours {
-            if seen.insert(n) {
-                stack.push(n);
-            }
-        }
-    }
-    seen.into_iter().collect()
-}
-
-#[test]
-fn regge_orbit_key_and_value_invariant() {
-    let mut rng = ChaCha8Rng::seed_from_u64(0x8E66_1234);
-    let mut tested = 0;
-    let mut attempts = 0;
-    let mut max_orbit = 0usize;
-    while tested < 200 && attempts < 200_000 {
-        attempts += 1;
-        let dj = [
-            rng.gen_range(0..=20),
-            rng.gen_range(0..=20),
-            rng.gen_range(0..=20),
-            rng.gen_range(0..=20),
-            rng.gen_range(0..=20),
-            rng.gen_range(0..=20),
-        ];
-        if !admissible_6j(dj) {
-            continue;
-        }
-        let key = canonical_regge_6j(dj[0], dj[1], dj[2], dj[3], dj[4], dj[5]).unwrap();
-        let val = wigner_6j(dj[0], dj[1], dj[2], dj[3], dj[4], dj[5]);
-        let orbit = full_orbit(dj);
-        max_orbit = max_orbit.max(orbit.len());
-        for img in &orbit {
-            // Every image is itself an admissible 6j, so it has a key.
-            let k2 = canonical_regge_6j(img[0], img[1], img[2], img[3], img[4], img[5]).unwrap();
-            let v2 = wigner_6j(img[0], img[1], img[2], img[3], img[4], img[5]);
-            assert_eq!(
-                key, k2,
-                "Regge key differs on orbit image {img:?} of {dj:?}"
-            );
-            assert_eq!(
-                val.signed_square(),
-                v2.signed_square(),
-                "6j value differs on orbit image {img:?} of {dj:?}"
-            );
-        }
-        tested += 1;
-    }
-    assert!(tested >= 50, "only {tested} orbits tested");
-    // The Regge generator reaches non-classical images: a generic orbit exceeds
-    // the 24 classical symmetries, confirming the extension is exercised.
-    assert!(
-        max_orbit > 24,
-        "orbit never exceeded 24 images; Regge generator not exercised"
-    );
 }
 
 /// Exact rational square root of a nonnegative rational that is a perfect
@@ -157,31 +33,38 @@ fn exact_rational_sqrt(r: &Ratio<BigInt>) -> Option<Ratio<BigInt>> {
     }
 }
 
-/// Sum a list of `SignedSqrtRational` that share a common irrational factor
-/// `sqrt(K)` (every pairwise radicand ratio is a perfect square), returning the
-/// rational coefficient `R` such that the sum equals `R * sqrt(rho0)` where
-/// `rho0` is the first nonzero term's radicand. Also returns `rho0`.
-fn factor_common_sqrt(terms: &[SignedSqrtRational]) -> (Ratio<BigInt>, Ratio<BigInt>) {
+/// Sum the values whose signed squares are `terms` (`sign * radicand`). They
+/// share a common irrational factor `sqrt(K)` (every pairwise radicand ratio is
+/// a perfect square); return the rational coefficient `R` such that the sum
+/// equals `R * sqrt(rho0)`, where `rho0` is the first nonzero term's radicand.
+/// Also returns `rho0`.
+fn factor_common_sqrt(terms: &[Ratio<BigInt>]) -> (Ratio<BigInt>, Ratio<BigInt>) {
     let mut rho0: Option<Ratio<BigInt>> = None;
     let mut acc = Ratio::zero();
     for t in terms {
-        if t.sign() == 0 {
+        if t.is_zero() {
             continue;
         }
-        let rho = t.radicand().clone();
+        let sign = Ratio::from(BigInt::from(if t.is_negative() { -1 } else { 1 }));
+        let rho = t.abs();
         match &rho0 {
             None => {
-                rho0 = Some(rho.clone());
-                acc += Ratio::from(BigInt::from(t.sign() as i64));
+                rho0 = Some(rho);
+                acc += sign;
             }
             Some(r0) => {
                 // g = sqrt(rho / rho0), guaranteed rational for a shared factor.
                 let g = exact_rational_sqrt(&(rho / r0)).expect("shared sqrt factor");
-                acc += Ratio::from(BigInt::from(t.sign() as i64)) * g;
+                acc += sign * g;
             }
         }
     }
     (acc, rho0.unwrap_or_else(Ratio::zero))
+}
+
+/// Signed square of the product `a * b * k`: `ssq(a) * ssq(b) * k * |k|`.
+fn product_signed_square(a: &SignedSqrtRational, b: &SignedSqrtRational, k: i64) -> Ratio<BigInt> {
+    a.signed_square() * b.signed_square() * Ratio::from(BigInt::from(k) * BigInt::from(k.abs()))
 }
 
 #[test]
@@ -219,11 +102,14 @@ fn six_j_orthogonality_exact() {
         while x <= xmax {
             let a = wigner_6j(dj1, dj2, x, dj4, dj5, dj3);
             let b = wigner_6j(dj1, dj2, x, dj4, dj5, dj6);
-            let prod = (a * b).scale_int((x as i64 + 1) * (dj3 as i64 + 1));
-            terms.push(prod);
+            terms.push(product_signed_square(
+                &a,
+                &b,
+                (x as i64 + 1) * (dj3 as i64 + 1),
+            ));
             x += 2;
         }
-        if terms.iter().all(|t| t.sign() == 0) {
+        if terms.iter().all(Zero::is_zero) {
             continue;
         }
         let (r, rho0) = factor_common_sqrt(&terms);
@@ -311,11 +197,11 @@ fn cg_cross_j3_orthogonality_zero() {
             if dm2.unsigned_abs() <= dj2 && (dj2 as i32 + dm2) % 2 == 0 {
                 let a = clebsch_gordan(dj1, dm1, dj2, dm2, dj3, big_m);
                 let b = clebsch_gordan(dj1, dm1, dj2, dm2, dj3p, big_m);
-                terms.push(a * b);
+                terms.push(product_signed_square(&a, &b, 1));
             }
             dm1 += 2;
         }
-        if terms.iter().all(|t| t.sign() == 0) {
+        if terms.iter().all(Zero::is_zero) {
             continue;
         }
         let (r, _rho0) = factor_common_sqrt(&terms);
@@ -366,6 +252,5 @@ fn no_panic_arbitrary_inputs() {
         let (m1, m2, m3) = (dm(&mut rng), dm(&mut rng), dm(&mut rng));
         let _ = wigner_3j(a, b, c, m1, m2, m3).to_f64();
         let _ = clebsch_gordan(a, m1, b, m2, c, m3).to_f64();
-        let _ = canonical_regge_6j(a, b, c, d, e, f);
     }
 }

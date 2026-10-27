@@ -14,15 +14,11 @@ pub(crate) mod sun;
 pub use gt::GtPattern;
 mod group;
 pub mod su2;
-/// Real F-symbol storage (compatibility alias).
-pub type FBlock = crate::category::FBlock<f64>;
-/// Real R-symbol storage (compatibility alias).
-pub type RBlock = crate::category::RBlock<f64>;
-pub use group::*;
+pub use group::{GroupError, GroupId, RootSystem};
 
 use crate::category::{
-    sealed::Validated, BraidingStyle, CgcBlock, EnumerationError, FusionCategory, FusionStyle,
-    GroupRepresentations,
+    sealed::Validated, BraidingStyle, CgcBlock, EnumerationError, FBlock, FusionCategory,
+    FusionStyle, GroupRepresentations, RBlock,
 };
 use crate::product::{Product, ProductError};
 use num_bigint::BigInt;
@@ -65,6 +61,20 @@ pub struct LieGroup {
     // At most one retained rank-sized unit label per group instance.
     #[cfg(feature = "lie-generated")]
     unit: std::sync::OnceLock<LieIrrep>,
+}
+
+/// Snapshot of a [`LieGroup`]'s retained B/C/D generator catalogs, summed over
+/// every catalog of a composite group. All zero for a group without a catalog.
+/// See [`LieGroup::catalog_stats`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct CatalogStats {
+    /// Generator sets currently retained, including the seeded base cases.
+    pub entries: usize,
+    /// Charged bytes of the retained generators (the quantity the budget bounds).
+    pub bytes: usize,
+    /// Retained-byte budget.
+    pub budget: usize,
 }
 
 impl std::fmt::Debug for LieGroup {
@@ -469,7 +479,7 @@ impl LieGroup {
             || group.root_systems()[0] == RootSystem::D(2)
         {
             let result = Self::composite(group, max_bytes)?;
-            if result.catalog_stats()?.1 == 0 {
+            if result.catalog_stats()?.budget == 0 {
                 return Err(LieError::Unsupported {
                     requires: "B/C/D catalog",
                 });
@@ -584,23 +594,31 @@ impl LieGroup {
     fn factor_labels<'a>(&self, a: &'a LieIrrep) -> &'a Vec<LieIrrep> {
         a.factors().expect("composite object has factor labels")
     }
-    /// Retained generator bytes and byte budget, or `(0, 0)` without a catalog.
-    pub fn catalog_stats(&self) -> Result<(usize, usize), LieError> {
+    /// Retained generator catalog statistics; all zero without a catalog.
+    pub fn catalog_stats(&self) -> Result<CatalogStats, LieError> {
         if let Some(product) = &self.composite {
             return product
                 .factors()
                 .iter()
-                .try_fold((0, 0), |(bytes, cap), factor| {
-                    let (b, c) = factor.catalog_stats()?;
-                    Ok((checked_count(bytes, b)?, checked_count(cap, c)?))
+                .try_fold(CatalogStats::default(), |sum, factor| {
+                    let f = factor.catalog_stats()?;
+                    Ok(CatalogStats {
+                        entries: checked_count(sum.entries, f.entries)?,
+                        bytes: checked_count(sum.bytes, f.bytes)?,
+                        budget: checked_count(sum.budget, f.budget)?,
+                    })
                 });
         }
         #[cfg(feature = "lie-generated")]
         if let Some(cat) = &self.catalog {
             let cat = cat.lock().map_err(|_| poisoned_catalog())?;
-            return Ok((cat.bytes(), cat.budget()));
+            return Ok(CatalogStats {
+                entries: cat.len(),
+                bytes: cat.bytes(),
+                budget: cat.budget(),
+            });
         }
-        Ok((0, 0))
+        Ok(CatalogStats::default())
     }
     /// Reset retained generators to the base seeds; no-op without a catalog.
     pub fn reset_catalog(&self) -> Result<(), LieError> {
@@ -942,8 +960,8 @@ impl CgcBlock for LieCgc {
 impl FusionCategory for LieGroup {
     type Object = LieIrrep;
     type Scalar = f64;
-    type FSymbol = FBlock;
-    type RSymbol = RBlock;
+    type FSymbol = FBlock<f64>;
+    type RSymbol = RBlock<f64>;
     type Fusion<'a> = LieFusion;
     type Error = LieError;
     fn fusion_style(&self) -> FusionStyle {
@@ -1222,7 +1240,7 @@ impl FusionCategory for LieGroup {
         d: &LieIrrep,
         e: &LieIrrep,
         f: &LieIrrep,
-    ) -> Result<FBlock, LieError> {
+    ) -> Result<FBlock<f64>, LieError> {
         for x in [a, b, c, d, e, f] {
             self.label(x);
         }
@@ -1295,13 +1313,13 @@ impl FusionCategory for LieGroup {
         e: &LieIrrep,
         f: &LieIrrep,
         t: Validated,
-    ) -> Result<crate::category::sealed::SymbolWithAxes<FBlock, 4>, LieError> {
+    ) -> Result<crate::category::sealed::SymbolWithAxes<FBlock<f64>, 4>, LieError> {
         let block = self.f_symbol(a, b, c, d, e, f)?;
         // Keep Product's independent N-axis gate without validating each label again.
         let n = |x, y, z| self.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
         Ok((block, [n(a, b, e)?, n(e, c, d)?, n(b, c, f)?, n(a, f, d)?]))
     }
-    fn r_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock, LieError> {
+    fn r_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock<f64>, LieError> {
         self.label(a);
         self.label(b);
         self.label(c);
@@ -1347,7 +1365,7 @@ impl FusionCategory for LieGroup {
         }
         unreachable!("higher-rank labels have a generated payload")
     }
-    fn a_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock, LieError> {
+    fn a_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock<f64>, LieError> {
         if let Some(product) = &self.composite {
             let [a, b, c] = [a, b, c].map(|x| {
                 self.label(x);
@@ -1368,7 +1386,7 @@ impl FusionCategory for LieGroup {
             f.data().iter().map(|&x| scale * (kappa * x)),
         ))
     }
-    fn b_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock, LieError> {
+    fn b_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock<f64>, LieError> {
         if let Some(product) = &self.composite {
             let [a, b, c] = [a, b, c].map(|x| {
                 self.label(x);
@@ -1873,6 +1891,7 @@ mod tests {
     #[test]
     fn composite_catalog_budget_split_and_reset() {
         use RootSystem::{A, B, C, D};
+        let byte_budget = |s: CatalogStats| (s.bytes, s.budget);
         let roots = [A(1), B(2), D(2), C(2)];
         let group = GroupId::cover(&roots, 0).unwrap();
         let seeds: Vec<_> = [(bcd::Series::B, 2), (bcd::Series::C, 2)]
@@ -1888,21 +1907,39 @@ mod tests {
             let cat = LieGroup::with_catalog_budget(group.clone(), total + extra).unwrap();
             let leaves = cat.composite.as_ref().unwrap().factors();
             assert_eq!(
-                leaves[1].catalog_stats().unwrap(),
+                byte_budget(leaves[1].catalog_stats().unwrap()),
                 (seeds[0], seeds[0] + extra / 2 + extra % 2)
             );
             assert_eq!(
-                leaves[4].catalog_stats().unwrap(),
+                byte_budget(leaves[4].catalog_stats().unwrap()),
                 (seeds[1], seeds[1] + extra / 2)
             );
-            assert_eq!(cat.catalog_stats().unwrap(), (total, total + extra));
+            assert_eq!(
+                byte_budget(cat.catalog_stats().unwrap()),
+                (total, total + extra)
+            );
+            // Each catalog seeds exactly its trivial and defining generator sets.
+            assert_eq!(cat.catalog_stats().unwrap().entries, 2 * 2);
             cat.reset_catalog().unwrap();
-            assert_eq!(cat.catalog_stats().unwrap(), (total, total + extra));
+            assert_eq!(
+                byte_budget(cat.catalog_stats().unwrap()),
+                (total, total + extra)
+            );
+            assert_eq!(cat.catalog_stats().unwrap().entries, 2 * 2);
         }
+        let cat = LieGroup::new(group).unwrap();
         assert_eq!(
-            LieGroup::new(group).unwrap().catalog_stats().unwrap(),
+            byte_budget(cat.catalog_stats().unwrap()),
             (total, bcd::catalog::DEFAULT_MAX_BYTES)
         );
+        // Generation grows the B(2) catalog; reset returns to the seed count.
+        let b2 = &cat.composite.as_ref().unwrap().factors()[1];
+        let s = b2.irrep(&[0, 1], &[]).unwrap();
+        let adj = b2.irrep(&[0, 2], &[]).unwrap();
+        b2.cgc(&s, &s, &adj).unwrap();
+        assert!(cat.catalog_stats().unwrap().entries > 2 * 2);
+        cat.reset_catalog().unwrap();
+        assert_eq!(cat.catalog_stats().unwrap().entries, 2 * 2);
     }
 
     #[test]

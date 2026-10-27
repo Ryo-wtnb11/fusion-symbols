@@ -32,7 +32,9 @@ fixed in [SU(N) §8](../gauge.md#8-outer-multiplicity-axis) and
 
 Exact SU(2) evaluators under `lie::su2` return `SignedSqrtRational`:
 `sign * sqrt(p/q)`. Both spin and projection labels are doubled; the CG
-argument order is `(dj1, dm1, dj2, dm2, dj3, dm3)`. Convert with `to_f64()`.
+argument order is `(dj1, dm1, dj2, dm2, dj3, dm3)`. The value is read-only:
+read `sign()`, `radicand()` or `signed_square()` for exact comparison, or
+convert with `to_f64()`.
 
 ## Symbol layout
 
@@ -50,7 +52,7 @@ Their logical axes follow TensorKitSectors:
 
 `category::SymbolBlock` exposes row-major storage through `dims`, `get` and
 `as_slice`. Logical shape comes from N: a bare scalar's storage axes remain
-all one even when its value is zero. Lie `FBlock`/`RBlock` provide `at` and
+all one even when its value is zero. `category::FBlock`/`RBlock` provide `at` and
 `data`; zero axes are empty, all-one blocks store one scalar inline, and
 larger block clones share storage. A/B always return `category::RBlock`, even
 for scalar families, and need no braiding. The A formula uses the

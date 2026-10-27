@@ -3,7 +3,7 @@ use fusion_symbols::{
     category::{
         CgcBlock, EnumerationError, FusionCategory, FusionStyle, GroupRepresentations, SymbolBlock,
     },
-    lie::{GroupId, LieError, LieGroup, LieIrrep, RootSystem::*},
+    lie::{CatalogStats, GroupId, LieError, LieGroup, LieIrrep, RootSystem::*},
     product::Product,
 };
 use std::collections::BTreeMap;
@@ -340,7 +340,7 @@ fn quotient_only_restricts_objects_and_enumeration() {
         );
         assert_eq!(cover.object_index(&x), Ok(i));
     }
-    assert_eq!(cover.catalog_stats().unwrap(), (0, 0));
+    assert_eq!(cover.catalog_stats().unwrap(), CatalogStats::default());
     assert!(matches!(
         LieGroup::with_catalog_budget(GroupId::spin(4).unwrap(), 0),
         Err(LieError::Unsupported {
@@ -403,16 +403,20 @@ fn composite_feature_boundary() {
 fn aggregate_catalog_budget() {
     let b = LieGroup::new(GroupId::cover(&[B(2)], 0).unwrap()).unwrap();
     let c = LieGroup::new(GroupId::cover(&[C(2)], 0).unwrap()).unwrap();
-    let seed_sum = b.catalog_stats().unwrap().0 + c.catalog_stats().unwrap().0;
+    let (b_seed, c_seed) = (b.catalog_stats().unwrap(), c.catalog_stats().unwrap());
+    let seed_sum = b_seed.bytes + c_seed.bytes;
+    let byte_budget = |s: CatalogStats| (s.bytes, s.budget);
     let id = GroupId::cover(&[B(2), C(2)], 0).unwrap();
     assert!(matches!(
         LieGroup::with_catalog_budget(id.clone(), seed_sum - 1),
         Err(LieError::Generation(_))
     ));
     let cat = LieGroup::with_catalog_budget(id, seed_sum + 5).unwrap();
-    assert_eq!(cat.catalog_stats().unwrap(), (seed_sum, seed_sum + 5));
+    let stats = cat.catalog_stats().unwrap();
+    assert_eq!(byte_budget(stats), (seed_sum, seed_sum + 5));
+    assert_eq!(stats.entries, b_seed.entries + c_seed.entries);
     cat.reset_catalog().unwrap();
-    assert_eq!(cat.catalog_stats().unwrap(), (seed_sum, seed_sum + 5));
+    assert_eq!(cat.catalog_stats().unwrap(), stats);
     assert_eq!(cat.object_count(), Err(EnumerationError::NotEnumerable));
 }
 

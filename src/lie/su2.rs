@@ -1,4 +1,4 @@
-//! Exact SU(2) Wigner 3j, 6j, Clebsch–Gordan coefficients and Regge keys.
+//! Exact SU(2) Wigner 3j, 6j and Clebsch–Gordan coefficients.
 //! Category symbols and Frobenius–Schur data use [`super::LieGroup`].
 //!
 //! All spins are in the doubled ("twice") convention: `dj = 2j` as `u32`,
@@ -95,11 +95,10 @@ fn check_6j_admissible(
 /// single-sum closed form in big-rational arithmetic.
 ///
 /// Transparently served from the process-local [`crate::cache`]: an admissible
-/// label set is keyed by its canonical Regge class ([`canonical_regge_6j`]) and
-/// the exact value is stored once per class (the 6j symmetries preserve value,
-/// so no compensation is needed). A label too large to key ([`ReggeError::
-/// Overflow`]) or non-admissible falls through to the uncached engine, which is
-/// the single source of truth for the value.
+/// label set is keyed by its canonical Regge class and the exact value is stored
+/// once per class (the 6j symmetries preserve value, so no compensation is
+/// needed). A label too large to key or non-admissible falls through to the
+/// uncached engine, which is the single source of truth for the value.
 ///
 /// ```
 /// use fusion_symbols::lie::su2::wigner_6j;
@@ -210,11 +209,10 @@ fn wigner_6j_uncached(
 ///
 /// Transparently served from the process-local [`crate::cache`]. Unlike 6j, the
 /// classical 3j symmetries relate orbit members by a sign, so the cache stores
-/// one representative per canonical class and the [`ReggePhase`] from
-/// [`canonical_regge_3j`] compensates on both store and retrieval — the stored
-/// value is the representative's, and `phase.apply` moves between it and this
-/// input's value. A label too large to key or non-admissible falls through to
-/// the uncached engine.
+/// one representative per canonical class and a sign compensates on both store
+/// and retrieval: the stored value is the representative's, and the class
+/// phase moves between it and this input's value. A label too large to key or
+/// non-admissible falls through to the uncached engine.
 pub fn wigner_3j(dj1: u32, dj2: u32, dj3: u32, dm1: i32, dm2: i32, dm3: i32) -> SignedSqrtRational {
     match canonical_regge_3j(dj1, dj2, dj3, dm1, dm2, dm3) {
         Ok((key, phase)) => {
@@ -530,14 +528,7 @@ fn phase_is_negative(p: i64) -> bool {
 /// `u16`; a component exceeding `u16::MAX` yields [`ReggeError::Overflow`]
 /// rather than a silent truncation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Regge6j([u16; 6]);
-
-impl Regge6j {
-    /// The six canonical components `(e, l, x, t, b, s)`.
-    pub fn components(&self) -> [u16; 6] {
-        self.0
-    }
-}
+pub(crate) struct Regge6j([u16; 6]);
 
 /// Key for the derived-f64 F-symbol tier ([`f_symbol`]).
 ///
@@ -595,7 +586,7 @@ impl FKey {
 /// Why a 6j label set has no canonical Regge key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum ReggeError {
+pub(crate) enum ReggeError {
     /// The label set is not an admissible 6j (a triangle parity or triangle
     /// inequality is violated), so the symbol is exactly zero and has no
     /// canonical representative. Keying it anyway would collide with a distinct
@@ -627,7 +618,7 @@ impl std::error::Error for ReggeError {}
 /// Only admissible 6j symbols have a key: the four triangles are checked first,
 /// so a non-admissible (zero-valued) set returns [`ReggeError::NonAdmissible`]
 /// instead of a floored-halving collision with a distinct admissible symbol.
-pub fn canonical_regge_6j(
+pub(crate) fn canonical_regge_6j(
     dj1: u32,
     dj2: u32,
     dj3: u32,
@@ -703,7 +694,7 @@ pub fn canonical_regge_6j(
 /// it on both store and retrieval to move between an input and its stored
 /// representative. (WignerSymbols.jl v2.0.0 `WignerSymbols.jl:reorder3j`.)
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ReggePhase {
+pub(crate) enum ReggePhase {
     /// The input and its canonical representative have equal value.
     Plus,
     /// The input's value is the representative's, negated.
@@ -740,21 +731,9 @@ impl ReggePhase {
 /// read against without reconstructing alphas. (WignerSymbols.jl v2.0.0
 /// `WignerSymbols.jl:_wigner3j`.)
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Regge3j {
+pub(crate) struct Regge3j {
     dj: [u16; 3],
     dm: [i32; 3],
-}
-
-impl Regge3j {
-    /// The canonical doubled spins `(dj1, dj2, dj3)`.
-    pub fn doubled_spins(&self) -> [u16; 3] {
-        self.dj
-    }
-
-    /// The canonical doubled projections `(dm1, dm2, dm3)`.
-    pub fn doubled_projections(&self) -> [i32; 3] {
-        self.dm
-    }
 }
 
 /// Canonicalize a doubled-unit 3j label set over its 12-element classical
@@ -821,7 +800,7 @@ fn canonicalize3j(dj: [i64; 3], dm: [i64; 3]) -> ([i64; 3], [i64; 3], i8) {
 /// Returns `(key, phase)` such that `value(input) == phase.apply(value(rep))`
 /// where `rep` is the symbol named by `key`. (WignerSymbols.jl v2.0.0
 /// `WignerSymbols.jl:_wigner3j` / `reorder3j`.)
-pub fn canonical_regge_3j(
+pub(crate) fn canonical_regge_3j(
     dj1: u32,
     dj2: u32,
     dj3: u32,
@@ -2025,5 +2004,162 @@ mod checked_tests {
             tested_3j > 100,
             "too few forbidden 3j samples ({tested_3j})"
         );
+    }
+}
+
+/// Regge orbit invariance of the crate-private 6j key, checked against an
+/// independent generator of the full 144-element symmetry group.
+#[cfg(test)]
+mod regge_orbit_tests {
+    use super::{canonical_regge_3j, canonical_regge_6j, wigner_6j};
+    use rand::{Rng, SeedableRng};
+    use rand_chacha::ChaCha8Rng;
+
+    fn tri(a: u32, b: u32, c: u32) -> bool {
+        let (a, b, c) = (a as i64, b as i64, c as i64);
+        (a + b + c) % 2 == 0 && c >= (a - b).abs() && c <= a + b
+    }
+
+    fn admissible_6j(dj: [u32; 6]) -> bool {
+        tri(dj[0], dj[1], dj[2])
+            && tri(dj[0], dj[4], dj[5])
+            && tri(dj[3], dj[1], dj[5])
+            && tri(dj[3], dj[4], dj[2])
+    }
+
+    /// The 24 tetrahedral symmetries of a 6j: permute the three columns
+    /// `(j1,j4),(j2,j5),(j3,j6)` and flip top/bottom in an even number of columns.
+    fn tetrahedral_images(dj: [u32; 6]) -> Vec<[u32; 6]> {
+        let cols = [[dj[0], dj[3]], [dj[1], dj[4]], [dj[2], dj[5]]];
+        let perms = [
+            [0, 1, 2],
+            [0, 2, 1],
+            [1, 0, 2],
+            [1, 2, 0],
+            [2, 0, 1],
+            [2, 1, 0],
+        ];
+        // Row-flip patterns that flip an even number of columns (0 or 2): these are
+        // the value-preserving classical symmetries.
+        let flips = [
+            [false, false, false],
+            [true, true, false],
+            [true, false, true],
+            [false, true, true],
+        ];
+        let mut out = Vec::with_capacity(24);
+        for p in perms {
+            for f in flips {
+                let mut c = [[0u32; 2]; 3];
+                for slot in 0..3 {
+                    let src = cols[p[slot]];
+                    c[slot] = if f[slot] { [src[1], src[0]] } else { src };
+                }
+                out.push([c[0][0], c[1][0], c[2][0], c[0][1], c[1][1], c[2][1]]);
+            }
+        }
+        out
+    }
+
+    /// The non-classical Regge symmetry generator: fix `(j1,j4)`, map each of
+    /// `(j2,j3,j5,j6)` to `rho - j_i` with `rho = (j2+j3+j5+j6)/2`. Together with
+    /// the 24 classical images this generates the full 144-element symmetry group.
+    /// Returns `None` if an image spin would be negative (never for admissible
+    /// input, but guard against underflow rather than panic).
+    fn regge_map(dj: [u32; 6]) -> Option<[u32; 6]> {
+        let s = (dj[1] as i64 + dj[2] as i64 + dj[4] as i64 + dj[5] as i64) / 2;
+        let m = |x: u32| -> Option<u32> {
+            let v = s - x as i64;
+            (v >= 0).then_some(v as u32)
+        };
+        Some([dj[0], m(dj[1])?, m(dj[2])?, dj[3], m(dj[4])?, m(dj[5])?])
+    }
+
+    /// The full symmetry orbit of a 6j label set: closure under the 24 classical
+    /// images and the Regge generator.
+    fn full_orbit(dj: [u32; 6]) -> Vec<[u32; 6]> {
+        let mut seen = std::collections::HashSet::new();
+        let mut stack = vec![dj];
+        seen.insert(dj);
+        while let Some(x) = stack.pop() {
+            let mut neighbours = tetrahedral_images(x);
+            if let Some(r) = regge_map(x) {
+                neighbours.push(r);
+            }
+            for n in neighbours {
+                if seen.insert(n) {
+                    stack.push(n);
+                }
+            }
+        }
+        seen.into_iter().collect()
+    }
+
+    #[test]
+    fn regge_orbit_key_and_value_invariant() {
+        let mut rng = ChaCha8Rng::seed_from_u64(0x8E66_1234);
+        let mut tested = 0;
+        let mut attempts = 0;
+        let mut max_orbit = 0usize;
+        while tested < 200 && attempts < 200_000 {
+            attempts += 1;
+            let dj = [
+                rng.gen_range(0..=20),
+                rng.gen_range(0..=20),
+                rng.gen_range(0..=20),
+                rng.gen_range(0..=20),
+                rng.gen_range(0..=20),
+                rng.gen_range(0..=20),
+            ];
+            if !admissible_6j(dj) {
+                continue;
+            }
+            let key = canonical_regge_6j(dj[0], dj[1], dj[2], dj[3], dj[4], dj[5]).unwrap();
+            let val = wigner_6j(dj[0], dj[1], dj[2], dj[3], dj[4], dj[5]);
+            let orbit = full_orbit(dj);
+            max_orbit = max_orbit.max(orbit.len());
+            for img in &orbit {
+                // Every image is itself an admissible 6j, so it has a key.
+                let k2 =
+                    canonical_regge_6j(img[0], img[1], img[2], img[3], img[4], img[5]).unwrap();
+                let v2 = wigner_6j(img[0], img[1], img[2], img[3], img[4], img[5]);
+                assert_eq!(
+                    key, k2,
+                    "Regge key differs on orbit image {img:?} of {dj:?}"
+                );
+                assert_eq!(
+                    val.signed_square(),
+                    v2.signed_square(),
+                    "6j value differs on orbit image {img:?} of {dj:?}"
+                );
+            }
+            tested += 1;
+        }
+        assert!(tested >= 50, "only {tested} orbits tested");
+        // The Regge generator reaches non-classical images: a generic orbit exceeds
+        // the 24 classical symmetries, confirming the extension is exercised.
+        assert!(
+            max_orbit > 24,
+            "orbit never exceeded 24 images; Regge generator not exercised"
+        );
+    }
+
+    #[test]
+    fn regge_keys_never_panic_on_arbitrary_input() {
+        let mut rng = ChaCha8Rng::seed_from_u64(0x5EED_4E66);
+        for _ in 0..2000 {
+            let dj = |r: &mut ChaCha8Rng| r.gen_range(0u32..=40);
+            let dm = |r: &mut ChaCha8Rng| r.gen_range(-50i32..=50);
+            let (a, b, c, d, e, f) = (
+                dj(&mut rng),
+                dj(&mut rng),
+                dj(&mut rng),
+                dj(&mut rng),
+                dj(&mut rng),
+                dj(&mut rng),
+            );
+            let _ = canonical_regge_6j(a, b, c, d, e, f);
+            let _ = canonical_regge_3j(a, b, c, dm(&mut rng), dm(&mut rng), dm(&mut rng));
+        }
     }
 }
