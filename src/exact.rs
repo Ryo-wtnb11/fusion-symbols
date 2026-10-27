@@ -275,9 +275,98 @@ fn two_pow_i(e: i64) -> f64 {
     f64::from_bits(biased << 52)
 }
 
+/// `∏ nᵢ / ∏ dᵢ` when it is an integer that fits `u128` together with every
+/// intermediate reduced fraction; `None` otherwise (callers fall back to
+/// exact big-integer arithmetic).
+///
+/// The running value stays in lowest terms: each incoming pair is reduced
+/// against itself and crosswise against the running state before
+/// multiplying, so intermediates are as small as the factor order allows.
+#[cfg(feature = "lie-generated")]
+pub(crate) fn checked_integral_quotient(
+    factors: impl IntoIterator<Item = (u128, u128)>,
+) -> Option<u128> {
+    let (mut num, mut den) = (1u128, 1u128);
+    for (n, d) in factors {
+        if d == 0 {
+            return None;
+        }
+        let g = gcd(n, d);
+        let (n, d) = (div(n, g), div(d, g));
+        let (g_n, g_d) = (gcd(n, den), gcd(num, d));
+        num = div(num, g_d).checked_mul(div(n, g_n))?;
+        den = div(den, g_n).checked_mul(div(d, g_d))?;
+    }
+    (den == 1).then_some(num)
+}
+
+/// `a / b`, in a hardware `u64` division whenever both operands fit.
+#[cfg(feature = "lie-generated")]
+fn div(a: u128, b: u128) -> u128 {
+    match (u64::try_from(a), u64::try_from(b)) {
+        (Ok(a), Ok(b)) => u128::from(a / b),
+        _ => a / b,
+    }
+}
+
+/// Euclid in hardware `u64` whenever both operands fit; otherwise binary gcd,
+/// since a `u128` division is a slow library call and shifts are not.
+#[cfg(feature = "lie-generated")]
+fn gcd(mut a: u128, mut b: u128) -> u128 {
+    if let (Ok(mut x), Ok(mut y)) = (u64::try_from(a), u64::try_from(b)) {
+        while y != 0 {
+            (x, y) = (y, x % y);
+        }
+        return u128::from(x);
+    }
+    if a == 0 || b == 0 {
+        return a | b;
+    }
+    let shift = (a | b).trailing_zeros();
+    a >>= a.trailing_zeros();
+    loop {
+        b >>= b.trailing_zeros();
+        if a > b {
+            std::mem::swap(&mut a, &mut b);
+        }
+        b -= a;
+        if b == 0 {
+            return a << shift;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn checked_integral_quotient_is_exact_up_to_u128() {
+        fn q<const N: usize>(f: [(u128, u128); N]) -> Option<u128> {
+            checked_integral_quotient(f)
+        }
+        assert_eq!(q([]), Some(1));
+        // SU(3) octet: 2/1 · 4/2 · 2/1.
+        assert_eq!(q([(2, 1), (4, 2), (2, 1)]), Some(8));
+        assert_eq!(q([(3, 2)]), None, "non-integral");
+        assert_eq!(q([(1, 0)]), None);
+        assert_eq!(q([(u128::MAX, 1)]), Some(u128::MAX));
+        assert_eq!(q([(u128::MAX, 1), (2, 1)]), None, "result overflows");
+        assert_eq!(q([(u128::MAX, 1), (6, 6)]), Some(u128::MAX));
+        // Only crosswise reduction against the running state keeps these in range.
+        assert_eq!(q([(1 << 127, 1), (2, 4)]), Some(1 << 126));
+        assert_eq!(q([(1, 3), (3 << 126, 1)]), Some(1 << 126));
+        // Exact result fits, but the reduced intermediate 2¹²⁸ does not.
+        assert_eq!(q([(1 << 127, 1), (2, 1), (1, 4)]), None);
+        // Both the u64 and the u128 branches of gcd and division.
+        assert_eq!(gcd(12, 18), 6);
+        assert_eq!(gcd(3 << 100, 3 << 91), 3 << 91);
+        assert_eq!(gcd(u128::MAX, 1 << 64), 1);
+        assert_eq!(gcd(0, 1 << 100), 1 << 100);
+        assert_eq!(div(1 << 100, 1 << 36), 1 << 64);
+        assert_eq!(div(18, 6), 3);
+    }
     use std::cell::RefCell;
 
     thread_local! {
