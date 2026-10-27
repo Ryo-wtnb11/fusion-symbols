@@ -41,7 +41,6 @@ pub(crate) struct CartanData {
     /// `L · d_j`, coprime integers; `L = max(sym)` since the longest root has `d = 1`.
     sym: Vec<i64>,
     positive: Vec<PositiveRoot>,
-    two_rho: Vec<i64>,
     two_rho_vee: Vec<i64>,
 }
 
@@ -67,7 +66,6 @@ impl CartanData {
         let transposed: Vec<i64> = (0..rank * rank)
             .map(|n| cartan[(n % rank) * rank + n / rank])
             .collect();
-        let two_rho = coefficient_sum(rank, &coeffs);
         let two_rho_vee = coefficient_sum(rank, &positive_root_coeffs(rank, &transposed));
         let sym = symmetrizer(rank, &cartan);
         let positive = coeffs
@@ -83,7 +81,6 @@ impl CartanData {
             cartan,
             sym,
             positive,
-            two_rho,
             two_rho_vee,
         }
     }
@@ -100,31 +97,38 @@ impl CartanData {
     }
 
     /// Positive roots in simple-root coefficient form, by height then lexicographically.
+    #[cfg(test)]
     pub(crate) fn positive_roots(&self) -> impl Iterator<Item = &[i64]> {
         self.positive.iter().map(|a| a.coeffs.as_slice())
     }
 
     /// `d_j = (α_j, α_j) / 2`, normalized so long roots have `d = 1` (§2.2).
+    #[cfg(test)]
     pub(crate) fn symmetrizer(&self) -> Vec<Ratio<i64>> {
         let long = self.long();
         self.sym.iter().map(|&s| Ratio::new(s, long)).collect()
     }
 
     /// The invariant form on simple roots, `(α_i, α_j) = d_j cartan(i, j)` (§2.2).
+    #[cfg(test)]
     pub(crate) fn form(&self, i: usize, j: usize) -> Ratio<i64> {
         Ratio::new(self.sym[j] * self.c(i, j), self.long())
     }
 
+    #[cfg(test)]
     fn long(&self) -> i64 {
         self.sym.iter().copied().max().unwrap_or(1)
     }
 
     /// `2ρ = Σ_{α>0} α` in simple roots.
-    pub(crate) fn two_rho(&self) -> &[i64] {
-        &self.two_rho
+    #[cfg(test)]
+    pub(crate) fn two_rho(&self) -> Vec<i64> {
+        let coeffs: Vec<Vec<i64>> = self.positive.iter().map(|a| a.coeffs.clone()).collect();
+        coefficient_sum(self.rank, &coeffs)
     }
 
     /// `2ρ∨ = Σ_{α>0} α∨` in simple coroots (§6.2), so `⟨λ, 2ρ∨⟩ = Σ_i c_i λ_i`.
+    #[cfg(test)]
     pub(crate) fn two_rho_vee(&self) -> &[i64] {
         &self.two_rho_vee
     }

@@ -397,3 +397,12 @@ fn u2_identities() {
     ];
     conformance(cat, labels);
 }
+
+#[cfg(feature = "lie-generated")]
+#[test]
+fn g2_identities() {
+    use fusion_symbols::lie::{GroupId, LieGroup};
+    let cat = LieGroup::new(GroupId::g2()).unwrap();
+    let labels = vec![cat.unit(), cat.irrep(&[1, 0], &[]).unwrap()];
+    conformance(cat, labels);
+}

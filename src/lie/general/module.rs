@@ -6,7 +6,7 @@
 //! norms `n_k = ⟨b_k, b_k⟩`, the Gram–Schmidt coefficients over the kept
 //! candidates, and the rational lowering matrices `F` of §4.5. Every ladder
 //! entry of the orthonormal basis `u_k = b_k / √n_k` is then the single signed
-//! square root `F[a, b] · √(n_a / n_b)`, returned as a [`SignedSqrtRational`];
+//! square root `F[a, b] · √(n_a / n_b)`, returned as a [`SignedSqrtRational`](crate::exact::SignedSqrtRational);
 //! no two square roots are ever added.
 
 use std::collections::{HashMap, HashSet};
@@ -16,10 +16,30 @@ use num_rational::Ratio;
 use num_traits::{Signed, Zero};
 
 use super::roots::CartanData;
-use crate::exact::SignedSqrtRational;
 use crate::lie::{GenerationError, LieError};
 
 pub(super) type Q = Ratio<BigInt>;
+
+/// Estimated bytes of a `Vec<i64>` with its header.
+pub(super) fn labels_bytes(v: &[i64]) -> usize {
+    std::mem::size_of::<Vec<i64>>() + std::mem::size_of_val(v)
+}
+
+/// Estimated heap bytes of one rational: its numerator and denominator digits.
+pub(super) fn q_heap(q: &Q) -> usize {
+    let words = |x: &BigInt| x.bits().div_ceil(64) as usize;
+    8 * (words(q.numer()) + words(q.denom()))
+}
+
+/// Estimated bytes of a vector of rationals, capacity-based.
+pub(super) fn qs_bytes(v: &Vec<Q>) -> usize {
+    v.capacity() * std::mem::size_of::<Q>() + v.iter().map(q_heap).sum::<usize>()
+}
+
+/// Estimated bytes of a rational matrix stored as rows.
+pub(super) fn qrows_bytes(m: &Vec<Vec<Q>>) -> usize {
+    m.capacity() * std::mem::size_of::<Vec<Q>>() + m.iter().map(qs_bytes).sum::<usize>()
+}
 
 /// `L(λ)` in the §4 basis.
 pub(super) struct IrrepModule {
@@ -94,6 +114,36 @@ impl From<ModuleError> for LieError {
 }
 
 impl IrrepModule {
+    /// Estimated retained bytes: weight spaces with their norms, Gram–Schmidt
+    /// coefficients and lowering matrices, and the weight index.
+    pub(super) fn bytes(&self) -> usize {
+        let spaces: usize = self
+            .weights
+            .iter()
+            .map(|s| {
+                let lower: usize = s.lower.capacity()
+                    * std::mem::size_of::<Option<(usize, Vec<Vec<Q>>)>>()
+                    + s.lower
+                        .iter()
+                        .flatten()
+                        .map(|(_, f)| qrows_bytes(f))
+                        .sum::<usize>();
+                labels_bytes(&s.mu)
+                    + labels_bytes(&s.k)
+                    + qs_bytes(&s.norms)
+                    + s.kept.capacity() * std::mem::size_of::<(usize, usize)>()
+                    + qrows_bytes(&s.gs)
+                    + lower
+            })
+            .sum();
+        let index: usize = self
+            .index
+            .keys()
+            .map(|k| labels_bytes(k) + std::mem::size_of::<usize>())
+            .sum();
+        self.weights.capacity() * std::mem::size_of::<WeightSpace>() + spaces + index
+    }
+
     /// Builds `L(λ)` for a dominant `λ`. Dimensions beyond `u32`, the
     /// magnetic-index type handed to `frcore`, are [`LieError::LabelOverflow`].
     pub(super) fn new(data: &CartanData, lambda: &[i64]) -> Result<Self, LieError> {
@@ -168,7 +218,15 @@ impl IrrepModule {
 
     /// `⟨u_a, f_j u_b⟩` with `u_a` the `a`-th basis vector of weight space `w`
     /// and `u_b` the `b`-th of `μ_w + α_j` (§4.5).
-    pub(super) fn f_entry(&self, w: usize, j: usize, a: usize, b: usize) -> SignedSqrtRational {
+    #[cfg(test)]
+    pub(super) fn f_entry(
+        &self,
+        w: usize,
+        j: usize,
+        a: usize,
+        b: usize,
+    ) -> crate::exact::SignedSqrtRational {
+        use crate::exact::SignedSqrtRational;
         let space = &self.weights[w];
         let Some((src, f)) = &space.lower[j] else {
             return SignedSqrtRational::zero();
