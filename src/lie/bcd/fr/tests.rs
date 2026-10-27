@@ -46,6 +46,47 @@ fn warm_calls_do_not_lock_or_resweep() {
 }
 
 #[test]
+fn cached_r_is_bit_identical_to_the_raw_join() {
+    let _guard = cache::TEST_CACHE_LOCK.lock().unwrap();
+    let bits = |r: &super::RBlock| {
+        (
+            r.dim(),
+            r.data().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+        )
+    };
+    let b2 = LieGroup::new(GroupId::so(5).unwrap()).unwrap();
+    let c3 = LieGroup::new(GroupId::sp(6).unwrap()).unwrap();
+    let samples: [(&LieGroup, [&[i64]; 3], usize); 7] = [
+        (&b2, [&[1, 0], &[1, 0], &[0, 2]], 1),
+        (&b2, [&[0, 2], &[0, 2], &[0, 2]], 1),
+        (&b2, [&[1, 0], &[1, 0], &[1, 0]], 0),
+        (&b2, [&[2, 0], &[2, 0], &[2, 0]], 1),
+        (&c3, [&[1, 0, 0], &[1, 0, 0], &[0, 1, 0]], 1),
+        (&c3, [&[2, 0, 0], &[2, 0, 0], &[2, 0, 0]], 1),
+        (&c3, [&[1, 0, 0], &[1, 0, 0], &[1, 0, 0]], 0),
+    ];
+    for (cat, labels, dim) in samples {
+        let [a, b, c] = labels.map(|d| cat.irrep(d, &[]).unwrap());
+        let [a, b, c] = [&a, &b, &c].map(|x| x.bcd().unwrap());
+        let catalog = cat.catalog.as_ref().unwrap();
+        cache::trim_to(cache::CoefficientCacheTier::BcdR, 0);
+        let cold = super::r_symbol(catalog, a, b, c).unwrap();
+        let warm = super::r_symbol(catalog, a, b, c).unwrap();
+        let raw = super::r_block_raw(&mut super::BcdFamily { cat: catalog }, a, b, c).unwrap();
+        assert_eq!(cold.dim(), dim, "{labels:?}");
+        assert_eq!(bits(&cold), bits(&raw), "cold R differs from the raw join");
+        assert_eq!(bits(&warm), bits(&cold), "warm R differs from cold R");
+    }
+    // Errors are not retained: a repeat reports the same typed error.
+    let v = b2.irrep(&[1, 0], &[]).unwrap();
+    let six = c3.irrep(&[1, 0, 0], &[]).unwrap();
+    let (v, six) = (v.bcd().unwrap(), six.bcd().unwrap());
+    let catalog = b2.catalog.as_ref().unwrap();
+    let first = super::r_symbol(catalog, v, six, v).unwrap_err();
+    assert_eq!(super::r_symbol(catalog, v, six, v).unwrap_err(), first);
+}
+
+#[test]
 fn poisoned_catalog_is_a_generation_error() {
     let _guard = cache::TEST_CACHE_LOCK.lock().unwrap();
     cache::reset();

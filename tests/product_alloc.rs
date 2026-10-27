@@ -178,7 +178,7 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
     fn times(k: usize, (c, b): (usize, usize)) -> (usize, usize) {
         (k * c, k * b)
     }
-    // Warm F and R, and that F hits the SU(3) F tier once per SU(3) leaf
+    // Warm F and R, and that each hits its SU(3) tier once per SU(3) leaf
     // without any cache miss.
     fn check<C: FusionCategory>(
         name: &str,
@@ -213,9 +213,24 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
             base.misses,
             "{name}"
         );
-        let r_alloc = warm(|| cat.r_symbol(x, x, x).unwrap());
+        let query_r = || cat.r_symbol(x, x, x).unwrap();
+        query_r();
+        let generated = cache::generated_cache_stats();
+        let r_alloc = counting_alloc::measure(query_r);
+        let r_alloc = (r_alloc.0, r_alloc.1);
+        let warm_generated = cache::generated_cache_stats();
         println!("{name} R: {}/{}", r_alloc.0, r_alloc.1);
         assert_eq!(r_alloc, r, "{name} R");
+        assert_eq!(
+            warm_generated.sun_r.hits,
+            generated.sun_r.hits + k,
+            "{name}: R factor hits"
+        );
+        assert_eq!(
+            warm_generated.total().misses,
+            generated.total().misses,
+            "{name} R"
+        );
     }
 
     let _serial = counting_alloc::serial();
@@ -234,6 +249,8 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
         warm(|| su3.f_symbol(&o, &o, &o, &o, &o, &o).unwrap()),
         warm(|| su3.r_symbol(&o, &o, &o).unwrap()),
     );
+    // A warm leaf R hit shares the cached 2×2 block: no allocation.
+    assert_eq!(leaf_r, (0, 0), "SU(3) octet R");
     let (fib_f, fib_r) = (
         warm(|| fib.f_symbol(&tau, &tau, &tau, &tau, &tau, &tau).unwrap()),
         warm(|| fib.r_symbol(&tau, &tau, &tau).unwrap()),

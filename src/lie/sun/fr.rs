@@ -159,10 +159,11 @@ pub fn f_symbol(
 /// An [`RBlock`]: a dense row-major `N^c_ab × N^c_ba` `f64` matrix.
 /// [`RBlock::dim`] is `N^c_ab`, [`RBlock::at`]`(mu, nu)` reads one element,
 /// [`RBlock::data`] is the flat buffer. Multiplicity-free means a `1×1` block
-/// holding the braiding phase. Unlike [`f_symbol`], R is a single sparse join
-/// of two CGC and is not separately cached. Repeated calls from the same cached
-/// CGC sum in a stable order and return bit-identical blocks within the process.
-///
+/// holding the braiding phase. Like [`f_symbol`], the block is cached after
+/// the first successful query (keyed by the ordered triple), so repeated queries
+/// are lookups returning the identical block; errors are not cached. A
+/// recomputation after eviction or trimming sums the cached CGC in a stable
+/// order, so it returns a bit-identical block within the process.
 ///
 /// # Errors
 ///
@@ -170,7 +171,7 @@ pub fn f_symbol(
 /// - CGC generation errors are surfaced.
 pub fn r_symbol(a: &Irrep, b: &Irrep, c: &Irrep) -> Result<RBlock, SunError> {
     require_same_rank(&[a, b, c])?;
-    r_block_raw(&mut SunFamily, a, b, c)
+    crate::cache::sun_r([a, b, c], || r_block_raw(&mut SunFamily, a, b, c))
 }
 
 #[cfg(test)]
@@ -264,6 +265,37 @@ mod tests {
         assert!(matches!(err, SunError::RankMismatch { .. }));
     }
 
+    #[test]
+    fn cached_r_is_bit_identical_to_the_raw_join() {
+        let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
+        let bits = |r: &RBlock| {
+            (
+                r.dim(),
+                r.data().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+            )
+        };
+        for (a, b, c, dim) in [
+            (irr(&[1, 1]), irr(&[1, 1]), irr(&[1, 1]), 2),
+            (irr(&[1, 0]), irr(&[0, 1]), irr(&[1, 1]), 1),
+            (irr(&[1, 0]), irr(&[1, 0]), irr(&[1, 1]), 0),
+            (irr(&[1, 0, 1]), irr(&[1, 0, 1]), irr(&[1, 0, 1]), 2),
+            (irr(&[1, 0, 0]), irr(&[0, 0, 1]), irr(&[1, 0, 1]), 1),
+        ] {
+            crate::cache::trim_to(crate::cache::CoefficientCacheTier::SunR, 0);
+            let cold = r_symbol(&a, &b, &c).unwrap();
+            let warm = r_symbol(&a, &b, &c).unwrap();
+            let raw = r_block_raw(&mut SunFamily, &a, &b, &c).unwrap();
+            assert_eq!(cold.dim(), dim);
+            assert_eq!(bits(&cold), bits(&raw), "cold R differs from the raw join");
+            assert_eq!(bits(&warm), bits(&cold), "warm R differs from cold R");
+        }
+        // Errors are not retained: a repeat reports the same typed error.
+        let (su3, su4) = (irr(&[1, 0]), irr(&[1, 0, 0]));
+        let first = r_symbol(&su3, &su4, &su3).unwrap_err();
+        assert!(matches!(first, SunError::RankMismatch { .. }));
+        assert_eq!(r_symbol(&su3, &su4, &su3).unwrap_err(), first);
+    }
+
     // ---- shapes ----
 
     #[test]
@@ -299,7 +331,7 @@ mod tests {
     fn repeated_fr_contractions_use_cached_cgc_in_a_stable_order() {
         for (name, label) in [("SU(3) 8", irr(&[1, 1])), ("SU(4) 15", irr(&[1, 0, 1]))] {
             let r_bits = || {
-                r_symbol(&label, &label, &label)
+                r_block_raw(&mut SunFamily, &label, &label, &label)
                     .unwrap()
                     .data()
                     .iter()
@@ -325,7 +357,7 @@ mod tests {
             let r_first = r_bits();
             let f_first = f_bits();
             for _ in 0..32 {
-                assert_eq!(r_bits(), r_first, "{name} R changed with cached CGC");
+                assert_eq!(r_bits(), r_first, "{name} raw R changed with cached CGC");
                 assert_eq!(f_bits(), f_first, "{name} raw F changed with cached CGC");
             }
         }

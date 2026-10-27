@@ -7,6 +7,22 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Added
+
+- Generated R blocks have their own coefficient-cache tiers (#207):
+  `CoefficientCacheTier::SunR` (`sun_r`) and `CoefficientCacheTier::BcdR`
+  (`bcd_r`), with matching `CoefficientCacheBudgets` limits and
+  `GeneratedCacheStats::{sun_r, bcd_r}`. Keys are the ordered `(a, b, c)`
+  labels; caps follow the F tiers (2^16 entries, 64 MiB), so
+  `GENERATED_CACHE_MAX_BYTES` grows to 768 MiB + 128 KiB. Errors are not
+  cached.
+
+### Performance
+
+- A warm SU(N) or B/C/D R query is a cache hit returning the shared block
+  instead of re-joining two CGC (#207); product R inherits this through its
+  leaf queries. Values are bit-identical to the uncached computation.
+
 ### Changed
 
 - Coefficient caches are rebuilt on `quick_cache` 0.7 (#117, #201, #202),

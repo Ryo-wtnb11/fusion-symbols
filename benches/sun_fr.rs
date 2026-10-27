@@ -1,9 +1,9 @@
 //! SU(N) F-symbol generation cost across representative families, cold (full
-//! four-CGC contraction, CGC caches cleared) and warm (derived-f64 F cache
-//! hit). Not a CI gate; run with `cargo bench --features lie-generated`.
+//! four-CGC contraction, CGC caches cleared) and warm (derived-f64 F and R cache
+//! hits). Not a CI gate; run with `cargo bench --features lie-generated`.
 //!
-//! The cached-CGC cases isolate F recomputation (by trimming only its F cache)
-//! and uncached R contraction from CGC generation.
+//! The cached-CGC cases isolate F and R recomputation from CGC generation by
+//! trimming only the `SunF` or `SunR` tier before each query.
 
 #[path = "../tests/common/lie.rs"]
 mod lie_test;
@@ -115,6 +115,21 @@ fn bench_hit(c: &mut Criterion) {
         });
     }
     g.finish();
+
+    let mut r_group = c.benchmark_group("r_symbol_cache_hit");
+    for (label, d) in r_cases() {
+        let s = irr(d);
+        let _ = r_symbol(&s, &s, &s).unwrap(); // warm
+        r_group.bench_function(label, |b| {
+            b.iter(|| black_box(r_symbol(black_box(&s), &s, &s).unwrap()))
+        });
+    }
+    r_group.finish();
+}
+
+/// (label, Dynkin label) for `R^{aa}_a`; both carry a 2×2 multiplicity block.
+fn r_cases() -> [(&'static str, &'static [i64]); 2] {
+    [("su3_octet_om2", &[1, 1]), ("su4_adjoint", &[1, 0, 1])]
 }
 
 fn bench_cached_cgc(c: &mut Criterion) {
@@ -131,14 +146,14 @@ fn bench_cached_cgc(c: &mut Criterion) {
     f_group.finish();
 
     let mut r_group = c.benchmark_group("r_symbol_cached_cgc");
-    for (label, d) in [
-        ("su3_octet_om2", &[1, 1][..]),
-        ("su4_adjoint", &[1, 0, 1][..]),
-    ] {
+    for (label, d) in r_cases() {
         let s = irr(d);
         let _ = r_symbol(&s, &s, &s).unwrap();
         r_group.bench_function(label, |b| {
-            b.iter(|| black_box(r_symbol(black_box(&s), &s, &s).unwrap()))
+            b.iter(|| {
+                cache::trim_to(CoefficientCacheTier::SunR, 0);
+                black_box(r_symbol(black_box(&s), &s, &s).unwrap())
+            })
         });
     }
     r_group.finish();

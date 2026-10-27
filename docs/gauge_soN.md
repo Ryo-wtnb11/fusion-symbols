@@ -554,10 +554,9 @@ chain is committed. This bounds retained charge, not transient memory.
 
 ### 14.7 What the catalog does NOT own
 
-The catalog retains generator sets and their byte charge. CGC and F values
+The catalog retains generator sets and their byte charge. CGC, F and R values
 are cached in separate process-global coefficient caches; catalog reset does
-not invalidate those caches. R is recomputed from cached CGC on every query
-(`src/lie/bcd/fr.rs::r_symbol`); it has no separate cache. Every materialized
+not invalidate those caches. Every materialized
 generator set passes the commutator gate at `EPS_SWEEP`.
 
 ## 15. Intertwiner alignment of rediscovered frames (this IS gauge)

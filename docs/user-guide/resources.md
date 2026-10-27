@@ -8,11 +8,11 @@ Every coefficient-cache tier is process-global, byte-weighted Clock-PRO and inde
 | Tiers | Aggregate cap |
 |---|---|
 | SU(2) 3j, 6j, derived F | `BASE_CACHE_MAX_BYTES`: 192 MiB (3 × 64 MiB) |
-| SU(N) product / CGC / F, B/C/D product+CGC / F (`lie-generated`) | `GENERATED_CACHE_MAX_BYTES`: 640 MiB + 128 KiB |
+| SU(N) product / CGC / F / R, B/C/D product+CGC / F / R (`lie-generated`) | `GENERATED_CACHE_MAX_BYTES`: 768 MiB + 128 KiB |
 
 The B/C/D product and CGC entries share `CoefficientCacheTier::BcdCgc`.
 Caps exclude container capacity, allocator metadata, transient/external clones,
-returned values and RSS. R uses cached CGC but has no separate cache.
+returned values and RSS.
 
 Configure once, **before any cache operation or policy observation**:
 
@@ -46,7 +46,7 @@ All tiers use `quick_cache` 0.7 with its foldhash hasher, its `sharded-lock`
 reader-sharded lock (see [Concurrency](#concurrency)) and exactly one shard per
 tier. Hits use borrowed `Equivalent` queries and a read lock, without
 constructing owned keys or copying coefficient buffers.
-Exact SU(2) values share their immutable rational payload; generated F blocks
+Exact SU(2) values share their immutable rational payload; generated F and R blocks
 are stored directly, sharing their existing coefficient storage. Concurrent
 misses on a key, including `LieGroup` dual lookups, share one successful
 computation; waiters count as hits. Errors are not retained. Whole-product

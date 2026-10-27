@@ -30,12 +30,16 @@ fn trim_routes_to_each_populated_generated_tier() {
     let v = bcd_test::irrep(Series::C, &[0, 1]).unwrap();
     let adj = bcd_test::irrep(Series::C, &[2, 0]).unwrap();
     let _ = bcd_test::f_symbol(&cat, &triv, &v, &v, &adj, &v, &adj).unwrap();
+    let _ = lie_test::r_symbol(&e8, &e8, &e8).unwrap();
+    let _ = bcd_test::r_symbol(&cat, &v, &v, &adj).unwrap();
     let tiers = [
         CoefficientCacheTier::SunProduct,
         CoefficientCacheTier::SunCgc,
         CoefficientCacheTier::SunF,
+        CoefficientCacheTier::SunR,
         CoefficientCacheTier::BcdCgc,
         CoefficientCacheTier::BcdF,
+        CoefficientCacheTier::BcdR,
     ];
     for tier in tiers {
         let before = cache::generated_cache_stats();
@@ -43,8 +47,10 @@ fn trim_routes_to_each_populated_generated_tier() {
             CoefficientCacheTier::SunProduct => before.sun_product,
             CoefficientCacheTier::SunCgc => before.sun_cgc,
             CoefficientCacheTier::SunF => before.sun_f,
+            CoefficientCacheTier::SunR => before.sun_r,
             CoefficientCacheTier::BcdCgc => before.bcd_cgc,
             CoefficientCacheTier::BcdF => before.bcd_f,
+            CoefficientCacheTier::BcdR => before.bcd_r,
             _ => unreachable!(),
         };
         assert!(selected.entries > 0, "fixture must populate {tier}");
@@ -55,8 +61,10 @@ fn trim_routes_to_each_populated_generated_tier() {
             CoefficientCacheTier::SunProduct => after.sun_product,
             CoefficientCacheTier::SunCgc => after.sun_cgc,
             CoefficientCacheTier::SunF => after.sun_f,
+            CoefficientCacheTier::SunR => after.sun_r,
             CoefficientCacheTier::BcdCgc => after.bcd_cgc,
             CoefficientCacheTier::BcdF => after.bcd_f,
+            CoefficientCacheTier::BcdR => after.bcd_r,
             _ => unreachable!(),
         };
         assert_eq!(now.entries, 0);
