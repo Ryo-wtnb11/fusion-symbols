@@ -679,44 +679,6 @@ fn cartan(root: RootSystem, i: usize, j: usize) -> i64 {
     }
 }
 
-/// `a mod 2 ∈ {0, 1}`, also for negative `a`.
-fn parity(a: i64) -> i64 {
-    a.rem_euclid(2)
-}
-
-/// `Σ_{i odd, 1-based} aᵢ mod 2` over the `i = 1, 3, 5, …` entries, reduced
-/// per term so that large labels cannot overflow.
-fn odd_index_parity(dynkin: &[i64]) -> i64 {
-    dynkin.iter().step_by(2).fold(0, |t, &a| t ^ parity(a))
-}
-
-/// The `Z4` central class `κ(λ) ∈ {0,1,2,3}` of a `D_r` weight with `r` odd,
-/// under the generator `c = [ω_r]`:
-///
-/// ```text
-/// κ(λ) ≡ a_r − a_{r-1} + 2·Σ_{i odd ≤ r-2} aᵢ  (mod 4)
-/// ```
-///
-/// Exposed because this is the value an external congruency table is checked
-/// against; see [`GroupId::pso`] for the derivation and the Slansky
-/// SO(10) anchors. Returns `0` for a label shorter than 2.
-pub fn d_odd_central_class(dynkin: &[i64]) -> i64 {
-    if dynkin.len() < 2 {
-        return 0;
-    }
-    d_odd_class(dynkin)
-}
-
-/// `κ(λ) ≡ a_r − a_{r-1} + 2·Σ_{i odd ≤ r-2} aᵢ (mod 4)` for `D_r`, `r` odd,
-/// with the generator `c = [ω_r]` (see [`GroupId::pso`]).
-fn d_odd_class(dynkin: &[i64]) -> i64 {
-    let r = dynkin.len();
-    // Each term reduced mod 4 first: every operand is then in [0, 4).
-    (dynkin[r - 1].rem_euclid(4) - dynkin[r - 2].rem_euclid(4)
-        + 2 * odd_index_parity(&dynkin[..r - 2]))
-    .rem_euclid(4)
-}
-
 fn sp_rank(m: usize) -> Result<usize, GroupError> {
     if m < 2 || !m.is_multiple_of(2) {
         return Err(GroupError::UnsupportedRank {

@@ -23,7 +23,7 @@
 use super::{cgc, shared_directproduct, Irrep, SunError};
 use crate::frcore::{f_block_raw, r_block_raw, Family, MEntry};
 
-pub use crate::frcore::{FBlock, RBlock};
+use crate::category::{FBlock, RBlock};
 
 /// The SU(N) binding of the generic F/R core: a stateless zero-sized provider.
 ///
@@ -130,7 +130,7 @@ pub fn f_symbol(
     d: &Irrep,
     e: &Irrep,
     f: &Irrep,
-) -> Result<FBlock, SunError> {
+) -> Result<FBlock<f64>, SunError> {
     require_same_rank(&[a, b, c, d, e, f])?;
     // Derived-f64 cache: key = the plain ordered six-label tuple.
     //
@@ -169,7 +169,7 @@ pub fn f_symbol(
 ///
 /// - [`SunError::RankMismatch`] if `a`, `b`, `c` are not all SU(N) for one `N`.
 /// - CGC generation errors are surfaced.
-pub fn r_symbol(a: &Irrep, b: &Irrep, c: &Irrep) -> Result<RBlock, SunError> {
+pub fn r_symbol(a: &Irrep, b: &Irrep, c: &Irrep) -> Result<RBlock<f64>, SunError> {
     require_same_rank(&[a, b, c])?;
     crate::cache::sun_r([a, b, c], || r_block_raw(&mut SunFamily, a, b, c))
 }
@@ -268,7 +268,7 @@ mod tests {
     #[test]
     fn cached_r_is_bit_identical_to_the_raw_join() {
         let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
-        let bits = |r: &RBlock| {
+        let bits = |r: &RBlock<f64>| {
             (
                 r.dim(),
                 r.data().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),

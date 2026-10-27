@@ -50,7 +50,7 @@ pub fn f_symbol(
     d: &LieIrrep,
     e: &LieIrrep,
     f: &LieIrrep,
-) -> Result<fusion_symbols::lie::FBlock, LieError> {
+) -> Result<fusion_symbols::category::FBlock<f64>, LieError> {
     cat.f_symbol(a, b, c, d, e, f)
 }
 pub fn r_symbol(
@@ -58,7 +58,7 @@ pub fn r_symbol(
     a: &LieIrrep,
     b: &LieIrrep,
     c: &LieIrrep,
-) -> Result<fusion_symbols::lie::RBlock, LieError> {
+) -> Result<fusion_symbols::category::RBlock<f64>, LieError> {
     cat.r_symbol(a, b, c)
 }
 pub fn check_f_unitarity(

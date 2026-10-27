@@ -9,6 +9,7 @@ use std::{
 
 /// Fusion multiplicities: one outcome, multiplicity-free, or general.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum FusionStyle {
     /// Exactly one outcome, of multiplicity one.
     Unique,
@@ -20,6 +21,7 @@ pub enum FusionStyle {
 
 /// Availability and symmetry of braiding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum BraidingStyle {
     /// Braiding is absent: R returns an error and twist panics.
     None,

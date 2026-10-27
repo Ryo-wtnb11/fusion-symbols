@@ -48,7 +48,7 @@ fn warm_calls_do_not_lock_or_resweep() {
 #[test]
 fn cached_r_is_bit_identical_to_the_raw_join() {
     let _guard = cache::TEST_CACHE_LOCK.lock().unwrap();
-    let bits = |r: &super::RBlock| {
+    let bits = |r: &super::RBlock<f64>| {
         (
             r.dim(),
             r.data().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
@@ -197,7 +197,8 @@ fn cgc_budget_covers_only_the_requested_channel() {
     let cat = LieGroup::with_catalog_budget(group, needed).unwrap();
     let s = cat.irrep(&[0, 1], &[]).unwrap();
     let got = cat.cgc(&s, &s, &cat.unit()).unwrap();
-    assert_eq!(cat.catalog_stats().unwrap(), (needed, needed));
+    let stats = cat.catalog_stats().unwrap();
+    assert_eq!((stats.bytes, stats.budget), (needed, needed));
     for m2 in 0..4 {
         for m1 in 0..4 {
             assert_eq!(got.at([m1, m2, 0, 0]), expected.copy(0)[m1 + 4 * m2]);

@@ -8,7 +8,7 @@
 #[cfg(feature = "lie-generated")]
 use crate::common::lie as lie_test;
 
-use fusion_symbols::lie::{d_odd_central_class, GroupError, GroupId, RootSystem};
+use fusion_symbols::lie::{GroupError, GroupId, RootSystem};
 
 // ---------------------------------------------------------------------------
 // A_r — N-ality
@@ -221,11 +221,11 @@ fn d_even_three_quotients_at_both_r_mod_4() {
 fn d_odd_z4_class_slansky_so10_anchors() {
     // Slansky Table 41: "the adjoint is in the 0 class, the spinor in 1, the
     // conjugate spinors in -1, and the vector … in the 2 class."
-    assert_eq!(d_odd_central_class(&[0, 1, 0, 0, 0]), 0); // 45, adjoint
-    assert_eq!(d_odd_central_class(&[0, 0, 0, 0, 1]), 1); // 16 = ω₅
-    assert_eq!(d_odd_central_class(&[0, 0, 0, 1, 0]), 3); // 16bar = ω₄, i.e. -1
-    assert_eq!(d_odd_central_class(&[1, 0, 0, 0, 0]), 2); // 10, vector
-    assert_eq!(d_odd_central_class(&[0, 0, 1, 0, 0]), 2); // 120 = ω₃, class v
+    assert_eq!(d_odd_class(&[0, 1, 0, 0, 0]), 0); // 45, adjoint
+    assert_eq!(d_odd_class(&[0, 0, 0, 0, 1]), 1); // 16 = ω₅
+    assert_eq!(d_odd_class(&[0, 0, 0, 1, 0]), 3); // 16bar = ω₄, i.e. -1
+    assert_eq!(d_odd_class(&[1, 0, 0, 0, 0]), 2); // 10, vector
+    assert_eq!(d_odd_class(&[0, 0, 1, 0, 0]), 2); // 120 = ω₃, class v
 
     // The generator convention: κ agrees with `dual` (λ_r ↦ -λ_r), so
     // conjugation negates the class.
@@ -233,7 +233,7 @@ fn d_odd_z4_class_slansky_so10_anchors() {
         let mut conj = label.clone();
         conj.swap(3, 4);
         assert_eq!(
-            (d_odd_central_class(&label) + d_odd_central_class(&conj)) % 4,
+            (d_odd_class(&label) + d_odd_class(&conj)) % 4,
             0,
             "κ(λ*) = -κ(λ) on {label:?}"
         );
@@ -243,7 +243,7 @@ fn d_odd_z4_class_slansky_so10_anchors() {
     let pso10 = GroupId::pso(10).unwrap();
     let spin10 = GroupId::spin(10).unwrap();
     for label in sweep(5, 3) {
-        let kappa = d_odd_central_class(&label);
+        let kappa = d_odd_class(&label);
         assert!(spin10.admits(&label, &[]));
         // κ mod 2 reproduces the shipped SO condition a_{r-1}+a_r even.
         assert_eq!(
@@ -452,6 +452,16 @@ mod against_bcd {
         );
         assert!(key_ss < key_vv, "the spinor pair wins: {key_ss} < {key_vv}");
     }
+}
+
+/// The `Z4` central class of a `D_r` weight, `r` odd, under the generator
+/// `c = [ω_r]`: `κ(λ) ≡ a_r − a_{r-1} + 2·Σ_{i odd ≤ r-2} aᵢ (mod 4)`
+/// (derivation in `GroupId::pso`). The oracle the PSO/SO admission is
+/// checked against; the Slansky anchors below pin its convention.
+fn d_odd_class(dynkin: &[i64]) -> i64 {
+    let r = dynkin.len();
+    let odd: i64 = dynkin[..r - 2].iter().step_by(2).sum();
+    (dynkin[r - 1] - dynkin[r - 2] + 2 * odd).rem_euclid(4)
 }
 
 /// Every non-negative Dynkin label of rank `r` with each entry `< cap`.
@@ -938,8 +948,4 @@ fn bcd_congruences_do_not_overflow() {
     assert!(pso10.admits(&[MAX, 0, MAX, MAX, MAX], &[]));
     // κ ≡ 3 − 0 + 2·1 = 5 ≡ 1.
     assert!(!pso10.admits(&[MAX, 0, 0, 0, MAX], &[]));
-    assert_eq!(d_odd_central_class(&[MAX, 0, 0, 0, MAX]), 1);
-    // The public class accepts any i64: MIN = −2^63 ≡ 0 (mod 4), κ ≡ 3 − 0 = 3,
-    // where the plain difference MAX − MIN overflows.
-    assert_eq!(d_odd_central_class(&[0, 0, 0, i64::MIN, MAX]), 3);
 }

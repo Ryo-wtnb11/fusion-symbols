@@ -44,7 +44,7 @@ impl SignedSqrtRational {
     /// nonnegative (all triangle/dimension products are); a negative `d` is
     /// clamped to its absolute value rather than panicking, but callers never
     /// pass one.
-    pub fn from_prefactor_radical(s: Ratio<BigInt>, d: Ratio<BigInt>) -> Self {
+    pub(crate) fn from_prefactor_radical(s: Ratio<BigInt>, d: Ratio<BigInt>) -> Self {
         if s.is_zero() || d.is_zero() {
             return Self::zero();
         }
@@ -79,23 +79,10 @@ impl SignedSqrtRational {
         }
     }
 
-    /// Multiply by a real integer `k`: `(sign*sqrt(r)) * k = sign(k)*sign * sqrt(k^2 r)`.
-    pub fn scale_int(mut self, k: i64) -> Self {
-        if k == 0 || self.sign == 0 {
-            return Self::zero();
-        }
-        if k < 0 {
-            self.sign = -self.sign;
-        }
-        let k2 = BigInt::from(k) * BigInt::from(k);
-        *Arc::make_mut(self.radicand.as_mut().expect("nonzero radicand")) *= Ratio::from(k2);
-        self
-    }
-
     /// Multiply the value by `sqrt(n)` for a nonnegative integer `n`
     /// (`radicand *= n`, sign unchanged). Used to fold a dimension factor
     /// `sqrt(2 j3 + 1)` into a coefficient exactly.
-    pub fn times_sqrt_int(mut self, n: u64) -> Self {
+    pub(crate) fn times_sqrt_int(mut self, n: u64) -> Self {
         if n == 0 || self.sign == 0 {
             return Self::zero();
         }
@@ -105,7 +92,7 @@ impl SignedSqrtRational {
     }
 
     /// Negate the value (flip the sign).
-    pub fn neg_value(mut self) -> Self {
+    pub(crate) fn neg_value(mut self) -> Self {
         self.sign = -self.sign;
         self
     }
@@ -144,24 +131,6 @@ impl SignedSqrtRational {
             -mag
         } else {
             mag
-        }
-    }
-}
-
-impl std::ops::Mul for SignedSqrtRational {
-    type Output = SignedSqrtRational;
-    /// `(s1 sqrt(r1)) * (s2 sqrt(r2)) = (s1 s2) sqrt(r1 r2)` — again a
-    /// signed square root of a rational, so the product stays exact.
-    fn mul(self, other: SignedSqrtRational) -> SignedSqrtRational {
-        if self.sign == 0 || other.sign == 0 {
-            return Self::zero();
-        }
-        SignedSqrtRational {
-            sign: self.sign * other.sign,
-            radicand: Some(Arc::new(
-                Arc::unwrap_or_clone(self.radicand.unwrap())
-                    * Arc::unwrap_or_clone(other.radicand.unwrap()),
-            )),
         }
     }
 }
@@ -427,25 +396,6 @@ mod tests {
         );
         assert_eq!(v.sign(), 1);
         assert_eq!(*v.radicand(), Ratio::new(BigInt::from(20), BigInt::from(9)));
-    }
-
-    #[test]
-    fn product_multiplies_radicands_and_signs() {
-        // (-sqrt(2)) * (+sqrt(8)) = -sqrt(16) = -4.
-        let a = ssr(-1, 2, 1);
-        let b = ssr(1, 8, 1);
-        let p = a * b;
-        assert_eq!(p.sign(), -1);
-        assert_eq!(*p.radicand(), Ratio::from(BigInt::from(16)));
-        assert!((p.to_f64() - (-4.0)).abs() < 1e-12);
-    }
-
-    #[test]
-    fn scale_int_signs_and_squares() {
-        // sqrt(3) scaled by -2 = -2 sqrt(3) = -sqrt(12).
-        let v = ssr(1, 3, 1).scale_int(-2);
-        assert_eq!(v.sign(), -1);
-        assert_eq!(*v.radicand(), Ratio::from(BigInt::from(12)));
     }
 
     #[test]

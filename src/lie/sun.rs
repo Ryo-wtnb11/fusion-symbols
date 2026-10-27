@@ -67,7 +67,7 @@ mod fr;
 mod linalg;
 
 pub use cgc::{cgc, Cgc};
-pub use fr::{f_symbol, r_symbol, FBlock};
+pub use fr::{f_symbol, r_symbol};
 
 /// Error for a malformed SU(N) irrep label. The public constructors never
 /// panic; they return this instead.

@@ -70,6 +70,27 @@ value/gauge rule noted below.
   `CU1Error::TwiceChargeOutOfRange { twice_charge }` to
   `CU1Error::LabelOverflow { twice_charge }`, matching `LieError::LabelOverflow`.
   Fields and messages are unchanged.
+- The SU(2) Regge cache keys are internal: `lie::su2::{canonical_regge_3j,
+  canonical_regge_6j, Regge3j, Regge6j, ReggePhase, ReggeError}` are no longer
+  public. They only key the coefficient caches; `wigner_3j`/`wigner_6j` are
+  the public evaluators.
+- `SignedSqrtRational` is a read-only result type: `zero`, `sign`, `radicand`,
+  `signed_square` and `to_f64` remain. `from_prefactor_radical`,
+  `times_sqrt_int` and `neg_value` are crate-private, and `scale_int` and
+  `impl Mul` are removed. Compare values exactly through `signed_square()`.
+- The `lie::FBlock` and `lie::RBlock` aliases are removed; use
+  `category::FBlock<f64>` and `category::RBlock<f64>`.
+- `lie::d_odd_central_class` is removed; it was a test-only formula, not the
+  admission path. `GroupId::admits` remains the public congruence check.
+- `lie` re-exports exactly `GroupError`, `GroupId` and `RootSystem` from its
+  group module instead of a glob.
+- `LieGroup::catalog_stats` returns `CatalogStats { entries, bytes, budget }`
+  (`#[non_exhaustive]`, public fields) instead of a `(bytes, budget)` tuple,
+  and now also reports retained generator sets. All fields are zero without a
+  catalog.
+- `FusionStyle` and `BraidingStyle` are `#[non_exhaustive]`; downstream
+  matches need a wildcard arm.
+
 - `GroupId` now stores a validated ordered root datum and canonical row-HNF
   character lattice. Public `root_system`/`form` fields, `GlobalForm`, and
   `CenterSubgroup` are removed; use `root_systems()` and lattice constructors.

@@ -3,12 +3,12 @@ mod common;
 
 #[cfg(feature = "lie-generated")]
 use fusion_symbols::category::FusionCategory;
-use fusion_symbols::lie::{GroupId, LieError, LieGroup};
+use fusion_symbols::lie::{CatalogStats, GroupId, LieError, LieGroup};
 
 #[test]
 fn excluded_rank_and_absent_catalog() {
     let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    assert_eq!(su2.catalog_stats().unwrap(), (0, 0));
+    assert_eq!(su2.catalog_stats().unwrap(), CatalogStats::default());
     su2.reset_catalog().unwrap();
     assert!(matches!(
         LieGroup::with_catalog_budget(GroupId::su(2).unwrap(), 0),
@@ -130,7 +130,7 @@ fn labels_weights_zero_blocks_and_catalog_budget() {
     assert_eq!(warm.misses, before.misses);
     assert!(warm.hits > before.hits);
     cache::reset();
-    let seed_bytes = cat.catalog_stats().unwrap().0;
+    let seed_bytes = cat.catalog_stats().unwrap().bytes;
     let tiny = LieGroup::with_catalog_budget(GroupId::spin(5).unwrap(), seed_bytes).unwrap();
     assert_eq!(tiny, cat);
     let hash = |x: &LieGroup| {
@@ -139,7 +139,7 @@ fn labels_weights_zero_blocks_and_catalog_budget() {
         h.finish()
     };
     assert_eq!(hash(&tiny), hash(&cat));
-    assert_eq!(tiny.catalog_stats().unwrap().1, seed_bytes);
+    assert_eq!(tiny.catalog_stats().unwrap().budget, seed_bytes);
     assert!(matches!(
         tiny.cgc(&s, &s, &adj),
         Err(LieError::Generation(_))
@@ -147,7 +147,10 @@ fn labels_weights_zero_blocks_and_catalog_budget() {
     let baseline = cat.catalog_stats().unwrap();
     let clone = cat.clone();
     cat.cgc(&s, &s, &adj).unwrap();
-    assert!(clone.catalog_stats().unwrap().0 > baseline.0);
+    let grown = clone.catalog_stats().unwrap();
+    assert!(grown.bytes > baseline.bytes);
+    assert!(grown.entries > baseline.entries);
+    assert_eq!(grown.budget, baseline.budget);
     clone.reset_catalog().unwrap();
     assert_eq!(cat.catalog_stats().unwrap(), baseline);
 }

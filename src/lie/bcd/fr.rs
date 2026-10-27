@@ -27,9 +27,9 @@
 
 use super::{CanonicalCatalog, CatalogCgc, Irrep};
 use crate::cache::BcdCgcSweep;
+use crate::category::{FBlock, RBlock};
 use crate::frcore::{f_block_raw, r_block_raw, Family, MEntry};
 use crate::lie::{poisoned_catalog, LieError};
-pub use crate::lie::{FBlock, RBlock};
 use std::sync::{Arc, Mutex};
 
 pub(crate) static CGC_SWEEPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -149,7 +149,7 @@ pub fn f_symbol(
     d: &Irrep,
     e: &Irrep,
     f: &Irrep,
-) -> Result<FBlock, LieError> {
+) -> Result<FBlock<f64>, LieError> {
     crate::cache::bcd_f([a, b, c, d, e, f], || {
         f_block_raw(&mut BcdFamily { cat }, a, b, c, d, e, f)
     })
@@ -159,7 +159,7 @@ pub fn r_symbol(
     a: &Irrep,
     b: &Irrep,
     c: &Irrep,
-) -> Result<RBlock, LieError> {
+) -> Result<RBlock<f64>, LieError> {
     crate::cache::bcd_r([a, b, c], || r_block_raw(&mut BcdFamily { cat }, a, b, c))
 }
 #[cfg(test)]

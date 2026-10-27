@@ -92,7 +92,7 @@ use crate::exact::SignedSqrtRational;
 use crate::lie::su2::{FKey, Regge3j, Regge6j};
 #[cfg(feature = "lie-generated")]
 use crate::{
-    frcore::{FBlock, RBlock},
+    category::{FBlock, RBlock},
     lie::{bcd, sun},
 };
 #[cfg(feature = "lie-generated")]
@@ -1155,14 +1155,18 @@ impl<I: Clone> Sextuple<'_, I> {
     }
 }
 
+/// A generated F tier keyed by the six labels as given.
+#[cfg(feature = "lie-generated")]
+type FBlockStore<I> = CoefficientCache<(I, I, I, I, I, I), FBlock<f64>>;
+
 /// One F block through `store`: the six labels as given are the key.
 #[cfg(feature = "lie-generated")]
 #[inline]
 fn f_block<I: Clone + Eq + Hash + CacheKeyCharge, E>(
-    store: &CoefficientCache<(I, I, I, I, I, I), FBlock>,
+    store: &FBlockStore<I>,
     labels: Sextuple<'_, I>,
-    compute: impl FnOnce() -> Result<FBlock, E>,
-) -> Result<FBlock, E> {
+    compute: impl FnOnce() -> Result<FBlock<f64>, E>,
+) -> Result<FBlock<f64>, E> {
     store.get_or_try_compute(&labels, || labels.to_key(), compute)
 }
 
@@ -1170,10 +1174,10 @@ fn f_block<I: Clone + Eq + Hash + CacheKeyCharge, E>(
 #[cfg(feature = "lie-generated")]
 #[inline]
 fn r_block<I: Clone + Eq + Hash + CacheKeyCharge, E>(
-    store: &CoefficientCache<(I, I, I), RBlock>,
+    store: &CoefficientCache<(I, I, I), RBlock<f64>>,
     [a, b, c]: [&I; 3],
-    compute: impl FnOnce() -> Result<RBlock, E>,
-) -> Result<RBlock, E> {
+    compute: impl FnOnce() -> Result<RBlock<f64>, E>,
+) -> Result<RBlock<f64>, E> {
     store.get_or_try_compute(
         &Triple(a, b, c),
         || (a.clone(), b.clone(), c.clone()),
@@ -1424,15 +1428,15 @@ pub(crate) fn sun_dual(x: &sun::Irrep, dual: impl FnOnce() -> sun::Irrep) -> sun
 #[cfg(feature = "lie-generated")]
 mod sun_f_cache {
     use super::{CacheCharge, CoefficientCache};
-    use crate::lie::sun::{FBlock, Irrep};
+    use crate::{category::FBlock, lie::sun::Irrep};
     use std::sync::LazyLock;
 
     /// Canonical cache key: the six irrep labels `(a, b, c, d, e, f)`.
     pub(crate) type SunFKey = (Irrep, Irrep, Irrep, Irrep, Irrep, Irrep);
 
-    impl CacheCharge for FBlock {
+    impl CacheCharge for FBlock<f64> {
         fn value_bytes(&self) -> usize {
-            std::mem::size_of::<FBlock>()
+            std::mem::size_of::<FBlock<f64>>()
                 + if self.data().len() > 1 {
                     super::ARC_COUNTS_BYTES + std::mem::size_of_val(self.data())
                 } else {
@@ -1448,7 +1452,7 @@ mod sun_f_cache {
     /// [`super::GENERATED_CACHE_MAX_BYTES`] drift assertion.
     pub(super) const SUN_F_MAX_BYTES: usize = 64 << 20;
 
-    pub(super) static CACHE_SUN_F: LazyLock<CoefficientCache<SunFKey, FBlock>> =
+    pub(super) static CACHE_SUN_F: LazyLock<CoefficientCache<SunFKey, FBlock<f64>>> =
         LazyLock::new(|| {
             CoefficientCache::new(SUN_F_MAX_ENTRIES, super::effective_budgets().sun_f_bytes)
         });
@@ -1459,8 +1463,8 @@ mod sun_f_cache {
 #[inline]
 pub(crate) fn sun_f<E>(
     [a, b, c, d, e, f]: [&sun::Irrep; 6],
-    compute: impl FnOnce() -> Result<FBlock, E>,
-) -> Result<FBlock, E> {
+    compute: impl FnOnce() -> Result<FBlock<f64>, E>,
+) -> Result<FBlock<f64>, E> {
     f_block(
         &sun_f_cache::CACHE_SUN_F,
         Sextuple(a, b, c, d, e, f),
@@ -1480,15 +1484,15 @@ pub(crate) fn sun_f<E>(
 #[cfg(feature = "lie-generated")]
 mod sun_r_cache {
     use super::{CacheCharge, CoefficientCache};
-    use crate::lie::{sun::Irrep, RBlock};
+    use crate::{category::RBlock, lie::sun::Irrep};
     use std::sync::LazyLock;
 
     /// Canonical cache key: the ordered irrep labels `(a, b, c)`.
     pub(crate) type SunRKey = (Irrep, Irrep, Irrep);
 
-    impl CacheCharge for RBlock {
+    impl CacheCharge for RBlock<f64> {
         fn value_bytes(&self) -> usize {
-            std::mem::size_of::<RBlock>()
+            std::mem::size_of::<RBlock<f64>>()
                 + if self.data().len() > 1 {
                     super::ARC_COUNTS_BYTES + std::mem::size_of_val(self.data())
                 } else {
@@ -1503,7 +1507,7 @@ mod sun_r_cache {
     /// [`super::GENERATED_CACHE_MAX_BYTES`] drift assertion.
     pub(super) const SUN_R_MAX_BYTES: usize = 64 << 20;
 
-    pub(super) static CACHE_SUN_R: LazyLock<CoefficientCache<SunRKey, RBlock>> =
+    pub(super) static CACHE_SUN_R: LazyLock<CoefficientCache<SunRKey, RBlock<f64>>> =
         LazyLock::new(|| {
             CoefficientCache::new(SUN_R_MAX_ENTRIES, super::effective_budgets().sun_r_bytes)
         });
@@ -1514,8 +1518,8 @@ mod sun_r_cache {
 #[inline]
 pub(crate) fn sun_r<E>(
     labels: [&sun::Irrep; 3],
-    compute: impl FnOnce() -> Result<RBlock, E>,
-) -> Result<RBlock, E> {
+    compute: impl FnOnce() -> Result<RBlock<f64>, E>,
+) -> Result<RBlock<f64>, E> {
     r_block(&sun_r_cache::CACHE_SUN_R, labels, compute)
 }
 
@@ -1531,7 +1535,7 @@ pub(crate) fn sun_r<E>(
 #[cfg(feature = "lie-generated")]
 mod bcd_f_cache {
     use super::CoefficientCache;
-    use crate::frcore::FBlock;
+    use crate::category::FBlock;
     use crate::lie::bcd::Irrep;
     use std::sync::LazyLock;
 
@@ -1544,7 +1548,7 @@ mod bcd_f_cache {
     /// `pub(super)` for the [`super::GENERATED_CACHE_MAX_BYTES`] drift assertion.
     pub(super) const BCD_F_MAX_BYTES: usize = 64 << 20;
 
-    pub(super) static CACHE_BCD_F: LazyLock<CoefficientCache<BcdFKey, FBlock>> =
+    pub(super) static CACHE_BCD_F: LazyLock<CoefficientCache<BcdFKey, FBlock<f64>>> =
         LazyLock::new(|| {
             CoefficientCache::new(BCD_F_MAX_ENTRIES, super::effective_budgets().bcd_f_bytes)
         });
@@ -1555,8 +1559,8 @@ mod bcd_f_cache {
 #[inline]
 pub(crate) fn bcd_f<E>(
     [a, b, c, d, e, f]: [&bcd::Irrep; 6],
-    compute: impl FnOnce() -> Result<FBlock, E>,
-) -> Result<FBlock, E> {
+    compute: impl FnOnce() -> Result<FBlock<f64>, E>,
+) -> Result<FBlock<f64>, E> {
     f_block(
         &bcd_f_cache::CACHE_BCD_F,
         Sextuple(a, b, c, d, e, f),
@@ -1572,7 +1576,7 @@ pub(crate) fn bcd_f<E>(
 #[cfg(feature = "lie-generated")]
 mod bcd_r_cache {
     use super::CoefficientCache;
-    use crate::frcore::RBlock;
+    use crate::category::RBlock;
     use crate::lie::bcd::Irrep;
     use std::sync::LazyLock;
 
@@ -1585,7 +1589,7 @@ mod bcd_r_cache {
     /// `pub(super)` for the [`super::GENERATED_CACHE_MAX_BYTES`] drift assertion.
     pub(super) const BCD_R_MAX_BYTES: usize = 64 << 20;
 
-    pub(super) static CACHE_BCD_R: LazyLock<CoefficientCache<BcdRKey, RBlock>> =
+    pub(super) static CACHE_BCD_R: LazyLock<CoefficientCache<BcdRKey, RBlock<f64>>> =
         LazyLock::new(|| {
             CoefficientCache::new(BCD_R_MAX_ENTRIES, super::effective_budgets().bcd_r_bytes)
         });
@@ -1596,8 +1600,8 @@ mod bcd_r_cache {
 #[inline]
 pub(crate) fn bcd_r<E>(
     labels: [&bcd::Irrep; 3],
-    compute: impl FnOnce() -> Result<RBlock, E>,
-) -> Result<RBlock, E> {
+    compute: impl FnOnce() -> Result<RBlock<f64>, E>,
+) -> Result<RBlock<f64>, E> {
     r_block(&bcd_r_cache::CACHE_BCD_R, labels, compute)
 }
 
@@ -2424,7 +2428,10 @@ mod tests {
     #[test]
     fn sun_f_tier_charges_block_bytes_and_evicts_by_bytes() {
         use super::sun_f_cache::SunFKey;
-        use crate::lie::sun::{f_symbol, FBlock, Irrep};
+        use crate::{
+            category::FBlock,
+            lie::sun::{f_symbol, Irrep},
+        };
         let irr = |d: &[i64]| Irrep::from_dynkin(d).unwrap();
         // A real SU(3) F block (8⊗8→8 family: the 2×2×2×2 OM=2 block).
         let e8 = irr(&[1, 1]);
@@ -2438,7 +2445,7 @@ mod tests {
         // Charge is the data bytes plus the block shell.
         assert_eq!(
             a.value_bytes(),
-            ARC_COUNTS_BYTES + std::mem::size_of_val(a.data()) + std::mem::size_of::<FBlock>()
+            ARC_COUNTS_BYTES + std::mem::size_of_val(a.data()) + std::mem::size_of::<FBlock<f64>>()
         );
         assert!(a.value_bytes() > b.value_bytes(), "2⁴ block > 1⁴ block");
 
@@ -2460,7 +2467,7 @@ mod tests {
             six.clone(),
         );
         let budget = a.value_bytes() + ka.key_bytes() + 8;
-        let c: CoefficientCache<SunFKey, FBlock> = CoefficientCache::new(1_000_000, budget);
+        let c: CoefficientCache<SunFKey, FBlock<f64>> = CoefficientCache::new(1_000_000, budget);
         c.publisher().publish(ka.clone(), a);
         c.publisher().publish(kb, b);
         let (_, _, entries, bytes) = c.snapshot();
@@ -2476,9 +2483,9 @@ mod tests {
     #[test]
     fn sun_r_tier_charges_block_bytes_and_evicts_by_bytes() {
         use super::sun_r_cache::SunRKey;
-        use crate::lie::{
-            sun::{r_symbol, Irrep},
-            RBlock,
+        use crate::{
+            category::RBlock,
+            lie::sun::{r_symbol, Irrep},
         };
         let irr = |d: &[i64]| Irrep::from_dynkin(d).unwrap();
         // The 2×2 octet block shares an Arc; a 1×1 block is inline.
@@ -2488,14 +2495,14 @@ mod tests {
         let b = r_symbol(&three, &bar, &e8).unwrap();
         assert_eq!(
             a.value_bytes(),
-            ARC_COUNTS_BYTES + std::mem::size_of_val(a.data()) + std::mem::size_of::<RBlock>()
+            ARC_COUNTS_BYTES + std::mem::size_of_val(a.data()) + std::mem::size_of::<RBlock<f64>>()
         );
-        assert_eq!(b.value_bytes(), std::mem::size_of::<RBlock>());
+        assert_eq!(b.value_bytes(), std::mem::size_of::<RBlock<f64>>());
 
         let ka: SunRKey = (e8.clone(), e8.clone(), e8.clone());
         let kb: SunRKey = (three, bar, e8);
         let budget = a.value_bytes() + ka.key_bytes() + 8;
-        let c: CoefficientCache<SunRKey, RBlock> = CoefficientCache::new(1_000_000, budget);
+        let c: CoefficientCache<SunRKey, RBlock<f64>> = CoefficientCache::new(1_000_000, budget);
         c.publisher().publish(ka, a);
         c.publisher().publish(kb, b);
         let (_, _, entries, bytes) = c.snapshot();

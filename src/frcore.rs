@@ -92,7 +92,7 @@ pub(crate) trait Family {
 // Dense F/R blocks (family-neutral: just dims + row-major f64 data).
 // ---------------------------------------------------------------------------
 
-pub use crate::lie::{FBlock, RBlock};
+use crate::category::{FBlock, RBlock};
 
 // ---------------------------------------------------------------------------
 // F-symbol raw contraction (sector.jl:_Fsymbol, :58-89).
@@ -121,7 +121,7 @@ pub(crate) fn f_block_raw<F: Family>(
     d: &F::Irrep,
     e: &F::Irrep,
     f: &F::Irrep,
-) -> Result<FBlock, F::Error> {
+) -> Result<FBlock<f64>, F::Error> {
     let n1 = fam.mult(a, b, e)?;
     let n2 = fam.mult(e, c, d)?;
     let n3 = fam.mult(b, c, f)?;
@@ -209,7 +209,7 @@ pub(crate) fn f_block_raw<F: Family>(
         };
         for &(mu, nu, vab) in &ab[&key] {
             for &(kappa, lambda, vcd) in cdlist {
-                let idx = FBlock::flat(
+                let idx = FBlock::<f64>::flat(
                     dims,
                     usize::try_from(mu).map_err(|_| F::overflow())?,
                     usize::try_from(nu).map_err(|_| F::overflow())?,
@@ -241,7 +241,7 @@ pub(crate) fn r_block_raw<F: Family>(
     a: &F::Irrep,
     b: &F::Irrep,
     c: &F::Irrep,
-) -> Result<RBlock, F::Error> {
+) -> Result<RBlock<f64>, F::Error> {
     let n1 = fam.mult(a, b, c)?; // rows μ
     let n2 = fam.mult(b, a, c)?; // cols ν  (== n1: fusion multiplicities are symmetric)
     if n1 == 0 || n2 == 0 {

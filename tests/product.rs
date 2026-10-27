@@ -229,9 +229,9 @@ fn identity_framing_and_arity() {
 #[test]
 fn generic_blocks_and_complex_symbolblock() {
     let f = FBlock::one(0.5);
-    let _: fusion_symbols::lie::FBlock = f;
+    let _: FBlock<f64> = f;
     let r = RBlock::one(-1.0);
-    let _: fusion_symbols::lie::RBlock = r;
+    let _: RBlock<f64> = r;
     let z = Complex64::new(2.0, 3.0);
     let f = FBlock::one(z);
     let r = RBlock::one(z);

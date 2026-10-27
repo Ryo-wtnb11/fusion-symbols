@@ -355,7 +355,6 @@ impl CanonicalCatalog {
         self.max_bytes
     }
     /// Number of generator sets currently held (including the two base cases).
-    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.store.len()
     }
