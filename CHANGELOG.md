@@ -17,6 +17,10 @@ value/gauge rule noted below.
   the only disconnected group (#191), and finite non-abelian Rep(G) is not
   provided (#192). Every README and user-guide example is compiled and run by
   `tests/doc_examples.rs`.
+- Added the frozen gauge specification for the exceptional groups G2, F4,
+  E6, E7 and E8
+  ([`docs/gauge_exceptional.md`](docs/gauge_exceptional.md)), ahead of their
+  exact coefficient engine.
 
 ## [0.9.0] - 2026-10-27
 
