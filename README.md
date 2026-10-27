@@ -89,7 +89,7 @@ assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
 - [Design and contracts](docs/overview.md),
   [caches and reproducibility](docs/user-guide/resources.md).
 - Frozen gauge specifications: [SU(2)/SU(N)](docs/gauge.md),
-  [SO(N)/Spin(N)/Sp(2r)](docs/gauge_soN.md).
+  [SO(N)/Spin(N)/Sp(2r)](docs/gauge_soN.md), [exceptional](docs/gauge_exceptional.md).
 - [Algorithm references](docs/references.md),
   [closed-form and table conventions](docs/references_categories.md).
 - [Changelog](CHANGELOG.md), [contributor notes](docs/developer/README.md).
