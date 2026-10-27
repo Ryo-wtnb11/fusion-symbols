@@ -351,20 +351,37 @@ impl Irrep {
     ///
     /// Ported from `sector.jl:dim`:
     /// `∏_{k₂=2..N, k₁=1..k₂-1} (k₂-k₁ + λ_{k₁} - λ_{k₂}) / (k₂-k₁)`.
-    /// The product is an integer; we accumulate as a `Ratio<BigInt>` and return
-    /// the (guaranteed-integral) value as a `BigInt` (no `u*` cap on `N`).
+    /// The product is an integer, evaluated in checked machine arithmetic and,
+    /// only when that overflows, as a `Ratio<BigInt>` (no `u*` cap on `N`).
     pub fn dim(&self) -> BigInt {
+        self.checked_dim()
+            .map_or_else(|| self.ratio_dim(), BigInt::from)
+    }
+
+    /// [`Self::dim`] when it and its reduced intermediates fit `u128`.
+    pub(crate) fn checked_dim(&self) -> Option<u128> {
+        crate::exact::checked_integral_quotient(self.weyl_factors())
+    }
+
+    /// [`Self::dim`] in unbounded exact arithmetic.
+    pub(crate) fn ratio_dim(&self) -> BigInt {
+        self.weyl_factors()
+            .fold(Ratio::<BigInt>::one(), |acc, (n, d)| {
+                acc * Ratio::new(BigInt::from(n), BigInt::from(d))
+            })
+            .to_integer()
+    }
+
+    /// The Weyl factors `(k₂-k₁ + λ_{k₁} - λ_{k₂}, k₂-k₁)`; the weight is
+    /// nonincreasing, so `abs_diff` is the exact difference.
+    fn weyl_factors(&self) -> impl Iterator<Item = (u128, u128)> + '_ {
         let w = &self.weight;
-        let n = w.len();
-        let mut acc = Ratio::<BigInt>::one();
-        for k2 in 2..=n {
-            for k1 in 1..k2 {
-                let d = BigInt::from(k2 - k1);
-                let numer = &d + BigInt::from(w[k1 - 1]) - BigInt::from(w[k2 - 1]);
-                acc *= Ratio::new(numer, d);
-            }
-        }
-        acc.to_integer()
+        (2..=w.len()).flat_map(move |k2| {
+            (1..k2).map(move |k1| {
+                let d = (k2 - k1) as u128;
+                (d + u128::from(w[k1 - 1].abs_diff(w[k2 - 1])), d)
+            })
+        })
     }
 
     /// The dual (conjugate) irrep. Ported from `sector.jl:dual`: reverse the
@@ -917,6 +934,56 @@ mod tests {
     fn weyl_dim_large_su2_labels_stay_exact() {
         assert_eq!(irr(&[i64::MAX]).dim(), BigInt::from(1_u64) << 63);
         assert_eq!(irr(&[i64::MAX - 1]).dim(), BigInt::from(i64::MAX));
+    }
+
+    /// Every Dynkin vector of `len` entries, each in `0..=max`.
+    fn dynkin_box(len: usize, max: i64) -> Vec<Vec<i64>> {
+        (0..len).fold(vec![vec![]], |acc, _| {
+            acc.into_iter()
+                .flat_map(|v| {
+                    (0..=max).map(move |x| {
+                        let mut v = v.clone();
+                        v.push(x);
+                        v
+                    })
+                })
+                .collect()
+        })
+    }
+
+    #[test]
+    fn checked_dim_matches_ratio_path_on_small_labels() {
+        for (n, max) in [(2, 20), (3, 6), (4, 4), (5, 3), (6, 2)] {
+            for d in dynkin_box(n - 1, max) {
+                let x = irr(&d);
+                let exact = x.ratio_dim();
+                assert_eq!(
+                    x.checked_dim().map(BigInt::from),
+                    Some(exact.clone()),
+                    "{d:?}"
+                );
+                assert_eq!(x.dim(), exact, "{d:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn checked_dim_overflow_boundary_falls_back_exactly() {
+        // SU(3) [m-1, m-1] has dim m³ and reduced intermediates m, m², m³.
+        // 6981463658331 is the largest m with m³ < 2¹²⁸.
+        for (m, fits) in [(6_981_463_658_331_i64, true), (6_981_463_658_332, false)] {
+            let x = irr(&[m - 1, m - 1]);
+            let cube = BigInt::from(m).pow(3);
+            assert_eq!(x.checked_dim().is_some(), fits, "{m}");
+            assert_eq!(x.dim(), cube, "{m}");
+            assert_eq!(x.ratio_dim(), cube, "{m}");
+        }
+        // Far past u128: SU(4) with every label i64::MAX / 4.
+        let x = irr(&[i64::MAX / 4; 3]);
+        assert_eq!(x.checked_dim(), None);
+        assert_eq!(x.dim(), x.ratio_dim());
+        // SU(2) at i64::MAX stays in machine arithmetic.
+        assert_eq!(irr(&[i64::MAX]).checked_dim(), Some(1 << 63));
     }
 
     #[test]

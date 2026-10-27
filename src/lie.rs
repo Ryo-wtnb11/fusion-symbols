@@ -266,6 +266,14 @@ impl std::error::Error for LieError {
     }
 }
 
+/// A Weyl dimension as `f64`: the checked machine value when present, else
+/// the exact big-integer one. Both conversions are correctly rounded, so the
+/// bits do not depend on which path ran.
+#[cfg(feature = "lie-generated")]
+fn weyl_dim_f64(checked: Option<u128>, exact: impl FnOnce() -> BigInt) -> f64 {
+    use num_traits::ToPrimitive;
+    checked.map_or_else(|| exact().to_f64().unwrap_or(f64::INFINITY), |d| d as f64)
+}
 fn checked_dimension(value: impl TryInto<usize>) -> Result<usize, LieError> {
     value.try_into().map_err(|_| LieError::LabelOverflow)
 }
@@ -1020,15 +1028,9 @@ impl FusionCategory for LieGroup {
                 .expect("composite object has a product")
                 .dim(factors),
             #[cfg(feature = "lie-generated")]
-            LiePayload::Bcd(x) => {
-                use num_traits::ToPrimitive;
-                x.dim().to_f64().unwrap_or(f64::INFINITY)
-            }
+            LiePayload::Bcd(x) => weyl_dim_f64(x.checked_dim(), || x.ratio_dim()),
             #[cfg(feature = "lie-generated")]
-            LiePayload::Generated(x) => {
-                use num_traits::ToPrimitive;
-                x.dim().to_f64().unwrap_or(f64::INFINITY)
-            }
+            LiePayload::Generated(x) => weyl_dim_f64(x.checked_dim(), || x.ratio_dim()),
         }
     }
     fn sqrt_dim(&self, a: &LieIrrep) -> f64 {
@@ -1749,6 +1751,83 @@ impl ExactSizeIterator for LieFusion {}
 mod tests {
     use super::*;
     use std::error::Error;
+
+    #[test]
+    fn u128_cast_rounds_like_bigint_to_f64() {
+        use num_traits::ToPrimitive;
+        let mut values = vec![u128::MAX, (1 << 53) - 1];
+        for e in 53..128 {
+            let p = 1u128 << e;
+            // Exact, ties (to even both ways), just below/above ties.
+            let half = 1u128 << (e - 53);
+            for v in [p, p + half, p + 3 * half, p + half - 1, p + half + 1, p - 1] {
+                values.push(v);
+            }
+        }
+        values.extend(
+            (0..2000u128).map(|i| i.wrapping_mul(0x9e37_79b9_7f4a_7c15_f39c_c060_5ced_c835)),
+        );
+        for v in values {
+            let big = BigInt::from(v).to_f64().unwrap();
+            assert_eq!((v as f64).to_bits(), big.to_bits(), "{v}");
+        }
+    }
+
+    #[test]
+    fn generated_dim_bits_match_bigint_path() {
+        use num_traits::ToPrimitive;
+        let mut checked = 0;
+        let mut above_2_53 = 0;
+        let su = |n| GroupId::su(n).unwrap();
+        let groups = [
+            (
+                su(3),
+                8_i64,
+                vec![(1 << 20) + 1, 6_981_463_658_330, 6_981_463_658_331],
+            ),
+            (su(4), 4, vec![123_456_789]),
+            (su(5), 3, vec![98_765]),
+            (su(6), 2, vec![4_321]),
+            (
+                GroupId::spin(5).unwrap(),
+                6,
+                vec![(1 << 30) + 1, i64::MAX / 4],
+            ),
+            (GroupId::spin(7).unwrap(), 4, vec![77_777]),
+            (GroupId::sp(6).unwrap(), 4, vec![55_555]),
+            (GroupId::spin(8).unwrap(), 3, vec![3_333]),
+        ];
+        for (id, max, large) in groups {
+            let cat = LieGroup::new(id.clone()).unwrap();
+            let r = id.semisimple_rank();
+            let small = (0..(max + 1).pow(r as u32)).map(|code| {
+                (0..r)
+                    .map(|i| code / (max + 1).pow(i as u32) % (max + 1))
+                    .collect::<Vec<i64>>()
+            });
+            let big = large.iter().map(|&x| vec![x; r]);
+            for d in small.chain(big) {
+                let Ok(a) = cat.irrep(&d, &[]) else {
+                    continue; // spinor label of a non-spin group
+                };
+                let exact = match (a.generated(), a.bcd()) {
+                    (Some(x), None) => x.ratio_dim(),
+                    (None, Some(x)) => x.ratio_dim(),
+                    _ => unreachable!("{id:?} {d:?}"),
+                };
+                let want = exact.to_f64().unwrap_or(f64::INFINITY);
+                assert_eq!(cat.dim(&a).to_bits(), want.to_bits(), "{id:?} {d:?}");
+                assert_eq!(
+                    cat.sqrt_dim(&a).to_bits(),
+                    want.sqrt().to_bits(),
+                    "{id:?} {d:?}"
+                );
+                checked += 1;
+                above_2_53 += usize::from(exact > BigInt::from(1u64 << 53));
+            }
+        }
+        assert!(checked > 1000 && above_2_53 > 10, "{checked} {above_2_53}");
+    }
 
     #[test]
     fn torus_composites_warm_calls_do_not_generate() {

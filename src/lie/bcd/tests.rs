@@ -915,3 +915,37 @@ fn cover_and_quotient_share_private_labels() {
         assert_eq!(hash(&cover), hash(&quotient));
     }
 }
+
+#[test]
+fn checked_dim_matches_ratio_path_on_small_labels() {
+    let mut checked = 0;
+    for series in [Series::B, Series::C, Series::D] {
+        for r in series.min_rank().max(2)..=4usize {
+            for code in 0..5i64.pow(r as u32) {
+                let d: Vec<i64> = (0..r).map(|i| code / 5i64.pow(i as u32) % 5).collect();
+                let Ok(x) = Irrep::from_dynkin(series, &d) else {
+                    continue; // spinor label
+                };
+                let exact = x.ratio_dim();
+                assert_eq!(exact, weyl_dimension(series, &d), "{series:?} {d:?}");
+                assert_eq!(
+                    x.checked_dim().map(BigInt::from),
+                    Some(exact.clone()),
+                    "{series:?} {d:?}"
+                );
+                assert_eq!(x.dim(), exact, "{series:?} {d:?}");
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked > 500, "{checked}");
+}
+
+#[test]
+fn checked_dim_overflow_falls_back_exactly() {
+    for series in [Series::B, Series::C, Series::D] {
+        let x = irr(series, &[i64::MAX / 16 - 1; 4]);
+        assert_eq!(x.checked_dim(), None, "{series:?}");
+        assert_eq!(x.dim(), x.ratio_dim(), "{series:?}");
+    }
+}

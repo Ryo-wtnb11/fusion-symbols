@@ -115,8 +115,10 @@ weight multiplicities form the Cartesian product with checked `u64` products.
 `dim_exact` returns `BigInt`; the category's `dim` returns `f64`.
 B/C/D dimensions and Frobenius–Schur data reuse immutable root data: one
 process-lifetime entry per constructed `(series, rank)`, with O(rank³) integers,
-independent of the number of labels or queries. Exact big-integer arithmetic
-can still allocate for large dimensions.
+independent of the number of labels or queries. SU(N) and B/C/D Weyl
+dimensions are exact in checked `u128` arithmetic and fall back to exact
+big-integer arithmetic, which allocates, only when a dimension or its reduced
+intermediates exceed `u128`.
 `weight_multiplicities` uses Dynkin coordinates followed by torus charges. `gt_patterns` gives the
 Gelfand–Tsetlin basis for A-series rank ≥ 2, and `None` for A1, B/C/D, and composites.
 

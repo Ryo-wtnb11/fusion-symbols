@@ -518,14 +518,35 @@ impl Irrep {
     ///
     /// Computed from the Weyl dimension formula (Fulton–Harris §24.3,
     /// eq. 24.30) `dim = ∏_{α>0} ⟨λ+ρ,α⟩ / ⟨ρ,α⟩`, evaluated exactly over the
-    /// positive roots as a `Ratio<BigInt>` (the product is integral). This
-    /// reproduces the QSpace values `wdim_B/C/D` (`clebsch_aux.cc:458–559`).
+    /// positive roots (the product is integral) in checked machine arithmetic
+    /// and, only when that overflows, as a `Ratio<BigInt>`. This reproduces
+    /// the QSpace values `wdim_B/C/D` (`clebsch_aux.cc:458–559`).
     pub fn dim(&self) -> BigInt {
+        self.checked_dim()
+            .map_or_else(|| self.ratio_dim(), BigInt::from)
+    }
+
+    /// [`Self::dim`] when it and its reduced intermediates fit `u128`.
+    pub(crate) fn checked_dim(&self) -> Option<u128> {
         let roots = root_data(self.series, self.rank());
-        let mut acc = Ratio::<BigInt>::one();
-        for alpha in &roots.positive_roots {
-            // ⟨λ+ρ,α⟩ / ⟨ρ,α⟩ = (2⟨λ,α⟩ + ⟨2ρ,α⟩) / ⟨2ρ,α⟩ — all integers,
-            // and `2⟨λ,α⟩ = ⟨2λ,α⟩` is read straight off the stored weight.
+        crate::exact::checked_integral_quotient(self.weyl_factors(&roots))
+    }
+
+    /// [`Self::dim`] in unbounded exact arithmetic.
+    pub(crate) fn ratio_dim(&self) -> BigInt {
+        let roots = root_data(self.series, self.rank());
+        self.weyl_factors(&roots)
+            .fold(Ratio::<BigInt>::one(), |acc, (n, d)| {
+                acc * Ratio::new(BigInt::from(n), BigInt::from(d))
+            })
+            .to_integer()
+    }
+
+    /// The Weyl factors `(⟨2λ+2ρ,α⟩, ⟨2ρ,α⟩)` over the positive roots, both
+    /// positive for a dominant `λ`.
+    fn weyl_factors<'a>(&'a self, roots: &'a RootData) -> impl Iterator<Item = (u128, u128)> + 'a {
+        roots.positive_roots.iter().map(move |alpha| {
+            // `2⟨λ,α⟩ = ⟨2λ,α⟩` is read straight off the stored weight.
             // A positive root has at most two nonzero entries, each at most 2.
             let two_lam =
                 checked_dot(&self.two_weight, alpha).expect("a root-weight dot product fits i128");
@@ -534,9 +555,8 @@ impl Irrep {
             let numerator = two_lam
                 .checked_add(two_rho_a)
                 .expect("two root dot products, each bounded by 4*i64::MAX, fit i128");
-            acc *= Ratio::new(BigInt::from(numerator), BigInt::from(two_rho_a));
-        }
-        acc.to_integer()
+            (numerator.unsigned_abs(), two_rho_a.unsigned_abs())
+        })
     }
 
     /// The dual (complex-conjugate) irrep.

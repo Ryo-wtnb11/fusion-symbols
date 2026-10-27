@@ -125,6 +125,11 @@ value/gauge rule noted below.
   nested as a factor holds its factor blocks in one `Vec`, and a real prefix of
   more than one coefficient meeting a complex factor costs one transient real
   buffer. Values are bit-identical (#179).
+- SU(N) and B/C/D Weyl dimensions are evaluated exactly in checked `u128`
+  arithmetic, keeping the running quotient in lowest terms as SUNRepresentations
+  does with machine `Rational{Int}`; `Ratio<BigInt>` remains the exact fallback
+  when a dimension or a reduced intermediate exceeds `u128`. `LieGroup::dim`
+  and `sqrt_dim` no longer allocate and are bit-identical (#206).
 
 ## [0.8.1] - 2026-10-24
 
