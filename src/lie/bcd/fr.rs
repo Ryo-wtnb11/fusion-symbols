@@ -26,7 +26,7 @@
 //! are the identity and elided (as for SU(N)); see [`crate::frcore`].
 
 use super::{CanonicalCatalog, CatalogCgc, Irrep};
-use crate::cache::bcd_cgc_cache::{BcdKey, BcdRef, BcdValue};
+use crate::cache::BcdCgcSweep;
 use crate::frcore::{f_block_raw, r_block_raw, Family, MEntry};
 use crate::lie::{poisoned_catalog, LieError};
 pub use crate::lie::{FBlock, RBlock};
@@ -65,70 +65,46 @@ pub(crate) fn cached_cgc(
     b: &Irrep,
     c: &Irrep,
 ) -> Result<Arc<CatalogCgc>, LieError> {
-    let tier = crate::cache::cache_bcd_cgc();
-    if let Some(BcdValue::Cgc(hit)) = tier.get(&BcdRef::Cgc(a, b, c)) {
-        return Ok(hit);
-    }
-    let value = tier.get_or_try_compute(
-        &BcdRef::Cgc(a, b, c),
-        || BcdKey::Cgc(a.clone(), b.clone(), c.clone()),
-        || {
-            let mut cat = cat.lock().map_err(|_| poisoned_catalog())?;
-            if let Some(hit) = tier.peek(&BcdRef::Cgc(a, b, c)) {
-                return Ok(hit);
-            }
-            CGC_SWEEPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            Ok::<_, LieError>(BcdValue::Cgc(Arc::new(cat.cgc(a, b, c)?)))
-        },
-    )?;
-    let BcdValue::Cgc(value) = value else {
-        unreachable!("CGC key stores a CGC")
-    };
-    Ok(value)
+    cached_cgc_by(cat, a, b, c, |cat, _| Ok(Arc::new(cat.cgc(a, b, c)?)))
 }
 
+/// Sweep every channel of `a ⊗ b` at once, publishing the others.
 fn cached_product_cgc(
     cat: &Mutex<CanonicalCatalog>,
     a: &Irrep,
     b: &Irrep,
     c: &Irrep,
 ) -> Result<Arc<CatalogCgc>, LieError> {
-    let tier = crate::cache::cache_bcd_cgc();
-    if let Some(BcdValue::Cgc(hit)) = tier.get(&BcdRef::Cgc(a, b, c)) {
-        return Ok(hit);
-    }
-    let value = tier.get_or_try_compute(
-        &BcdRef::Cgc(a, b, c),
-        || BcdKey::Cgc(a.clone(), b.clone(), c.clone()),
-        || {
-            let mut cat = cat.lock().map_err(|_| poisoned_catalog())?;
-            if let Some(hit) = tier.peek(&BcdRef::Cgc(a, b, c)) {
-                return Ok(hit);
+    cached_cgc_by(cat, a, b, c, |cat, sweep| {
+        let mut wanted = None;
+        for ch in cat.cgc_product(a, b)? {
+            if ch.s3() == c {
+                wanted = Some(Arc::new(ch));
+            } else {
+                sweep.publish(ch);
             }
-            CGC_SWEEPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let epoch = tier.epoch();
-            let channels = cat.cgc_product(a, b)?;
-            let mut wanted = None;
-            for ch in channels {
-                if ch.s3() == c {
-                    wanted = Some(BcdValue::Cgc(Arc::new(ch)));
-                } else {
-                    tier.insert(
-                        epoch,
-                        BcdKey::Cgc(a.clone(), b.clone(), ch.s3().clone()),
-                        BcdValue::Cgc(Arc::new(ch)),
-                    );
-                }
-            }
-            Ok::<_, LieError>(
-                wanted.expect("the sweep passed its exact support gate for this nonempty channel"),
-            )
-        },
-    )?;
-    let BcdValue::Cgc(value) = value else {
-        unreachable!("CGC key stores a CGC")
-    };
-    Ok(value)
+        }
+        Ok(wanted.expect("the sweep passed its exact support gate for this nonempty channel"))
+    })
+}
+
+/// Catalog generation is serialized by the catalog mutex; a channel another
+/// sweep published while this one waited for it is taken instead.
+fn cached_cgc_by(
+    cat: &Mutex<CanonicalCatalog>,
+    a: &Irrep,
+    b: &Irrep,
+    c: &Irrep,
+    generate: impl FnOnce(&mut CanonicalCatalog, &BcdCgcSweep<'_>) -> Result<Arc<CatalogCgc>, LieError>,
+) -> Result<Arc<CatalogCgc>, LieError> {
+    crate::cache::bcd_cgc(a, b, c, |sweep| {
+        let mut cat = cat.lock().map_err(|_| poisoned_catalog())?;
+        if let Some(hit) = sweep.resident() {
+            return Ok(hit);
+        }
+        CGC_SWEEPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        generate(&mut cat, sweep)
+    })
 }
 
 fn magnetic_index(value: usize) -> Result<u32, LieError> {
@@ -174,21 +150,9 @@ pub fn f_symbol(
     e: &Irrep,
     f: &Irrep,
 ) -> Result<FBlock, LieError> {
-    let cache = crate::cache::cache_bcd_f();
-    cache.get_or_try_compute(
-        &crate::cache::Sextuple(a, b, c, d, e, f),
-        || {
-            (
-                a.clone(),
-                b.clone(),
-                c.clone(),
-                d.clone(),
-                e.clone(),
-                f.clone(),
-            )
-        },
-        || f_block_raw(&mut BcdFamily { cat }, a, b, c, d, e, f),
-    )
+    crate::cache::bcd_f([a, b, c, d, e, f], || {
+        f_block_raw(&mut BcdFamily { cat }, a, b, c, d, e, f)
+    })
 }
 pub fn r_symbol(
     cat: &Mutex<CanonicalCatalog>,

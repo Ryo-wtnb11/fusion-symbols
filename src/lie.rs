@@ -992,57 +992,18 @@ impl FusionCategory for LieGroup {
         if self.is_torus() {
             return self.torus_label(U1.dual(&a.torus_label()));
         }
-        // Dual keys store one label in the tiers' existing shared slice layout.
-        #[cfg(feature = "lie-generated")]
-        use crate::cache::{
-            bcd_cgc_cache::{BcdKey, BcdRef, BcdValue},
-            cache_bcd_cgc, cache_sun_product,
-        };
         #[cfg(feature = "lie-generated")]
         if let Some(x) = a.bcd() {
-            let tier = cache_bcd_cgc();
-            let value = tier.get_or_compute_seeding(
-                &BcdRef::Dual(x),
-                || BcdKey::Dual(x.clone()),
-                || {
-                    let dual = x.dual();
-                    (
-                        BcdValue::Product(std::sync::Arc::from([(dual.clone(), 1)])),
-                        (
-                            BcdKey::Dual(dual),
-                            BcdValue::Product(std::sync::Arc::from([(x.clone(), 1)])),
-                        ),
-                    )
-                },
-            );
-            let BcdValue::Product(dual) = value else {
-                unreachable!("dual key stores a dual")
-            };
             return LieIrrep {
                 group: self.group.clone(),
-                payload: LiePayload::Bcd(dual[0].0.clone()),
+                payload: LiePayload::Bcd(crate::cache::bcd_dual(x, || x.dual())),
             };
         }
         #[cfg(feature = "lie-generated")]
         if let Some(x) = a.generated() {
-            let tier = cache_sun_product();
-            let value = tier.get_or_compute_seeding(
-                &sun::SunProductRef::Dual(x),
-                || sun::SunProductKey::Dual(x.clone()),
-                || {
-                    let dual = x.dual();
-                    (
-                        sun::SunProduct::from_map(BTreeMap::from([(dual.clone(), 1)])),
-                        (
-                            sun::SunProductKey::Dual(dual),
-                            sun::SunProduct::from_map(BTreeMap::from([(x.clone(), 1)])),
-                        ),
-                    )
-                },
-            );
             return LieIrrep {
                 group: self.group.clone(),
-                payload: LiePayload::Generated(value.channel(0).clone()),
+                payload: LiePayload::Generated(crate::cache::sun_dual(x, || x.dual())),
             };
         }
         a.clone()

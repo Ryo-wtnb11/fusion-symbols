@@ -25,7 +25,7 @@
 
 use num_rational::Ratio;
 
-use crate::cache::{cache_3j, cache_6j, cache_f};
+use crate::cache;
 pub use crate::exact::SignedSqrtRational;
 use crate::primefactor::{factorial as pf_factorial, mul_factorial, sum_series, Pf};
 
@@ -112,9 +112,7 @@ fn check_6j_admissible(
 /// ```
 pub fn wigner_6j(dj1: u32, dj2: u32, dj3: u32, dj4: u32, dj5: u32, dj6: u32) -> SignedSqrtRational {
     match canonical_regge_6j(dj1, dj2, dj3, dj4, dj5, dj6) {
-        Ok(key) => {
-            cache_6j().get_or_compute(key, || wigner_6j_uncached(dj1, dj2, dj3, dj4, dj5, dj6))
-        }
+        Ok(key) => cache::wigner_6j(key, || wigner_6j_uncached(dj1, dj2, dj3, dj4, dj5, dj6)),
         Err(_) => wigner_6j_uncached(dj1, dj2, dj3, dj4, dj5, dj6),
     }
 }
@@ -222,7 +220,7 @@ pub fn wigner_3j(dj1: u32, dj2: u32, dj3: u32, dm1: i32, dm2: i32, dm3: i32) -> 
         Ok((key, phase)) => {
             // Stored value is the representative's: value(rep) = phase.apply(value(input)).
             // Retrieval undoes it: value(input) = phase.apply(value(rep)).
-            let rep = cache_3j().get_or_compute(key, || {
+            let rep = cache::wigner_3j(key, || {
                 phase.apply(wigner_3j_uncached(dj1, dj2, dj3, dm1, dm2, dm3))
             });
             phase.apply(rep)
@@ -469,7 +467,7 @@ pub(crate) fn f_symbol(dj1: u32, dj2: u32, dj3: u32, dj4: u32, dj5: u32, dj6: u3
                 ((dj5 as u64) + 1) * ((dj6 as u64) + 1),
                 phase_is_negative(((dj1 as i64) + (dj2 as i64) + (dj3 as i64) + (dj4 as i64)) / 2),
             );
-            cache_f().get_or_compute(key, || {
+            cache::su2_f(key, || {
                 f_symbol_exact(dj1, dj2, dj3, dj4, dj5, dj6).to_f64()
             })
         }
