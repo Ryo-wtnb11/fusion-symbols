@@ -1,8 +1,9 @@
 //! Family-generic F- and R-symbol core: the four-CGC contraction and the
-//! pentagon/hexagon/F-unitarity gates, shared by the SU(N) (`crate::lie::sun::fr`)
-//! and B/C/D (`crate::lie::bcd::fr`) surfaces.
+//! pentagon/hexagon/F-unitarity gates, shared by the SU(N) (`crate::lie::sun::fr`),
+//! B/C/D (`crate::lie::bcd::fr`) and exceptional (`crate::lie::general::cgc`)
+//! families.
 //!
-//! # Why one core, two callers
+//! # Why one core for every family
 //!
 //! The F-symbol is the contraction of four Clebsch–Gordan tensors over their
 //! magnetic indices, leaving four outer multiplicity indices `[μ, ν, κ, λ]`
@@ -12,19 +13,21 @@
 //! SU(N)-specific: only on an irrep label type, a fusion-multiplicity source
 //! `N^c_{ab}`, a CGC provider returning **sparse real** `(m1, m2, m3, mu, value)`
 //! entries, and `f64` scalars. Real-valuedness holds for B/C/D CGC too (the sweep
-//! produces real orthogonal isometries), so conjugation is the identity and is
-//! elided on both surfaces — value-identical to the reference. This module is
-//! that logic, parameterized by the [`Family`] seam.
+//! produces real orthogonal isometries) and for the exact exceptional CGC, so
+//! conjugation is the identity and is elided on every surface — value-identical
+//! to the reference. This module is that logic, parameterized by the [`Family`]
+//! seam.
 //!
 //! # The `&mut self` seam (why it does not force interior mutability on SU(N))
 //!
-//! [`Family`] takes `&mut self`. That is the superset both callers satisfy: the
-//! B/C/D provider is a `&mut CanonicalCatalog` (append-only generator
-//! materialization is genuinely mutating), while the SU(N) provider is a
+//! [`Family`] takes `&mut self`. That is the superset every caller satisfies: the
+//! B/C/D provider is a `&mut CanonicalCatalog` and the exceptional provider owns
+//! its built modules (append-only materialization is genuinely mutating), while the SU(N) provider is a
 //! stateless zero-sized type whose methods delegate to the process-global CGC
 //! cache via free functions and simply ignore the `&mut`. A `&mut` to a local ZST
 //! is always available, so SU(N) pays no lock and grows no interior-mutability
-//! cell — the mutability is real for one impl and vacuous for the other.
+//! cell — the mutability is real for the materializing families and vacuous for
+//! SU(N).
 //!
 //! # Contraction strategy: sparse key-matching accumulation
 //!
@@ -60,8 +63,8 @@ pub(crate) struct MEntry {
     pub value: f64,
 }
 
-/// The seam between the generic core and a representation family (SU(N) or
-/// B/C/D). Exactly two implementors; not a public extension point.
+/// The seam between the generic core and a representation family (SU(N),
+/// B/C/D or exceptional). Crate-private; not a public extension point.
 pub(crate) trait Family {
     /// The irrep label type (used as a magnetic-block cache/memo key).
     type Irrep: Clone + Eq + Hash;
