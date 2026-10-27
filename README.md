@@ -7,53 +7,72 @@
 [![codecov](https://codecov.io/gh/Ryo-wtnb11/fusion-symbols/graph/badge.svg)](https://codecov.io/gh/Ryo-wtnb11/fusion-symbols)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-Representation and fusion-category data in Rust, inspired by
-[TensorKitSectors.jl](https://github.com/QuantumKitHub/TensorKitSectors.jl):
-labels, fusion multiplicities, dimensions, duals, Frobenius–Schur data,
-Clebsch–Gordan coefficients (CGC), and F/R symbols.
+Fusion-category and representation data for symmetric tensors in Rust,
+inspired by [TensorKitSectors.jl](https://github.com/QuantumKitHub/TensorKitSectors.jl):
+labels, fusion multiplicities N, dimensions, duals, Frobenius–Schur data,
+F/R/A/B symbols and Clebsch–Gordan coefficients (CGC). It is a standalone
+mathematical provider; consumers own tensors and tensor operations.
 
-This is a standalone mathematical provider. Consumers own tensors and tensor
-operations. Intentional differences include runtime generation for higher-rank
-Lie groups, explicit category values, validated Rust labels, byte-bounded coefficient caches with borrowed warm lookups,
-and a frozen coefficient gauge. Tables retain AnyonWiki's gauge. See
+Intentional differences from TensorKitSectors: categories are runtime values
+with validated labels rather than types; higher-rank Lie coefficients are
+generated on demand in a frozen, documented gauge; coefficient caches are
+byte-bounded and application-owned; tables keep AnyonWiki's gauge. See
 [differences from TensorKitSectors](docs/tensorkitsectors-differences.md).
 
 ## Supported families
 
-| Module | Provides |
-|---|---|
-| `category` | Shared `FusionCategory` contract, symbol blocks, identity residuals |
-| `lie` | Exact rank-one symbols; typed `U1` alongside `LieGroup` U(1), CU(1) = O(2); generated SU(N), SO(N), Spin(N), Sp(2r); U(N), tori, and semisimple×torus products and central quotients, including D₂ forms |
-| `finite`, `fermion` | Cyclic groups Z_N; fermion parity |
-| `table` | 74 unitary multiplicity-free AnyonWiki categories of rank ≤ 4, including Fibonacci and Ising |
-| `product` | Ordered Deligne products: tuples of 2..=12 or homogeneous vectors of any length, preserving nesting |
-| `cache` | Coefficient-cache budgets, statistics, reset and trimming |
+| Family | Provider | Feature |
+|---|---|---|
+| Rank one: SU(2), SO(3), Spin(3), Sp(2), PSU(2); exact 3j/6j/CG | `lie::LieGroup`, `lie::su2` | base |
+| D₂ forms: Spin(4), SO(4), PSO(4) | `lie::LieGroup` | base |
+| SU(N), SO(N), Spin(N), Sp(2r) of higher rank, and their central quotients | `lie::LieGroup` | `lie-generated` |
+| U(1), tori Tᵗ, U(N), semisimple × torus products and quotients | `lie::LieGroup` | base when every simple factor is rank one or D₂ (such as U(2)); otherwise `lie-generated` |
+| U(1) with `Copy` labels; CU(1) = O(2) | `lie::U1`, `lie::CU1` | base |
+| Z_N, fermion parity | `finite::ZN`, `fermion::FermionParity` | base |
+| Unitary multiplicity-free AnyonWiki categories (Fibonacci, Ising, …) | `table::TableCategory` | rank ≤ 4 (74) base; rank 5–7 (303 more) with `anyonwiki-unitary` |
+| Deligne products of any of the above | `product::Product` | base |
+
+Exceptional groups (G₂, F₄, E₆–E₈) are classified by `GroupId`, but
+`LieGroup::new` returns `LieError::Unsupported`. CU(1) is the only disconnected group. Finite
+non-abelian groups Rep(G) are not provided.
+
+## Install
 
 ```toml
 [dependencies]
 fusion-symbols = "0.9"
-# Omit generated Lie coefficients and the dense backend:
-# fusion-symbols = { version = "0.9", default-features = false }
 ```
 
-`lie-generated` is enabled by default and uses sequential t4a-faer kernels;
-the caller owns parallelism. `anyonwiki-unitary` adds 303 table categories of
-rank 5–7 without a new dependency. See the [design](docs/overview.md) for
-labels, capabilities and error contracts.
+| Feature | Default | Adds |
+|---|---|---|
+| `lie-generated` | yes | Runtime SU(N)/SO(N)/Spin(N)/Sp(2r) coefficients and the dense backend (`t4a-faer`, sequential; the caller owns parallelism) |
+| `anyonwiki-unitary` | no | 303 rank 5–7 table categories, data only |
 
-`lie::GroupId` separately classifies ordered connected root data with exact
-character lattices, including products, tori, U(N), and exceptional quotients.
-`LieGroup` executes tori, U(N), the trivial group, and semisimple×torus data
-whenever every simple factor has an engine; D₂ expands to two exact A₁ factors.
-U(1) and U(2) work in the base build; U(N) for N ≥ 3 requires `lie-generated`.
-Exceptional blocks remain unsupported. Composite covers enumerate in Product
-order when every factor enumerates; composite quotients return `NotEnumerable`.
-See [Lie labels and lattices](docs/overview.md#lie-labels-and-global-forms).
+Use `default-features = false` for the base build without a dense backend.
 
 ## Example
 
-Exact SU(2) 6j, available without default features. Spins are doubled
-(`dj = 2j`), so `2` means spin 1:
+Build a group by name, make irreps from Dynkin labels and torus charges, and
+query N and CGC (SU(3) needs the default `lie-generated` feature):
+
+```rust
+use fusion_symbols::category::{CgcBlock, FusionCategory, GroupRepresentations};
+use fusion_symbols::lie::{GroupId, LieGroup};
+
+let su3 = LieGroup::new(GroupId::su(3)?)?;
+let eight = su3.irrep(&[1, 1], &[])?; // adjoint, Dynkin labels (1,1)
+assert_eq!(su3.nsymbol(&eight, &eight, &eight), 2);
+let cgc = su3.cgc(&eight, &eight, &eight)?;
+assert_eq!(cgc.dims(), [8, 8, 8, 2]); // [dim a, dim b, dim c, N]
+
+let u2 = LieGroup::new(GroupId::u(2)?)?;
+let fundamental = u2.irrep(&[1], &[1])?; // SU(2) label 1, U(1) charge 1
+assert_eq!(u2.dim(&fundamental), 2.0);
+assert!(u2.irrep(&[1], &[0]).is_err()); // charge must match the SU(2) label mod 2
+```
+
+Exact SU(2) recoupling, available without default features. Spins are
+doubled (`dj = 2j`), so `2` means spin 1:
 
 ```rust
 use fusion_symbols::lie::su2::wigner_6j;
@@ -64,15 +83,16 @@ assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
 
 ## Documentation
 
-- [Design and contracts](docs/overview.md), [using the API](docs/user-guide/README.md),
-  [resources and reproducibility](docs/user-guide/resources.md).
+- [User guide](docs/user-guide/README.md): choosing a category, building
+  groups, labels, symbols, CGC, products, tables, errors and caches.
 - [API reference](https://docs.rs/fusion-symbols).
+- [Design and contracts](docs/overview.md),
+  [caches and reproducibility](docs/user-guide/resources.md).
 - Frozen gauge specifications: [SU(2)/SU(N)](docs/gauge.md),
   [SO(N)/Spin(N)/Sp(2r)](docs/gauge_soN.md).
 - [Algorithm references](docs/references.md),
   [closed-form and table conventions](docs/references_categories.md).
-- [Contributor checks](docs/developer/README.md), [policy](AGENTS.md),
-  [test-oracle rules](tools/README.md).
+- [Changelog](CHANGELOG.md), [contributor notes](docs/developer/README.md).
 
 ## Acknowledgments
 
@@ -101,7 +121,7 @@ If you use fusion-symbols in academic work, please cite it
 }
 ```
 
-If you use the `table` tables, please also cite the sources the
+If you use the `table` categories, please also cite the sources the
 AnyonWiki database asks for: G. Vercleyen, *On Low-Rank Multiplicity-Free
 Fusion Categories*, [arXiv:2405.20075](https://arxiv.org/abs/2405.20075)
 (published as [doi:10.1007/s00220-026-05705-2](https://doi.org/10.1007/s00220-026-05705-2)),
@@ -112,4 +132,5 @@ data.
 
 ## License
 
-MIT OR Apache-2.0
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
+[MIT license](LICENSE-MIT) at your option.

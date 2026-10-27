@@ -1,19 +1,285 @@
 //! Isolated process: resource examples can install a one-shot non-default cache policy.
-//! Runnable examples for the contracts in the public guides.
+//! Every Rust block of `README.md` and `docs/user-guide/README.md` (rustfmt-formatted),
+//! followed by further runnable contract examples.
 #![cfg(feature = "lie-generated")]
 
-/// `README.md`, Rust block 1.
 mod common;
 
+/// `README.md`, Rust block 1.
 #[test]
-fn readme_1() {
+fn readme_1() -> Result<(), Box<dyn std::error::Error>> {
+    use fusion_symbols::category::{CgcBlock, FusionCategory, GroupRepresentations};
+    use fusion_symbols::lie::{GroupId, LieGroup};
+
+    let su3 = LieGroup::new(GroupId::su(3)?)?;
+    let eight = su3.irrep(&[1, 1], &[])?; // adjoint, Dynkin labels (1,1)
+    assert_eq!(su3.nsymbol(&eight, &eight, &eight), 2);
+    let cgc = su3.cgc(&eight, &eight, &eight)?;
+    assert_eq!(cgc.dims(), [8, 8, 8, 2]); // [dim a, dim b, dim c, N]
+
+    let u2 = LieGroup::new(GroupId::u(2)?)?;
+    let fundamental = u2.irrep(&[1], &[1])?; // SU(2) label 1, U(1) charge 1
+    assert_eq!(u2.dim(&fundamental), 2.0);
+    assert!(u2.irrep(&[1], &[0]).is_err()); // charge must match the SU(2) label mod 2
+    Ok(())
+}
+
+/// `README.md`, Rust block 2.
+#[test]
+fn readme_2() {
     use fusion_symbols::lie::su2::wigner_6j;
 
     let sixj = wigner_6j(2, 2, 2, 2, 2, 2);
     assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
 }
 
-/// `docs/overview.md#lie-labels-and-global-forms`.
+/// `docs/user-guide/README.md#building-lie-groups`.
+#[test]
+fn guide_building_lie_groups_1() -> Result<(), Box<dyn std::error::Error>> {
+    use fusion_symbols::lie::{GroupId, LieGroup};
+
+    let su3 = LieGroup::new(GroupId::su(3)?)?;
+    let so5 = LieGroup::new(GroupId::so(5)?)?;
+    let spin5 = LieGroup::new(GroupId::spin(5)?)?;
+    let sp4 = LieGroup::new(GroupId::sp(4)?)?; // defining dimension 4, rank 2
+    let psu3 = LieGroup::new(GroupId::psu(3)?)?; // SU(3)/Z3
+    let u2 = LieGroup::new(GroupId::u(2)?)?;
+    let t2 = LieGroup::new(GroupId::torus(2)?)?;
+    assert_eq!(su3.group_id().semisimple_rank(), 2);
+    assert_eq!(sp4.group_id().semisimple_rank(), 2);
+    assert_eq!(
+        (u2.group_id().semisimple_rank(), u2.group_id().torus_rank()),
+        (1, 1)
+    );
+    assert_eq!(t2.group_id().torus_rank(), 2);
+    // Same root system, different global forms: different groups.
+    assert_ne!(so5.group_id(), spin5.group_id());
+    assert_ne!(psu3.group_id(), su3.group_id());
+    Ok(())
+}
+
+/// `docs/user-guide/README.md#building-lie-groups`.
+#[test]
+fn guide_building_lie_groups_2() -> Result<(), Box<dyn std::error::Error>> {
+    use fusion_symbols::lie::{GroupId, LieError, LieGroup, RootSystem};
+
+    // SU(2) × SU(3) × U(1): the full weight and charge lattice.
+    let cover = GroupId::cover(&[RootSystem::A(1), RootSystem::A(2)], 1)?;
+    let g = LieGroup::new(cover)?;
+    assert_eq!(g.group_id().semisimple_rank(), 3);
+
+    // U(2) = (SU(2) × U(1))/Z2 from lattice generators (rows over the Dynkin
+    // label and the charge). The lattice is normalized, so this equals u(2).
+    let u2 = GroupId::new(&[RootSystem::A(1)], 1, &[vec![1, 1], vec![0, 2]])?;
+    assert_eq!(u2, GroupId::u(2)?);
+
+    // Exceptional root systems are classified but have no coefficient engine.
+    let g2 = GroupId::cover(&[RootSystem::G2], 0)?;
+    assert!(matches!(
+        LieGroup::new(g2),
+        Err(LieError::Unsupported { .. })
+    ));
+    Ok(())
+}
+
+/// `docs/user-guide/README.md#labels`.
+#[test]
+fn guide_labels_1() -> Result<(), Box<dyn std::error::Error>> {
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieError, LieGroup},
+    };
+
+    let su3 = LieGroup::new(GroupId::su(3)?)?;
+    let three = su3.irrep(&[1, 0], &[])?;
+    assert_eq!(su3.dual(&three).dynkin(), vec![0, 1]); // 3-bar
+    assert_eq!(three.dim_exact(), 3u32.into());
+
+    let u2 = LieGroup::new(GroupId::u(2)?)?;
+    let det = u2.irrep(&[0], &[2])?; // determinant: charge 2
+    assert_eq!(det.charges().collect::<Vec<_>>(), vec![2]);
+    assert_eq!(u2.irrep(&[1], &[0]), Err(LieError::NotAdmissible));
+
+    // The global form decides which labels exist: Spin(5) has the spinor, SO(5) not.
+    let spinor = [0, 1];
+    assert!(LieGroup::new(GroupId::spin(5)?)?
+        .irrep(&spinor, &[])
+        .is_ok());
+    assert!(LieGroup::new(GroupId::so(5)?)?.irrep(&spinor, &[]).is_err());
+    Ok(())
+}
+
+/// `docs/user-guide/README.md#fusion-and-symbols`.
+#[test]
+fn guide_fusion_and_symbols_1() -> Result<(), Box<dyn std::error::Error>> {
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
+
+    let su2 = LieGroup::new(GroupId::su(2)?)?;
+    let half = su2.irrep(&[1], &[])?;
+    let unit = su2.unit();
+    let channels: Vec<i64> = su2.fusion(&half, &half)?.map(|c| c.dynkin()[0]).collect();
+    assert_eq!(channels, vec![0, 2]); // spin 0 and spin 1
+    assert_eq!(su2.frobenius_schur_indicator(&half), -1.0); // pseudoreal
+
+    let f = su2.f_symbol(&half, &half, &half, &half, &unit, &unit)?;
+    assert_eq!(f.at(0, 0, 0, 0), -0.5);
+    let r = su2.r_symbol(&half, &half, &unit)?;
+    assert_eq!(r.at(0, 0), -1.0);
+    Ok(())
+}
+
+/// `docs/user-guide/README.md#symbol-layout`.
+#[test]
+fn guide_symbol_layout_1() -> Result<(), Box<dyn std::error::Error>> {
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
+
+    let su3 = LieGroup::new(GroupId::su(3)?)?;
+    let eight = su3.irrep(&[1, 1], &[])?;
+    let f = su3.f_symbol(&eight, &eight, &eight, &eight, &eight, &eight)?;
+    assert_eq!(f.dims(), [2, 2, 2, 2]);
+    let r = su3.r_symbol(&eight, &eight, &eight)?;
+    assert_eq!(r.dim(), 2); // square: N(a,b,c) = N(b,a,c) = 2
+    Ok(())
+}
+
+/// `docs/user-guide/README.md#clebschgordan-coefficients`.
+#[test]
+fn guide_clebsch_gordan_coefficients_1() -> Result<(), Box<dyn std::error::Error>> {
+    use fusion_symbols::{
+        category::{CgcBlock, GroupRepresentations},
+        lie::{GroupId, LieGroup},
+    };
+
+    let su3 = LieGroup::new(GroupId::su(3)?)?;
+    let eight = su3.irrep(&[1, 1], &[])?;
+    let c = su3.cgc(&eight, &eight, &eight)?;
+    assert_eq!(c.dims(), [8, 8, 8, 2]); // [dim a, dim b, dim c, N(a,b,c)]
+    assert!(c.at([0, 2, 0, 1]) < 0.0);
+    Ok(())
+}
+
+/// `docs/user-guide/README.md#clebschgordan-coefficients`.
+#[test]
+fn guide_clebsch_gordan_coefficients_2() {
+    use fusion_symbols::lie::su2::clebsch_gordan;
+
+    // <1/2 +1/2, 1/2 -1/2 | 0 0> = 1/sqrt(2)
+    let cg = clebsch_gordan(1, 1, 1, -1, 0, 0);
+    assert!((cg.to_f64() - 0.5f64.sqrt()).abs() < 1e-15);
+}
+
+/// `docs/user-guide/README.md#abelian-and-finite-categories`.
+#[test]
+fn guide_abelian_and_finite_categories_1() -> Result<(), Box<dyn std::error::Error>> {
+    use fusion_symbols::{
+        category::FusionCategory,
+        fermion::{FermionParity, FermionParityIrrep},
+        finite::{ZNIrrep, ZN},
+        lie::{CU1Irrep, U1Irrep, CU1, U1},
+    };
+
+    let q = U1Irrep::new(2)?;
+    assert_eq!(U1.dual(&q).charge(), -2);
+
+    let z3 = ZN::new(3)?;
+    let one = ZNIrrep::from_canonical(1, 3)?;
+    assert_eq!(
+        z3.fusion(&one, &one)?.next(),
+        Some(ZNIrrep::from_canonical(2, 3)?)
+    );
+
+    assert_eq!(FermionParity.twist(&FermionParityIrrep::ODD), -1.0);
+
+    let a = CU1Irrep::from_twice_charge(1);
+    let channels: Vec<_> = CU1.fusion(&a, &a)?.collect();
+    assert_eq!(
+        channels,
+        [
+            CU1Irrep::VACUUM,
+            CU1Irrep::PSEUDOSCALAR,
+            CU1Irrep::from_twice_charge(2)
+        ]
+    );
+    Ok(())
+}
+
+/// `docs/user-guide/README.md#tables`.
+#[test]
+fn guide_tables_1() -> Result<(), Box<dyn std::error::Error>> {
+    use fusion_symbols::{
+        category::FusionCategory,
+        table::{TableCategory, TableError},
+    };
+
+    let fib = TableCategory::fibonacci();
+    let tau = fib.object(2)?; // index 1 is the unit
+    assert_eq!(fib.nsymbol(&tau, &tau, &tau), 1);
+    let golden = (1.0 + 5f64.sqrt()) / 2.0;
+    assert!((fib.dim(&tau) - golden).abs() < 1e-12);
+    let f = fib.f_symbol(&tau, &tau, &tau, &tau, &fib.unit(), &fib.unit())?;
+    assert!((f.re - 1.0 / golden).abs() < 1e-12);
+
+    assert!(TableCategory::shipped_uuids().len() >= 74);
+    assert!(matches!(
+        TableCategory::by_uuid("not-a-uuid"),
+        Err(TableError::UnknownCategory)
+    ));
+    Ok(())
+}
+
+/// `docs/user-guide/README.md#products`.
+#[test]
+fn guide_products_1() -> Result<(), Box<dyn std::error::Error>> {
+    use fusion_symbols::{
+        category::{CgcBlock, FusionCategory, GroupRepresentations},
+        fermion::{FermionParity, FermionParityIrrep},
+        lie::{GroupId, LieGroup, U1Irrep, U1},
+        product::Product,
+    };
+
+    let cat = Product::new((U1, FermionParity));
+    let odd = (U1Irrep::new(1)?, FermionParityIrrep::ODD);
+    assert_eq!(cat.twist(&odd), -1.0);
+
+    let su2 = LieGroup::new(GroupId::su(2)?)?;
+    let spin_charge = Product::new((su2.clone(), U1));
+    let x = (su2.irrep(&[1], &[])?, U1Irrep::new(1)?);
+    let y = (su2.irrep(&[2], &[])?, U1Irrep::new(2)?);
+    let c = spin_charge.cgc(&x, &x, &y)?;
+    assert_eq!(c.dims(), [2, 2, 3, 1]);
+
+    let chain = Product::new(vec![U1; 4]);
+    assert_eq!(chain.unit(), vec![U1Irrep::UNIT; 4]);
+    Ok(())
+}
+
+/// `docs/user-guide/README.md#caches`.
+#[test]
+fn guide_caches_1() {
+    use fusion_symbols::cache::{tier_stats, CoefficientCacheTier};
+
+    let _ = fusion_symbols::lie::su2::wigner_6j(2, 2, 2, 2, 2, 2);
+    let six_j = tier_stats(CoefficientCacheTier::SixJ);
+    println!(
+        "{} entries, {} bytes, {} hits",
+        six_j.entries, six_j.bytes, six_j.hits
+    );
+    // A sum over tiers combines independent snapshots; use it for reporting only.
+    let total: usize = CoefficientCacheTier::ALL
+        .iter()
+        .map(|&t| tier_stats(t).bytes)
+        .sum();
+    println!("{total} bytes retained across all tiers");
+}
+
+// Contract examples beyond the guide blocks.
+
 #[test]
 fn overview_1() {
     use fusion_symbols::{
@@ -36,7 +302,6 @@ fn overview_1() {
     );
 }
 
-/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn overview_2() {
     use fusion_symbols::{
@@ -56,7 +321,6 @@ fn overview_2() {
     assert!((block.at(0, 0, 0, 0) - 1.0).abs() < 1e-9);
 }
 
-/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn overview_3() {
     use fusion_symbols::lie::{GroupId, LieGroup};
@@ -75,7 +339,6 @@ fn overview_3() {
         .is_err());
 }
 
-/// `docs/user-guide/README.md#fusion-and-cgc`.
 #[test]
 fn clebsch_gordan_1() {
     use fusion_symbols::lie::su2::clebsch_gordan;
@@ -85,7 +348,6 @@ fn clebsch_gordan_1() {
     assert!((cg.to_f64() - 0.5f64.sqrt()).abs() < 1e-15);
 }
 
-/// `docs/user-guide/README.md#fusion-and-cgc`.
 #[test]
 fn clebsch_gordan_2() {
     use fusion_symbols::{
@@ -104,7 +366,6 @@ fn clebsch_gordan_2() {
     assert!((c.at([0, 0, 0, 0]) - 1.0).abs() < 1e-12);
 }
 
-/// `docs/user-guide/README.md#fusion-and-cgc`.
 #[test]
 fn clebsch_gordan_3() {
     use fusion_symbols::{
@@ -120,7 +381,6 @@ fn clebsch_gordan_3() {
     assert!(c.at([0, 2, 0, 1]) < 0.0);
 }
 
-/// `docs/user-guide/README.md#fusion-and-cgc`.
 #[test]
 fn clebsch_gordan_4() {
     use fusion_symbols::{
@@ -137,7 +397,6 @@ fn clebsch_gordan_4() {
     assert_eq!((c.dims()[0] * c.dims()[1], c.dims()[2]), (25, 10)); // (dim(s1)·dim(s2), dim(s3))
 }
 
-/// `docs/user-guide/README.md#fusion-and-cgc`.
 #[test]
 fn fusion_1() {
     use fusion_symbols::{
@@ -154,7 +413,6 @@ fn fusion_1() {
     assert_eq!(channels, vec![0, 2]);
 }
 
-/// `docs/user-guide/README.md#fusion-and-cgc`.
 #[test]
 fn fusion_2() {
     use fusion_symbols::{
@@ -180,7 +438,6 @@ fn fusion_2() {
     assert_eq!(out[&cat.irrep(&[1, 1], &[]).unwrap()], 1);
 }
 
-/// `docs/user-guide/README.md#fusion-and-cgc`.
 #[test]
 fn fusion_3() {
     use fusion_symbols::{
@@ -201,7 +458,6 @@ fn fusion_3() {
     assert_eq!(out[&eight], 2); // the 8 appears twice in 8 ⊗ 8
 }
 
-/// `docs/user-guide/README.md#fusion-and-cgc`.
 #[test]
 fn fusion_4() {
     use fusion_symbols::{
@@ -229,7 +485,6 @@ fn fusion_4() {
     }
 }
 
-/// `docs/user-guide/README.md#fusion-and-cgc`.
 #[test]
 fn fusion_5() {
     use fusion_symbols::{
@@ -249,7 +504,6 @@ fn fusion_5() {
     );
 }
 
-/// `docs/overview.md#validation-and-errors`.
 #[test]
 fn getting_started_1() {
     use fusion_symbols::lie::su2::wigner_6j;
@@ -258,7 +512,6 @@ fn getting_started_1() {
     assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
 }
 
-/// `docs/overview.md#validation-and-errors`.
 #[test]
 fn getting_started_2() {
     use fusion_symbols::{
@@ -272,7 +525,6 @@ fn getting_started_2() {
     assert_eq!(cat.dual(&fund).dynkin(), vec![0, 1]); // the 3-bar
 }
 
-/// `docs/overview.md#validation-and-errors`.
 #[test]
 fn getting_started_3() {
     use fusion_symbols::lie::su2::{wigner_6j_checked, Su2Error};
@@ -287,7 +539,6 @@ fn getting_started_3() {
     ));
 }
 
-/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn groups_1() {
     use fusion_symbols::{
@@ -304,7 +555,6 @@ fn groups_1() {
     assert_eq!(channels, vec![0, 2, 4]);
 }
 
-/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn groups_2() {
     use fusion_symbols::{
@@ -326,7 +576,6 @@ fn groups_2() {
     assert_eq!(decomposition[&eight], 2);
 }
 
-/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn groups_3() {
     use fusion_symbols::{
@@ -352,7 +601,6 @@ fn groups_3() {
     assert_eq!(dims, vec!["1", "10", "14"]);
 }
 
-/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn groups_4() {
     use fusion_symbols::lie::{GroupId, LieGroup};
@@ -366,7 +614,6 @@ fn groups_4() {
     assert!(LieGroup::new(so5).unwrap().irrep(&[0, 1], &[]).is_err());
 }
 
-/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn groups_5() {
     use fusion_symbols::{
@@ -393,7 +640,6 @@ fn groups_5() {
     assert_eq!(dims, vec!["1", "10", "5"]); // string sort
 }
 
-/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn groups_6() {
     use fusion_symbols::lie::{GroupId, LieGroup};
@@ -412,7 +658,6 @@ fn groups_6() {
         .is_err());
 }
 
-/// `docs/user-guide/README.md#symbol-layout`.
 #[test]
 fn recoupling_1() {
     use fusion_symbols::category::{FusionCategory, SymbolBlock};
@@ -430,7 +675,6 @@ fn recoupling_1() {
     assert_eq!(<f64 as SymbolBlock<4>>::dims(&zero), [1; 4]);
 }
 
-/// `docs/user-guide/README.md#symbol-layout`.
 #[test]
 fn recoupling_2() {
     use fusion_symbols::{
@@ -449,7 +693,6 @@ fn recoupling_2() {
     assert_eq!(r.at(0, 0), -1.0);
 }
 
-/// `docs/user-guide/README.md#symbol-layout`.
 #[test]
 fn recoupling_3() {
     use fusion_symbols::{
@@ -475,7 +718,6 @@ fn recoupling_3() {
     assert!((r.at(0, 0).abs() - 1.0).abs() < 1e-12);
 }
 
-/// `docs/user-guide/README.md#symbol-layout`.
 #[test]
 fn recoupling_4() {
     use fusion_symbols::{
@@ -495,7 +737,6 @@ fn recoupling_4() {
     assert!((block.at(0, 0, 0, 0) - 1.0).abs() < 1e-9);
 }
 
-/// `docs/user-guide/README.md#symbol-layout`.
 #[test]
 fn recoupling_5() {
     use fusion_symbols::{
@@ -602,7 +843,6 @@ fn recoupling_5() {
     assert!(worst < 1e-9, "F-move residual {worst}");
 }
 
-/// `docs/user-guide/README.md#symbol-layout`.
 #[test]
 fn recoupling_6() {
     use fusion_symbols::{
@@ -627,7 +867,6 @@ fn recoupling_6() {
     );
 }
 
-/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn representations_1() {
     use fusion_symbols::{category::FusionCategory, table::TableCategory};
@@ -638,7 +877,6 @@ fn representations_1() {
     assert_eq!(fib.fusion(&tau, &tau).unwrap().count(), 2);
 }
 
-/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn representations_2() {
     use fusion_symbols::{
@@ -653,7 +891,6 @@ fn representations_2() {
     assert_eq!(group.frobenius_schur_phase(&s), -1.0);
 }
 
-/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn representations_3() {
     use fusion_symbols::{
@@ -673,7 +910,6 @@ fn representations_3() {
     assert_eq!(cat.dual(&eight), eight); // the adjoint is self-dual
 }
 
-/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn representations_4() {
     use fusion_symbols::{
@@ -689,7 +925,6 @@ fn representations_4() {
     assert_eq!(cat.frobenius_schur_indicator(&v), 1.0); // real (orthogonal) self-duality
 }
 
-/// `docs/overview.md#lie-labels-and-global-forms`.
 #[test]
 fn representations_5() {
     use fusion_symbols::{

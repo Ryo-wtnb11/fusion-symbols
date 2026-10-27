@@ -7,6 +7,17 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Documentation
+
+- The README, user guide, design reference and crate-level docs are rewritten
+  for the 0.9.0 API. The user guide is now task-oriented: choosing a category,
+  building groups by name and by root data (`GroupId`), labels, symbols, CGC,
+  abelian categories, tables, products, errors and caches. Capability limits
+  are stated explicitly: exceptional groups return `Unsupported`, CU(1) is
+  the only disconnected group (#191), and finite non-abelian Rep(G) is not
+  provided (#192). Every README and user-guide example is compiled and run by
+  `tests/doc_examples.rs`.
+
 ## [0.9.0] - 2026-10-27
 
 ### Breaking

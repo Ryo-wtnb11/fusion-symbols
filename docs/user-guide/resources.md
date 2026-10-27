@@ -47,7 +47,7 @@ reader-sharded lock (see [Concurrency](#concurrency)) and exactly one shard per
 tier. Hits use borrowed `Equivalent` queries and a read lock, without
 constructing owned keys or copying coefficient buffers.
 Exact SU(2) values share their immutable rational payload; generated F and R blocks
-are stored directly, sharing their existing coefficient storage. Concurrent
+are stored directly, sharing their coefficient storage. Concurrent
 misses on a key, including `LieGroup` dual lookups, share one successful
 computation; waiters count as hits. Errors are not retained. Whole-product
 B/C/D sweeps also publish other channels, and a dual lookup also records the
@@ -77,7 +77,7 @@ publishing an already-retained key adds no miss. Errors add neither counter.
 Eviction victims and trim survivors are unspecified.
 Ghost history contains hashes, not owned labels or coefficient payloads, and
 belongs to excluded container scaffolding. Reset also invalidates in-flight
-placeholders and B/C/D sweeps that started before it: their callers still
+placeholders and B/C/D sweeps that started before it: their callers
 receive computed values, but neither the requested value nor the sweep's other
 channels are retained. Returned values remain valid across trim, eviction and
 reset.
@@ -110,7 +110,7 @@ stripe, and more than eight concurrent readers always do.
 Hits are counted in 16 cache-line-padded stripes per tier, selected by a
 per-thread index assigned round-robin on first use. A statistics snapshot sums
 relaxed loads of the stripes: it is exact once concurrent readers have
-finished, but not linearizable with hits still in flight. Misses, evictions,
+finished, but not linearizable with hits in flight. Misses, evictions,
 entries and charged bytes change only under the publication mutex and stay
 exact.
 

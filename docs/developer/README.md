@@ -26,8 +26,8 @@ RUSTDOCFLAGS="-D warnings --html-in-header doc/katex-header.html" \
 
 The KaTeX header matches `Cargo.toml::package.metadata.docs.rs`.
 Criterion harnesses in `benches/` are measurements, not CI gates:
-`wigner`, `sun_cgc`, `sun_fr`, `sun_product`, `bcd_fr`.
-All except `wigner` require `lie-generated`. Test-only cache measurement
+`torus`, `cache_concurrency`, `wigner`, `sun_cgc`, `sun_fr`, `sun_product`,
+`bcd_fr`. The `sun_*` and `bcd_fr` harnesses require `lie-generated`. Test-only cache measurement
 harnesses remain in `src/cache_audit.rs`, `src/cache_budget_pressure.rs`, and
 `src/cache_trim_pressure.rs`; their ignored entry points describe how to run them.
 

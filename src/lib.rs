@@ -1,22 +1,47 @@
-//! Fusion and recoupling data for symmetric tensors: the compact Lie groups
-//! SU(2), SU(N), SO(N), Spin(N), Sp(2N), U(1) and CU(1), finite cyclic groups,
-//! fermion parity, and tabulated finite fusion categories (irreducible
-//! representations, Clebsch–Gordan coefficients, 3j / 6j / F / R).
+//! Fusion-category and representation data for symmetric tensors: labels,
+//! fusion multiplicities, dimensions, duals, Frobenius–Schur data, F/R/A/B
+//! symbols and Clebsch–Gordan coefficients (CGC).
 //!
-//! `fusion-symbols` is the successor of the `racah` crate (published up to
-//! 0.2.4). The Rust API uses category values under `fusion_symbols::`.
+//! Families: compact connected Lie groups through [`lie::LieGroup`] — SU(N),
+//! SO(N), Spin(N), Sp(2r), U(N), tori, their products and central quotients —
+//! plus exact SU(2) evaluators in [`lie::su2`]; closed-form [`lie::U1`] and
+//! CU(1) = O(2) ([`lie::CU1`]); cyclic groups [`finite::ZN`]; fermion parity
+//! [`fermion::FermionParity`]; tabulated unitary multiplicity-free categories
+//! ([`table`]); and ordered Deligne products of all of these ([`mod@product`]).
 //!
-//! Lie-group coefficients for any admissible labels are computed on demand —
-//! there is no precomputed table and no generation-time label cut. Pure
-//! representation and fusion-category mathematics: no tensor-network concepts
-//! (legs, fusion trees, tensor maps, contraction). Consumers build those on top
-//! of these numbers.
+//! Not provided: exceptional groups (classified by [`lie::GroupId`], but
+//! [`lie::LieGroup::new`] returns [`lie::LieError::Unsupported`]), disconnected
+//! groups other than CU(1), and finite non-abelian Rep(G).
+//!
+//! Lie-group coefficients are computed on demand for any admissible labels;
+//! there is no precomputed table or label cutoff. This crate holds only the
+//! mathematics: tensors, fusion trees and contraction belong to the consumer.
 //!
 //! # Quick start
 //!
-//! Exact SU(2) recoupling needs no features. Spins are doubled (`dj = 2j`), so
-//! `2` means spin 1; a non-admissible label set returns exact zero, never an
-//! error. Here `{1 1 1; 1 1 1} = 1/6`:
+//! Build a group from a [`lie::GroupId`], create irreps from Dynkin labels and
+//! torus charges, and query symbols through [`category::FusionCategory`]:
+//!
+//! ```
+//! use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieGroup}};
+//!
+//! let su2 = LieGroup::new(GroupId::su(2)?)?;
+//! let half = su2.irrep(&[1], &[])?; // doubled spin: 1 means spin 1/2
+//! let unit = su2.unit();
+//! assert_eq!(su2.nsymbol(&half, &half, &unit), 1);
+//! let f = su2.f_symbol(&half, &half, &half, &half, &unit, &unit)?;
+//! assert_eq!(f.at(0, 0, 0, 0), -0.5);
+//! let r = su2.r_symbol(&half, &half, &unit)?;
+//! assert_eq!(r.at(0, 0), -1.0);
+//!
+//! // U(2): an SU(2) label followed by a U(1) charge of the same parity.
+//! let u2 = LieGroup::new(GroupId::u(2)?)?;
+//! let fundamental = u2.irrep(&[1], &[1])?;
+//! assert_eq!(u2.dim(&fundamental), 2.0);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! Exact SU(2) recoupling values, with doubled spins (`2` means spin 1):
 //!
 //! ```
 //! use fusion_symbols::lie::su2::wigner_6j;
@@ -25,46 +50,7 @@
 //! assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
 //! ```
 //!
-//! `LieGroup` categories use validated Dynkin labels. A1 blocks are stored inline;
-//! A(r), r >= 2, uses cached generated blocks with `lie-generated`:
-//!
-//! ```
-//! use fusion_symbols::{category::FusionCategory, lie::{su2::wigner_6j, GroupId, LieGroup}};
-//! assert!((wigner_6j(2, 2, 2, 2, 2, 2).to_f64() - 1.0 / 6.0).abs() < 1e-14);
-//! let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-//! let half = group.irrep(&[1], &[]).unwrap();
-//! assert_eq!(half.dynkin_labels().next(), Some(1)); // allocation-free label reading
-//! let unit = group.unit();
-//! let f = group.f_symbol(&half, &half, &half, &half, &unit, &unit).unwrap();
-//! assert_eq!(f.at(0, 0, 0, 0), -0.5);
-//! let r = group.r_symbol(&half, &half, &unit).unwrap();
-//! assert_eq!(r.at(0, 0), -1.0);
-//! ```
-//!
-//! # Where to look
-//!
-//! | You want | Go to |
-//! |---|---|
-//! | Shared category contract, styles, scalar storage and identity residuals | [`category`] |
-//! | SU(2): exact 3j, 6j, CG evaluators; category F/R and Frobenius–Schur | [`lie::su2`] and [`lie::LieGroup`] |
-//! | U(N), tori, D₂ forms; semisimple×torus products and central quotients | [`lie::LieGroup`] (union of factor features) |
-//! | SU(N), SU(N)/Z_k, PSU(N) — Gelfand–Tsetlin construction | [`lie::LieGroup`] (`lie-generated`) |
-//! | SO(N), Spin(N), Sp(2r) — generator bootstrap, B/C/D series | [`lie::LieGroup`] (`lie-generated`) |
-//! | Which highest weights a global form admits | [`lie::GroupId`] |
-//! | Positive-dimensional compact Lie groups U(1) and CU(1) = O(2), in closed form | [`lie::U1`] and U(1) through [`lie::LieGroup`], [`lie::CU1`] |
-//! | Finite cyclic groups Z_N (including Z2), in closed form | [`finite::ZN`] |
-//! | Fermion parity in closed form | [`fermion::FermionParity`] |
-//! | Finite multiplicity-free unitary categories (Fibonacci, Ising, …, rank ≤ 4; rank ≤ 7 with `anyonwiki-unitary`) from pinned AnyonWiki tables | [`table`] |
-//! | Ordered Deligne products, tuples or runtime-length vectors | [`mod@product`] |
-//! | Cache ceilings, budgets, statistics | [`cache`] |
-//!
-//! SU(N) uses the same [`lie::LieGroup`] and [`lie::LieIrrep`] layer as A1.
-//! With `lie-generated`, higher A-series fusion shares cached product lists, and
-//! [`category::GroupRepresentations::cgc`] returns [`lie::LieCgc`]. Empty
-//! vertices give zero blocks; genuine generation failures are opaque
-//! [`lie::LieError::Generation`] diagnostics with an error source.
-//!
-//! # Deligne products
+//! Products combine categories factorwise:
 //!
 //! ```
 //! use fusion_symbols::{finite::ZN, category::FusionCategory,
@@ -72,84 +58,62 @@
 //! let cat = Product::new((ZN::new(2).unwrap(), FermionParity));
 //! let odd = (cat.factors().0.unit(), FermionParityIrrep::ODD);
 //! assert_eq!(cat.twist(&odd), -1.0);
-//! let three = Product::new((ZN::new(2).unwrap(), FermionParity, ZN::new(2).unwrap()));
-//! assert_eq!(three.dim(&three.unit()), 1.0);
 //! ```
 //!
-//! # Closed-form and tabulated categories
+//! # Where to look
 //!
-//! These families use closed forms or pinned, provenance-tracked tables
-//! rather than runtime coefficient generation, and need no feature flag for
-//! the base catalog. [`lie::U1`] and U(1) through [`lie::LieGroup`], [`lie::CU1`], [`finite`],
-//! [`fermion`] and [`table`] expose their
-//! validated objects through [`category::FusionCategory`]: N = 0 is a value,
-//! F/R return zero for inadmissible vertices, and errors mean genuine failure
-//! or an absent capability. Foreign objects panic. Logical symbol shape comes
-//! from N; scalar storage has all-one axes even for a zero symbol.
-//! Table objects are validated by [`table::TableCategory::object`]; their private
-//! catalog tag rejects foreign objects. Table categories share data when cloned
-//! and compare by uuid. Fusion-only tables return a braiding error from R and
-//! panic on twist. CU(1) fusion reports label overflow.
-//! Index order follows TensorKitSectors.jl (`F^{abc}_d[e, f]` with
-//! `e ∈ a ⊗ b`, `f ∈ b ⊗ c`; `R^{ab}_c`). Closed-form symbols in [`lie`],
-//! [`finite`] and [`fermion`] are `f64`; [`table`] uses
-//! [`num_complex::Complex64`]. Closed forms use TensorKitSectors' gauge;
-//! [`table`] uses AnyonWiki's (gauge-equivalent, and for Fibonacci identical).
-//! Provenance: [`docs/references_categories.md`].
+//! | You want | Go to |
+//! |---|---|
+//! | The shared category contract, symbol blocks, CGC and identity residuals | [`category`] |
+//! | Classifying a group and its global form | [`lie::GroupId`] |
+//! | Any supported Lie group as a category | [`lie::LieGroup`], objects [`lie::LieIrrep`] |
+//! | Exact SU(2) 3j, 6j and CG values | [`lie::su2`] |
+//! | U(1) with `Copy` labels; CU(1) = O(2) | [`lie::U1`], [`lie::CU1`] |
+//! | Z_N; fermion parity | [`finite::ZN`]; [`fermion::FermionParity`] |
+//! | Fibonacci, Ising and other AnyonWiki categories | [`table::TableCategory`] |
+//! | Deligne products, tuples or runtime-length vectors | [`mod@product`] |
+//! | Cache budgets, statistics, trimming | [`cache`] |
 //!
-//! # Layers
+//! # Features
 //!
-//! - **base** (`default-features = false`): exact SU(2) — closed-form 3j/6j/CGC in
-//!   big-rational arithmetic with a single final rounding to floating point;
-//!   the shared [`category`] contract, closed-form [`lie::U1`] and U(1) through [`lie::LieGroup`], [`lie::CU1`],
-//!   [`finite::ZN`], [`fermion`], rank ≤ 4 [`table`] categories, [`mod@product`]
-//!   and [`cache`].
-//! - **`anyonwiki-unitary`**: rank 5–7 [`table`] categories (embedded data only).
-//! - **`lie-generated`** (enabled by default): runtime coefficient generation for SU(N) (Gelfand–Tsetlin
-//!   construction), and SO(N)/Sp(2N) (defining-representation seeds plus a
-//!   family-generic decomposition loop). Dense factorizations and the CGC
-//!   contractions producing F/R route through t4a-faer with explicit `Par::Seq`
-//!   and scratch workspaces; no hand-rolled kernels,
-//!   and backend selection is not public API.
+//! - **base** (`default-features = false`): everything except the items below,
+//!   including every rank-one and D₂ Lie factor, tori and U(2), exact SU(2)
+//!   values, all closed-form families, rank ≤ 4 [`table`] categories (74),
+//!   products and caches. Dependencies are the `num-*` arithmetic crates and
+//!   `quick_cache`; there is no dense linear algebra.
+//! - **`lie-generated`** (default): runtime coefficient generation for A, B, C
+//!   factors of rank ≥ 2 and D factors of rank ≥ 3, that is SU(N ≥ 3),
+//!   SO(N ≥ 5), Spin(N ≥ 5), Sp(2r ≥ 4), U(N ≥ 3) and products containing them.
+//!   Dense kernels run sequentially through `t4a-faer`; the caller owns
+//!   parallelism.
+//! - **`anyonwiki-unitary`**: the 303 rank 5–7 [`table`] categories (embedded
+//!   data only).
 //!
-//! The boundary is mathematical, not organizational: SU(2) has closed forms and
-//! needs no matrix computation. Set `default-features = false` to omit runtime
-//! generation and the linear-algebra stack.
+//! # Exactness and conventions
 //!
-//! # Exactness contract
-//!
-//! Combinatorial structure and discrete data are exact; gauge fixing is a
-//! deterministic function of the subspace; floating-point stages are
-//! verification-gated and versioned. Concretely: labels, dimensions, duals,
-//! Frobenius–Schur indicators and fusion multiplicities are exact integer or
-//! rational arithmetic. Generated CGC / F / R *values* are `f64`; numeric
-//! generation gates reject invalid isometries with typed errors. Generic
-//! category residual functions verify F unitarity, pentagon and hexagon
-//! identities, including outer multiplicities.
-//!
-//! # Provider contract
-//!
-//! Each family publishes an opaque **authority fingerprint** naming the
-//! convention set its coefficients are computed in
-//! ([`category::FusionCategory::authority_fingerprint`]). Persist the bytes next to anything you
-//! derive from these coefficients and compare by equality on load; never parse
-//! them. The base SU(2) provider adds a checked representation surface
-//! ([`lie::LieIrrep`] and [`lie::LieGroup`]) and a cache
-//! resource contract ([`cache::tier_stats`],
-//! [`cache::BASE_CACHE_MAX_BYTES`], [`cache::reset`]). The
-//! [User Guide][guide-resources] carries the prose.
+//! Labels, dimensions, duals, Frobenius–Schur indicators and fusion
+//! multiplicities are exact. SU(2) values are exact rationals under a square
+//! root, rounded once to `f64`. Generated CGC/F/R values are `f64`, checked
+//! by numerical gates that return typed errors on failure. Closed-form
+//! families use `f64`; [`table`] uses [`num_complex::Complex64`]. Index order
+//! follows TensorKitSectors.jl (`F^{abc}_d[e, f]` with `e ∈ a ⊗ b`,
+//! `f ∈ b ⊗ c`; `R^{ab}_c`). Closed forms use TensorKitSectors' gauge;
+//! [`table`] keeps AnyonWiki's; generated Lie coefficients follow the frozen
+//! gauge specifications. Each category publishes an opaque
+//! [`category::FusionCategory::authority_fingerprint`]: persist it next to
+//! derived data and compare bytes on load.
 //!
 //! # Documentation
 //!
-//! - [User Guide] — task-oriented: pick a group, build irreps, fuse, get CGC,
-//!   get F/R, bound the caches. Start here if you are new.
-//! - [`docs/overview.md`] — design, labels, capabilities and error contracts.
-//! - [`docs/gauge.md`] / [`docs/gauge_soN.md`] — the frozen normative gauge
-//!   specifications. Reference documents, not tutorials.
-//! - [`docs/references.md`] — porting provenance (`file:symbol`-level) and the
-//!   verified bibliography.
+//! - [User guide]: task-oriented — choose a category, build groups and labels,
+//!   query symbols and CGC, use products and tables, handle errors and caches.
+//! - [`docs/overview.md`]: capability boundaries and contracts.
+//! - [Caches and reproducibility][guide-resources].
+//! - [`docs/gauge.md`] / [`docs/gauge_soN.md`]: the frozen gauge specifications.
+//! - [`docs/references.md`] and [`docs/references_categories.md`]: algorithm
+//!   and data provenance.
 //!
-//! [User Guide]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/user-guide/README.md
+//! [User guide]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/user-guide/README.md
 //! [guide-resources]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/user-guide/resources.md
 //! [`docs/overview.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/overview.md
 //! [`docs/references.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/references.md
