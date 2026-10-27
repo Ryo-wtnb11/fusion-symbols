@@ -8,6 +8,10 @@ pub use u1::{U1Error, U1Irrep, U1};
 
 #[cfg(feature = "lie-generated")]
 pub(crate) mod bcd;
+// Not reachable from `LieGroup` until the exceptional engine uses it; drop this allow then.
+#[cfg(feature = "lie-generated")]
+#[cfg_attr(not(test), allow(dead_code))]
+mod general;
 mod gt;
 #[cfg(feature = "lie-generated")]
 pub(crate) mod sun;
