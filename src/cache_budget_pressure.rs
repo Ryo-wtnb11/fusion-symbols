@@ -52,11 +52,28 @@ fn run(mode: &str, budgets: CoefficientCacheBudgets, require_eviction: bool, par
     workload();
     let elapsed_ns = start.elapsed().as_nanos();
     let (end_live, peak_live) = crate::audit_alloc::snapshot();
-    let base = cache::base_cache_stats();
-    let generated = cache::generated_cache_stats();
-    let evictions = base.total().evictions + generated.total().evictions;
+    let [three_j, six_j, derived_f] = [
+        CoefficientCacheTier::ThreeJ,
+        CoefficientCacheTier::SixJ,
+        CoefficientCacheTier::DerivedF,
+    ]
+    .map(cache::tier_stats);
+    let [sun_product, sun_cgc, sun_f, sun_r, bcd_cgc, bcd_f, bcd_r] = [
+        CoefficientCacheTier::SunProduct,
+        CoefficientCacheTier::SunCgc,
+        CoefficientCacheTier::SunF,
+        CoefficientCacheTier::SunR,
+        CoefficientCacheTier::BcdCgc,
+        CoefficientCacheTier::BcdF,
+        CoefficientCacheTier::BcdR,
+    ]
+    .map(cache::tier_stats);
+    let evictions: u64 = CoefficientCacheTier::ALL
+        .iter()
+        .map(|&tier| cache::tier_stats(tier).evictions)
+        .sum();
     assert_eq!(evictions > 0, require_eviction);
-    let active = [base.three_j, base.six_j, generated.sun_product];
+    let active = [three_j, six_j, sun_product];
     if partial {
         for (stats, tier) in active.into_iter().zip([
             CoefficientCacheTier::ThreeJ,
@@ -72,16 +89,16 @@ fn run(mode: &str, budgets: CoefficientCacheBudgets, require_eviction: bool, par
     eprintln!(
         "COEFFICIENT_CACHE_BUDGET_PRESSURE {{\"schema\":1,\"revision\":\"{revision}\",\"mode\":\"{mode}\",\"sample\":{sample},\"budgets\":{{\"three_j\":{},\"six_j\":{},\"derived_f\":{},\"sun_product\":{},\"sun_cgc\":{},\"sun_f\":{},\"bcd_cgc\":{},\"bcd_f\":{},\"sun_r\":{},\"bcd_r\":{}}},\"elapsed_ns\":{elapsed_ns},\"base\":[[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}]],\"generated\":[[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}]],\"requested_live_start_bytes\":{start_live},\"requested_live_end_bytes\":{end_live},\"requested_live_peak_bytes\":{peak_live},\"rss_bytes\":{} }}",
         budgets.limit(CoefficientCacheTier::ThreeJ), budgets.limit(CoefficientCacheTier::SixJ), budgets.limit(CoefficientCacheTier::DerivedF), budgets.limit(CoefficientCacheTier::SunProduct), budgets.limit(CoefficientCacheTier::SunCgc), budgets.limit(CoefficientCacheTier::SunF), budgets.limit(CoefficientCacheTier::BcdCgc), budgets.limit(CoefficientCacheTier::BcdF), budgets.limit(CoefficientCacheTier::SunR), budgets.limit(CoefficientCacheTier::BcdR),
-        base.three_j.entries, base.three_j.bytes, base.three_j.hits, base.three_j.misses, base.three_j.evictions,
-        base.six_j.entries, base.six_j.bytes, base.six_j.hits, base.six_j.misses, base.six_j.evictions,
-        base.derived_f.entries, base.derived_f.bytes, base.derived_f.hits, base.derived_f.misses, base.derived_f.evictions,
-        generated.sun_product.entries, generated.sun_product.bytes, generated.sun_product.hits, generated.sun_product.misses, generated.sun_product.evictions,
-        generated.sun_cgc.entries, generated.sun_cgc.bytes, generated.sun_cgc.hits, generated.sun_cgc.misses, generated.sun_cgc.evictions,
-        generated.sun_f.entries, generated.sun_f.bytes, generated.sun_f.hits, generated.sun_f.misses, generated.sun_f.evictions,
-        generated.bcd_cgc.entries, generated.bcd_cgc.bytes, generated.bcd_cgc.hits, generated.bcd_cgc.misses, generated.bcd_cgc.evictions,
-        generated.bcd_f.entries, generated.bcd_f.bytes, generated.bcd_f.hits, generated.bcd_f.misses, generated.bcd_f.evictions,
-        generated.sun_r.entries, generated.sun_r.bytes, generated.sun_r.hits, generated.sun_r.misses, generated.sun_r.evictions,
-        generated.bcd_r.entries, generated.bcd_r.bytes, generated.bcd_r.hits, generated.bcd_r.misses, generated.bcd_r.evictions,
+        three_j.entries, three_j.bytes, three_j.hits, three_j.misses, three_j.evictions,
+        six_j.entries, six_j.bytes, six_j.hits, six_j.misses, six_j.evictions,
+        derived_f.entries, derived_f.bytes, derived_f.hits, derived_f.misses, derived_f.evictions,
+        sun_product.entries, sun_product.bytes, sun_product.hits, sun_product.misses, sun_product.evictions,
+        sun_cgc.entries, sun_cgc.bytes, sun_cgc.hits, sun_cgc.misses, sun_cgc.evictions,
+        sun_f.entries, sun_f.bytes, sun_f.hits, sun_f.misses, sun_f.evictions,
+        bcd_cgc.entries, bcd_cgc.bytes, bcd_cgc.hits, bcd_cgc.misses, bcd_cgc.evictions,
+        bcd_f.entries, bcd_f.bytes, bcd_f.hits, bcd_f.misses, bcd_f.evictions,
+        sun_r.entries, sun_r.bytes, sun_r.hits, sun_r.misses, sun_r.evictions,
+        bcd_r.entries, bcd_r.bytes, bcd_r.hits, bcd_r.misses, bcd_r.evictions,
         rss_bytes().map_or_else(|| "null".to_owned(), |n| n.to_string()),
     );
 }

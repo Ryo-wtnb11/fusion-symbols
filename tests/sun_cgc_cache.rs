@@ -2,7 +2,7 @@
 //! CGC cache: facade reset/stats wiring and concurrency equivalence.
 //!
 //! Kept in one `#[test]` because the cache facade is process-global and
-//! `cache::stats()` aggregates every tier; splitting into several parallel
+//! the aggregate over `CoefficientCacheTier::ALL` covers every tier; splitting into several parallel
 //! tests would race the shared counters.
 
 #![cfg(feature = "lie-generated")]
@@ -36,7 +36,7 @@ fn channels() -> Vec<(Irrep, Irrep, Irrep)> {
 fn cache_reset_stats_and_concurrency() {
     // ---- reset + stats wiring ----
     cache::reset();
-    let s0 = cache::stats();
+    let s0 = common::stats_sum(cache::CoefficientCacheTier::ALL);
     assert_eq!(
         (s0.hits, s0.misses, s0.entries, s0.bytes),
         (0, 0, 0, 0),
@@ -45,13 +45,13 @@ fn cache_reset_stats_and_concurrency() {
 
     let (s1, s2, s3) = (irr(&[1, 0]), irr(&[0, 1]), irr(&[1, 1]));
     let first = cgc(&s1, &s2, &s3).unwrap(); // miss
-    let after_miss = cache::stats();
+    let after_miss = common::stats_sum(cache::CoefficientCacheTier::ALL);
     assert!(after_miss.misses >= 1, "first call must be a miss");
     assert!(after_miss.entries >= 1, "entry must be retained");
     assert!(after_miss.bytes > 0, "byte charge must be nonzero");
 
     let again = cgc(&s1, &s2, &s3).unwrap(); // hit
-    let after_hit = cache::stats();
+    let after_hit = common::stats_sum(cache::CoefficientCacheTier::ALL);
     assert!(after_hit.hits >= 1, "second call must be a hit");
     assert_eq!(after_hit.entries, after_miss.entries, "hit adds no entry");
     assert_eq!(first, again, "cached value must be byte-identical");
@@ -89,7 +89,7 @@ fn cache_reset_stats_and_concurrency() {
 
     // Every distinct channel is retained exactly once (no duplication under the
     // concurrent-insert race).
-    let stats = cache::stats();
+    let stats = common::stats_sum(cache::CoefficientCacheTier::ALL);
     assert!(
         stats.entries >= chans.len(),
         "expected >= {} entries, got {}",

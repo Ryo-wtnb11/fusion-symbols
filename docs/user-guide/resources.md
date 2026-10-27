@@ -28,11 +28,11 @@ A zero cap computes normally without retaining entries;
 `CoefficientCacheBudgets::disabled()` zeroes all tiers. `cache_budgets()`
 observes the effective policy and therefore also freezes configuration.
 
-`base_cache_stats()` and, with generation enabled, `generated_cache_stats()`
-report entries, charge, hits, misses and evictions. Within a tier snapshot,
-entries, charge, misses and evictions are read under the tier's publication
-lock; hits are counted concurrently (see [Concurrency](#concurrency)). Totals
-combine independent snapshots.
+`tier_stats(tier)` reports one tier's entries, charge, hits, misses and
+evictions; `CoefficientCacheTier::ALL` lists every tier in this build. Within a
+tier snapshot, entries, charge, misses and evictions are read under the tier's
+publication lock; hits are counted concurrently (see [Concurrency](#concurrency)).
+A sum over tiers combines independent snapshots.
 `trim_to(tier,target)` removes entries in unspecified traversal order until the
 retained charge is at most the target; it preserves the configured capacity.
 A zero target removes all retained values. In-flight computations can publish

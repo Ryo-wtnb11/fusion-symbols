@@ -11,8 +11,8 @@ value/gauge rule noted below.
 
 - Generated R blocks have their own coefficient-cache tiers (#207):
   `CoefficientCacheTier::SunR` (`sun_r`) and `CoefficientCacheTier::BcdR`
-  (`bcd_r`), with matching `CoefficientCacheBudgets` limits and
-  `GeneratedCacheStats::{sun_r, bcd_r}`. Keys are the ordered `(a, b, c)`
+  (`bcd_r`), with matching `CoefficientCacheBudgets` limits; read them with
+  `cache::tier_stats`. Keys are the ordered `(a, b, c)`
   labels; caps follow the F tiers (2^16 entries, 64 MiB), so
   `GENERATED_CACHE_MAX_BYTES` grows to 768 MiB + 128 KiB. Errors are not
   cached.
@@ -49,6 +49,14 @@ value/gauge rule noted below.
 
 ### Breaking
 
+- Cache statistics now go through one per-tier function:
+  `cache::tier_stats(tier) -> TierStats`, plus `CoefficientCacheTier::ALL`,
+  which lists every tier compiled into the build. Removed
+  `cache::stats()`/`CacheStats`, `cache::base_cache_stats()`/`BaseCacheStats`
+  and `cache::generated_cache_stats()`/`GeneratedCacheStats`. To get a total,
+  sum `tier_stats` over the tiers you care about (for example
+  `CoefficientCacheTier::ALL`); such a sum combines independent per-tier
+  snapshots. `TierStats` is now `#[non_exhaustive]`.
 - `GroupId` now stores a validated ordered root datum and canonical row-HNF
   character lattice. Public `root_system`/`form` fields, `GlobalForm`, and
   `CenterSubgroup` are removed; use `root_systems()` and lattice constructors.

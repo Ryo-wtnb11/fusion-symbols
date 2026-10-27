@@ -121,12 +121,12 @@ fn labels_weights_zero_blocks_and_catalog_budget() {
     }
     cache::reset();
     let product = cat.fusion(&s, &s).unwrap().collect::<Vec<_>>();
-    let before = cache::generated_cache_stats().bcd_cgc;
+    let before = cache::tier_stats(cache::CoefficientCacheTier::BcdCgc);
     assert_eq!(cat.fusion(&s, &s).unwrap().collect::<Vec<_>>(), product);
     for c in product {
         assert_eq!(cat.nsymbol(&s, &s, &c), 1);
     }
-    let warm = cache::generated_cache_stats().bcd_cgc;
+    let warm = cache::tier_stats(cache::CoefficientCacheTier::BcdCgc);
     assert_eq!(warm.misses, before.misses);
     assert!(warm.hits > before.hits);
     cache::reset();

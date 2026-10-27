@@ -1,42 +1,18 @@
 //! Every coefficient tier: warm lookups neither allocate nor regenerate.
 use crate::common::counting_alloc;
 use fusion_symbols::{
-    cache::{self, CoefficientCacheTier as Tier, TierStats},
+    cache::{self, CoefficientCacheTier as Tier},
     category::FusionCategory,
     lie::{su2, GroupId, LieGroup},
 };
 
-fn stats(tier: Tier) -> TierStats {
-    let base = cache::base_cache_stats();
-    match tier {
-        Tier::ThreeJ => base.three_j,
-        Tier::SixJ => base.six_j,
-        Tier::DerivedF => base.derived_f,
-        #[cfg(feature = "lie-generated")]
-        Tier::SunProduct => cache::generated_cache_stats().sun_product,
-        #[cfg(feature = "lie-generated")]
-        Tier::SunCgc => cache::generated_cache_stats().sun_cgc,
-        #[cfg(feature = "lie-generated")]
-        Tier::SunF => cache::generated_cache_stats().sun_f,
-        #[cfg(feature = "lie-generated")]
-        Tier::SunR => cache::generated_cache_stats().sun_r,
-        #[cfg(feature = "lie-generated")]
-        Tier::BcdCgc => cache::generated_cache_stats().bcd_cgc,
-        #[cfg(feature = "lie-generated")]
-        Tier::BcdF => cache::generated_cache_stats().bcd_f,
-        #[cfg(feature = "lie-generated")]
-        Tier::BcdR => cache::generated_cache_stats().bcd_r,
-        _ => unreachable!(),
-    }
-}
-
 fn check<T>(tier: Tier, query: impl Fn() -> T) {
     std::hint::black_box(query());
-    let before = stats(tier);
+    let before = cache::tier_stats(tier);
     let (calls, bytes, _, value) = counting_alloc::measure(query);
     std::hint::black_box(value);
     assert_eq!((calls, bytes), (0, 0), "{tier}: warm allocation");
-    let after = stats(tier);
+    let after = cache::tier_stats(tier);
     assert_eq!(after.misses, before.misses, "{tier}: warm regeneration");
     assert!(after.hits > before.hits, "{tier}: cache hit required");
 }

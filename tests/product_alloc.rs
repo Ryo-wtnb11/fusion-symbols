@@ -20,7 +20,8 @@ fn warm_product_composition_allocates_nothing() {
     let _ = cat
         .f_symbol(&half, &half, &half, &half, &zero, &zero)
         .unwrap();
-    let stats = fusion_symbols::cache::base_cache_stats();
+    let stats =
+        fusion_symbols::cache::tier_stats(fusion_symbols::cache::CoefficientCacheTier::DerivedF);
     let before = counting_alloc::calls();
     let f = cat
         .f_symbol(&half, &half, &half, &half, &zero, &zero)
@@ -34,9 +35,10 @@ fn warm_product_composition_allocates_nothing() {
     assert_eq!(r.at(0, 0), 1.0);
     assert!(empty.data().is_empty());
     assert_eq!(outcomes, 2);
-    let warm = fusion_symbols::cache::base_cache_stats();
-    assert_eq!(warm.derived_f.misses, stats.derived_f.misses);
-    assert_eq!(warm.derived_f.hits, stats.derived_f.hits + 1);
+    let warm =
+        fusion_symbols::cache::tier_stats(fusion_symbols::cache::CoefficientCacheTier::DerivedF);
+    assert_eq!(warm.misses, stats.misses);
+    assert_eq!(warm.hits, stats.hits + 1);
 }
 
 #[test]
@@ -188,47 +190,40 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
         f: (usize, usize),
         r: (usize, usize),
     ) {
+        use crate::common::{generated_tiers, stats_sum, BASE_TIERS};
+        use cache::{tier_stats, CoefficientCacheTier as Tier};
         let query_f = || cat.f_symbol(x, x, x, x, x, x).unwrap();
         query_f();
-        let (base, generated) = (
-            cache::base_cache_stats().total(),
-            cache::generated_cache_stats(),
+        let (base, generated, hits) = (
+            stats_sum(&BASE_TIERS),
+            stats_sum(generated_tiers()),
+            tier_stats(Tier::SunF).hits,
         );
         let (calls, bytes, _, _) = counting_alloc::measure(query_f);
-        let warm_generated = cache::generated_cache_stats();
         println!("{name} F: {calls}/{bytes}");
         assert_eq!((calls, bytes), f, "{name} F");
+        assert_eq!(tier_stats(Tier::SunF).hits, hits + k, "{name}: factor hits");
         assert_eq!(
-            warm_generated.sun_f.hits,
-            generated.sun_f.hits + k,
-            "{name}: factor hits"
-        );
-        assert_eq!(
-            warm_generated.total().misses,
-            generated.total().misses,
+            stats_sum(generated_tiers()).misses,
+            generated.misses,
             "{name}"
         );
-        assert_eq!(
-            cache::base_cache_stats().total().misses,
-            base.misses,
-            "{name}"
-        );
+        assert_eq!(stats_sum(&BASE_TIERS).misses, base.misses, "{name}");
         let query_r = || cat.r_symbol(x, x, x).unwrap();
         query_r();
-        let generated = cache::generated_cache_stats();
+        let (generated, hits) = (stats_sum(generated_tiers()), tier_stats(Tier::SunR).hits);
         let r_alloc = counting_alloc::measure(query_r);
         let r_alloc = (r_alloc.0, r_alloc.1);
-        let warm_generated = cache::generated_cache_stats();
         println!("{name} R: {}/{}", r_alloc.0, r_alloc.1);
         assert_eq!(r_alloc, r, "{name} R");
         assert_eq!(
-            warm_generated.sun_r.hits,
-            generated.sun_r.hits + k,
+            tier_stats(Tier::SunR).hits,
+            hits + k,
             "{name}: R factor hits"
         );
         assert_eq!(
-            warm_generated.total().misses,
-            generated.total().misses,
+            stats_sum(generated_tiers()).misses,
+            generated.misses,
             "{name} R"
         );
     }

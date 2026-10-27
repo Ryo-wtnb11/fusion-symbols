@@ -4,14 +4,14 @@
 mod common;
 
 use fusion_symbols::cache::{
-    base_cache_stats, cache_budgets, configure_cache_budgets, CacheBudgetError,
-    CoefficientCacheBudgets,
+    cache_budgets, configure_cache_budgets, tier_stats, CacheBudgetError, CoefficientCacheBudgets,
+    CoefficientCacheTier,
 };
 
 #[test]
 fn observing_cache_stats_freezes_the_default_policy() {
     let default = CoefficientCacheBudgets::default();
-    let _ = base_cache_stats();
+    let _ = tier_stats(CoefficientCacheTier::ThreeJ);
     assert_eq!(cache_budgets(), default);
     assert_eq!(
         configure_cache_budgets(CoefficientCacheBudgets::disabled()),

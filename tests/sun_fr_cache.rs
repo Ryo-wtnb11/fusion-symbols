@@ -32,7 +32,7 @@ fn f_symbol_cache_hit_reset_stats_and_concurrency() {
     // --- hit / stats / reset ---
     cache::reset();
     let first = f_symbol(&e8, &e8, &e8, &e8, &e8, &e8).unwrap();
-    let after_miss = cache::stats();
+    let after_miss = common::stats_sum(cache::CoefficientCacheTier::ALL);
     assert!(
         after_miss.entries >= 1 && after_miss.misses >= 1,
         "first call should record a miss + entry"
@@ -40,12 +40,12 @@ fn f_symbol_cache_hit_reset_stats_and_concurrency() {
 
     let again = f_symbol(&e8, &e8, &e8, &e8, &e8, &e8).unwrap();
     assert_eq!(first, again, "warm hit must return the identical block");
-    let after_hit = cache::stats();
+    let after_hit = common::stats_sum(cache::CoefficientCacheTier::ALL);
     assert!(after_hit.hits > after_miss.hits, "second call is a hit");
     assert_eq!(after_hit.entries, after_miss.entries, "a hit adds no entry");
 
     cache::reset();
-    let cleared = cache::stats();
+    let cleared = common::stats_sum(cache::CoefficientCacheTier::ALL);
     assert_eq!(
         (cleared.hits, cleared.misses, cleared.entries, cleared.bytes),
         (0, 0, 0, 0),
@@ -72,7 +72,7 @@ fn f_symbol_cache_hit_reset_stats_and_concurrency() {
     for h in handles {
         h.join().unwrap();
     }
-    let stats = cache::generated_cache_stats().sun_f;
+    let stats = cache::tier_stats(cache::CoefficientCacheTier::SunF);
     assert_eq!(stats.entries, 1, "one F entry survives the race");
     assert_eq!(
         stats.misses, 1,
@@ -100,7 +100,7 @@ fn f_symbol_cache_hit_reset_stats_and_concurrency() {
     for h in handles {
         h.join().unwrap();
     }
-    let stats = cache::generated_cache_stats().sun_r;
+    let stats = cache::tier_stats(cache::CoefficientCacheTier::SunR);
     assert_eq!(stats.entries, 1, "one R entry survives the race");
     assert_eq!(
         stats.misses, 1,

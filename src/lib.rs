@@ -135,7 +135,7 @@
 //! derive from these coefficients and compare by equality on load; never parse
 //! them. The base SU(2) provider adds a checked representation surface
 //! ([`lie::LieIrrep`] and [`lie::LieGroup`]) and a cache
-//! resource contract ([`cache::base_cache_stats`],
+//! resource contract ([`cache::tier_stats`],
 //! [`cache::BASE_CACHE_MAX_BYTES`], [`cache::reset`]). The
 //! [User Guide][guide-resources] carries the prose.
 //!

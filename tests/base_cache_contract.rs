@@ -2,7 +2,7 @@
 //! Base SU(2) coefficient-cache resource contract.
 //!
 //! Kept in one `#[test]`: the 3j/6j/derived-F tiers are process-global and
-//! `cache::reset()`/`base_cache_stats()` act on shared state, so splitting into
+//! `cache::reset()`/`cache::tier_stats()` act on shared state, so splitting into
 //! several parallel tests would race the shared counters (same reasoning as
 //! `tests/sun_cgc_cache.rs`).
 //!
@@ -12,13 +12,13 @@
 //! computations (measured: 1.2M `wigner_3j` calls collapse to ~35k distinct
 //! Regge classes). The eviction counter itself is covered deterministically on
 //! local caches in `src/cache.rs`; here we prove the aggregate retained-charge cap, the
-//! per-tier/total statistic coherence, hit/miss accounting, and reset zeroing.
+//! per-tier statistics, hit/miss accounting, and reset zeroing.
 
 mod common;
 
 use crate::common::a1;
 use a1::exact_f;
-use fusion_symbols::cache::{self, BASE_CACHE_MAX_BYTES};
+use fusion_symbols::cache::{self, CoefficientCacheTier, TierStats, BASE_CACHE_MAX_BYTES};
 use fusion_symbols::lie::su2::{wigner_3j, wigner_6j};
 
 #[test]
@@ -31,9 +31,9 @@ fn base_cache_resource_contract() {
     // 3j: only `wigner_3j` touches this tier, so its counters are exact.
     let _ = wigner_3j(2, 2, 2, 0, 0, 0); // miss
     let _ = wigner_3j(2, 2, 2, 0, 0, 0); // hit
-    let s = cache::base_cache_stats();
+    let s = cache::tier_stats(CoefficientCacheTier::ThreeJ);
     assert_eq!(
-        (s.three_j.misses, s.three_j.hits),
+        (s.misses, s.hits),
         (1, 1),
         "one miss then one hit on the 3j tier"
     );
@@ -42,17 +42,14 @@ fn base_cache_resource_contract() {
     // assert monotone accounting rather than exact deltas.
     let _ = wigner_6j(2, 2, 2, 2, 2, 2); // miss
     let _ = wigner_6j(2, 2, 2, 2, 2, 2); // hit
-    let s = cache::base_cache_stats();
-    assert!(s.six_j.misses >= 1 && s.six_j.hits >= 1, "6j miss+hit");
+    let s = cache::tier_stats(CoefficientCacheTier::SixJ);
+    assert!(s.misses >= 1 && s.hits >= 1, "6j miss+hit");
 
     // derived-F: `exact_f` owns this tier.
     let _ = exact_f(2, 2, 2, 2, 2, 2); // miss
     let _ = exact_f(2, 2, 2, 2, 2, 2); // hit
-    let s = cache::base_cache_stats();
-    assert!(
-        s.derived_f.misses >= 1 && s.derived_f.hits >= 1,
-        "F miss+hit"
-    );
+    let s = cache::tier_stats(CoefficientCacheTier::DerivedF);
+    assert!(s.misses >= 1 && s.hits >= 1, "F miss+hit");
 
     // ---- fill all three tiers with a spread of small labels ----
     cache::reset();
@@ -68,73 +65,42 @@ fn base_cache_resource_contract() {
         }
     }
 
-    let s = cache::base_cache_stats();
-
     // Per-tier conservative retained-charge cap.
-    assert!(
-        s.three_j.bytes <= per_tier_cap,
-        "3j over cap: {}",
-        s.three_j.bytes
-    );
-    assert!(
-        s.six_j.bytes <= per_tier_cap,
-        "6j over cap: {}",
-        s.six_j.bytes
-    );
-    assert!(
-        s.derived_f.bytes <= per_tier_cap,
-        "F over cap: {}",
-        s.derived_f.bytes
-    );
+    for tier in common::BASE_TIERS {
+        let bytes = cache::tier_stats(tier).bytes;
+        assert!(bytes <= per_tier_cap, "{tier} over cap: {bytes}");
+    }
 
     // Aggregate charged-entry cap — the documented per-tier corollary.
-    let total = s.total();
+    let total = common::stats_sum(&common::BASE_TIERS);
     assert!(
         total.bytes <= BASE_CACHE_MAX_BYTES,
         "aggregate over BASE_CACHE_MAX_BYTES: {} > {}",
         total.bytes,
         BASE_CACHE_MAX_BYTES
     );
-
-    // `total()` is the field-wise sum of the three tiers (statistics agree with
-    // retained state).
-    assert_eq!(
-        total.entries,
-        s.three_j.entries + s.six_j.entries + s.derived_f.entries
-    );
-    assert_eq!(
-        total.bytes,
-        s.three_j.bytes + s.six_j.bytes + s.derived_f.bytes
-    );
     assert!(total.entries > 0, "the fill retained entries");
 
-    // Base totals agree with the aggregate `stats()`. Under the default feature
-    // set the base tiers are the only tiers, so the two are equal; `lie-generated`
-    // adds generated tiers, so there `stats()` is a superset (>=).
-    let agg = cache::stats();
+    // `ALL` lists every compiled tier once, base tiers first.
+    assert_eq!(CoefficientCacheTier::ALL[..3], common::BASE_TIERS);
     #[cfg(not(feature = "lie-generated"))]
-    {
-        assert_eq!(
-            total.entries, agg.entries,
-            "base == aggregate (no lie-generated)"
-        );
-        assert_eq!(total.bytes, agg.bytes);
-    }
+    assert_eq!(CoefficientCacheTier::ALL.len(), 3);
     #[cfg(feature = "lie-generated")]
-    {
+    assert_eq!(CoefficientCacheTier::ALL.len(), 10);
+    for (i, tier) in CoefficientCacheTier::ALL.iter().enumerate() {
         assert!(
-            total.entries <= agg.entries,
-            "base is a subset of aggregate"
+            !CoefficientCacheTier::ALL[..i].contains(tier),
+            "{tier} twice"
         );
-        assert!(total.bytes <= agg.bytes);
     }
 
-    // ---- reset zeroing: every field of every tier and of total() ----
+    // ---- reset zeroing: every field of every tier ----
     cache::reset();
-    let s = cache::base_cache_stats();
-    let zero = fusion_symbols::cache::TierStats::default();
-    assert_eq!(s.three_j, zero, "3j not cleared");
-    assert_eq!(s.six_j, zero, "6j not cleared");
-    assert_eq!(s.derived_f, zero, "F not cleared");
-    assert_eq!(s.total(), zero, "total not cleared");
+    for &tier in CoefficientCacheTier::ALL {
+        assert_eq!(
+            cache::tier_stats(tier),
+            TierStats::default(),
+            "{tier} not cleared"
+        );
+    }
 }
