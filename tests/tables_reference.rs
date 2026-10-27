@@ -17,7 +17,7 @@
 //! Planar tensor workflows need a tensor engine and are out of scope here. A/B symbols are checked in
 //! `tests/ab_symbols.rs`.
 
-use fusion_symbols::category::FusionCategory;
+use fusion_symbols::category::{BraidingStyle, FusionCategory};
 use std::collections::HashMap;
 
 use fusion_symbols::table::{TableCategory, TableObject};
@@ -201,7 +201,7 @@ fn gauge_equivalent(
     map: &[u16],
     u: impl Fn(u16, u16, u16) -> f64,
 ) -> Result<(), String> {
-    assert_eq!(category.rank(), usize::from(tks.rank));
+    assert_eq!(category.object_count(), Ok(Some(u64::from(tks.rank))));
     let labels: Vec<u16> = (1..=tks.rank).collect();
     let here = |a: u16| category.object(map[usize::from(a) - 1]).unwrap();
     let close = |what: String, got: Complex64, want: Complex64| {
@@ -396,7 +396,7 @@ fn f_blocks_are_unitary() {
 
 #[test]
 fn r_symbols_are_unit_modulus_on_admissible_channels() {
-    for p in shipped().filter(TableCategory::is_braided) {
+    for p in shipped().filter(|cat| cat.braiding_style() != BraidingStyle::None) {
         let name = p.uuid();
         let objects: Vec<TableObject> = p.objects().collect();
         for &a in &objects {
@@ -517,7 +517,7 @@ fn both_hexagon_equations_hold() {
     // Structure of TensorKitSectors `hexagon_equation`, multiplicity-free
     // branch. `conj(R)` stands for `inv(R)`, valid because R is unitary
     // (asserted independently above).
-    for p in shipped().filter(TableCategory::is_braided) {
+    for p in shipped().filter(|cat| cat.braiding_style() != BraidingStyle::None) {
         let name = p.uuid();
         let objects: Vec<TableObject> = p.objects().collect();
         let mut cases = 0usize;
@@ -571,7 +571,7 @@ fn both_hexagon_equations_hold() {
 #[test]
 fn ribbon_relation_ties_twists_to_the_braid() {
     // θ_c = θ_a θ_b R^{ba}_c R^{ab}_c on every admissible channel.
-    for p in shipped().filter(TableCategory::is_braided) {
+    for p in shipped().filter(|cat| cat.braiding_style() != BraidingStyle::None) {
         let name = p.uuid();
         let objects: Vec<TableObject> = p.objects().collect();
         for &a in &objects {
@@ -680,11 +680,10 @@ fn foreign_objects_panic_before_capability_checks_in_every_argument() {
 
 #[test]
 fn fusion_only_entries_refuse_braiding() {
-    use fusion_symbols::{category::BraidingStyle, table::TableError};
+    use fusion_symbols::table::TableError;
     use std::panic::{catch_unwind, AssertUnwindSafe};
-    for cat in shipped().filter(|cat| !cat.is_braided()) {
+    for cat in shipped().filter(|cat| cat.braiding_style() == BraidingStyle::None) {
         let unit = cat.unit();
-        assert_eq!(cat.braiding_style(), BraidingStyle::None);
         assert_eq!(
             cat.r_symbol(&unit, &unit, &unit),
             Err(TableError::NoBraiding)

@@ -5,7 +5,7 @@ use fusion_symbols::{
     fermion::{FermionParity, FermionParityIrrep},
     finite::{ZNIrrep, ZN},
     lie::{CU1Irrep, GroupId, LieGroup, U1Irrep, CU1, U1},
-    product,
+    product::Product,
     table::TableCategory,
 };
 
@@ -66,7 +66,7 @@ fn generated_lie_groups_reject_other_groups() {
 fn products_reject_a_foreign_component_in_any_position() {
     let z2 = ZN::new(2).unwrap();
     let z3 = ZN::new(3).unwrap();
-    let cat = product![z2, U1, z2];
+    let cat = Product::new((z2, U1, z2));
     let u = cat.unit();
     assert!(cat.contains(&u));
     assert!(cat.contains(&(
@@ -78,7 +78,7 @@ fn products_reject_a_foreign_component_in_any_position() {
     assert!(!cat.contains(&(u.0, u.1, z3.unit())));
 
     let fib = TableCategory::fibonacci();
-    let nested = product(product(z2, fib.clone()), product(U1, z2));
+    let nested = Product::new((Product::new((z2, fib.clone())), Product::new((U1, z2))));
     let u = nested.unit();
     assert!(nested.contains(&u));
     let ising = TableCategory::ising();

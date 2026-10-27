@@ -11,10 +11,10 @@
 //! formula-independent structural property.
 
 use fusion_symbols::{
-    category::{FusionCategory, RBlock, Scalar},
+    category::{BraidingStyle, FusionCategory, RBlock, Scalar},
     finite::{ZNIrrep, ZN},
     lie::{CU1Irrep, GroupId, LieGroup, U1Irrep, CU1, U1},
-    product::product,
+    product::Product,
     table::TableCategory,
 };
 use num_complex::Complex64;
@@ -199,7 +199,7 @@ fn every_shipped_table_including_fusion_only_has_unitary_a_and_b() {
     let mut fusion_only = 0;
     for uuid in TableCategory::shipped_uuids() {
         let cat = TableCategory::by_uuid(uuid).unwrap();
-        fusion_only += usize::from(!cat.is_braided());
+        fusion_only += usize::from(cat.braiding_style() == BraidingStyle::None);
         let objects: Vec<_> = cat.objects().collect();
         assert_unitary(&cat, &objects);
     }
@@ -211,7 +211,7 @@ fn fibonacci_times_su2_promotes_to_complex() {
     // TensorKitSectors `FibonacciAnyon ⊠ SU2Irrep`: A = −1, B = 1 at
     // (τ,½) ⊗ (τ,½) → (τ,1) (the reference prints ±1.0000000000000002).
     let (fib, su2) = (TableCategory::fibonacci(), su2());
-    let cat = product(fib.clone(), su2.clone());
+    let cat = Product::new((fib.clone(), su2.clone()));
     let tau = fib.object(2).unwrap();
     let (half, one) = (su2.irrep(&[1], &[]).unwrap(), su2.irrep(&[2], &[]).unwrap());
     let (x, y) = ((tau, half.clone()), (tau, one));
@@ -225,7 +225,7 @@ fn fibonacci_times_su2_promotes_to_complex() {
 #[test]
 fn absent_channels_and_foreign_objects() {
     let (fib, su2) = (TableCategory::fibonacci(), su2());
-    let cat = product(fib.clone(), su2.clone());
+    let cat = Product::new((fib.clone(), su2.clone()));
     let (one, tau) = (fib.object(1).unwrap(), fib.object(2).unwrap());
     let half = su2.irrep(&[1], &[]).unwrap();
     let x = (tau, half.clone());
@@ -477,7 +477,7 @@ mod su3 {
         let cat = su3();
         let irr = |d: &[i64]| cat.irrep(d, &[]).unwrap();
         let (oct, f15, f15b, s27) = (irr(&[1, 1]), irr(&[2, 1]), irr(&[1, 2]), irr(&[2, 2]));
-        let p = product(cat.clone(), cat.clone());
+        let p = Product::new((cat.clone(), cat.clone()));
         // TensorKitSectors `SU3Irrep ⊠ SU3Irrep` B at (15,8) ⊗ (15̄,8) → (27,8):
         // kron(B_15, I), row-major with μ = 2 μ₁ + μ₂.
         let (r, s) = (B_15[0], B_15[1]);
@@ -547,7 +547,7 @@ mod su3 {
             0.0, 0.0, 0.0, -1.0,
             0.0, 0.0, 1.0, 0.0,
         ];
-        let rp = product(Rotated::new(), cat.clone());
+        let rp = Product::new((Rotated::new(), cat.clone()));
         let a = rp
             .a_symbol(
                 &(f15.clone(), oct.clone()),
@@ -556,7 +556,7 @@ mod su3 {
             )
             .unwrap();
         assert_block(a.data(), &j_i, "A (15,8) rotated");
-        let pr = product(cat.clone(), Rotated::new());
+        let pr = Product::new((cat.clone(), Rotated::new()));
         let a = pr
             .a_symbol(
                 &(oct.clone(), f15.clone()),
@@ -567,7 +567,7 @@ mod su3 {
         assert_block(a.data(), &i_j, "A (8,15) rotated");
 
         // SU(3) × U(1): the U(1) factor contributes a 1 × 1 one.
-        let q = product(cat.clone(), U1);
+        let q = Product::new((cat.clone(), U1));
         let b = q
             .b_symbol(
                 &(f15.clone(), U1Irrep::new(1).unwrap()),

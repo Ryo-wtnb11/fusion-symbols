@@ -57,6 +57,19 @@ value/gauge rule noted below.
   sum `tier_stats` over the tiers you care about (for example
   `CoefficientCacheTier::ALL`); such a sum combines independent per-tier
   snapshots. `TierStats` is now `#[non_exhaustive]`.
+- `Product::new` is the only product constructor. The free function
+  `product::product`, its crate-root re-export `fusion_symbols::product` and
+  the `product!` macro are removed; use `Product::new((a, b, ...))` for 2..=12
+  factors or `Product::new(vec![...])` for any number of homogeneous factors.
+- Removed `ZNIrrep::unit`; use `FusionCategory::unit` on `ZN`.
+- Removed `TableCategory::rank`; use `FusionCategory::object_count`.
+- Removed `TableCategory::is_braided`; compare `FusionCategory::braiding_style`
+  with `BraidingStyle::None`.
+- Renamed `U1Error::U1ChargeOutOfRange { charge }` to
+  `U1Error::LabelOverflow { charge }` and
+  `CU1Error::TwiceChargeOutOfRange { twice_charge }` to
+  `CU1Error::LabelOverflow { twice_charge }`, matching `LieError::LabelOverflow`.
+  Fields and messages are unchanged.
 - `GroupId` now stores a validated ordered root datum and canonical row-HNF
   character lattice. Public `root_system`/`form` fields, `GlobalForm`, and
   `CenterSubgroup` are removed; use `root_systems()` and lattice constructors.

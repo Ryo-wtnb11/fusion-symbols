@@ -67,19 +67,19 @@ consumer code. F/R conventions and contraction wiring are traced in
 
 ```rust
 use fusion_symbols::{lie::{U1, U1Irrep}, category::FusionCategory,
-    fermion::{FermionParity, FermionParityIrrep}, product};
-let cat = product(U1, FermionParity);
+    fermion::{FermionParity, FermionParityIrrep}, product::Product};
+let cat = Product::new((U1, FermionParity));
 let odd = (U1Irrep::new(1).unwrap(), FermionParityIrrep::ODD);
 assert_eq!(cat.twist(&odd), -1.0);
-let three = product![U1, FermionParity, U1,];
+let three = Product::new((U1, FermionParity, U1));
 assert_eq!(three.dim(&three.unit()), 1.0);
 ```
 
-Use `Product::new((a,b,...))` for 2..=12 factors, `product(a,b)` for two,
-and `product![...]` for 3..=12. Use `Product::new(vec![a,b,...])` for
+`Product::new` is the only constructor. Use `Product::new((a,b,...))` for
+2..=12 factors and `Product::new(vec![a,b,...])` for
 any runtime number of homogeneous factors, with vector objects of the same
 length. An empty vector gives the trivial category. `factors` borrows the
-container; `into_factors` returns it. `product(product(a,b),c)` keeps labels
+container; `into_factors` returns it. `Product::new((Product::new((a,b)),c))` keeps labels
 `((x,y),z)`, with different identity and enumeration from the flat product. Fusion is first-factor-fast;
 within each symbol axis, `i = i_left * n_right + i_right` is last-factor-fast.
 When every factor implements `GroupRepresentations`, so does the product. Its

@@ -4,7 +4,6 @@ use fusion_symbols::{
     finite::ZN,
     lie::{GroupId, LieGroup},
     lie::{U1Irrep, U1},
-    product,
     product::{Product, ProductError},
     table::TableCategory,
 };
@@ -27,7 +26,7 @@ fn complex_close(a: Complex64, b: Complex64) {
 
 #[test]
 fn fermionic_closed_forms_and_complex_promotion() {
-    let fu1 = product(U1, FermionParity);
+    let fu1 = Product::new((U1, FermionParity));
     let a = (U1Irrep::new(1).unwrap(), Parity::ODD);
     let b = (U1Irrep::new(-1).unwrap(), Parity::ODD);
     assert_eq!(fu1.dual(&a), b);
@@ -38,7 +37,7 @@ fn fermionic_closed_forms_and_complex_promotion() {
     assert_eq!(fu1.r_symbol(&a, &b, &fu1.unit()).unwrap().at(0, 0), -1.0);
     assert_eq!(fu1.twist(&a), -1.0);
     assert_eq!(fu1.frobenius_schur_indicator(&a), 0.0);
-    let fsu2 = product(su2(), FermionParity);
+    let fsu2 = Product::new((su2(), FermionParity));
     let half = (fsu2.factors().0.irrep(&[1], &[]).unwrap(), Parity::ODD);
     let triplet = (fsu2.factors().0.irrep(&[2], &[]).unwrap(), Parity::EVEN);
     // SU(2): R^{1/2,1/2}_{j}=(-1)^{1-j}; parity supplies one more minus sign.
@@ -59,7 +58,7 @@ fn fermionic_closed_forms_and_complex_promotion() {
             .at(0, 0, 0, 0),
         -0.5,
     );
-    let ff = product(FermionParity, FermionParity);
+    let ff = Product::new((FermionParity, FermionParity));
     assert_eq!(
         ff.r_symbol(
             &(Parity::ODD, Parity::EVEN),
@@ -71,7 +70,7 @@ fn fermionic_closed_forms_and_complex_promotion() {
         1.0
     );
 
-    let fibsu2 = product(TableCategory::fibonacci(), su2());
+    let fibsu2 = Product::new((TableCategory::fibonacci(), su2()));
     let tau = fibsu2.factors().0.object(2).unwrap();
     let h = fibsu2.factors().1.irrep(&[1], &[]).unwrap();
     let x = (tau, h);
@@ -92,12 +91,12 @@ fn fermionic_closed_forms_and_complex_promotion() {
         Complex64::new(-1.0 / (1.0 + 5.0_f64.sqrt()), 0.0),
     );
     // Both promotion directions, and a promoted value followed by a real factor.
-    let reverse = product(su2(), TableCategory::fibonacci());
+    let reverse = Product::new((su2(), TableCategory::fibonacci()));
     complex_close(
         reverse.twist(&(reverse.factors().0.unit(), tau)),
         fibsu2.twist(&x),
     );
-    let three = product![U1, TableCategory::fibonacci(), FermionParity];
+    let three = Product::new((U1, TableCategory::fibonacci(), FermionParity));
     complex_close(
         three.twist(&(U1.unit(), tau, Parity::ODD)),
         -fibsu2.twist(&x),
@@ -109,7 +108,7 @@ fn fusion_first_factor_fastest_and_reassociation() {
     let s = su2();
     let h = s.irrep(&[1], &[]).unwrap();
     let one = s.irrep(&[2], &[]).unwrap();
-    let cat = product(s.clone(), s.clone());
+    let cat = Product::new((s.clone(), s.clone()));
     let x = (h.clone(), one.clone());
     let z = s.unit();
     let two = s.irrep(&[4], &[]).unwrap();
@@ -124,12 +123,12 @@ fn fusion_first_factor_fastest_and_reassociation() {
             (one.clone(), two),
         ]
     );
-    let flat = product![s.clone(), FermionParity, TableCategory::fibonacci()];
-    let left = product(
-        product(s.clone(), FermionParity),
+    let flat = Product::new((s.clone(), FermionParity, TableCategory::fibonacci()));
+    let left = Product::new((
+        Product::new((s.clone(), FermionParity)),
         TableCategory::fibonacci(),
-    );
-    let right = product(s, product(FermionParity, TableCategory::fibonacci()));
+    ));
+    let right = Product::new((s, Product::new((FermionParity, TableCategory::fibonacci()))));
     let t = flat.factors().2.object(2).unwrap();
     let a = (h.clone(), Parity::ODD, t);
     let l = ((h.clone(), Parity::ODD), t);
@@ -171,8 +170,8 @@ fn hash(x: &impl Hash) -> u64 {
     h.finish()
 }
 #[test]
-fn identity_framing_arity_and_macro_evaluation() {
-    let a = product(ZN::new(2).unwrap(), ZN::new(3).unwrap());
+fn identity_framing_and_arity() {
+    let a = Product::new((ZN::new(2).unwrap(), ZN::new(3).unwrap()));
     let b = a.clone();
     let before = hash(&a);
     let debug = format!("{a:?}");
@@ -189,14 +188,14 @@ fn identity_framing_arity_and_macro_evaluation() {
     assert_eq!(hash(&a), before);
     assert_eq!(format!("{a:?}"), debug);
     assert_eq!(a, a.clone());
-    let swapped = product(ZN::new(3).unwrap(), ZN::new(2).unwrap());
+    let swapped = Product::new((ZN::new(3).unwrap(), ZN::new(2).unwrap()));
     assert_ne!(a, swapped);
     assert_eq!(a.authority_fingerprint(), swapped.authority_fingerprint());
     assert_ne!(
-        product(U1, FermionParity).authority_fingerprint(),
-        product(FermionParity, U1).authority_fingerprint()
+        Product::new((U1, FermionParity)).authority_fingerprint(),
+        Product::new((FermionParity, U1)).authority_fingerprint()
     );
-    let max = product![U1, U1, U1, U1, U1, U1, U1, U1, U1, U1, U1, U1,];
+    let max = Product::new((U1, U1, U1, U1, U1, U1, U1, U1, U1, U1, U1, U1));
     assert_eq!(max.fusion(&max.unit(), &max.unit()).unwrap().count(), 1);
     assert_eq!(max.nsymbol(&max.unit(), &max.unit(), &max.unit()), 1);
     assert_eq!(
@@ -217,17 +216,10 @@ fn identity_framing_arity_and_macro_evaluation() {
     );
     assert_eq!(max.clone(), max);
     assert_eq!(hash(&max), hash(&max.clone()));
-    let mut count = 0;
-    let mut next = || {
-        count += 1;
-        U1
-    };
-    let _ = product![next(), next(), next(),];
-    assert_eq!(count, 3);
     let repeated = Product::new((U1, U1));
     assert_eq!(repeated.into_factors(), (U1, U1));
     // Trivial factors change category identity but preserve projected mathematical queries.
-    let trivial = product(su2(), ZN::new(1).unwrap());
+    let trivial = Product::new((su2(), ZN::new(1).unwrap()));
     let h = trivial.factors().0.irrep(&[1], &[]).unwrap();
     let a = (h, trivial.factors().1.unit());
     assert_eq!(trivial.dim(&a), 2.0);
@@ -444,9 +436,9 @@ fn multiplicity_axes_are_associative() {
         r: &[4.3, 4.7, 5.3, 5.9],
         ..Probe::default()
     };
-    let flat = product![p.clone(), q.clone(), r.clone()];
-    let left = product(product(p.clone(), q.clone()), r.clone());
-    let right = product(p, product(q, r));
+    let flat = Product::new((p.clone(), q.clone(), r.clone()));
+    let left = Product::new((Product::new((p.clone(), q.clone())), r.clone()));
+    let right = Product::new((p, Product::new((q, r))));
     let a = [0, 1, 2, 3, 4, 5].map(|x| (x, x, x));
     let l = a.map(|(x, y, z)| ((x, y), z));
     let r = a.map(|(x, y, z)| (x, (y, z)));
@@ -499,7 +491,7 @@ fn per_axis_kron_has_last_factor_fastest() {
         r: &[11.],
         ..Probe::default()
     };
-    let cat = product(a, b);
+    let cat = Product::new((a, b));
     let args = [(0, 0), (1, 1), (2, 2), (3, 3), (4, 4), (5, 5)];
     let f = cat
         .f_symbol(&args[0], &args[1], &args[2], &args[3], &args[4], &args[5])
@@ -520,7 +512,7 @@ fn per_axis_kron_has_last_factor_fastest() {
             }
         }
     }
-    let cat = product(
+    let cat = Product::new((
         Probe {
             n: [2; 4],
             r: &[2., 3., 5., 7.],
@@ -531,7 +523,7 @@ fn per_axis_kron_has_last_factor_fastest() {
             r: &[11., 13., 17., 19., 23., 29., 31., 37., 41.],
             ..Probe::default()
         },
-    );
+    ));
     let r = cat.r_symbol(&(0, 0), &(0, 0), &(0, 0)).unwrap();
     assert_eq!(r.dim(), 6);
     for i in 0..6 {
@@ -552,7 +544,7 @@ fn style_tables_and_iterators_reset_without_requery() {
     for (i, a) in [Unique, Simple, Generic].into_iter().enumerate() {
         for (j, b) in [Unique, Simple, Generic].into_iter().enumerate() {
             assert_eq!(
-                product(
+                Product::new((
                     Probe {
                         fusion: a,
                         ..Probe::default()
@@ -561,7 +553,7 @@ fn style_tables_and_iterators_reset_without_requery() {
                         fusion: b,
                         ..Probe::default()
                     }
-                )
+                ))
                 .fusion_style(),
                 [Unique, Simple, Generic][i.max(j)]
             );
@@ -570,7 +562,7 @@ fn style_tables_and_iterators_reset_without_requery() {
     for (i, a) in [Bosonic, Fermionic, Anyonic, None].into_iter().enumerate() {
         for (j, b) in [Bosonic, Fermionic, Anyonic, None].into_iter().enumerate() {
             assert_eq!(
-                product(
+                Product::new((
                     Probe {
                         braiding: a,
                         ..Probe::default()
@@ -579,14 +571,14 @@ fn style_tables_and_iterators_reset_without_requery() {
                         braiding: b,
                         ..Probe::default()
                     }
-                )
+                ))
                 .braiding_style(),
                 [Bosonic, Fermionic, Anyonic, None][i.max(j)]
             );
         }
     }
     FUSIONS.set(0);
-    let cat = product(Probe::default(), Probe::default());
+    let cat = Product::new((Probe::default(), Probe::default()));
     let mut iter = cat.fusion(&(0, 0), &(0, 0)).unwrap();
     assert_eq!(iter.next(), Some((0, 0)));
     let rest = iter.clone().collect::<Vec<_>>();
@@ -736,7 +728,7 @@ fn every_factor_position_obeys_validation_and_overflow_precedence() {
         n: [u32::MAX; 4],
         ..Probe::default()
     };
-    let cat = product(huge.clone(), huge);
+    let cat = Product::new((huge.clone(), huge));
     assert!(std::panic::catch_unwind(|| cat.nsymbol(&(0, 0), &(0, 0), &(0, 0))).is_err());
     assert!(matches!(
         cat.f_symbol(&(0, 0), &(0, 0), &(0, 0), &(0, 0), &(0, 0), &(0, 0)),
@@ -747,24 +739,24 @@ fn every_factor_position_obeys_validation_and_overflow_precedence() {
         Err(ProductError::Overflow)
     ));
     // Axes fit u32, but the element count / allocation layout does not.
-    let large = product(
+    let large = Product::new((
         Probe {
             n: [65536; 4],
             ..Probe::default()
         },
         Probe::default(),
-    );
+    ));
     assert!(matches!(
         large.f_symbol(&(0, 0), &(0, 0), &(0, 0), &(0, 0), &(0, 0), &(0, 0)),
         Err(ProductError::Overflow)
     ));
-    let bytes = product(
+    let bytes = Product::new((
         Probe {
             n: [u32::MAX; 4],
             ..Probe::default()
         },
         Probe::default(),
-    );
+    ));
     assert!(matches!(
         bytes.r_symbol(&(0, 0), &(0, 0), &(0, 0)),
         Err(ProductError::Overflow)
@@ -773,13 +765,13 @@ fn every_factor_position_obeys_validation_and_overflow_precedence() {
 
 #[test]
 fn empty_logical_axes_skip_errors_and_reject_real_foreign_objects() {
-    let cat = product(
+    let cat = Product::new((
         U1,
         Probe {
             fail: true,
             ..Probe::default()
         },
-    );
+    ));
     let a = (U1.unit(), 0);
     let c = (U1Irrep::new(1).unwrap(), 0);
     assert!(cat
@@ -788,19 +780,19 @@ fn empty_logical_axes_skip_errors_and_reject_real_foreign_objects() {
         .data()
         .is_empty());
     assert!(cat.r_symbol(&a, &a, &c).unwrap().data().is_empty());
-    let reverse = product(
+    let reverse = Product::new((
         Probe {
             fail: true,
             ..Probe::default()
         },
         U1,
-    );
+    ));
     assert!(reverse
         .r_symbol(&(0, U1.unit()), &(0, U1.unit()), &(0, c.0))
         .unwrap()
         .data()
         .is_empty());
-    let cat = product(U1, ZN::new(2).unwrap());
+    let cat = Product::new((U1, ZN::new(2).unwrap()));
     let foreign = (U1.unit(), ZN::new(3).unwrap().unit());
     assert!(std::panic::catch_unwind(|| cat.f_symbol(
         &cat.unit(),
@@ -817,7 +809,7 @@ fn empty_logical_axes_skip_errors_and_reject_real_foreign_objects() {
 
 #[test]
 fn left_fold_and_unbraided_table_preflight() {
-    let cat = product![
+    let cat = Product::new((
         Probe {
             f: &[1e308],
             ..Probe::default()
@@ -829,8 +821,8 @@ fn left_fold_and_unbraided_table_preflight() {
         Probe {
             f: &[1e-308],
             ..Probe::default()
-        }
-    ];
+        },
+    ));
     let z = (0, 0, 0);
     assert_eq!(
         cat.f_symbol(&z, &z, &z, &z, &z, &z).unwrap().at(0, 0, 0, 0),
@@ -839,9 +831,9 @@ fn left_fold_and_unbraided_table_preflight() {
     let fib = TableCategory::fibonacci();
     let unbraided = TableCategory::shipped_uuids()
         .map(|id| TableCategory::by_uuid(id).unwrap())
-        .find(|cat| !cat.is_braided())
+        .find(|cat| cat.braiding_style() == BraidingStyle::None)
         .unwrap();
-    let cat = product(fib.clone(), unbraided.clone());
+    let cat = Product::new((fib.clone(), unbraided.clone()));
     let a = cat.unit();
     let c = (fib.object(2).unwrap(), unbraided.unit());
     assert!(matches!(
@@ -869,7 +861,7 @@ fn su3_octet_multiplicity_uses_independent_gauge_literals() {
         r: &[2., 3., 5., 7.],
         ..Probe::default()
     };
-    let cat = product(su3, literal);
+    let cat = Product::new((su3, literal));
     let a = (o, 0);
     assert_eq!(cat.nsymbol(&a, &a, &a), 4);
     let f = cat.f_symbol(&a, &a, &a, &a, &a, &a).unwrap();
@@ -932,7 +924,7 @@ fn product_error_accepts_borrowed_payloads() {
 
 #[test]
 fn partial_zero_axes_use_logical_shapes_before_values() {
-    let cat = product(
+    let cat = Product::new((
         Probe {
             n: [0, 1, 2, 1],
             fail: true,
@@ -942,7 +934,7 @@ fn partial_zero_axes_use_logical_shapes_before_values() {
             n: [1, 3, 1, 2],
             ..Probe::default()
         },
-    );
+    ));
     let args = [(0, 0), (1, 1), (2, 2), (3, 3), (4, 4), (5, 5)];
     let f = cat
         .f_symbol(&args[0], &args[1], &args[2], &args[3], &args[4], &args[5])
@@ -953,7 +945,7 @@ fn partial_zero_axes_use_logical_shapes_before_values() {
 
 #[test]
 fn u1_overflow_in_every_immediate_position() {
-    let cat = product![U1, U1, U1, U1, U1, U1, U1, U1, U1, U1, U1, U1];
+    let cat = Product::new((U1, U1, U1, U1, U1, U1, U1, U1, U1, U1, U1, U1));
     for position in 0..12 {
         let mut a = [U1.unit(); 12];
         let mut b = a;
@@ -981,16 +973,16 @@ fn try_nsymbol_reports_overflow_and_zero_beats_it() {
     let z2 = (0, 0);
     let z3 = (0, 0, 0);
     // Flat: u32::MAX * 2 overflows, unless a later factor is zero.
-    let flat = product(probe(u32::MAX), probe(2));
+    let flat = Product::new((probe(u32::MAX), probe(2)));
     assert!(matches!(
         flat.try_nsymbol(&z2, &z2, &z2),
         Err(ProductError::Overflow)
     ));
-    let flat_zero = product![probe(u32::MAX), probe(2), probe(0)];
+    let flat_zero = Product::new((probe(u32::MAX), probe(2), probe(0)));
     assert_eq!(flat_zero.try_nsymbol(&z3, &z3, &z3).unwrap(), 0);
     // Nested: the inner overflow keeps its immediate position, and every
     // F/R shape query returns it instead of panicking.
-    let nested = product(product(probe(u32::MAX), probe(2)), probe(1));
+    let nested = Product::new((Product::new((probe(u32::MAX), probe(2))), probe(1)));
     let z = ((0, 0), 0);
     let inner_overflow = |e| matches!(e, ProductError::Factor0(ProductError::Overflow));
     assert!(inner_overflow(nested.try_nsymbol(&z, &z, &z).unwrap_err()));
@@ -998,7 +990,7 @@ fn try_nsymbol_reports_overflow_and_zero_beats_it() {
         nested.f_symbol(&z, &z, &z, &z, &z, &z).unwrap_err()
     ));
     assert!(inner_overflow(nested.r_symbol(&z, &z, &z).unwrap_err()));
-    let right = product(probe(1), product(probe(2), probe(u32::MAX)));
+    let right = Product::new((probe(1), Product::new((probe(2), probe(u32::MAX)))));
     let z = (0, (0, 0));
     assert!(matches!(
         right.try_nsymbol(&z, &z, &z),
@@ -1009,7 +1001,7 @@ fn try_nsymbol_reports_overflow_and_zero_beats_it() {
         Err(ProductError::Factor1(ProductError::Overflow))
     ));
     // A zero after a nested overflow fixes N = 0 and empty F/R blocks.
-    let nested_zero = product(product(probe(u32::MAX), probe(2)), probe(0));
+    let nested_zero = Product::new((Product::new((probe(u32::MAX), probe(2))), probe(0)));
     let z = ((0, 0), 0);
     assert_eq!(nested_zero.try_nsymbol(&z, &z, &z).unwrap(), 0);
     assert!(nested_zero
@@ -1019,12 +1011,12 @@ fn try_nsymbol_reports_overflow_and_zero_beats_it() {
         .is_empty());
     assert!(nested_zero.r_symbol(&z, &z, &z).unwrap().data().is_empty());
     // Representable values equal nsymbol: 3 * 5 * 7 = 105, also nested.
-    let fits = product(product(probe(3), probe(5)), probe(7));
+    let fits = Product::new((Product::new((probe(3), probe(5))), probe(7)));
     assert_eq!(fits.try_nsymbol(&z, &z, &z).unwrap(), 105);
     assert_eq!(fits.nsymbol(&z, &z, &z), 105);
     let su2 = su2();
     let s = su2.irrep(&[1], &[]).unwrap();
-    let cat = product(su2.clone(), U1);
+    let cat = Product::new((su2.clone(), U1));
     let a = (s.clone(), U1Irrep::new(1).unwrap());
     let c = (su2.irrep(&[2], &[]).unwrap(), U1Irrep::new(2).unwrap());
     assert_eq!(cat.try_nsymbol(&a, &a, &c).unwrap(), 1);
@@ -1041,9 +1033,9 @@ fn runtime_checked_composition_and_initialized_iteration() {
         ..Probe::default()
     };
     let factors = vec![
-        product(probe(65536), probe(1)),
-        product(probe(65536), probe(1)),
-        product(probe(u32::MAX), probe(2)),
+        Product::new((probe(65536), probe(1))),
+        Product::new((probe(65536), probe(1))),
+        Product::new((probe(u32::MAX), probe(2))),
     ];
     let a = vec![(0, 0); 3];
     let cat = Product::new(factors.clone());
@@ -1055,7 +1047,7 @@ fn runtime_checked_composition_and_initialized_iteration() {
             source: ProductError::Overflow
         })
     ));
-    let zero = Product::new([factors, vec![product(probe(0), probe(1))]].concat());
+    let zero = Product::new([factors, vec![Product::new((probe(0), probe(1)))]].concat());
     let z = vec![(0, 0); 4];
     assert_eq!(zero.try_nsymbol(&z, &z, &z).unwrap(), 0);
     assert!(zero
@@ -1066,8 +1058,8 @@ fn runtime_checked_composition_and_initialized_iteration() {
     // Like tuple products, infallible N evaluates every factor: a factor's
     // loud panic is not a typed failure that can be suppressed by a zero.
     let cat = Product::new(vec![
-        product(probe(0), probe(1)),
-        product(probe(u32::MAX), probe(2)),
+        Product::new((probe(0), probe(1))),
+        Product::new((probe(u32::MAX), probe(2))),
     ]);
     let z = vec![(0, 0); 2];
     assert_eq!(cat.try_nsymbol(&z, &z, &z).unwrap(), 0);
@@ -1132,7 +1124,7 @@ fn runtime_complex_scalars_and_enumeration_overflow() {
     let fib = TableCategory::fibonacci();
     let tau = fib.object(2).unwrap();
     let runtime = Product::new(vec![fib.clone(), fib.clone()]);
-    let tuple = product(fib.clone(), fib);
+    let tuple = Product::new((fib.clone(), fib));
     let x = vec![tau, tau];
     assert_eq!(
         runtime.frobenius_schur_phase(&x),
@@ -1264,14 +1256,14 @@ fn product_symbols_are_bitwise_leaf_kronecker_products() {
     let o = su3.irrep(&[1, 1], &[]).unwrap();
     let leaf = frab(&su3, [&o; 3], [&o; 6]);
 
-    let p = product(su3.clone(), su3.clone());
+    let p = Product::new((su3.clone(), su3.clone()));
     let x = (o.clone(), o.clone());
     assert_eq!(
         frab(&p, [&x; 3], [&x; 6]),
         naive_product(&[leaf.clone(), leaf.clone()])
     );
 
-    let q = product(p, su3.clone());
+    let q = Product::new((p, su3.clone()));
     let y = (x, o.clone());
     assert_eq!(
         frab(&q, [&y; 3], [&y; 6]),
@@ -1280,7 +1272,7 @@ fn product_symbols_are_bitwise_leaf_kronecker_products() {
 
     let z3 = ZN::new(3).unwrap();
     let [z0, z1, z2] = [0, 1, 2].map(|k| ZNIrrep::new(k, 3).unwrap());
-    let w = product(z3, su3.clone());
+    let w = Product::new((z3, su3.clone()));
     let [a, b, c] = [&z1, &z2, &z0].map(|z| (*z, o.clone()));
     assert_eq!(
         frab(&w, [&a, &b, &c], [&a, &b, &a, &a, &c, &c]),
@@ -1300,7 +1292,7 @@ fn multiplicity_free_product_symbols_are_bitwise_leaf_kronecker_products() {
         U1Irrep::new(-1).unwrap(),
         U1.unit(),
     );
-    let mf = product(s.clone(), U1);
+    let mf = Product::new((s.clone(), U1));
     let a = (h.clone(), p1);
     let b = (h.clone(), m1);
     let one = mf.unit();
@@ -1325,7 +1317,7 @@ fn nested_and_vec_product_symbols_are_bitwise_leaf_kronecker_products() {
     let leaf = frab(&su3, [&o; 3], [&o; 6]);
     let pair = real_kron(&leaf, &leaf);
 
-    let right = product(su3.clone(), product(su3.clone(), su3.clone()));
+    let right = Product::new((su3.clone(), Product::new((su3.clone(), su3.clone()))));
     let x = (o.clone(), (o.clone(), o.clone()));
     assert_eq!(frab(&right, [&x; 3], [&x; 6]), real_kron(&leaf, &pair));
 
@@ -1333,10 +1325,10 @@ fn nested_and_vec_product_symbols_are_bitwise_leaf_kronecker_products() {
     let x = vec![o.clone(); 3];
     assert_eq!(frab(&flat3, [&x; 3], [&x; 6]), real_kron(&pair, &leaf));
 
-    let held = product(Product::new(vec![su3.clone(); 2]), su3.clone());
+    let held = Product::new((Product::new(vec![su3.clone(); 2]), su3.clone()));
     let x = (vec![o.clone(); 2], o.clone());
     assert_eq!(frab(&held, [&x; 3], [&x; 6]), real_kron(&pair, &leaf));
-    let held = product(su3.clone(), Product::new(vec![su3.clone(); 2]));
+    let held = Product::new((su3.clone(), Product::new(vec![su3.clone(); 2])));
     let x = (o.clone(), vec![o.clone(); 2]);
     assert_eq!(frab(&held, [&x; 3], [&x; 6]), real_kron(&leaf, &pair));
 }
@@ -1361,7 +1353,7 @@ fn real_complex_product_symbols_are_bitwise_promoted_kronecker_products() {
         U1Irrep::new(-1).unwrap(),
         U1.unit(),
     );
-    let p = product(U1, fib.clone());
+    let p = Product::new((U1, fib.clone()));
     let [a, b, c] = [(p1, tau), (m1, tau), (u0, tau)];
     let cat = |x: &Frab<Complex64>| map_frab(x.clone(), complex_bits);
     assert_eq!(
@@ -1386,26 +1378,26 @@ fn multiplicity_real_complex_product_symbols_are_bitwise_promoted_kronecker_prod
     let bits = |x: Frab<Complex64>| map_frab(x, complex_bits);
 
     // A 16-element real prefix leaves its f64 buffer for a complex one.
-    let p = product(su3.clone(), fib.clone());
+    let p = Product::new((su3.clone(), fib.clone()));
     let x = (o.clone(), tau);
     assert_eq!(
         bits(frab_values(&p, [&x; 3], [&x; 6])),
         real_complex(&real, &complex)
     );
-    let p = product!(su3.clone(), su3.clone(), fib.clone());
+    let p = Product::new((su3.clone(), su3.clone(), fib.clone()));
     let x = (o.clone(), o.clone(), tau);
     assert_eq!(
         bits(frab_values(&p, [&x; 3], [&x; 6])),
         real_complex(&pair, &complex)
     );
     // A complex prefix promotes each later real entry instead.
-    let p = product(fib.clone(), su3.clone());
+    let p = Product::new((fib.clone(), su3.clone()));
     let x = (tau, o.clone());
     assert_eq!(
         bits(frab_values(&p, [&x; 3], [&x; 6])),
         complex_real(&complex, &real)
     );
-    let p = product!(su3.clone(), fib.clone(), su3.clone());
+    let p = Product::new((su3.clone(), fib.clone(), su3.clone()));
     let x = (o.clone(), tau, o.clone());
     let left = kron_frab(&real, &complex, |x, y| Complex64::from(x) * y);
     assert_eq!(

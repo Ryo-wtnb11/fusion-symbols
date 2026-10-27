@@ -41,7 +41,7 @@ labels and scalar symbols avoid the general label and block overhead measured
 by `benches/torus.rs::torus`; `tests/lie_torus.rs::typed_u1_matches_liegroup_bitwise`
 checks the equivalence contract. `U1::group_id()` returns `GroupId::u(1)`.
 For Tᵗ at typed speed, use a tuple `Product` of `U1` factors, such as
-`product![U1, U1, U1]`. `ZN`, `FermionParity`, and `CU1` are not connected
+`Product::new((U1, U1, U1))`. `ZN`, `FermionParity`, and `CU1` are not connected
 groups and have no `group_id()`.
 
 ## Lie labels and global forms

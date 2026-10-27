@@ -13,7 +13,7 @@ use crate::category::{
 pub enum U1Error {
     /// A U(1) charge outside `i32::MIN + 1 ..= i32::MAX`, either requested
     /// directly or produced by [`FusionCategory::fusion`].
-    U1ChargeOutOfRange {
+    LabelOverflow {
         /// The exact charge.
         charge: i64,
     },
@@ -22,7 +22,7 @@ pub enum U1Error {
 impl std::fmt::Display for U1Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            U1Error::U1ChargeOutOfRange { charge } => write!(
+            U1Error::LabelOverflow { charge } => write!(
                 f,
                 "U(1) charge {charge} is outside i32::MIN + 1 ..= i32::MAX"
             ),
@@ -51,7 +51,7 @@ impl U1Irrep {
     ///
     /// # Errors
     ///
-    /// [`U1Error::U1ChargeOutOfRange`] for `i32::MIN`.
+    /// [`U1Error::LabelOverflow`] for `i32::MIN`.
     pub fn new(charge: i32) -> Result<Self, U1Error> {
         Self::from_exact(i64::from(charge))
     }
@@ -59,7 +59,7 @@ impl U1Irrep {
     pub(super) fn from_exact(charge: i64) -> Result<Self, U1Error> {
         match i32::try_from(charge) {
             Ok(charge) if charge != i32::MIN => Ok(Self { charge }),
-            _ => Err(U1Error::U1ChargeOutOfRange { charge }),
+            _ => Err(U1Error::LabelOverflow { charge }),
         }
     }
 

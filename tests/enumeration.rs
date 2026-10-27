@@ -7,7 +7,6 @@ use fusion_symbols::{
     fermion::{FermionParity, FermionParityIrrep as Parity},
     finite::{ZNIrrep, ZN},
     lie::{CU1Irrep, GroupId, LieGroup, U1Irrep, CU1, U1},
-    product,
     product::Product,
     table::TableCategory,
 };
@@ -167,7 +166,7 @@ fn foreign_objects_panic_before_the_capability_check() {
     assert!(panics(|| {
         let _ = psu3.object_index(&foreign);
     }));
-    let p = product(ZN::new(2).unwrap(), psu3);
+    let p = Product::new((ZN::new(2).unwrap(), psu3));
     let bad = (zn(0, 3), p.factors().1.unit());
     assert!(panics(|| {
         let _ = p.object_index(&bad);
@@ -181,7 +180,7 @@ fn foreign_leaf_objects_panic() {
     assert!(panics(|| {
         let _ = z2.object_index(&zn(0, 3));
     }));
-    let p = product(product(z2, U1), z2);
+    let p = Product::new((Product::new((z2, U1)), z2));
     assert!(panics(|| {
         let _ = p.object_index(&((zn(0, 2), q(0)), zn(1, 3)));
     }));
@@ -212,20 +211,20 @@ fn table_source_order() {
 fn bounded_products_follow_manhattan_order() {
     let z = |n| ZN::new(n).unwrap();
     // Bounds (2, 3).
-    let p = product(z(2), z(3));
+    let p = Product::new((z(2), z(3)));
     assert_eq!(p.object_count(), Ok(Some(6)));
     let want = [(0, 0), (0, 1), (1, 0), (0, 2), (1, 1), (1, 2)];
     assert_eq!(first(&p, 6), want.map(|(a, b)| (zn(a, 2), zn(b, 3))));
     assert_eq!(p.object_at(6), Err(OutOfRange));
     round_trip(&p, 6);
     // Bounds (2, ∞): U(1) component indices 0, 1, 2, 3 are charges 0, 1, -1, 2.
-    let p = product(z(2), U1);
+    let p = Product::new((z(2), U1));
     assert_eq!(p.object_count(), Ok(None));
     let want = [(0, 0), (0, 1), (1, 0), (0, -1), (1, 1), (0, 2), (1, -1)];
     assert_eq!(first(&p, 7), want.map(|(a, b)| (zn(a, 2), q(b))));
     round_trip(&p, 200);
     // Three unbounded factors.
-    let p = product![U1, U1, U1];
+    let p = Product::new((U1, U1, U1));
     assert_eq!(p.object_count(), Ok(None));
     let want = [
         (0, 0, 0),
@@ -242,14 +241,14 @@ fn bounded_products_follow_manhattan_order() {
 #[test]
 fn explicit_nesting_changes_the_index() {
     assert_eq!(
-        product![U1, U1, U1].object_index(&(q(1), q(0), q(0))),
+        Product::new((U1, U1, U1)).object_index(&(q(1), q(0), q(0))),
         Ok(3)
     );
-    let nested = product(product(U1, U1), U1);
+    let nested = Product::new((Product::new((U1, U1)), U1));
     assert_eq!(nested.object_index(&((q(1), q(0)), q(0))), Ok(5));
     assert_eq!(nested.object_at(5), Ok(((q(1), q(0)), q(0))));
     round_trip(&nested, 200);
-    let right = product(FermionParity, product(ZN::new(3).unwrap(), U1));
+    let right = Product::new((FermionParity, Product::new((ZN::new(3).unwrap(), U1))));
     round_trip(&right, 200);
 }
 
@@ -295,14 +294,14 @@ fn first_shell_for_every_arity() {
 #[test]
 fn counts_above_u64_keep_indices_addressable() {
     let z = ZN::new(65536).unwrap();
-    let p = product![z, z, z, z];
+    let p = Product::new((z, z, z, z));
     assert_eq!(p.object_count(), Err(Overflow));
     let top = zn(65535, 65536);
     assert_eq!(p.object_index(&(top, top, top, top)), Ok(u64::MAX));
     assert_eq!(p.object_at(u64::MAX), Ok((top, top, top, top)));
     // Nested inside another product, the exact count 2^64 still bounds the
     // first coordinate: tuple (1, 1) of bounds (2^64, 2) has index 3.
-    let outer = product(p, ZN::new(2).unwrap());
+    let outer = Product::new((p, ZN::new(2).unwrap()));
     assert_eq!(outer.object_count(), Err(Overflow));
     let o = zn(0, 65536);
     let a = ((o, o, o, zn(1, 65536)), zn(1, 2));
@@ -314,7 +313,7 @@ fn counts_above_u64_keep_indices_addressable() {
 fn products_with_a_non_enumerable_factor_are_not_enumerable() {
     #[cfg(feature = "lie-generated")]
     {
-        let p = product(U1, lie(GroupId::psu(3).unwrap()));
+        let p = Product::new((U1, lie(GroupId::psu(3).unwrap())));
         assert_eq!(p.object_count(), Err(NotEnumerable));
         assert_eq!(p.object_at(0), Err(NotEnumerable));
         assert_eq!(p.object_index(&p.unit()), Err(NotEnumerable));
@@ -322,12 +321,12 @@ fn products_with_a_non_enumerable_factor_are_not_enumerable() {
     // NotEnumerable wins over a factor's label overflow.
     #[cfg(feature = "lie-generated")]
     {
-        let p = product(U1, lie(GroupId::psu(3).unwrap()));
+        let p = Product::new((U1, lie(GroupId::psu(3).unwrap())));
         assert_eq!(p.object_at(u64::MAX), Err(NotEnumerable));
     }
     // (0, 2^32 - 1) opens shell 2^32 - 1, at index C(2^32, 2); its second
     // component is past U(1)'s labels.
-    let p = product(U1, U1);
+    let p = Product::new((U1, U1));
     assert_eq!(p.object_at(9_223_372_034_707_292_160), Err(Overflow));
     assert_eq!(
         p.object_at(9_223_372_034_707_292_159),
@@ -339,7 +338,7 @@ fn products_with_a_non_enumerable_factor_are_not_enumerable() {
 fn derived_dimensions_multiply_factorwise() {
     let su2 = lie(GroupId::su(2).unwrap());
     let fib = TableCategory::fibonacci();
-    let p = product(su2.clone(), fib.clone());
+    let p = Product::new((su2.clone(), fib.clone()));
     let a = (su2.irrep(&[1], &[]).unwrap(), fib.object(2).unwrap());
     assert_eq!(p.sqrt_dim(&a), 1.7989074399478675);
     assert_eq!(p.inv_sqrt_dim(&a), 0.5558929702514211);
@@ -349,7 +348,7 @@ fn derived_dimensions_multiply_factorwise() {
     assert_eq!(su2.inv_sqrt_dim(&a.0), 0.7071067811865475);
     assert_eq!(su2.inv_dim(&a.0), 0.5);
     // Left to right through explicit nesting.
-    let nested = product(product(su2.clone(), fib.clone()), CU1);
+    let nested = Product::new((Product::new((su2.clone(), fib.clone())), CU1));
     let b = (a.clone(), CU1Irrep::from_twice_charge(3));
     assert_eq!(nested.sqrt_dim(&b), 1.7989074399478675 * 2f64.sqrt());
     assert_eq!(nested.inv_dim(&b), 0.30901699437494745 * 0.5);
@@ -447,11 +446,11 @@ impl<C: FusionCategory> FusionCategory for Forward<C> {
 #[test]
 fn external_counts_above_u64_keep_product_indices_addressable() {
     let z = ZN::new(65536).unwrap();
-    let inner = product![z, z, z, z];
+    let inner = Product::new((z, z, z, z));
     let wrapped = Forward(inner.clone());
     assert_eq!(wrapped.object_count(), Err(Overflow));
-    let direct = product(inner, ZN::new(2).unwrap());
-    let outer = product(wrapped.clone(), ZN::new(2).unwrap());
+    let direct = Product::new((inner, ZN::new(2).unwrap()));
+    let outer = Product::new((wrapped.clone(), ZN::new(2).unwrap()));
     assert_eq!(outer.object_count(), Err(Overflow));
     // Same literals as the exact nested count: tuple (1, 1) of bounds (2^64, 2).
     let o = zn(0, 65536);
@@ -470,12 +469,12 @@ fn external_counts_above_u64_keep_product_indices_addressable() {
     assert_eq!(direct.object_index(&past), Err(Overflow));
     assert_eq!(outer.object_index(&past), Err(Overflow));
     // An infinite factor dominates an overflowing count.
-    assert_eq!(product(wrapped.clone(), U1).object_count(), Ok(None));
+    assert_eq!(Product::new((wrapped.clone(), U1)).object_count(), Ok(None));
     assert_eq!(
-        product![U1, wrapped.clone(), ZN::new(2).unwrap()].object_count(),
+        Product::new((U1, wrapped.clone(), ZN::new(2).unwrap())).object_count(),
         Ok(None)
     );
-    let p = product(wrapped, U1);
+    let p = Product::new((wrapped, U1));
     let b = p.object_at(1 << 40).unwrap();
     assert_eq!(p.object_index(&b), Ok(1 << 40));
 }

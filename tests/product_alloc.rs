@@ -9,12 +9,12 @@ fn warm_product_composition_allocates_nothing() {
     let _serial = crate::common::counting_alloc::serial();
     use fusion_symbols::{
         fermion::{FermionParity, FermionParityIrrep as Parity},
-        product,
+        product::Product,
     };
-    let cat = product(
+    let cat = Product::new((
         LieGroup::new(GroupId::su(2).unwrap()).unwrap(),
         FermionParity,
-    );
+    ));
     let half = (cat.factors().0.irrep(&[1], &[]).unwrap(), Parity::ODD);
     let zero = cat.unit();
     let _ = cat
@@ -95,7 +95,7 @@ fn warm_multiplicity_free_products_allocate_nothing() {
         fermion::{FermionParity, FermionParityIrrep as Parity},
         finite::{ZNIrrep, ZN},
         lie::{LieIrrep, U1Irrep, U1},
-        product,
+        product::Product,
     };
     let _serial = counting_alloc::serial();
     let none = [(0, 0); 4];
@@ -118,7 +118,7 @@ fn warm_multiplicity_free_products_allocate_nothing() {
         "U(2)"
     );
 
-    let p = product(su2.clone(), U1);
+    let p = Product::new((su2.clone(), U1));
     let (a, b, one) = ((h.clone(), p1), (h.clone(), m1), p.unit());
     assert_eq!(
         warm_frab(&p, [&a, &b, &one], [&a, &b, &a, &a, &one, &one]),
@@ -126,7 +126,7 @@ fn warm_multiplicity_free_products_allocate_nothing() {
         "SU2xU1"
     );
 
-    let p = product(ZN::new(3).unwrap(), su2.clone());
+    let p = Product::new((ZN::new(3).unwrap(), su2.clone()));
     let [z1, z2] = [1, 2].map(|k| ZNIrrep::new(k, 3).unwrap());
     let (a, b, one) = ((z1, h.clone()), (z2, h.clone()), p.unit());
     assert_eq!(
@@ -135,7 +135,7 @@ fn warm_multiplicity_free_products_allocate_nothing() {
         "Z3xSU2"
     );
 
-    let p = product!(FermionParity, U1, su2.clone());
+    let p = Product::new((FermionParity, U1, su2.clone()));
     let (a, b, one) = ((Parity::ODD, p1, h.clone()), (Parity::ODD, m1, h), p.unit());
     assert_eq!(
         warm_frab(&p, [&a, &b, &one], [&a, &b, &a, &a, &one, &one]),
@@ -154,7 +154,6 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
     use fusion_symbols::{
         cache,
         category::{FBlock, RBlock, SymbolBlock},
-        product,
         product::Product,
         table::TableCategory,
     };
@@ -251,7 +250,7 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
         warm(|| fib.r_symbol(&tau, &tau, &tau).unwrap()),
     );
 
-    let p = product(su3.clone(), su3.clone());
+    let p = Product::new((su3.clone(), su3.clone()));
     let x = (o.clone(), o.clone());
     check(
         "SU3xSU3",
@@ -261,7 +260,7 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
         sum([times(2, leaf_f), buffer::<f64>(n * n)]),
         sum([times(2, leaf_r), buffer::<f64>(m * m)]),
     );
-    let left = product(p.clone(), su3.clone());
+    let left = Product::new((p.clone(), su3.clone()));
     let y = (x.clone(), o.clone());
     check(
         "(SU3xSU3)xSU3",
@@ -279,7 +278,7 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
             buffer::<f64>(m * m * m),
         ]),
     );
-    let right = product(su3.clone(), p);
+    let right = Product::new((su3.clone(), p));
     let y = (o.clone(), x);
     check(
         "SU3x(SU3xSU3)",
@@ -306,7 +305,7 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
         sum([times(3, leaf_f), buffer::<f64>(n * n * n)]),
         sum([times(3, leaf_r), buffer::<f64>(m * m * m)]),
     );
-    let nested = product(Product::new(vec![su3.clone(); 2]), su3.clone());
+    let nested = Product::new((Product::new(vec![su3.clone(); 2]), su3.clone()));
     check(
         "Vec[SU3;2]xSU3",
         &nested,
@@ -325,7 +324,7 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
             buffer::<f64>(m * m * m),
         ]),
     );
-    let real_first = product(su3.clone(), fib.clone());
+    let real_first = Product::new((su3.clone(), fib.clone()));
     check(
         "SU3xFib",
         &real_first,
@@ -334,7 +333,7 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
         sum([leaf_f, fib_f, buffer::<f64>(n), buffer::<Complex64>(n)]),
         sum([leaf_r, fib_r, buffer::<f64>(m), buffer::<Complex64>(m)]),
     );
-    let complex_first = product(fib, su3);
+    let complex_first = Product::new((fib, su3));
     check(
         "FibxSU3",
         &complex_first,
