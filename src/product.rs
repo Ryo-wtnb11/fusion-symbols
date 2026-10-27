@@ -37,6 +37,7 @@ use crate::category::{
 };
 use num_bigint::BigInt;
 use std::{
+    any::Any,
     convert::Infallible,
     fmt,
     hash::{Hash, Hasher},
@@ -371,46 +372,131 @@ fn all_ok<T>(
     results.into_iter().collect()
 }
 
-fn storage<B: SymbolBlock<R>, const R: usize>(block: B) -> ([usize; R], Storage<B::Scalar>) {
-    let dims = block.dims();
-    (
-        dims,
-        if dims == [1; R] {
-            Storage::One(block.get([0; R]))
-        } else {
-            Storage::Shared(block.as_slice().into())
-        },
-    )
+// A left-to-right Kronecker product: one scalar while every block so far has
+// one element, then a buffer of the final length whose row-major prefix holds
+// the product so far. Every step multiplies exactly as a fresh per-element fold
+// `left(l) * right(r)` would, so values do not depend on where the buffer starts.
+enum Partial<S, const R: usize> {
+    One(S),
+    Buf([usize; R], Arc<[S]>),
 }
 
-// Each output axis decodes i = left_digit * right_size + right_digit.
-fn kron<A: Scalar, B: SymbolBlock<R>, S: Scalar, const R: usize>(
-    left_dims: [usize; R],
-    left: Storage<A>,
-    right: B,
-    multiply: impl Fn(A, B::Scalar) -> S,
-) -> ([usize; R], Storage<S>) {
-    let right_dims = right.dims();
-    let dims = std::array::from_fn(|i| left_dims[i] * right_dims[i]);
-    let entry = |mut flat: usize| {
-        let mut l = 0;
-        let mut stride = 1;
-        let mut r = [0; R];
-        for axis in (0..R).rev() {
-            let digit = flat % dims[axis];
-            flat /= dims[axis];
-            l += digit / right_dims[axis] * stride;
-            stride *= left_dims[axis];
-            r[axis] = digit % right_dims[axis];
+// Zero-filled because in-place expansion needs initialized storage; the
+// alternatives are uninit memory with `unsafe`, or an out-of-place fold that
+// multiplies again at every level.
+fn zeros<S: Scalar>(len: usize) -> Arc<[S]> {
+    std::iter::repeat_n(S::zero(), len).collect()
+}
+
+fn owned<S>(buf: &mut Arc<[S]>) -> &mut [S] {
+    Arc::get_mut(buf).expect("a partial product buffer is never shared")
+}
+
+impl<S: Scalar, const R: usize> Partial<S, R> {
+    // Not `One(S::one())`: (1 + 0i) z can flip the sign of a zero part of z.
+    fn new<B: SymbolBlock<R, Scalar = S>>(block: &B, len: usize) -> Self {
+        match block.as_slice() {
+            [x] => Self::One(*x),
+            data => {
+                let mut buf = zeros(len);
+                owned(&mut buf)[..data.len()].copy_from_slice(data);
+                Self::Buf(block.dims(), buf)
+            }
         }
-        multiply(left.as_slice()[l], right.get(r))
-    };
-    let data = if dims == [1; R] {
-        Storage::One(entry(0))
-    } else {
-        Storage::Shared((0..dims.iter().product()).map(entry).collect::<Arc<[_]>>())
-    };
-    (dims, data)
+    }
+
+    // `embed(l)` then `multiply(·, r)` is `Promote::left(l) * Promote::right(r)`.
+    // `Scalar` is sealed, so a step either keeps the scalar type and its buffer
+    // (embed is the identity) or promotes f64 to Complex64 once: the real prefix
+    // then leaves its transient f64 buffer for a complex one. The TypeId test
+    // folds at compile time.
+    fn times<B: SymbolBlock<R>, T: Scalar>(
+        self,
+        block: &B,
+        len: usize,
+        embed: impl Fn(S) -> T,
+        multiply: impl Fn(T, B::Scalar) -> T,
+    ) -> Partial<T, R> {
+        let right = block.as_slice();
+        let (left, mut buf) = match (self, right) {
+            (Self::One(l), &[r]) => return Partial::One(multiply(embed(l), r)),
+            (Self::One(l), _) => {
+                let mut buf = zeros(len);
+                owned(&mut buf)[0] = embed(l);
+                ([1; R], buf)
+            }
+            (Self::Buf(dims, buf), _) => {
+                let mut slot = Some(buf);
+                let same = (&mut slot as &mut dyn Any)
+                    .downcast_mut::<Option<Arc<[T]>>>()
+                    .and_then(Option::take);
+                let buf = same.unwrap_or_else(|| {
+                    let mut promoted = zeros(len);
+                    let filled = dims.iter().product();
+                    let out = owned(&mut promoted);
+                    for (o, &l) in out.iter_mut().zip(slot.iter().flat_map(|b| &b[..filled])) {
+                        *o = embed(l);
+                    }
+                    promoted
+                });
+                (dims, buf)
+            }
+        };
+        let dims = kron_in_place(owned(&mut buf), left, block.dims(), right, multiply);
+        Partial::Buf(dims, buf)
+    }
+
+    fn finish(self) -> ([usize; R], Storage<S>) {
+        match self {
+            Self::One(x) => ([1; R], Storage::One(x)),
+            Self::Buf(dims, buf) => (dims, Storage::Shared(buf)),
+        }
+    }
+}
+
+// `out` starts with the row-major `left` block and ends holding its row-major
+// Kronecker product with `right` (each axis index is `l * right + r`). Written
+// back to front: output `i` reads left offset `l(i) <= i`, and only positions
+// after `i` have been overwritten. The (l, r) digits per axis count down
+// instead of decoding every `i` with div/mod.
+fn kron_in_place<S: Copy, B: Copy, const R: usize>(
+    out: &mut [S],
+    left: [usize; R],
+    right: [usize; R],
+    data: &[B],
+    multiply: impl Fn(S, B) -> S,
+) -> [usize; R] {
+    let (mut l_stride, mut r_stride) = ([1; R], [1; R]);
+    for a in (0..R.saturating_sub(1)).rev() {
+        l_stride[a] = l_stride[a + 1] * left[a + 1];
+        r_stride[a] = r_stride[a + 1] * right[a + 1];
+    }
+    let (mut l_digit, mut r_digit) = (left.map(|n| n - 1), right.map(|n| n - 1));
+    let (mut l, mut r) = (
+        left.iter().product::<usize>() - 1,
+        right.iter().product::<usize>() - 1,
+    );
+    let dims = std::array::from_fn(|a| left[a] * right[a]);
+    for i in (0..dims.iter().product()).rev() {
+        out[i] = multiply(out[l], data[r]);
+        for a in (0..R).rev() {
+            if r_digit[a] > 0 {
+                r_digit[a] -= 1;
+                r -= r_stride[a];
+                break;
+            }
+            r_digit[a] = right[a] - 1;
+            r += r_digit[a] * r_stride[a];
+            if l_digit[a] > 0 {
+                l_digit[a] -= 1;
+                l -= l_stride[a];
+                break;
+            }
+            l_digit[a] = left[a] - 1;
+            l += l_digit[a] * l_stride[a];
+        }
+    }
+    dims
 }
 
 // Zero axes stay zero even if a preceding partial product would overflow.
@@ -518,6 +604,52 @@ fn validate<C: FusionCategory>(cat: &C, objects: &[&C::Object]) {
     }
 }
 
+fn axes<const R: usize>(dims: [usize; R]) -> Option<[u32; R]> {
+    let mut n = [0; R];
+    for (n, dim) in n.iter_mut().zip(dims) {
+        *n = u32::try_from(dim).ok()?;
+    }
+    Some(n)
+}
+
+// A top-level query knows the product length from its N symbols; a nested one
+// does not. Only `Vec` products use it, to stream their factor blocks; a tuple
+// holds its blocks on the stack either way.
+trait Shaped: FusionCategory {
+    fn shaped_f(
+        &self,
+        [a, b, c, d, e, f]: [&Self::Object; 6],
+        _: Option<usize>,
+        t: Validated,
+    ) -> Result<SymbolWithAxes<Self::FSymbol, 4>, Self::Error> {
+        self.__fusion_symbols_validated_f_symbol(a, b, c, d, e, f, t)
+    }
+    fn shaped_r(
+        &self,
+        [a, b, c]: [&Self::Object; 3],
+        _: Option<usize>,
+        t: Validated,
+    ) -> Result<SymbolWithAxes<Self::RSymbol, 2>, Self::Error> {
+        self.__fusion_symbols_validated_r_symbol(a, b, c, t)
+    }
+    fn shaped_a(
+        &self,
+        [a, b, c]: [&Self::Object; 3],
+        _: Option<usize>,
+        t: Validated,
+    ) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
+        self.__fusion_symbols_validated_a_symbol(a, b, c, t)
+    }
+    fn shaped_b(
+        &self,
+        [a, b, c]: [&Self::Object; 3],
+        _: Option<usize>,
+        t: Validated,
+    ) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
+        self.__fusion_symbols_validated_b_symbol(a, b, c, t)
+    }
+}
+
 macro_rules! product_queries {
     ($this:ident; $braidings:expr) => {
             fn dual(&$this, a: &Self::Object) -> Self::Object {
@@ -580,7 +712,7 @@ macro_rules! product_queries {
                 let n = |x, y, z| $this.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
                 let dims = shape::<Self::Scalar, 4>([n(a, b, e)?, n(e, c, d)?, n(b, c, f)?, n(a, f, d)?]).ok_or(ProductError::Overflow)?;
                 if dims.contains(&0) { return Ok(FBlock::from_storage(dims, Storage::Empty)); }
-                let (block, _) = $this.__fusion_symbols_validated_f_symbol(a, b, c, d, e, f, t)?;
+                let (block, _) = $this.shaped_f([a, b, c, d, e, f], Some(dims.iter().product()), t)?;
                 debug_assert_eq!(block.dims(), dims);
                 Ok(block)
             }
@@ -593,7 +725,7 @@ macro_rules! product_queries {
                 let n = |x, y, z| $this.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
                 let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(b, a, c)?]).ok_or(ProductError::Overflow)?;
                 if dims.contains(&0) { return Ok(RBlock::from_storage(dims[0], Storage::Empty)); }
-                let (block, _) = $this.__fusion_symbols_validated_r_symbol(a, b, c, t)?;
+                let (block, _) = $this.shaped_r([a, b, c], Some(dims.iter().product()), t)?;
                 debug_assert_eq!(block.dims(), dims);
                 Ok(block)
             }
@@ -605,7 +737,7 @@ macro_rules! product_queries {
                 let n = |x, y, z| $this.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
                 let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(&$this.__fusion_symbols_validated_dual(a, t), c, b)?]).ok_or(ProductError::Overflow)?;
                 if dims.contains(&0) { return Ok(RBlock::from_storage(dims[0], Storage::Empty)); }
-                let (block, _) = $this.__fusion_symbols_validated_a_symbol(a, b, c, t)?;
+                let (block, _) = $this.shaped_a([a, b, c], Some(dims.iter().product()), t)?;
                 debug_assert_eq!(block.dims(), dims);
                 Ok(block)
             }
@@ -616,7 +748,7 @@ macro_rules! product_queries {
                 let n = |x, y, z| $this.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
                 let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(c, &$this.__fusion_symbols_validated_dual(b, t), a)?]).ok_or(ProductError::Overflow)?;
                 if dims.contains(&0) { return Ok(RBlock::from_storage(dims[0], Storage::Empty)); }
-                let (block, _) = $this.__fusion_symbols_validated_b_symbol(a, b, c, t)?;
+                let (block, _) = $this.shaped_b([a, b, c], Some(dims.iter().product()), t)?;
                 debug_assert_eq!(block.dims(), dims);
                 Ok(block)
             }
@@ -747,38 +879,55 @@ macro_rules! impl_product {
             }
             // The caller has established nonzero, representable shapes for every
             // factor (an enclosing product's shape bounds this one's). Check each
-            // returned block before storage/kron; pass checked axes up the nesting
-            // without re-querying N or copying coefficient data.
+            // returned block before composition; pass checked axes up the nesting
+            // without re-querying N.
             fn __fusion_symbols_validated_f_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, d: &Self::Object, e: &Self::Object, f: &Self::Object, t: Validated) -> Result<SymbolWithAxes<Self::FSymbol, 4>, Self::Error> {
-                let (dims, data) = storage(Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_f_symbol(&a.0,&b.0,&c.0,&d.0,&e.0,&f.0,t).map_err(ProductError::Factor0)?)?);
-                $(let (dims, data) = kron(dims, data, Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_f_symbol(&a.$i,&b.$i,&c.$i,&d.$i,&e.$i,&f.$i,t).map_err(ProductError::$Err)?)?, |l, r| <$Prev as Promote<$C::Scalar>>::left(l) * <$Prev as Promote<$C::Scalar>>::right(r));)+
-                let [n0, n1, n2, n3] = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
-                Ok((FBlock::from_storage(dims, data), [n0?, n1?, n2?, n3?]))
+                let (dims, data) = Self::compose((Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_f_symbol(&a.0,&b.0,&c.0,&d.0,&e.0,&f.0,t).map_err(ProductError::Factor0)?)?,
+                    $(Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_f_symbol(&a.$i,&b.$i,&c.$i,&d.$i,&e.$i,&f.$i,t).map_err(ProductError::$Err)?)?,)+));
+                Ok((FBlock::from_storage(dims, data), axes(dims).ok_or(ProductError::Overflow)?))
             }
             // As for F; braiding of every factor has also been checked.
             fn __fusion_symbols_validated_r_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> Result<SymbolWithAxes<Self::RSymbol, 2>, Self::Error> {
-                let (dims, data) = storage(Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_r_symbol(&a.0,&b.0,&c.0,t).map_err(ProductError::Factor0)?)?);
-                $(let (dims, data) = kron(dims, data, Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_r_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?)?, |l, r| <$Prev as Promote<$C::Scalar>>::left(l) * <$Prev as Promote<$C::Scalar>>::right(r));)+
-                let [n0, n1] = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
-                Ok((RBlock::from_storage(dims[0], data), [n0?, n1?]))
+                let (dims, data) = Self::compose((Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_r_symbol(&a.0,&b.0,&c.0,t).map_err(ProductError::Factor0)?)?,
+                    $(Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_r_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?)?,)+));
+                Ok((RBlock::from_storage(dims[0], data), axes(dims).ok_or(ProductError::Overflow)?))
             }
             fn __fusion_symbols_validated_a_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
-                let (dims, data) = storage(Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_a_symbol(&a.0,&b.0,&c.0,t).map_err(ProductError::Factor0)?)?);
-                $(let (dims, data) = kron(dims, data, Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_a_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?)?, |l, r| <$Prev as Promote<$C::Scalar>>::left(l) * <$Prev as Promote<$C::Scalar>>::right(r));)+
-                let [n0, n1] = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
-                Ok((RBlock::from_storage(dims[0], data), [n0?, n1?]))
+                let (dims, data) = Self::compose((Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_a_symbol(&a.0,&b.0,&c.0,t).map_err(ProductError::Factor0)?)?,
+                    $(Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_a_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?)?,)+));
+                Ok((RBlock::from_storage(dims[0], data), axes(dims).ok_or(ProductError::Overflow)?))
             }
             fn __fusion_symbols_validated_b_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
-                let (dims, data) = storage(Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_b_symbol(&a.0,&b.0,&c.0,t).map_err(ProductError::Factor0)?)?);
-                $(let (dims, data) = kron(dims, data, Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_b_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?)?, |l, r| <$Prev as Promote<$C::Scalar>>::left(l) * <$Prev as Promote<$C::Scalar>>::right(r));)+
-                let [n0, n1] = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
-                Ok((RBlock::from_storage(dims[0], data), [n0?, n1?]))
+                let (dims, data) = Self::compose((Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_b_symbol(&a.0,&b.0,&c.0,t).map_err(ProductError::Factor0)?)?,
+                    $(Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_b_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?)?,)+));
+                Ok((RBlock::from_storage(dims[0], data), axes(dims).ok_or(ProductError::Overflow)?))
             }
             fn authority_fingerprint(&self) -> &[u8] {
                 self.fingerprint.get_or_init(|| {
                     fingerprint([self.factors.0.authority_fingerprint(), $(self.factors.$i.authority_fingerprint()),+])
                 })
             }
+        }
+        impl<$C0, $($C, $S),+> Product<($C0, $($C,)+)>
+        where
+            $C0: FusionCategory,
+            $( $C: FusionCategory, $Prev: Promote<$C::Scalar, Output = $S>, $S: Scalar, )+
+        {
+            // Factor blocks stay on the stack until the final length is known.
+            fn compose<const R: usize>(blocks: (impl SymbolBlock<R, Scalar = $C0::Scalar>, $(impl SymbolBlock<R, Scalar = $C::Scalar>,)+)) -> ([usize; R], Storage<$Last>) {
+                let len = blocks.0.as_slice().len() $(* blocks.$i.as_slice().len())+;
+                let partial = Partial::new(&blocks.0, len);
+                $(let partial = partial.times(&blocks.$i, len, <$Prev as Promote<$C::Scalar>>::left, |l, r| l * <$Prev as Promote<$C::Scalar>>::right(r));)+
+                partial.finish()
+            }
+        }
+        impl<$C0, $($C, $S),+> Shaped for Product<($C0, $($C,)+)>
+        where
+            $C0: FusionCategory,
+            for<'a> $C0::Fusion<'a>: Clone,
+            $( $C: FusionCategory, for<'a> $C::Fusion<'a>: Clone,
+               $Prev: Promote<$C::Scalar, Output = $S>, $S: Scalar, )+
+        {
         }
         impl<$C0, $($C, $S),+> GroupRepresentations for Product<($C0, $($C,)+)>
         where
@@ -1117,18 +1266,7 @@ where
         f: &Self::Object,
         t: Validated,
     ) -> Result<SymbolWithAxes<Self::FSymbol, 4>, Self::Error> {
-        let (dims, data) =
-            compose_blocks(self.factors.iter().enumerate().map(|(index, factor)| {
-                let block = factor
-                    .__fusion_symbols_validated_f_symbol(
-                        &a[index], &b[index], &c[index], &d[index], &e[index], &f[index], t,
-                    )
-                    .map_err(|source| ProductError::Factor { index, source })?;
-                ProductError::checked_block(index, block)
-            }))?;
-        let n = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
-        let [n0, n1, n2, n3] = n;
-        Ok((FBlock::from_storage(dims, data), [n0?, n1?, n2?, n3?]))
+        self.shaped_f([a, b, c, d, e, f], None, t)
     }
     fn __fusion_symbols_validated_r_symbol(
         &self,
@@ -1137,16 +1275,7 @@ where
         c: &Self::Object,
         t: Validated,
     ) -> Result<SymbolWithAxes<Self::RSymbol, 2>, Self::Error> {
-        let (dims, data) =
-            compose_blocks(self.factors.iter().enumerate().map(|(index, factor)| {
-                let block = factor
-                    .__fusion_symbols_validated_r_symbol(&a[index], &b[index], &c[index], t)
-                    .map_err(|source| ProductError::Factor { index, source })?;
-                ProductError::checked_block(index, block)
-            }))?;
-        let n = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
-        let [n0, n1] = n;
-        Ok((RBlock::from_storage(dims[0], data), [n0?, n1?]))
+        self.shaped_r([a, b, c], None, t)
     }
     fn __fusion_symbols_validated_a_symbol(
         &self,
@@ -1155,16 +1284,7 @@ where
         c: &Self::Object,
         t: Validated,
     ) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
-        let (dims, data) =
-            compose_blocks(self.factors.iter().enumerate().map(|(index, factor)| {
-                let block = factor
-                    .__fusion_symbols_validated_a_symbol(&a[index], &b[index], &c[index], t)
-                    .map_err(|source| ProductError::Factor { index, source })?;
-                ProductError::checked_block(index, block)
-            }))?;
-        let n = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
-        let [n0, n1] = n;
-        Ok((RBlock::from_storage(dims[0], data), [n0?, n1?]))
+        self.shaped_a([a, b, c], None, t)
     }
     fn __fusion_symbols_validated_b_symbol(
         &self,
@@ -1173,16 +1293,7 @@ where
         c: &Self::Object,
         t: Validated,
     ) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
-        let (dims, data) =
-            compose_blocks(self.factors.iter().enumerate().map(|(index, factor)| {
-                let block = factor
-                    .__fusion_symbols_validated_b_symbol(&a[index], &b[index], &c[index], t)
-                    .map_err(|source| ProductError::Factor { index, source })?;
-                ProductError::checked_block(index, block)
-            }))?;
-        let n = dims.map(|n| u32::try_from(n).map_err(|_| ProductError::Overflow));
-        let [n0, n1] = n;
-        Ok((RBlock::from_storage(dims[0], data), [n0?, n1?]))
+        self.shaped_b([a, b, c], None, t)
     }
     fn authority_fingerprint(&self) -> &[u8] {
         self.fingerprint.get_or_init(|| {
@@ -1195,18 +1306,98 @@ where
     }
 }
 
-fn compose_blocks<B: SymbolBlock<R>, E, const R: usize>(
+fn rblock<S: Scalar>([n, _]: [usize; 2], data: Storage<S>) -> RBlock<S> {
+    RBlock::from_storage(n, data)
+}
+
+fn kron_all<B: SymbolBlock<R>, E, const R: usize>(
     blocks: impl IntoIterator<Item = Result<B, E>>,
+    len: usize,
 ) -> Result<([usize; R], Storage<B::Scalar>), E> {
-    let mut blocks = blocks.into_iter();
-    let Some(first) = blocks.next() else {
-        return Ok(([1; R], Storage::One(B::Scalar::one())));
-    };
-    let mut result = storage(first?);
+    let mut partial: Option<Partial<B::Scalar, R>> = None;
     for block in blocks {
-        result = kron(result.0, result.1, block?, |l, r| l * r);
+        let block = block?;
+        partial = Some(match partial {
+            None => Partial::new(&block, len),
+            Some(p) => p.times(&block, len, |l| l, |l, r| l * r),
+        });
     }
-    Ok(result)
+    Ok(partial.map_or(([1; R], Storage::One(B::Scalar::one())), Partial::finish))
+}
+
+impl<C: FusionCategory> Product<Vec<C>> {
+    // A known length streams the factor blocks into the output buffer. A nested
+    // query does not know it and holds the k blocks in one Vec first.
+    fn compose<B: SymbolBlock<R, Scalar = C::Scalar>, O, const R: usize>(
+        &self,
+        len: Option<usize>,
+        block: impl FnOnce([usize; R], Storage<C::Scalar>) -> O,
+        query: impl Fn(&C, usize) -> Result<SymbolWithAxes<B, R>, C::Error>,
+    ) -> Result<SymbolWithAxes<O, R>, ProductError<C::Error>> {
+        let blocks = self.factors.iter().enumerate().map(|(index, factor)| {
+            let block =
+                query(factor, index).map_err(|source| ProductError::Factor { index, source })?;
+            ProductError::checked_block(index, block)
+        });
+        let (dims, data) = match len {
+            Some(len) => kron_all(blocks, len)?,
+            None => {
+                let mut held = Vec::with_capacity(self.factors.len());
+                for block in blocks {
+                    held.push(block?);
+                }
+                let len = held.iter().map(|b| b.as_slice().len()).product();
+                kron_all(held.into_iter().map(Ok), len)?
+            }
+        };
+        Ok((block(dims, data), axes(dims).ok_or(ProductError::Overflow)?))
+    }
+}
+
+impl<C: FusionCategory> Shaped for Product<Vec<C>>
+where
+    for<'a> C::Fusion<'a>: Clone,
+{
+    fn shaped_f(
+        &self,
+        [a, b, c, d, e, f]: [&Self::Object; 6],
+        len: Option<usize>,
+        t: Validated,
+    ) -> Result<SymbolWithAxes<Self::FSymbol, 4>, Self::Error> {
+        self.compose(len, FBlock::from_storage, |x, i| {
+            x.__fusion_symbols_validated_f_symbol(&a[i], &b[i], &c[i], &d[i], &e[i], &f[i], t)
+        })
+    }
+    fn shaped_r(
+        &self,
+        [a, b, c]: [&Self::Object; 3],
+        len: Option<usize>,
+        t: Validated,
+    ) -> Result<SymbolWithAxes<Self::RSymbol, 2>, Self::Error> {
+        self.compose(len, rblock, |x, i| {
+            x.__fusion_symbols_validated_r_symbol(&a[i], &b[i], &c[i], t)
+        })
+    }
+    fn shaped_a(
+        &self,
+        [a, b, c]: [&Self::Object; 3],
+        len: Option<usize>,
+        t: Validated,
+    ) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
+        self.compose(len, rblock, |x, i| {
+            x.__fusion_symbols_validated_a_symbol(&a[i], &b[i], &c[i], t)
+        })
+    }
+    fn shaped_b(
+        &self,
+        [a, b, c]: [&Self::Object; 3],
+        len: Option<usize>,
+        t: Validated,
+    ) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
+        self.compose(len, rblock, |x, i| {
+            x.__fusion_symbols_validated_b_symbol(&a[i], &b[i], &c[i], t)
+        })
+    }
 }
 
 impl<C: GroupRepresentations> GroupRepresentations for Product<Vec<C>>
@@ -1681,5 +1872,114 @@ mod tests {
     #[test]
     fn malformed_b_blocks() {
         malformed_blocks('B');
+    }
+
+    // The in-place countdown must equal a Kronecker product that decodes every
+    // output index independently (`axis = l * right + r`), for any shapes.
+    fn kron_matches_naive<const R: usize>(rng: &mut impl rand::Rng) {
+        for trial in 0..200 {
+            let left: [usize; R] = std::array::from_fn(|_| {
+                if trial % 5 == 0 {
+                    1
+                } else {
+                    rng.gen_range(1..=3)
+                }
+            });
+            let right: [usize; R] = std::array::from_fn(|_| rng.gen_range(1..=3));
+            let (l_len, r_len) = (
+                left.iter().product::<usize>(),
+                right.iter().product::<usize>(),
+            );
+            let l: Vec<f64> = (0..l_len).map(|_| rng.gen_range(-2.0..2.0)).collect();
+            let r: Vec<f64> = (0..r_len).map(|_| rng.gen_range(-2.0..2.0)).collect();
+            let dims: [usize; R] = std::array::from_fn(|a| left[a] * right[a]);
+            let offset =
+                |idx: [usize; R], dims: [usize; R]| (0..R).fold(0, |o, a| o * dims[a] + idx[a]);
+            let naive: Vec<u64> = (0..l_len * r_len)
+                .map(|mut k| {
+                    let mut idx = [0; R];
+                    for a in (0..R).rev() {
+                        idx[a] = k % dims[a];
+                        k /= dims[a];
+                    }
+                    let x = l[offset(std::array::from_fn(|a| idx[a] / right[a]), left)];
+                    let y = r[offset(std::array::from_fn(|a| idx[a] % right[a]), right)];
+                    (x * y).to_bits()
+                })
+                .collect();
+            let mut out = vec![f64::NAN; l_len * r_len + 1];
+            out[..l_len].copy_from_slice(&l);
+            assert_eq!(kron_in_place(&mut out, left, right, &r, |x, y| x * y), dims);
+            let got: Vec<u64> = out[..l_len * r_len].iter().map(|x| x.to_bits()).collect();
+            assert_eq!(got, naive, "{left:?} x {right:?}");
+            assert!(
+                out[l_len * r_len].is_nan(),
+                "writes stay inside the product"
+            );
+        }
+    }
+
+    #[test]
+    fn in_place_kron_matches_naive_kron() {
+        use rand::SeedableRng;
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(179);
+        kron_matches_naive::<2>(&mut rng);
+        kron_matches_naive::<4>(&mut rng);
+    }
+
+    // A real prefix of several coefficients is multiplied in f64, then each
+    // entry is promoted once; a complex-by-complex fold of the embedded prefix
+    // would differ in the signs of zero imaginary parts.
+    #[test]
+    fn real_prefix_promotes_once_into_multi_element_complex_block() {
+        use num_complex::Complex64;
+        use rand::{Rng, SeedableRng};
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(1790);
+        let mut real =
+            |n: usize| -> Vec<f64> { (0..n).map(|_| rng.gen_range(-2.0..2.0)).collect() };
+        let (a, b) = (real(4), real(2));
+        let c: Vec<Complex64> = real(4)
+            .chunks(2)
+            .map(|z| Complex64::new(z[0], z[1]))
+            .collect();
+        struct Dense<S, const R: usize>([usize; R], Vec<S>);
+        impl<S: Scalar, const R: usize> SymbolBlock<R> for Dense<S, R> {
+            type Scalar = S;
+            fn dims(&self) -> [usize; R] {
+                self.0
+            }
+            fn get(&self, _: [usize; R]) -> S {
+                unreachable!("composition reads storage slices")
+            }
+            fn as_slice(&self) -> &[S] {
+                &self.1
+            }
+        }
+        // [2, 2] then [1, 2] real blocks, then a [2, 1] complex block: [4, 4].
+        let a_block = Dense([2, 2], a.clone());
+        let b_block = Dense([1, 2], b.clone());
+        let c_block = Dense([2, 1], c.clone());
+        let (dims, data) = Partial::new(&a_block, 16)
+            .times(&b_block, 16, |l| l, |l, r| l * r)
+            .times(&c_block, 16, Promote::<Complex64>::left, |l, r| l * r)
+            .finish();
+        assert_eq!(dims, [4, 4]);
+        let naive: Vec<(u64, u64)> = (0..16)
+            .map(|k| {
+                let (i, j) = (k / 4, k % 4);
+                // Row i = (a row, c row) digits; column j = (a col, b col) digits.
+                let (ia, ic) = (i / 2, i % 2);
+                let (ja, jb) = (j / 2, j % 2);
+                let prefix = a[ia * 2 + ja] * b[jb];
+                let z = Complex64::from(prefix) * c[ic];
+                (z.re.to_bits(), z.im.to_bits())
+            })
+            .collect();
+        let got: Vec<(u64, u64)> = data
+            .as_slice()
+            .iter()
+            .map(|z| (z.re.to_bits(), z.im.to_bits()))
+            .collect();
+        assert_eq!(got, naive);
     }
 }

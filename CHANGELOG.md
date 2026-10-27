@@ -115,6 +115,16 @@ value/gauge rule noted below.
   Weyl-formula evaluation (SU(3)×SU(3) octet F: about 9.4 → 1.8 µs). Values are
   bit-identical. A foreign factor object in a product now panics with
   "foreign product object" rather than the factor's own message (#201).
+- Product F/R/A/B compose factor blocks directly into one buffer per product
+  level: no copy of the first factor's block, no buffer per factor, and a
+  countdown over Kronecker digits instead of a div/mod decode per element.
+  Single-coefficient levels fold scalars and allocate nothing. Warm SU(3)×SU(3)
+  octet F: 2 → 1 allocation, about 1.8 → 0.7 µs; (SU(3)×SU(3))×SU(3) F: 4 → 2
+  allocations, about 23 → 4.3 µs; `Vec` of three SU(3) F: 3 → 1 allocation,
+  about 23 → 4.2 µs; SU(3)×SU(3) A/B: 4 → 3 allocations. A `Vec` product
+  nested as a factor holds its factor blocks in one `Vec`, and a real prefix of
+  more than one coefficient meeting a complex factor costs one transient real
+  buffer. Values are bit-identical (#179).
 
 ## [0.8.1] - 2026-10-24
 

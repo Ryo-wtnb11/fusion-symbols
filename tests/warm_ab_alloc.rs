@@ -1,4 +1,4 @@
-//! Warm leaf A/B allocate only their returned block; products retain factor composition.
+//! Warm leaf A/B allocate only their returned block; a product level adds only its own.
 #![cfg(feature = "lie-generated")]
 
 use crate::common::counting_alloc;
@@ -102,7 +102,7 @@ fn check<C: FusionCategory<Scalar = f64>>(
 
 // The serial guard isolates the cache lifecycle checks.
 #[test]
-fn warm_ab_allocate_only_leaf_blocks_and_product_composition() {
+fn warm_ab_allocate_only_leaf_blocks_and_one_buffer_per_product_level() {
     let _serial = crate::common::counting_alloc::serial();
     let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
     let oct = su3.irrep(&[1, 1], &[]).unwrap();
@@ -118,19 +118,12 @@ fn warm_ab_allocate_only_leaf_blocks_and_product_composition() {
 
     let p = product(su3.clone(), su3.clone());
     let x = (oct.clone(), oct.clone());
-    // Two leaf blocks, a storage copy of the first, and their kron buffer.
-    let nn = check("SU3xSU3", &p, &x, &x, &x, &[n, n, n, n * n]);
+    // Two leaf blocks and the one output buffer.
+    let nn = check("SU3xSU3", &p, &x, &x, &x, &[n, n, n * n]);
     let p = product(p, su3);
     let x = (x, oct);
-    // Inner two leaves/storage/kron, outer leaf, copy of inner block, outer kron.
-    check(
-        "(SU3xSU3)xSU3",
-        &p,
-        &x,
-        &x,
-        &x,
-        &[n, n, n, nn, n, nn, nn * n],
-    );
+    // Three leaf blocks, the nested factor's own block, and the output buffer.
+    check("(SU3xSU3)xSU3", &p, &x, &x, &x, &[n, n, nn, n, nn * n]);
 
     // Complex SU(N) and odd-D chiral labels must also dualize without rebuilding.
     for (id, labels) in [
