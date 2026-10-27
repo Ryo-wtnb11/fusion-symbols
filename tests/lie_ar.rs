@@ -3,7 +3,7 @@
 mod common;
 
 use fusion_symbols::{
-    cache,
+    cache::{self, CoefficientCacheTier as Tier},
     category::{CgcBlock, FusionCategory, FusionStyle, GroupRepresentations},
     lie::{GroupId, LieError, LieGroup},
 };
@@ -38,64 +38,43 @@ fn labels_zero_channels_and_warm_generation() {
 
     cache::reset();
     let cold: Vec<_> = cat.fusion(&eight, &eight).unwrap().collect();
-    let stats = cache::generated_cache_stats();
+    let misses = cache::tier_stats(Tier::SunProduct).misses;
     assert_eq!(
         cat.fusion(&eight, &eight).unwrap().collect::<Vec<_>>(),
         cold
     );
-    assert_eq!(
-        cache::generated_cache_stats().sun_product.misses,
-        stats.sun_product.misses
-    );
+    assert_eq!(cache::tier_stats(Tier::SunProduct).misses, misses);
     let cgc = cat.cgc(&eight, &eight, &eight).unwrap();
-    let stats = cache::generated_cache_stats();
+    let misses = cache::tier_stats(Tier::SunCgc).misses;
     assert_eq!(cat.cgc(&eight, &eight, &eight).unwrap(), cgc);
-    assert_eq!(
-        cache::generated_cache_stats().sun_cgc.misses,
-        stats.sun_cgc.misses
-    );
+    assert_eq!(cache::tier_stats(Tier::SunCgc).misses, misses);
     let product = fusion_symbols::product(cat.clone(), a1.clone());
     let channel = (eight.clone(), a1.irrep(&[2], &[]).unwrap());
     let first = product.cgc(&channel, &channel, &channel).unwrap();
-    let stats = cache::generated_cache_stats();
-    let base = cache::base_cache_stats();
+    let tiers = [Tier::SunCgc, Tier::SunProduct, Tier::ThreeJ];
+    let [cgc_stats, product_stats, three_j] = tiers.map(cache::tier_stats);
     assert_eq!(product.cgc(&channel, &channel, &channel).unwrap(), first);
-    let warm = cache::generated_cache_stats();
-    assert_eq!(warm.sun_cgc.misses, stats.sun_cgc.misses);
-    assert_eq!(warm.sun_product.misses, stats.sun_product.misses);
-    assert!(warm.sun_cgc.hits > stats.sun_cgc.hits);
-    assert_eq!(
-        cache::base_cache_stats().three_j.misses,
-        base.three_j.misses
-    );
+    let [cgc_warm, product_warm, three_j_warm] = tiers.map(cache::tier_stats);
+    assert_eq!(cgc_warm.misses, cgc_stats.misses);
+    assert_eq!(product_warm.misses, product_stats.misses);
+    assert!(cgc_warm.hits > cgc_stats.hits);
+    assert_eq!(three_j_warm.misses, three_j.misses);
     let r = cat.r_symbol(&eight, &eight, &eight).unwrap();
-    let stats = cache::generated_cache_stats();
+    let tiers = [Tier::SunCgc, Tier::SunProduct];
+    let misses = tiers.map(|tier| cache::tier_stats(tier).misses);
     assert_eq!(cat.r_symbol(&eight, &eight, &eight).unwrap(), r);
-    assert_eq!(
-        cache::generated_cache_stats().sun_cgc.misses,
-        stats.sun_cgc.misses
-    );
-    assert_eq!(
-        cache::generated_cache_stats().sun_product.misses,
-        stats.sun_product.misses
-    );
+    assert_eq!(tiers.map(|tier| cache::tier_stats(tier).misses), misses);
     let f = cat
         .f_symbol(&eight, &eight, &eight, &eight, &eight, &eight)
         .unwrap();
-    let stats = cache::generated_cache_stats();
+    let tiers = [Tier::SunF, Tier::SunCgc];
+    let misses = tiers.map(|tier| cache::tier_stats(tier).misses);
     assert_eq!(
         cat.f_symbol(&eight, &eight, &eight, &eight, &eight, &eight)
             .unwrap(),
         f
     );
-    assert_eq!(
-        cache::generated_cache_stats().sun_f.misses,
-        stats.sun_f.misses
-    );
-    assert_eq!(
-        cache::generated_cache_stats().sun_cgc.misses,
-        stats.sun_cgc.misses
-    );
+    assert_eq!(tiers.map(|tier| cache::tier_stats(tier).misses), misses);
 }
 
 #[test]

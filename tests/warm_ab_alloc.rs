@@ -47,8 +47,8 @@ fn check<C: FusionCategory<Scalar = f64>>(
         };
         let cold = query();
         elements = cold.data().len();
-        let base = cache::base_cache_stats().total();
-        let generated = cache::generated_cache_stats().total();
+        let base = crate::common::stats_sum(&crate::common::BASE_TIERS);
+        let generated = crate::common::stats_sum(crate::common::generated_tiers());
         let (allocation, warm) = measure(query);
         let expected = buffers(if composition_buffers.is_empty() {
             std::slice::from_ref(&elements)
@@ -73,8 +73,8 @@ fn check<C: FusionCategory<Scalar = f64>>(
             .iter()
             .zip(cold.data())
             .all(|(a, b)| a.to_bits() == b.to_bits()));
-        let base_warm = cache::base_cache_stats().total();
-        let generated_warm = cache::generated_cache_stats().total();
+        let base_warm = crate::common::stats_sum(&crate::common::BASE_TIERS);
+        let generated_warm = crate::common::stats_sum(crate::common::generated_tiers());
         assert_eq!(
             base_warm.misses, base.misses,
             "{name}: no base regeneration"
@@ -158,7 +158,10 @@ fn warm_ab_allocate_only_leaf_blocks_and_one_buffer_per_product_level() {
     assert_eq!(cat.dual(&a), dual);
     assert_eq!(measure(|| cat.dual(&a)).0, (0, 0));
     cache::reset();
-    assert_eq!(cache::generated_cache_stats().sun_product.entries, 0);
+    assert_eq!(
+        cache::tier_stats(cache::CoefficientCacheTier::SunProduct).entries,
+        0
+    );
     assert_eq!(cat.dual(&a), dual);
     assert_eq!(measure(|| cat.dual(&a)).0, (0, 0));
 }

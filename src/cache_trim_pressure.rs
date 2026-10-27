@@ -50,17 +50,21 @@ fn run(mode: &str) {
     let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
     cache::reset();
     workload();
-    let before = cache::base_cache_stats();
-    let before_product = cache::generated_cache_stats().sun_product;
+    let [before_three_j, before_six_j, before_product] = [
+        CoefficientCacheTier::ThreeJ,
+        CoefficientCacheTier::SixJ,
+        CoefficientCacheTier::SunProduct,
+    ]
+    .map(cache::tier_stats);
     let targets = match mode {
         "retained" => [
-            before.three_j.bytes,
-            before.six_j.bytes,
+            before_three_j.bytes,
+            before_six_j.bytes,
             before_product.bytes,
         ],
         "partial" => [
-            before.three_j.bytes / 2,
-            before.six_j.bytes / 2,
+            before_three_j.bytes / 2,
+            before_six_j.bytes / 2,
             before_product.bytes / 2,
         ],
         "zero" => [0, 0, 0],
@@ -85,10 +89,14 @@ fn run(mode: &str) {
     workload();
     let elapsed_ns = start.elapsed().as_nanos();
     let (end_live, peak_live) = crate::audit_alloc::snapshot();
-    let after = cache::base_cache_stats();
-    let after_product = cache::generated_cache_stats().sun_product;
-    assert!(after.three_j.bytes <= cache::cache_budgets().limit(CoefficientCacheTier::ThreeJ));
-    assert!(after.six_j.bytes <= cache::cache_budgets().limit(CoefficientCacheTier::SixJ));
+    let [after_three_j, after_six_j, after_product] = [
+        CoefficientCacheTier::ThreeJ,
+        CoefficientCacheTier::SixJ,
+        CoefficientCacheTier::SunProduct,
+    ]
+    .map(cache::tier_stats);
+    assert!(after_three_j.bytes <= cache::cache_budgets().limit(CoefficientCacheTier::ThreeJ));
+    assert!(after_six_j.bytes <= cache::cache_budgets().limit(CoefficientCacheTier::SixJ));
     assert!(after_product.bytes <= cache::cache_budgets().limit(CoefficientCacheTier::SunProduct));
     let sample = std::env::var("COEFFICIENT_CACHE_TRIM_SAMPLE").unwrap_or_else(|_| "0".into());
     let revision = option_env!("RACAH_TRIM_REVISION").unwrap_or("not-embedded");
@@ -98,8 +106,8 @@ fn run(mode: &str) {
         reports[0].removed_entries, reports[0].removed_charged_bytes, reports[0].remaining_entries, reports[0].remaining_charged_bytes,
         reports[1].removed_entries, reports[1].removed_charged_bytes, reports[1].remaining_entries, reports[1].remaining_charged_bytes,
         reports[2].removed_entries, reports[2].removed_charged_bytes, reports[2].remaining_entries, reports[2].remaining_charged_bytes,
-        after.three_j.entries, after.three_j.bytes, after.three_j.hits, after.three_j.misses, after.three_j.evictions,
-        after.six_j.entries, after.six_j.bytes, after.six_j.hits, after.six_j.misses, after.six_j.evictions,
+        after_three_j.entries, after_three_j.bytes, after_three_j.hits, after_three_j.misses, after_three_j.evictions,
+        after_six_j.entries, after_six_j.bytes, after_six_j.hits, after_six_j.misses, after_six_j.evictions,
         after_product.entries, after_product.bytes, after_product.hits, after_product.misses, after_product.evictions,
         rss_bytes().map_or_else(|| "null".to_owned(), |n| n.to_string()),
     );

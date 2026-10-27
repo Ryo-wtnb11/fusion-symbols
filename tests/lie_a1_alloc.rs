@@ -13,7 +13,8 @@ fn inline_blocks_and_warm_a1_symbols_allocate_nothing() {
     let expected = cat
         .f_symbol(&half, &half, &half, &half, &zero, &zero)
         .unwrap();
-    let stats = fusion_symbols::cache::base_cache_stats();
+    let stats =
+        fusion_symbols::cache::tier_stats(fusion_symbols::cache::CoefficientCacheTier::DerivedF);
     let before = counting_alloc::calls();
     let label = cat.irrep(&[1], &[]).unwrap();
     std::hint::black_box(label.clone());
@@ -37,7 +38,8 @@ fn inline_blocks_and_warm_a1_symbols_allocate_nothing() {
     assert!(empty_f.data().is_empty());
     assert!(empty_r.data().is_empty());
     assert_eq!(fusion_count, 2);
-    let warm = fusion_symbols::cache::base_cache_stats();
-    assert_eq!(warm.derived_f.misses, stats.derived_f.misses);
-    assert_eq!(warm.derived_f.hits, stats.derived_f.hits + 1);
+    let warm =
+        fusion_symbols::cache::tier_stats(fusion_symbols::cache::CoefficientCacheTier::DerivedF);
+    assert_eq!(warm.misses, stats.misses);
+    assert_eq!(warm.hits, stats.hits + 1);
 }

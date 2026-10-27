@@ -5,9 +5,7 @@ mod common;
 
 use crate::common::a1;
 use a1::exact_f;
-use fusion_symbols::cache::{
-    base_cache_stats, cache_budgets, reset, trim_to, CoefficientCacheTier,
-};
+use fusion_symbols::cache::{cache_budgets, reset, tier_stats, trim_to, CoefficientCacheTier};
 use fusion_symbols::lie::su2::{wigner_3j, wigner_6j};
 
 #[test]
@@ -22,27 +20,14 @@ fn trim_is_tier_local_preserves_budget_and_allows_refill() {
         CoefficientCacheTier::SixJ,
         CoefficientCacheTier::DerivedF,
     ] {
-        let snapshot = base_cache_stats();
-        let selected = match tier {
-            CoefficientCacheTier::ThreeJ => snapshot.three_j,
-            CoefficientCacheTier::SixJ => snapshot.six_j,
-            CoefficientCacheTier::DerivedF => snapshot.derived_f,
-            _ => unreachable!(),
-        };
+        let selected = tier_stats(tier);
         assert!(selected.entries > 0);
         let report = trim_to(tier, 0);
         assert_eq!(report.removed_entries, selected.entries);
-        let after = base_cache_stats();
-        let now = match tier {
-            CoefficientCacheTier::ThreeJ => after.three_j,
-            CoefficientCacheTier::SixJ => after.six_j,
-            CoefficientCacheTier::DerivedF => after.derived_f,
-            _ => unreachable!(),
-        };
-        assert_eq!(now.entries, 0);
+        assert_eq!(tier_stats(tier).entries, 0);
     }
     assert_eq!(cache_budgets(), budget);
     let _ = wigner_6j(2, 2, 2, 2, 2, 2);
-    assert_eq!(base_cache_stats().six_j.entries, 1);
+    assert_eq!(tier_stats(CoefficientCacheTier::SixJ).entries, 1);
     assert_eq!(cache_budgets(), budget);
 }

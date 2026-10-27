@@ -3,7 +3,7 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use crate::cache;
+use crate::cache::{self, CoefficientCacheTier};
 use crate::lie::su2::{f_symbol as exact_f, wigner_3j, wigner_6j};
 use crate::lie::sun::{cgc, directproduct, f_symbol, shared_directproduct, Irrep};
 use crate::primefactor;
@@ -52,8 +52,22 @@ struct Measurement {
 }
 
 fn emit(phase: &str, measurement: Option<Measurement>) {
-    let base = cache::base_cache_stats();
-    let generated = cache::generated_cache_stats();
+    let [three_j, six_j, derived_f] = [
+        CoefficientCacheTier::ThreeJ,
+        CoefficientCacheTier::SixJ,
+        CoefficientCacheTier::DerivedF,
+    ]
+    .map(cache::tier_stats);
+    let [sun_product, sun_cgc, sun_f, sun_r, bcd_cgc, bcd_f, bcd_r] = [
+        CoefficientCacheTier::SunProduct,
+        CoefficientCacheTier::SunCgc,
+        CoefficientCacheTier::SunF,
+        CoefficientCacheTier::SunR,
+        CoefficientCacheTier::BcdCgc,
+        CoefficientCacheTier::BcdF,
+        CoefficientCacheTier::BcdR,
+    ]
+    .map(cache::tier_stats);
     let table = primefactor::table_stats();
     let (live, _) = crate::audit_alloc::snapshot();
     let (elapsed, start_live, end_live, peak_live) = measurement
@@ -70,16 +84,16 @@ fn emit(phase: &str, measurement: Option<Measurement>) {
         ),
         phase,
         elapsed,
-        base.three_j.entries, base.three_j.bytes, base.three_j.hits, base.three_j.misses, base.three_j.evictions,
-        base.six_j.entries, base.six_j.bytes, base.six_j.hits, base.six_j.misses, base.six_j.evictions,
-        base.derived_f.entries, base.derived_f.bytes, base.derived_f.hits, base.derived_f.misses, base.derived_f.evictions,
-        generated.sun_product.entries, generated.sun_product.bytes, generated.sun_product.hits, generated.sun_product.misses, generated.sun_product.evictions,
-        generated.sun_cgc.entries, generated.sun_cgc.bytes, generated.sun_cgc.hits, generated.sun_cgc.misses, generated.sun_cgc.evictions,
-        generated.sun_f.entries, generated.sun_f.bytes, generated.sun_f.hits, generated.sun_f.misses, generated.sun_f.evictions,
-        generated.bcd_cgc.entries, generated.bcd_cgc.bytes, generated.bcd_cgc.hits, generated.bcd_cgc.misses, generated.bcd_cgc.evictions,
-        generated.bcd_f.entries, generated.bcd_f.bytes, generated.bcd_f.hits, generated.bcd_f.misses, generated.bcd_f.evictions,
-        generated.sun_r.entries, generated.sun_r.bytes, generated.sun_r.hits, generated.sun_r.misses, generated.sun_r.evictions,
-        generated.bcd_r.entries, generated.bcd_r.bytes, generated.bcd_r.hits, generated.bcd_r.misses, generated.bcd_r.evictions,
+        three_j.entries, three_j.bytes, three_j.hits, three_j.misses, three_j.evictions,
+        six_j.entries, six_j.bytes, six_j.hits, six_j.misses, six_j.evictions,
+        derived_f.entries, derived_f.bytes, derived_f.hits, derived_f.misses, derived_f.evictions,
+        sun_product.entries, sun_product.bytes, sun_product.hits, sun_product.misses, sun_product.evictions,
+        sun_cgc.entries, sun_cgc.bytes, sun_cgc.hits, sun_cgc.misses, sun_cgc.evictions,
+        sun_f.entries, sun_f.bytes, sun_f.hits, sun_f.misses, sun_f.evictions,
+        bcd_cgc.entries, bcd_cgc.bytes, bcd_cgc.hits, bcd_cgc.misses, bcd_cgc.evictions,
+        bcd_f.entries, bcd_f.bytes, bcd_f.hits, bcd_f.misses, bcd_f.evictions,
+        sun_r.entries, sun_r.bytes, sun_r.hits, sun_r.misses, sun_r.evictions,
+        bcd_r.entries, bcd_r.bytes, bcd_r.hits, bcd_r.misses, bcd_r.evictions,
         table.factorial_rows, table.primes, table.retained_capacity_bytes,
         start_live,
         end_live,

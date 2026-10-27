@@ -16,17 +16,23 @@
 //!   charge*, not RSS.
 //! - **A smaller ceiling, if you want one.** [`configure_cache_budgets`],
 //!   once, before first use. Shrink-only.
-//! - **Observation.** [`base_cache_stats`] / [`generated_cache_stats`].
+//! - **Observation.** [`tier_stats`] for one tier; iterate
+//!   [`CoefficientCacheTier::ALL`] for every tier in this build.
 //! - **Release.** [`trim_to`] (one tier, unspecified removal order) and [`reset`] (all
 //!   tiers). Both act on process-global state, so **a library must not call
 //!   them** — exactly one component in a process owns that policy.
 //!
 //! ```
-//! use fusion_symbols::cache::{base_cache_stats, BASE_CACHE_MAX_BYTES};
+//! use fusion_symbols::cache::{tier_stats, CoefficientCacheTier, BASE_CACHE_MAX_BYTES};
 //!
 //! let _ = fusion_symbols::lie::su2::wigner_6j(2, 2, 2, 2, 2, 2);
-//! let stats = base_cache_stats();
-//! assert!(stats.total().bytes <= BASE_CACHE_MAX_BYTES);
+//! let base = [
+//!     CoefficientCacheTier::ThreeJ,
+//!     CoefficientCacheTier::SixJ,
+//!     CoefficientCacheTier::DerivedF,
+//! ];
+//! let bytes: usize = base.into_iter().map(|tier| tier_stats(tier).bytes).sum();
+//! assert!(bytes <= BASE_CACHE_MAX_BYTES);
 //! ```
 //!
 //! The task-oriented version is in the [User Guide].
@@ -75,7 +81,7 @@
 //! holds as a corollary rather than needing global enforcement. The charge
 //! covers entries currently owned by the cache. It excludes quick_cache retained capacity and scaffolding, allocator metadata and RSS,
 //! transient or external clones, and values returned through public APIs.
-//! Per-tier and total statistics are exposed via [`base_cache_stats`]; reset
+//! Per-tier statistics are exposed via [`tier_stats`]; reset
 //! ownership is on [`reset`].
 
 use std::hash::Hash;
@@ -176,6 +182,30 @@ pub enum CoefficientCacheTier {
     #[cfg(feature = "lie-generated")]
     /// B/C/D R-symbol tier.
     BcdR,
+}
+
+impl CoefficientCacheTier {
+    /// Every tier compiled into this build: the base SU(2) tiers, then (with
+    /// `lie-generated`) the generated tiers.
+    pub const ALL: &'static [Self] = &[
+        Self::ThreeJ,
+        Self::SixJ,
+        Self::DerivedF,
+        #[cfg(feature = "lie-generated")]
+        Self::SunProduct,
+        #[cfg(feature = "lie-generated")]
+        Self::SunCgc,
+        #[cfg(feature = "lie-generated")]
+        Self::SunF,
+        #[cfg(feature = "lie-generated")]
+        Self::SunR,
+        #[cfg(feature = "lie-generated")]
+        Self::BcdCgc,
+        #[cfg(feature = "lie-generated")]
+        Self::BcdF,
+        #[cfg(feature = "lie-generated")]
+        Self::BcdR,
+    ];
 }
 
 impl std::fmt::Display for CoefficientCacheTier {
@@ -550,10 +580,10 @@ const _: () = assert!(BASE_CACHE_MAX_BYTES == 3 * DEFAULT_MAX_BYTES);
 /// `Σ tier charged bytes ≤ Σ tier caps = GENERATED_CACHE_MAX_BYTES` holds as a
 /// corollary without global enforcement.
 ///
-/// Per-tier and total statistics are exposed via [`generated_cache_stats`]. The
-/// the internal generator catalog is *not* a value cache (generator state, its own byte
-/// budget, per-`LieGroup` lifecycle) and is intentionally excluded from
-/// this budget and from these stats.
+/// Per-tier statistics are exposed via [`tier_stats`]. The internal generator
+/// catalog is *not* a value cache (generator state, its own byte budget,
+/// per-`LieGroup` lifecycle) and is intentionally excluded from this budget and
+/// from these stats.
 #[cfg(feature = "lie-generated")]
 pub const GENERATED_CACHE_MAX_BYTES: usize = (768 << 20) + (128 << 10);
 
@@ -572,24 +602,14 @@ const _: () = assert!(
             + bcd_r_cache::BCD_R_MAX_BYTES
 );
 
-/// Snapshot of the aggregate cache counters (3j and 6j kinds summed).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct CacheStats {
-    /// Lookups served from a retained value or a shared in-flight result.
-    pub hits: u64,
-    /// Successful computations/publications. Concurrent waiters count as hits;
-    /// errors and attempts to publish an already-retained key add no miss.
-    pub misses: u64,
-    /// Entries currently retained across both kinds.
-    pub entries: usize,
-    /// Conservatively charged bytes currently retained across both kinds.
-    pub bytes: usize,
-}
-
-/// Per-tier snapshot of one base SU(2) coefficient cache (3j, 6j, or derived-F).
+/// Snapshot of one coefficient-cache tier, returned by [`tier_stats`].
 ///
-/// The fields are consistent for the tier they describe (entries/bytes read
-/// under the tier lock). See [`base_cache_stats`] and [`BaseCacheStats`].
+/// Entries, bytes, misses and evictions are read under the tier's publication
+/// lock; hits are counted concurrently. A sum over several tiers combines
+/// independent snapshots, not one atomic whole-cache snapshot: this crate takes
+/// no global lock spanning the tiers, since that would serialize independent
+/// lookups while each tier's charged-entry cap already holds on its own.
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TierStats {
     /// Entries currently retained in this tier.
@@ -605,135 +625,6 @@ pub struct TierStats {
     /// over its lifetime. An entry larger than the retained-charge cap and an
     /// entry in a zero-budget tier both count as rejected evictions.
     pub evictions: u64,
-}
-
-/// Per-tier statistics for the three base SU(2) coefficient tiers.
-///
-/// Covers **only** the 3j, 6j, and derived-F tiers by definition — the base
-/// SU(2) provider surface. (This is distinct from the aggregate [`stats`], which
-/// under the `lie-generated` feature also sums the generated SU(N)/B/C/D tiers.)
-///
-/// # Snapshot consistency
-///
-/// Each per-tier [`TierStats`] is internally consistent (taken under that tier's
-/// publication lock). [`total`](BaseCacheStats::total) is a field-wise sum of the three
-/// per-tier snapshots, **not** a single global atomic snapshot: a concurrent
-/// filler can interleave between the tier reads, so the total is only
-/// eventually consistent. This crate does not take a global lock spanning the tiers —
-/// that would serialize otherwise-independent lookups for no correctness gain
-/// (the individual tier charged-entry caps already hold independently).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct BaseCacheStats {
-    /// The exact 3j tier.
-    pub three_j: TierStats,
-    /// The exact 6j tier.
-    pub six_j: TierStats,
-    /// The derived-f64 F-symbol tier.
-    pub derived_f: TierStats,
-}
-
-impl BaseCacheStats {
-    /// Field-wise sum of the three base tiers. See the type-level snapshot-
-    /// consistency note: this is a sum of per-tier snapshots, not an atomic
-    /// whole-cache snapshot.
-    pub fn total(&self) -> TierStats {
-        TierStats {
-            entries: self.three_j.entries + self.six_j.entries + self.derived_f.entries,
-            bytes: self.three_j.bytes + self.six_j.bytes + self.derived_f.bytes,
-            hits: self.three_j.hits + self.six_j.hits + self.derived_f.hits,
-            misses: self.three_j.misses + self.six_j.misses + self.derived_f.misses,
-            evictions: self.three_j.evictions + self.six_j.evictions + self.derived_f.evictions,
-        }
-    }
-}
-
-/// Per-tier statistics for the seven generated `lie-generated` tiers (SU(N) product,
-/// SU(N) CGC, SU(N) F, SU(N) R, B/C/D product+CGC, B/C/D F, B/C/D R).
-///
-/// **Unstable: shape may change.** The struct is `#[non_exhaustive]` — it is
-/// constructed only inside the crate (by [`generated_cache_stats`]); consumers
-/// read its fields or call [`total`](GeneratedCacheStats::total).
-///
-/// Reuses the base [`TierStats`] type (no new vocabulary). This covers **only**
-/// the generated SU(N)/B/C/D tiers — the base SU(2) surface is
-/// [`base_cache_stats`], and the aggregate [`stats`] sums both. Conservative
-/// retained entry charge is capped by [`GENERATED_CACHE_MAX_BYTES`]
-/// (`total().bytes ≤ GENERATED_CACHE_MAX_BYTES`).
-///
-/// # Snapshot consistency
-///
-/// Each per-tier [`TierStats`] is internally consistent (taken under that tier's
-/// publication lock). [`total`](GeneratedCacheStats::total) is a field-wise sum of the
-/// seven per-tier snapshots, **not** a single global atomic snapshot: a
-/// concurrent filler can interleave between the tier reads, so the total is only
-/// eventually consistent. This crate does not take a global lock spanning the tiers —
-/// that would serialize otherwise-independent lookups for no correctness gain
-/// (the individual tier charged-entry caps hold independently). Same contract as
-/// [`BaseCacheStats`].
-#[cfg(feature = "lie-generated")]
-#[non_exhaustive]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct GeneratedCacheStats {
-    /// The exact SU(N) tensor-product decomposition tier.
-    pub sun_product: TierStats,
-    /// The SU(N) CGC tier.
-    pub sun_cgc: TierStats,
-    /// The derived-f64 SU(N) F-symbol tier.
-    pub sun_f: TierStats,
-    /// The derived-f64 SU(N) R-symbol tier.
-    pub sun_r: TierStats,
-    /// The B/C/D exact-product and CGC value tier.
-    pub bcd_cgc: TierStats,
-    /// The derived-f64 B/C/D F-symbol tier.
-    pub bcd_f: TierStats,
-    /// The derived-f64 B/C/D R-symbol tier.
-    pub bcd_r: TierStats,
-}
-
-#[cfg(feature = "lie-generated")]
-impl GeneratedCacheStats {
-    /// Field-wise sum of the seven generated tiers. See the type-level snapshot-
-    /// consistency note: this is a sum of per-tier snapshots, not an atomic
-    /// whole-cache snapshot.
-    pub fn total(&self) -> TierStats {
-        TierStats {
-            entries: self.sun_product.entries
-                + self.sun_cgc.entries
-                + self.sun_f.entries
-                + self.sun_r.entries
-                + self.bcd_cgc.entries
-                + self.bcd_f.entries
-                + self.bcd_r.entries,
-            bytes: self.sun_product.bytes
-                + self.sun_cgc.bytes
-                + self.sun_f.bytes
-                + self.sun_r.bytes
-                + self.bcd_cgc.bytes
-                + self.bcd_f.bytes
-                + self.bcd_r.bytes,
-            hits: self.sun_product.hits
-                + self.sun_cgc.hits
-                + self.sun_f.hits
-                + self.sun_r.hits
-                + self.bcd_cgc.hits
-                + self.bcd_f.hits
-                + self.bcd_r.hits,
-            misses: self.sun_product.misses
-                + self.sun_cgc.misses
-                + self.sun_f.misses
-                + self.sun_r.misses
-                + self.bcd_cgc.misses
-                + self.bcd_f.misses
-                + self.bcd_r.misses,
-            evictions: self.sun_product.evictions
-                + self.sun_cgc.evictions
-                + self.sun_f.evictions
-                + self.sun_r.evictions
-                + self.bcd_cgc.evictions
-                + self.bcd_f.evictions
-                + self.bcd_r.evictions,
-        }
-    }
 }
 
 /// Conservative retained-byte charge for a stored value, implemented per value
@@ -1921,26 +1812,6 @@ pub(crate) fn bcd_cgc_is_resident(a: &bcd::Irrep, b: &bcd::Irrep, c: &bcd::Irrep
         .is_some()
 }
 
-const TIERS: &[CoefficientCacheTier] = &[
-    CoefficientCacheTier::ThreeJ,
-    CoefficientCacheTier::SixJ,
-    CoefficientCacheTier::DerivedF,
-    #[cfg(feature = "lie-generated")]
-    CoefficientCacheTier::SunProduct,
-    #[cfg(feature = "lie-generated")]
-    CoefficientCacheTier::SunCgc,
-    #[cfg(feature = "lie-generated")]
-    CoefficientCacheTier::SunF,
-    #[cfg(feature = "lie-generated")]
-    CoefficientCacheTier::SunR,
-    #[cfg(feature = "lie-generated")]
-    CoefficientCacheTier::BcdCgc,
-    #[cfg(feature = "lie-generated")]
-    CoefficientCacheTier::BcdF,
-    #[cfg(feature = "lie-generated")]
-    CoefficientCacheTier::BcdR,
-];
-
 fn control(tier: CoefficientCacheTier) -> &'static dyn TierControl {
     match tier {
         CoefficientCacheTier::ThreeJ => &*CACHE_3J,
@@ -1976,7 +1847,7 @@ fn control(tier: CoefficientCacheTier) -> &'static dyn TierControl {
 /// clear a cache another component is relying on, since there is one shared
 /// coefficient-value authority per process (consumers must not keep a mirror).
 pub fn reset() {
-    for &tier in TIERS {
+    for &tier in CoefficientCacheTier::ALL {
         control(tier).reset();
     }
 }
@@ -2012,58 +1883,10 @@ pub fn trim_to(tier: CoefficientCacheTier, target_charged_bytes: usize) -> Cache
     }
 }
 
-/// Aggregate hit/miss/entry/byte statistics across the 3j, 6j, and derived-f64
-/// F-symbol caches.
-pub fn stats() -> CacheStats {
-    TIERS
-        .iter()
-        .map(|&tier| control(tier).tier_stats())
-        .fold(CacheStats::default(), |sum, tier| CacheStats {
-            hits: sum.hits + tier.hits,
-            misses: sum.misses + tier.misses,
-            entries: sum.entries + tier.entries,
-            bytes: sum.bytes + tier.bytes,
-        })
-}
-
-/// Per-tier and total statistics for the three base SU(2) coefficient tiers
-/// (3j, 6j, derived-F).
-///
-/// Unlike the aggregate [`stats`] — which also sums the `lie-generated` generated
-/// tiers when that feature is on — this reports only the base SU(2) surface,
-/// split per tier, and adds the eviction counter. Conservative retained entry charge is capped by
-/// [`BASE_CACHE_MAX_BYTES`] (`total().bytes ≤ BASE_CACHE_MAX_BYTES`). See
-/// [`BaseCacheStats`] for the snapshot-consistency contract of `total()`.
-pub fn base_cache_stats() -> BaseCacheStats {
-    BaseCacheStats {
-        three_j: CACHE_3J.tier_stats(),
-        six_j: CACHE_6J.tier_stats(),
-        derived_f: CACHE_F.tier_stats(),
-    }
-}
-
-/// Per-tier and total statistics for the seven generated `lie-generated` tiers
-/// (SU(N) product, SU(N) CGC, SU(N) F, SU(N) R, B/C/D product+CGC, B/C/D F,
-/// B/C/D R).
-///
-/// The generated-family analogue of [`base_cache_stats`]: unlike the aggregate
-/// [`stats`] (which sums base *and* generated tiers into one flat
-/// [`CacheStats`]), this reports each generated tier separately, adds the
-/// eviction counter, and exposes a field-wise [`total`](GeneratedCacheStats::total).
-/// Conservative retained entry charge is capped by [`GENERATED_CACHE_MAX_BYTES`]
-/// (`total().bytes ≤ GENERATED_CACHE_MAX_BYTES`). See [`GeneratedCacheStats`]
-/// for the snapshot-consistency contract of `total()` and the stability caveat.
-#[cfg(feature = "lie-generated")]
-pub fn generated_cache_stats() -> GeneratedCacheStats {
-    GeneratedCacheStats {
-        sun_product: sun_product_cache::CACHE_SUN_PRODUCT.tier_stats(),
-        sun_cgc: cgc_cache::CACHE_CGC.tier_stats(),
-        sun_f: sun_f_cache::CACHE_SUN_F.tier_stats(),
-        sun_r: sun_r_cache::CACHE_SUN_R.tier_stats(),
-        bcd_cgc: bcd_cgc_cache::CACHE_BCD_CGC.tier_stats(),
-        bcd_f: bcd_f_cache::CACHE_BCD_F.tier_stats(),
-        bcd_r: bcd_r_cache::CACHE_BCD_R.tier_stats(),
-    }
+/// Statistics for one coefficient-cache tier. See [`TierStats`] for its
+/// snapshot-consistency contract.
+pub fn tier_stats(tier: CoefficientCacheTier) -> TierStats {
+    control(tier).tier_stats()
 }
 
 // Serialize unit tests that reset process-global coefficient caches.

@@ -1557,10 +1557,16 @@ mod tests {
         // global cache is shared with other tests running in parallel.
         let _ = wigner_6j(2, 2, 2, 2, 2, 2);
         let _ = wigner_3j(2, 2, 2, 2, 0, -2);
-        let s = crate::cache::stats();
-        assert!(s.hits + s.misses >= 1, "activity should register in stats");
+        let activity = || -> u64 {
+            crate::cache::CoefficientCacheTier::ALL
+                .iter()
+                .map(|&tier| crate::cache::tier_stats(tier))
+                .map(|s| s.hits + s.misses)
+                .sum()
+        };
+        assert!(activity() >= 1, "activity should register in stats");
         crate::cache::reset();
-        let _ = crate::cache::stats();
+        let _ = activity();
     }
 
     #[test]

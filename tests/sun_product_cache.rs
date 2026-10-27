@@ -34,7 +34,7 @@ fn sun_product_cache_contract() {
     let su4 = irr(&[1, 0, 0]);
     assert!(std::panic::catch_unwind(|| group(&su3).fusion(&su3, &su4)).is_err());
     assert_eq!(
-        cache::generated_cache_stats().sun_product,
+        cache::tier_stats(cache::CoefficientCacheTier::SunProduct),
         TierStats::default()
     );
 
@@ -43,7 +43,7 @@ fn sun_product_cache_contract() {
     let a = irr(&[2, 1]);
     let b = irr(&[1, 2]);
     let cold = outcomes(&a, &b);
-    let after_cold = cache::generated_cache_stats().sun_product;
+    let after_cold = cache::tier_stats(cache::CoefficientCacheTier::SunProduct);
     assert_eq!(after_cold.hits, 0);
     assert_eq!(after_cold.misses, 1);
     assert_eq!(after_cold.entries, 1);
@@ -51,7 +51,7 @@ fn sun_product_cache_contract() {
 
     let warm_reversed = outcomes(&b, &a);
     assert_eq!(warm_reversed, cold);
-    let after_warm = cache::generated_cache_stats().sun_product;
+    let after_warm = cache::tier_stats(cache::CoefficientCacheTier::SunProduct);
     assert_eq!(after_warm.hits, 1);
     assert_eq!(after_warm.misses, 1, "warm public map must not re-sweep");
     assert_eq!(after_warm.entries, 1);
@@ -63,7 +63,7 @@ fn sun_product_cache_contract() {
     assert_eq!(cat.nsymbol(&a, &b, channel), 1);
     assert_eq!(cat.nsymbol(&a, &b, &irr(&[99, 0])), 0);
     assert_eq!(cat.fusion(&b, &a).unwrap().collect::<Vec<_>>(), shared);
-    let after_shared = cache::generated_cache_stats().sun_product;
+    let after_shared = cache::tier_stats(cache::CoefficientCacheTier::SunProduct);
     assert_eq!(after_shared.hits, 5);
     assert_eq!(after_shared.misses, 1);
     assert_eq!(after_shared.entries, 1);
@@ -90,14 +90,14 @@ fn sun_product_cache_contract() {
         .map(|handle| handle.join().unwrap())
         .collect::<Vec<_>>();
     assert!(products.iter().all(|product| product == &products[0]));
-    let concurrent = cache::generated_cache_stats().sun_product;
+    let concurrent = cache::tier_stats(cache::CoefficientCacheTier::SunProduct);
     assert_eq!(concurrent.entries, 1);
     assert!((1..=8).contains(&concurrent.misses));
 
     let misses = concurrent.misses;
     let hits = concurrent.hits;
     assert_eq!(outcomes(&a, &b), products[0]);
-    let warm = cache::generated_cache_stats().sun_product;
+    let warm = cache::tier_stats(cache::CoefficientCacheTier::SunProduct);
     assert_eq!(warm.misses, misses, "warm call must not re-sweep");
     assert_eq!(warm.hits, hits + 1);
 
@@ -108,7 +108,7 @@ fn sun_product_cache_contract() {
     for label in 1..=257 {
         let _ = outcomes(&trivial, &irr(&[label, 0]));
     }
-    let entry_bound = cache::generated_cache_stats().sun_product;
+    let entry_bound = cache::tier_stats(cache::CoefficientCacheTier::SunProduct);
     assert_eq!(entry_bound.entries, 256);
     assert_eq!(entry_bound.evictions, 1);
     assert!(entry_bound.bytes < (128 << 10), "byte bound fired first");
@@ -123,7 +123,7 @@ fn sun_product_cache_contract() {
         .collect::<Vec<_>>();
     assert_eq!(channels, [1, 3, 5]);
     assert_eq!(
-        cache::generated_cache_stats().sun_product,
+        cache::tier_stats(cache::CoefficientCacheTier::SunProduct),
         TierStats::default()
     );
 }

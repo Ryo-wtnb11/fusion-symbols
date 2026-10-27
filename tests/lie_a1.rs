@@ -112,10 +112,12 @@ fn dense_cgc_matches_exact_in_ascending_magnetic_order() {
         }
     }
     // Dense materialization reuses the exact evaluator's cached 3j values.
-    let cached = fusion_symbols::cache::base_cache_stats().three_j;
+    let cached =
+        fusion_symbols::cache::tier_stats(fusion_symbols::cache::CoefficientCacheTier::ThreeJ);
     let half = cat.irrep(&[1], &[]).unwrap();
     cat.cgc(&half, &half, &cat.unit()).unwrap();
-    let warm = fusion_symbols::cache::base_cache_stats().three_j;
+    let warm =
+        fusion_symbols::cache::tier_stats(fusion_symbols::cache::CoefficientCacheTier::ThreeJ);
     assert_eq!(warm.misses, cached.misses);
     assert!(warm.hits > cached.hits);
     let huge = cat.irrep(&[i64::from(u32::MAX)], &[]).unwrap();

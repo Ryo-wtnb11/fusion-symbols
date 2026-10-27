@@ -722,11 +722,15 @@ fn resources_1() {
 /// `docs/user-guide/resources.md`.
 #[test]
 fn resources_2() {
-    use fusion_symbols::cache::{base_cache_stats, reset, trim_to, CoefficientCacheTier};
+    use fusion_symbols::cache::{reset, tier_stats, trim_to, CoefficientCacheTier};
 
-    let stats = base_cache_stats();
-    let _ = stats.six_j.entries; // per-tier entries / bytes / hits / misses / evictions
-    let _ = stats.total(); // field-wise sum across the base tiers
+    let stats = tier_stats(CoefficientCacheTier::SixJ);
+    let _ = stats.entries; // per-tier entries / bytes / hits / misses / evictions
+    let bytes: usize = CoefficientCacheTier::ALL
+        .iter()
+        .map(|&tier| tier_stats(tier).bytes)
+        .sum(); // a sum of independent per-tier snapshots
+    let _ = bytes;
 
     // Release one tier down to a target charge, with unspecified removal order.
     let report = trim_to(CoefficientCacheTier::SixJ, 0);

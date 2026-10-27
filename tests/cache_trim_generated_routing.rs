@@ -42,32 +42,11 @@ fn trim_routes_to_each_populated_generated_tier() {
         CoefficientCacheTier::BcdR,
     ];
     for tier in tiers {
-        let before = cache::generated_cache_stats();
-        let selected = match tier {
-            CoefficientCacheTier::SunProduct => before.sun_product,
-            CoefficientCacheTier::SunCgc => before.sun_cgc,
-            CoefficientCacheTier::SunF => before.sun_f,
-            CoefficientCacheTier::SunR => before.sun_r,
-            CoefficientCacheTier::BcdCgc => before.bcd_cgc,
-            CoefficientCacheTier::BcdF => before.bcd_f,
-            CoefficientCacheTier::BcdR => before.bcd_r,
-            _ => unreachable!(),
-        };
+        let selected = cache::tier_stats(tier);
         assert!(selected.entries > 0, "fixture must populate {tier}");
         let report = cache::trim_to(tier, 0);
         assert_eq!(report.removed_entries, selected.entries);
-        let after = cache::generated_cache_stats();
-        let now = match tier {
-            CoefficientCacheTier::SunProduct => after.sun_product,
-            CoefficientCacheTier::SunCgc => after.sun_cgc,
-            CoefficientCacheTier::SunF => after.sun_f,
-            CoefficientCacheTier::SunR => after.sun_r,
-            CoefficientCacheTier::BcdCgc => after.bcd_cgc,
-            CoefficientCacheTier::BcdF => after.bcd_f,
-            CoefficientCacheTier::BcdR => after.bcd_r,
-            _ => unreachable!(),
-        };
-        assert_eq!(now.entries, 0);
+        assert_eq!(cache::tier_stats(tier).entries, 0);
         if tier == CoefficientCacheTier::SunProduct {
             assert_eq!(
                 external_product.clone().count(),
