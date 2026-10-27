@@ -7,6 +7,8 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-28
+
 ### Added
 
 - G₂ coefficients through `LieGroup` (`lie-generated`): irreps, fusion, F, R,
@@ -952,7 +954,8 @@ SU(2) provider this rule is mechanized by `su2_authority_fingerprint()`: its
 epoch is bumped only on such a value-affecting release, so a fingerprint change
 and a breaking release are one reviewable event.
 
-[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.7.0...v0.8.0
