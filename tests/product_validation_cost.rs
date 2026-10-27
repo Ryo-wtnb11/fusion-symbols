@@ -3,15 +3,18 @@
 //! and nested products alike.
 use fusion_symbols::{
     category::{
-        BraidingStyle, EnumerationError, FBlock, FusionCategory, FusionStyle, RBlock, SymbolBlock,
+        BraidingStyle, EnumerationError, FBlock, FusionCategory, FusionStyle, GroupRepresentations,
+        RBlock, SymbolBlock,
     },
+    finite::ZN,
     product,
-    product::ProductError,
+    product::{Product, ProductError},
 };
 use std::cell::Cell;
 use std::convert::Infallible;
 
-// Leaf calls made by the product: dim, nsymbol, braiding_style, then the queried method.
+// Leaf calls made by the product: dim, nsymbol, braiding_style, then the queried
+// method; `contains` is counted separately.
 thread_local! { static CALLS: [Cell<usize>; 4] = const { [const { Cell::new(0) }; 4] }; }
 fn bump(i: usize) {
     CALLS.with(|c| c[i].set(c[i].get() + 1));
@@ -152,14 +155,16 @@ impl FusionCategory for Counter {
     }
 }
 
-/// Leaf calls `[dim, nsymbol, braiding_style, queried]` for each object query.
-fn costs<C: FusionCategory<Scalar = f64>>(cat: &C) -> [[usize; 4]; 11] {
+/// Leaf calls `([dim, nsymbol, braiding_style, queried], contains)` for each
+/// object query.
+fn costs<C: FusionCategory<Scalar = f64>>(cat: &C) -> [([usize; 4], usize); 11] {
     let u = cat.unit();
     take();
-    let mut out = [[0; 4]; 11];
+    CONTAINS.with(|c| c.set(0));
+    let mut out = [([0; 4], 0); 11];
     let mut record = |i: usize, value: f64| {
         assert_eq!(value, 1.0);
-        out[i] = take();
+        out[i] = (take(), CONTAINS.with(|c| c.replace(0)));
     };
     record(0, cat.dim(&u));
     record(1, (cat.dual(&u) == u) as u8 as f64);
@@ -179,23 +184,25 @@ fn costs<C: FusionCategory<Scalar = f64>>(cat: &C) -> [[usize; 4]; 11] {
     out
 }
 
-/// Exact leaf-call counts for a product of `k` leaf factors. F, R, A and B
-/// query N twice per leaf: once for the product shape and once to check that
-/// leaf's block against its own multiplicities. A and B also count the leaf's
-/// default derivation (one N, one F, three dimensions, duals).
-fn linear(k: usize) -> [[usize; 4]; 11] {
+/// Exact leaf-call counts for a product of `k` leaf factors. Each query
+/// validates its `m` objects with one `contains` per leaf (`m * k`) and never
+/// through `dim`; only the `dim` query itself asks each leaf's dimension. F, R,
+/// A and B query N twice per leaf: once for the product shape and once to check
+/// that leaf's block against its own multiplicities. A and B also count the
+/// leaf's default derivation (one N, one F, three dimensions, duals).
+fn linear(k: usize) -> [([usize; 4], usize); 11] {
     [
-        [k, 0, 0, 0],             // dim
-        [k, 0, 0, k],             // dual
-        [k, 0, 0, k],             // frobenius_schur_phase
-        [k, 0, 0, k],             // frobenius_schur_indicator
-        [k, 0, k, k],             // twist
-        [2 * k, 0, 0, k],         // fusion
-        [3 * k, k, 0, 0],         // nsymbol
-        [6 * k, 8 * k, 0, k],     // f_symbol
-        [3 * k, 4 * k, k, k],     // r_symbol
-        [6 * k, 5 * k, 0, 5 * k], // a_symbol (leaf default: dual, F, FS phase)
-        [6 * k, 5 * k, 0, 4 * k], // b_symbol (leaf default: dual, F)
+        ([k, 0, 0, 0], 0),                 // dim
+        ([0, 0, 0, k], k),                 // dual
+        ([0, 0, 0, k], k),                 // frobenius_schur_phase
+        ([0, 0, 0, k], k),                 // frobenius_schur_indicator
+        ([0, 0, k, k], k),                 // twist
+        ([0, 0, 0, k], 2 * k),             // fusion
+        ([0, k, 0, 0], 3 * k),             // nsymbol
+        ([0, 8 * k, 0, k], 6 * k),         // f_symbol
+        ([0, 4 * k, k, k], 3 * k),         // r_symbol
+        ([3 * k, 5 * k, 0, 5 * k], 3 * k), // a_symbol (leaf default: dims, dual, F, FS phase)
+        ([3 * k, 5 * k, 0, 4 * k], 3 * k), // b_symbol (leaf default: dims, dual, F)
     ]
 }
 
@@ -251,22 +258,46 @@ fn nested_product_leaf_calls_are_linear() {
     assert_eq!(costs(&balanced), linear(8));
 }
 
+/// Asserts that `f` panics with the product's own diagnostic, which proves
+/// that the product check, not a leaf's, rejected the object.
+fn product_panic<R>(f: impl FnOnce() -> R + std::panic::UnwindSafe) {
+    let payload = std::panic::catch_unwind(f).err().expect("no panic");
+    let message = payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or(payload.downcast_ref::<String>().map(String::as_str));
+    assert_eq!(message, Some("foreign product object"));
+}
+
 #[test]
 fn nested_foreign_objects_still_panic() {
     let c = Counter;
     let cat = product(product(c.clone(), c.clone()), c);
     let u = cat.unit();
     let bad = ((0, 1), 0);
-    assert!(std::panic::catch_unwind(|| cat.dual(&bad)).is_err());
-    assert!(std::panic::catch_unwind(|| cat.twist(&bad)).is_err());
-    assert!(std::panic::catch_unwind(|| cat.fusion(&u, &bad).map(|_| ())).is_err());
-    assert!(std::panic::catch_unwind(|| cat.nsymbol(&u, &u, &bad)).is_err());
-    assert!(
-        std::panic::catch_unwind(|| cat.f_symbol(&u, &u, &u, &u, &u, &bad).map(|_| ())).is_err()
-    );
-    assert!(std::panic::catch_unwind(|| cat.r_symbol(&u, &u, &bad).map(|_| ())).is_err());
-    assert!(std::panic::catch_unwind(|| cat.a_symbol(&bad, &u, &u).map(|_| ())).is_err());
-    assert!(std::panic::catch_unwind(|| cat.b_symbol(&u, &bad, &u).map(|_| ())).is_err());
+    product_panic(|| cat.dual(&bad));
+    product_panic(|| cat.frobenius_schur_phase(&bad));
+    product_panic(|| cat.frobenius_schur_indicator(&bad));
+    product_panic(|| cat.twist(&bad));
+    product_panic(|| cat.fusion(&u, &bad).map(|_| ()));
+    product_panic(|| cat.nsymbol(&u, &u, &bad));
+    product_panic(|| cat.try_nsymbol(&u, &u, &bad));
+    product_panic(|| cat.f_symbol(&u, &u, &u, &u, &u, &bad).map(|_| ()));
+    product_panic(|| cat.r_symbol(&u, &u, &bad).map(|_| ()));
+    product_panic(|| cat.a_symbol(&bad, &u, &u).map(|_| ()));
+    product_panic(|| cat.b_symbol(&u, &bad, &u).map(|_| ()));
+}
+
+#[test]
+fn foreign_cgc_objects_panic_in_the_product() {
+    let (z2, z3) = (ZN::new(2).unwrap(), ZN::new(3).unwrap());
+    let foreign = z3.unit();
+    let tuple = product(z2, z2);
+    let u = tuple.unit();
+    product_panic(|| tuple.cgc(&u, &(u.0, foreign), &u));
+    let vector = Product::new(vec![z2, z2]);
+    let v = vector.unit();
+    product_panic(|| vector.cgc(&v, &v, &vec![v[0], foreign]));
 }
 
 /// Reports `N = 2` everywhere but returns 1x1 blocks.
@@ -287,6 +318,9 @@ impl FusionCategory for Malformed {
     }
     fn unit(&self) -> u8 {
         0
+    }
+    fn contains(&self, a: &u8) -> bool {
+        *a == 0
     }
     fn dual(&self, _: &u8) -> u8 {
         0

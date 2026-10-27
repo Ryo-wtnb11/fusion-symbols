@@ -339,6 +339,9 @@ impl FusionCategory for Probe {
     fn unit(&self) -> u8 {
         0
     }
+    fn contains(&self, a: &u8) -> bool {
+        *a < 6
+    }
     fn dim(&self, a: &u8) -> f64 {
         assert!(*a < 6, "foreign probe object");
         1.0
@@ -1165,4 +1168,114 @@ fn runtime_complex_scalars_and_enumeration_overflow() {
         let a = large.object_at(i).unwrap();
         assert_eq!(large.object_index(&a), Ok(i));
     }
+}
+
+type Flat<const R: usize> = ([usize; R], Vec<u64>);
+fn flat<const R: usize>(b: &impl SymbolBlock<R, Scalar = f64>) -> Flat<R> {
+    (b.dims(), b.as_slice().iter().map(|x| x.to_bits()).collect())
+}
+/// F, then R, A and B at fixed objects, as storage shapes and value bits.
+fn frab<C: FusionCategory<Scalar = f64>>(
+    cat: &C,
+    [a, b, c]: [&C::Object; 3],
+    [fa, fb, fc, fd, fe, ff]: [&C::Object; 6],
+) -> (Flat<4>, [Flat<2>; 3]) {
+    (
+        flat(&cat.f_symbol(fa, fb, fc, fd, fe, ff).unwrap()),
+        [
+            flat(&cat.r_symbol(a, b, c).unwrap()),
+            flat(&cat.a_symbol(a, b, c).unwrap()),
+            flat(&cat.b_symbol(a, b, c).unwrap()),
+        ],
+    )
+}
+/// Row-major Kronecker product, decoding each output element independently:
+/// every axis index is `left_index * right_dim + right_index`.
+fn naive_kron<const R: usize>((ld, l): &Flat<R>, (rd, r): &Flat<R>) -> Flat<R> {
+    let dims: [usize; R] = std::array::from_fn(|i| ld[i] * rd[i]);
+    let offset = |idx: [usize; R], dims: [usize; R]| (0..R).fold(0, |o, i| o * dims[i] + idx[i]);
+    let data = (0..dims.iter().product())
+        .map(|mut k| {
+            let mut idx = [0; R];
+            for i in (0..R).rev() {
+                idx[i] = k % dims[i];
+                k /= dims[i];
+            }
+            let x = f64::from_bits(l[offset(std::array::from_fn(|i| idx[i] / rd[i]), *ld)]);
+            let y = f64::from_bits(r[offset(std::array::from_fn(|i| idx[i] % rd[i]), *rd)]);
+            (x * y).to_bits()
+        })
+        .collect();
+    (dims, data)
+}
+/// Left fold of the leaf factors' F/R/A/B, as the product promises.
+fn naive_product(leaves: &[(Flat<4>, [Flat<2>; 3])]) -> (Flat<4>, [Flat<2>; 3]) {
+    let (first, rest) = leaves.split_first().unwrap();
+    rest.iter().fold(first.clone(), |(f, rab), (g, sab)| {
+        (
+            naive_kron(&f, g),
+            std::array::from_fn(|i| naive_kron(&rab[i], &sab[i])),
+        )
+    })
+}
+
+// Validation must not perturb values: product F/R/A/B equal, bit for bit, the
+// left-folded Kronecker product of the leaves' public symbols.
+// SU(3) octets carry fusion multiplicity two, so every axis is nontrivial.
+#[cfg(feature = "lie-generated")]
+#[test]
+fn product_symbols_are_bitwise_leaf_kronecker_products() {
+    use fusion_symbols::finite::ZNIrrep;
+    let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+    let o = su3.irrep(&[1, 1], &[]).unwrap();
+    let leaf = frab(&su3, [&o; 3], [&o; 6]);
+
+    let p = product(su3.clone(), su3.clone());
+    let x = (o.clone(), o.clone());
+    assert_eq!(
+        frab(&p, [&x; 3], [&x; 6]),
+        naive_product(&[leaf.clone(), leaf.clone()])
+    );
+
+    let q = product(p, su3.clone());
+    let y = (x, o.clone());
+    assert_eq!(
+        frab(&q, [&y; 3], [&y; 6]),
+        naive_product(&[leaf.clone(), leaf.clone(), leaf.clone()])
+    );
+
+    let z3 = ZN::new(3).unwrap();
+    let [z0, z1, z2] = [0, 1, 2].map(|k| ZNIrrep::new(k, 3).unwrap());
+    let w = product(z3, su3.clone());
+    let [a, b, c] = [&z1, &z2, &z0].map(|z| (*z, o.clone()));
+    assert_eq!(
+        frab(&w, [&a, &b, &c], [&a, &b, &a, &a, &c, &c]),
+        naive_product(&[
+            frab(&z3, [&z1, &z2, &z0], [&z1, &z2, &z1, &z1, &z0, &z0]),
+            leaf,
+        ])
+    );
+}
+
+#[test]
+fn multiplicity_free_product_symbols_are_bitwise_leaf_kronecker_products() {
+    let s = su2();
+    let h = s.irrep(&[1], &[]).unwrap();
+    let (p1, m1, u0) = (
+        U1Irrep::new(1).unwrap(),
+        U1Irrep::new(-1).unwrap(),
+        U1.unit(),
+    );
+    let mf = product(s.clone(), U1);
+    let a = (h.clone(), p1);
+    let b = (h.clone(), m1);
+    let one = mf.unit();
+    let z = s.unit();
+    assert_eq!(
+        frab(&mf, [&a, &b, &one], [&a, &b, &a, &a, &one, &one]),
+        naive_product(&[
+            frab(&s, [&h, &h, &z], [&h, &h, &h, &h, &z, &z]),
+            frab(&U1, [&p1, &m1, &u0], [&p1, &m1, &p1, &p1, &u0, &u0]),
+        ])
+    );
 }

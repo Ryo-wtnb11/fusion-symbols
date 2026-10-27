@@ -511,10 +511,17 @@ fn restarted<I: Iterator + Clone>(initial: &I, skip: usize) -> (I, I::Item) {
     (active, value)
 }
 
+// Every product query and CGC validates here, so the diagnostic cannot drift.
+fn validate<C: FusionCategory>(cat: &C, objects: &[&C::Object]) {
+    for a in objects {
+        assert!(cat.contains(a), "foreign product object");
+    }
+}
+
 macro_rules! product_queries {
     ($this:ident; $braidings:expr) => {
             fn dual(&$this, a: &Self::Object) -> Self::Object {
-                $this.dim(a);
+                validate($this, &[a]);
                 $this.__fusion_symbols_validated_dual(a, Validated(()))
             }
             fn object_count(&$this) -> Result<Option<u64>, EnumerationError> {
@@ -530,33 +537,33 @@ macro_rules! product_queries {
                 $this.__fusion_symbols_counted_object_at(index, &count, t)
             }
             fn object_index(&$this, a: &Self::Object) -> Result<u64, EnumerationError> {
-                assert!($this.contains(a), "foreign product object");
+                validate($this, &[a]);
                 let Ranked { index, .. } = $this.__fusion_symbols_validated_object_index(a, Validated(()))?;
                 u64::try_from(index).map_err(|_| EnumerationError::Overflow)
             }
             fn frobenius_schur_phase(&$this, a: &Self::Object) -> Self::Scalar {
-                $this.dim(a);
+                validate($this, &[a]);
                 $this.__fusion_symbols_validated_frobenius_schur_phase(a, Validated(()))
             }
             fn frobenius_schur_indicator(&$this, a: &Self::Object) -> Self::Scalar {
-                $this.dim(a);
+                validate($this, &[a]);
                 $this.__fusion_symbols_validated_frobenius_schur_indicator(a, Validated(()))
             }
             fn twist(&$this, a: &Self::Object) -> Self::Scalar {
-                $this.dim(a);
+                validate($this, &[a]);
                 if let Some(factor) = ($braidings).into_iter().position(|s| s == BraidingStyle::None) {
                     panic!("product factor {factor} has no braiding");
                 }
                 $this.__fusion_symbols_validated_twist(a, Validated(()))
             }
             fn fusion<'a>(&'a $this, a: &Self::Object, b: &Self::Object) -> Result<Self::Fusion<'a>, Self::Error> {
-                for a in [a, b] { $this.dim(a); }
+                validate($this, &[a, b]);
                 $this.__fusion_symbols_validated_fusion(a, b, Validated(()))
             }
             /// Panics only if a nonzero product multiplicity exceeds `u32`, or an object is foreign;
             /// [`FusionCategory::try_nsymbol`] reports the former as an error.
             fn nsymbol(&$this, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> u32 {
-                for a in [a, b, c] { $this.dim(a); }
+                validate($this, &[a, b, c]);
                 $this.__fusion_symbols_validated_nsymbol(a, b, c, Validated(()))
             }
             /// A zero factor multiplicity beats both factor failures and overflow.
@@ -564,11 +571,11 @@ macro_rules! product_queries {
             /// position or vector index, then [`ProductError::Overflow`] if the
             /// product multiplicity exceeds `u32`. Foreign objects panic.
             fn try_nsymbol(&$this, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<u32, Self::Error> {
-                for a in [a, b, c] { $this.dim(a); }
+                validate($this, &[a, b, c]);
                 $this.__fusion_symbols_validated_try_nsymbol(a, b, c, Validated(()))
             }
             fn f_symbol(&$this, a: &Self::Object, b: &Self::Object, c: &Self::Object, d: &Self::Object, e: &Self::Object, f: &Self::Object) -> Result<Self::FSymbol, Self::Error> {
-                for a in [a, b, c, d, e, f] { $this.dim(a); }
+                validate($this, &[a, b, c, d, e, f]);
                 let t = Validated(());
                 let n = |x, y, z| $this.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
                 let dims = shape::<Self::Scalar, 4>([n(a, b, e)?, n(e, c, d)?, n(b, c, f)?, n(a, f, d)?]).ok_or(ProductError::Overflow)?;
@@ -578,7 +585,7 @@ macro_rules! product_queries {
                 Ok(block)
             }
             fn r_symbol(&$this, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<Self::RSymbol, Self::Error> {
-                for a in [a, b, c] { $this.dim(a); }
+                validate($this, &[a, b, c]);
                 if let Some(factor) = ($braidings).into_iter().position(|s| s == BraidingStyle::None) {
                     return Err(ProductError::NoBraiding { factor });
                 }
@@ -593,7 +600,7 @@ macro_rules! product_queries {
             // Tuple and vector products use factor Kronecker products as for F/R
             // (TensorKitSectors `product.jl::Asymbol`); braiding is not needed.
             fn a_symbol(&$this, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<RBlock<Self::Scalar>, Self::Error> {
-                for a in [a, b, c] { $this.dim(a); }
+                validate($this, &[a, b, c]);
                 let t = Validated(());
                 let n = |x, y, z| $this.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
                 let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(&$this.__fusion_symbols_validated_dual(a, t), c, b)?]).ok_or(ProductError::Overflow)?;
@@ -604,7 +611,7 @@ macro_rules! product_queries {
             }
             // Same composition as `product.jl::Bsymbol`, for tuple and vector factors.
             fn b_symbol(&$this, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<RBlock<Self::Scalar>, Self::Error> {
-                for a in [a, b, c] { $this.dim(a); }
+                validate($this, &[a, b, c]);
                 let t = Validated(());
                 let n = |x, y, z| $this.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
                 let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(c, &$this.__fusion_symbols_validated_dual(b, t), a)?]).ok_or(ProductError::Overflow)?;
@@ -660,9 +667,10 @@ macro_rules! impl_product {
             fn contains(&self, a: &Self::Object) -> bool {
                 self.factors.0.contains(&a.0) $(&& self.factors.$i.contains(&a.$i))+
             }
-            // Public queries validate every leaf object once through `dim`, which
-            // never re-validates, then use the `__fusion_symbols_validated_*` paths below.
-
+            // Public queries validate every leaf object once through `contains`, then
+            // use the `__fusion_symbols_validated_*` paths below. Not through `dim`:
+            // a leaf dimension may be an exact Weyl-formula evaluation, while
+            // membership is O(1) by the `contains` contract.
             fn dim(&self, a: &Self::Object) -> f64 {
                 let value = self.factors.0.dim(&a.0); $(let value = value * self.factors.$i.dim(&a.$i);)+ value
             }
@@ -781,7 +789,7 @@ macro_rules! impl_product {
         {
             type Cgc = ($C0::Cgc, $($C::Cgc,)+);
             fn cgc(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<Self::Cgc, Self::Error> {
-                self.dim(a); self.dim(b); self.dim(c);
+                validate(self, &[a, b, c]);
                 let blocks = (self.factors.0.cgc(&a.0, &b.0, &c.0).map_err(ProductError::Factor0)?,
                     $(self.factors.$i.cgc(&a.$i, &b.$i, &c.$i).map_err(ProductError::$Err)?,)+);
                 cgc_dims([blocks.0.dims(), $(blocks.$i.dims()),+]).ok_or(ProductError::Overflow)?;
@@ -1212,9 +1220,7 @@ where
         b: &Self::Object,
         c: &Self::Object,
     ) -> Result<Self::Cgc, Self::Error> {
-        self.dim(a);
-        self.dim(b);
-        self.dim(c);
+        validate(self, &[a, b, c]);
         let blocks: Vec<_> = self
             .factors
             .iter()

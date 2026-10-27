@@ -108,6 +108,14 @@ value/gauge rule noted below.
   default 256 MiB budget `LieGroup::new` rejects B/C/D ranks whose defining
   generators exceed it (roughly rank 200); raise the budget for larger ranks.
 
+### Performance
+
+- Products validate factor objects with the O(1) `contains` instead of
+  evaluating factor dimensions, which for SU(N) and B/C/D groups is an exact
+  Weyl-formula evaluation (SU(3)×SU(3) octet F: about 9.4 → 1.8 µs). Values are
+  bit-identical. A foreign factor object in a product now panics with
+  "foreign product object" rather than the factor's own message (#201).
+
 ## [0.8.1] - 2026-10-24
 
 ### Performance
