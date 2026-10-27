@@ -6,7 +6,7 @@ use fusion_symbols::{
     cache,
     category::FusionCategory,
     lie::{GroupId, LieGroup},
-    product,
+    product::Product,
 };
 
 use std::sync::atomic::AtomicUsize;
@@ -116,11 +116,11 @@ fn warm_ab_allocate_only_leaf_blocks_and_one_buffer_per_product_level() {
     let adj = sp4.irrep(&[2, 0], &[]).unwrap();
     check("Sp4", &sp4, &v, &adj, &v, &[]);
 
-    let p = product(su3.clone(), su3.clone());
+    let p = Product::new((su3.clone(), su3.clone()));
     let x = (oct.clone(), oct.clone());
     // Two leaf blocks and the one output buffer.
     let nn = check("SU3xSU3", &p, &x, &x, &x, &[n, n, n * n]);
-    let p = product(p, su3);
+    let p = Product::new((p, su3));
     let x = (x, oct);
     // Three leaf blocks, the nested factor's own block, and the output buffer.
     check("(SU3xSU3)xSU3", &p, &x, &x, &x, &[n, n, nn, n, nn * n]);

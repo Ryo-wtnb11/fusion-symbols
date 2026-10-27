@@ -78,15 +78,6 @@ impl ZNIrrep {
         Ok(Self { modulus, charge })
     }
 
-    /// The unit, charge `0`, of `Z_modulus`.
-    ///
-    /// # Errors
-    ///
-    /// [`ZNError::ZeroModulus`] for `modulus == 0`.
-    pub fn unit(modulus: u32) -> Result<Self, ZNError> {
-        Self::new(0, modulus)
-    }
-
     /// The charge, in `0..modulus`.
     pub const fn charge(self) -> u32 {
         self.charge
@@ -287,7 +278,6 @@ mod tests {
     fn constructors_and_integer_extremes() {
         assert_eq!(ZN::new(0), Err(ZNError::ZeroModulus));
         assert_eq!(ZNIrrep::new(3, 0), Err(ZNError::ZeroModulus));
-        assert_eq!(ZNIrrep::unit(0), Err(ZNError::ZeroModulus));
         assert_eq!(ZNIrrep::from_canonical(0, 0), Err(ZNError::ZeroModulus));
         assert_eq!(
             ZNIrrep::from_canonical(3, 3),
@@ -318,10 +308,10 @@ mod tests {
         );
         assert_eq!(cat.dual(&edge), zn(1, u32::MAX));
         assert_eq!(ZN::new(5).unwrap().dual(&zn(0, 5)), zn(0, 5));
-        assert_eq!(zn(5, 1), ZNIrrep::unit(1).unwrap());
+        assert_eq!(zn(5, 1), ZN::new(1).unwrap().unit());
         assert_eq!(
             U1Irrep::new(i32::MIN),
-            Err(U1Error::U1ChargeOutOfRange {
+            Err(U1Error::LabelOverflow {
                 charge: i64::from(i32::MIN)
             })
         );
@@ -336,13 +326,13 @@ mod tests {
         let (max, min) = (u1(i32::MAX), u1(i32::MIN + 1));
         assert_eq!(
             U1.fusion(&max, &u1(1)).unwrap_err(),
-            U1Error::U1ChargeOutOfRange {
+            U1Error::LabelOverflow {
                 charge: i64::from(i32::MAX) + 1
             }
         );
         assert_eq!(
             U1.fusion(&min, &u1(-1)).unwrap_err(),
-            U1Error::U1ChargeOutOfRange {
+            U1Error::LabelOverflow {
                 charge: i64::from(i32::MIN)
             }
         );

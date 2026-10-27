@@ -58,6 +58,27 @@ pub struct Product<C> {
 }
 impl<C> Product<C> {
     /// Construct a tuple product (2..=12 factors) or a homogeneous vector product (any length).
+    ///
+    /// A factor that is itself a product stays one immediate factor.
+    ///
+    /// ```
+    /// use fusion_symbols::{fermion::FermionParity, lie::U1, product::Product};
+    /// let cat = Product::new((U1, FermionParity, U1));
+    /// assert_eq!(cat.into_factors(), (U1, FermionParity, U1));
+    /// let chain = Product::new(vec![U1; 3]);
+    /// assert_eq!(chain.factors().len(), 3);
+    /// ```
+    ///
+    /// Tuples outside 2..=12 factors are not categories:
+    ///
+    /// ```compile_fail
+    /// use fusion_symbols::{lie::U1, product::Product};
+    /// let _ = Product::new((U1,));
+    /// ```
+    /// ```compile_fail
+    /// use fusion_symbols::{lie::U1, product::Product};
+    /// let _ = Product::new((U1, U1, U1, U1, U1, U1, U1, U1, U1, U1, U1, U1, U1));
+    /// ```
     pub fn new(factors: C) -> Self
     where
         Self: FusionCategory,
@@ -91,74 +112,6 @@ impl<C: fmt::Debug> fmt::Debug for Product<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Product").field(&self.factors).finish()
     }
-}
-
-/// Construct a binary product, preserving any explicit nesting.
-pub fn product<A, B>(a: A, b: B) -> Product<(A, B)>
-where
-    Product<(A, B)>: FusionCategory,
-{
-    Product::new((a, b))
-}
-
-/// Compose 3..=12 factors, evaluating each expression once. A trailing comma is allowed.
-///
-/// ```
-/// use fusion_symbols::{lie::U1, fermion::FermionParity, product};
-/// let cat = product![U1, FermionParity, U1,];
-/// assert_eq!(cat.into_factors(), (U1, FermionParity, U1));
-/// ```
-/// ```compile_fail
-/// use fusion_symbols::{lie::U1, product};
-/// let _ = product![U1];
-/// ```
-/// ```compile_fail
-/// use fusion_symbols::{lie::U1, product};
-/// let _ = product![U1,U1,U1,U1,U1,U1,U1,U1,U1,U1,U1,U1,U1];
-/// ```
-#[macro_export]
-macro_rules! product {
-    ($a0:expr, $a1:expr, $a2:expr $(,)?) => {
-        $crate::product::Product::new(($a0, $a1, $a2))
-    };
-    ($a0:expr, $a1:expr, $a2:expr, $a3:expr $(,)?) => {
-        $crate::product::Product::new(($a0, $a1, $a2, $a3))
-    };
-    ($a0:expr, $a1:expr, $a2:expr, $a3:expr, $a4:expr $(,)?) => {
-        $crate::product::Product::new(($a0, $a1, $a2, $a3, $a4))
-    };
-    ($a0:expr, $a1:expr, $a2:expr, $a3:expr, $a4:expr, $a5:expr $(,)?) => {
-        $crate::product::Product::new(($a0, $a1, $a2, $a3, $a4, $a5))
-    };
-    ($a0:expr, $a1:expr, $a2:expr, $a3:expr, $a4:expr, $a5:expr, $a6:expr $(,)?) => {
-        $crate::product::Product::new(($a0, $a1, $a2, $a3, $a4, $a5, $a6))
-    };
-    ($a0:expr, $a1:expr, $a2:expr, $a3:expr, $a4:expr, $a5:expr, $a6:expr, $a7:expr $(,)?) => {
-        $crate::product::Product::new(($a0, $a1, $a2, $a3, $a4, $a5, $a6, $a7))
-    };
-    ($a0:expr, $a1:expr, $a2:expr, $a3:expr, $a4:expr, $a5:expr, $a6:expr, $a7:expr, $a8:expr $(,)?) => {
-        $crate::product::Product::new(($a0, $a1, $a2, $a3, $a4, $a5, $a6, $a7, $a8))
-    };
-    ($a0:expr, $a1:expr, $a2:expr, $a3:expr, $a4:expr, $a5:expr, $a6:expr, $a7:expr, $a8:expr, $a9:expr $(,)?) => {
-        $crate::product::Product::new(($a0, $a1, $a2, $a3, $a4, $a5, $a6, $a7, $a8, $a9))
-    };
-    ($a0:expr, $a1:expr, $a2:expr, $a3:expr, $a4:expr, $a5:expr, $a6:expr, $a7:expr, $a8:expr, $a9:expr, $a10:expr $(,)?) => {
-        $crate::product::Product::new(($a0, $a1, $a2, $a3, $a4, $a5, $a6, $a7, $a8, $a9, $a10))
-    };
-    ($a0:expr, $a1:expr, $a2:expr, $a3:expr, $a4:expr, $a5:expr, $a6:expr, $a7:expr, $a8:expr, $a9:expr, $a10:expr, $a11:expr $(,)?) => {
-        $crate::product::Product::new((
-            $a0, $a1, $a2, $a3, $a4, $a5, $a6, $a7, $a8, $a9, $a10, $a11,
-        ))
-    };
-    ($a:expr $(,)?) => {
-        compile_error!("product! requires 3..=12 factors; use product(a, b) for two")
-    };
-    ($a0:expr, $a1:expr, $a2:expr, $a3:expr, $a4:expr, $a5:expr, $a6:expr, $a7:expr, $a8:expr, $a9:expr, $a10:expr, $a11:expr, $a12:expr $(, $rest:expr)* $(,)?) => {
-        compile_error!("product! supports at most 12 immediate factors")
-    };
-    ($($other:tt)*) => {
-        compile_error!("product! requires 3..=12 factors")
-    };
 }
 
 /// Factor failures retain their concrete error types and immediate positions.
@@ -1747,12 +1700,12 @@ mod tests {
             .map(f64::to_bits)
             .collect();
         assert_eq!(
-            query(&product(FermionParity, good.clone()), symbol).unwrap(),
+            query(&Product::new((FermionParity, good.clone())), symbol).unwrap(),
             (vec![2; rank], values.clone())
         );
         assert_eq!(
             query(
-                &product(product(good, FermionParity), FermionParity),
+                &Product::new((Product::new((good, FermionParity)), FermionParity)),
                 symbol
             )
             .unwrap(),
@@ -1799,23 +1752,23 @@ mod tests {
                 storage_len,
             };
             assert_eq!(
-                query(&product(bad.clone(), FermionParity), symbol),
+                query(&Product::new((bad.clone(), FermionParity)), symbol),
                 Err(expected(0))
             );
             assert_eq!(
-                query(&product(FermionParity, bad.clone()), symbol),
+                query(&Product::new((FermionParity, bad.clone())), symbol),
                 Err(expected(1))
             );
             assert_eq!(
                 query(
-                    &product(product(bad.clone(), FermionParity), FermionParity),
+                    &Product::new((Product::new((bad.clone(), FermionParity)), FermionParity)),
                     symbol
                 ),
                 Err(ProductError::Factor0(expected(0)))
             );
             assert_eq!(
                 query(
-                    &product(FermionParity, product(FermionParity, bad.clone())),
+                    &Product::new((FermionParity, Product::new((FermionParity, bad.clone())))),
                     symbol
                 ),
                 Err(ProductError::Factor1(expected(1)))
@@ -1839,11 +1792,15 @@ mod tests {
             );
             let zero = Blocks { n: 0, fault };
             assert_eq!(
-                query(&product(bad.clone(), zero.clone()), symbol).unwrap(),
+                query(&Product::new((bad.clone(), zero.clone())), symbol).unwrap(),
                 (vec![0; rank], vec![])
             );
             assert_eq!(
-                query(&product(product(zero, bad), FermionParity), symbol).unwrap(),
+                query(
+                    &Product::new((Product::new((zero, bad)), FermionParity)),
+                    symbol
+                )
+                .unwrap(),
                 (vec![0; rank], vec![])
             );
         }
@@ -1852,7 +1809,7 @@ mod tests {
             fault: Fault::None,
         };
         assert!(matches!(
-            query(&product(overflow, FermionParity), symbol),
+            query(&Product::new((overflow, FermionParity)), symbol),
             Err(ProductError::Overflow)
         ));
     }

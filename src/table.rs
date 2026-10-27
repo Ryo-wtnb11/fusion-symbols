@@ -96,13 +96,13 @@ const ISING_UUID: &str = "37fa4e56-97c6-11f1-907a-eb6ab8e8bc11";
 ///
 /// Enumeration (frozen): the source object order of [`Self::objects`]; the
 /// object with one-based source index `i` has enumeration index `i − 1`, and
-/// the count is [`Self::rank`]. Ising is therefore `(I, ψ, σ)`, unlike
+/// the count is [`FusionCategory::object_count`]. Ising is therefore `(I, ψ, σ)`, unlike
 /// TensorKitSectors' `IsingAnyon` order `(I, σ, ψ)`.
 ///
 /// # Examples
 ///
 /// ```
-/// use fusion_symbols::{category::FusionCategory, table::TableCategory};
+/// use fusion_symbols::{category::{BraidingStyle, FusionCategory}, table::TableCategory};
 ///
 /// let fib = TableCategory::fibonacci();
 /// let tau = fib.object(2)?;
@@ -110,7 +110,7 @@ const ISING_UUID: &str = "37fa4e56-97c6-11f1-907a-eb6ab8e8bc11";
 /// assert!((fib.dim(&tau) - (1.0 + 5f64.sqrt()) / 2.0).abs() < 1e-15);
 ///
 /// let rep_s3 = TableCategory::by_code([3, 1, 0, 2, 2, 0, 1])?; // fusion-only
-/// assert!(!rep_s3.is_braided());
+/// assert_eq!(rep_s3.braiding_style(), BraidingStyle::None);
 /// # Ok::<(), fusion_symbols::table::TableError>(())
 /// ```
 #[derive(Clone, Debug)]
@@ -341,23 +341,12 @@ impl TableCategory {
         &self.entry.provenance
     }
 
-    /// Number of simple objects.
-    pub fn rank(&self) -> usize {
-        self.data.table.rank()
-    }
-
-    /// Whether the category is braided. Without a braiding there are no
-    /// R-symbols and no twists ([`TableError::NoBraiding`]).
-    pub fn is_braided(&self) -> bool {
-        self.data.twists.is_some()
-    }
-
     /// Validate a one-based source index.
     ///
     /// # Errors
     /// Returns [`TableError::UnknownObject`] outside `1..=rank`.
     pub fn object(&self, index: u16) -> Result<TableObject, TableError> {
-        if (1..=self.rank()).contains(&usize::from(index)) {
+        if (1..=self.data.table.rank()).contains(&usize::from(index)) {
             Ok(TableObject {
                 table_id: self.table_id,
                 index,
@@ -369,7 +358,7 @@ impl TableCategory {
 
     /// The category's tagged objects in the frozen source order.
     pub fn objects(&self) -> impl Iterator<Item = TableObject> + '_ {
-        (1..=self.rank() as u16).map(|index| self.object(index).expect("in-range index"))
+        (1..=self.data.table.rank() as u16).map(|index| self.object(index).expect("in-range index"))
     }
 
     fn index(&self, a: &TableObject) -> usize {
@@ -420,7 +409,7 @@ impl FusionCategory for TableCategory {
         self.at_index(0)
     }
     fn contains(&self, a: &TableObject) -> bool {
-        a.table_id == self.table_id && (1..=self.rank()).contains(&usize::from(a.index))
+        a.table_id == self.table_id && (1..=self.data.table.rank()).contains(&usize::from(a.index))
     }
     fn dual(&self, a: &TableObject) -> TableObject {
         self.at_index(self.data.table.dual(self.index(a)))
@@ -460,7 +449,7 @@ impl FusionCategory for TableCategory {
             category: self,
             a,
             b,
-            remaining: 0..self.rank(),
+            remaining: 0..self.data.table.rank(),
         })
     }
     fn nsymbol(&self, a: &TableObject, b: &TableObject, c: &TableObject) -> u32 {
@@ -493,7 +482,7 @@ impl FusionCategory for TableCategory {
         c: &TableObject,
     ) -> Result<Complex64, TableError> {
         let (a, b, c) = (self.index(a), self.index(b), self.index(c));
-        if !self.is_braided() {
+        if self.data.twists.is_none() {
             return Err(TableError::NoBraiding);
         }
         Ok(self.data.table.rsymbol(a, b, c))
@@ -510,10 +499,10 @@ impl FusionCategory for TableCategory {
         self.data.canonical_unit
     }
     fn object_count(&self) -> Result<Option<u64>, EnumerationError> {
-        Ok(Some(self.rank() as u64))
+        Ok(Some(self.data.table.rank() as u64))
     }
     fn object_at(&self, index: u64) -> Result<TableObject, EnumerationError> {
-        if index < self.rank() as u64 {
+        if index < self.data.table.rank() as u64 {
             Ok(self.at_index(index as usize))
         } else {
             Err(EnumerationError::OutOfRange)

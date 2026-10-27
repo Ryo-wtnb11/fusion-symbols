@@ -121,7 +121,7 @@ fingerprint.
 | Gauge | Source gauge, loaded verbatim (unitary), named constructors included. No conversion to TensorKitSectors' gauge |
 | Provenance | One generated `TableProvenance` per entry (uuid and fusion-ring uuid in `source_entry`, code in `category_key`) |
 | Fingerprint | Canonical provenance bytes, then the N, F and R texts verbatim (a fusion-only entry has an empty R section). Prehashes and file digests are pinned in `src/table/tests.rs::shipped_tables_and_fingerprints_are_pinned` |
-| Braiding | `TableCategory::is_braided`; `FusionCategory::r_symbol` returns `TableError::NoBraiding` on fusion-only entries; `twist` panics. Foreign objects panic before either capability check |
+| Braiding | `FusionCategory::braiding_style` (`BraidingStyle::None` on fusion-only entries); `FusionCategory::r_symbol` returns `TableError::NoBraiding` on fusion-only entries; `twist` panics. Foreign objects panic before either capability check |
 
 ### Named constructors and TensorKitSectors 0.3.9
 

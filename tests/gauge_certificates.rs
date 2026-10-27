@@ -6,7 +6,7 @@ use fusion_symbols::{
     fermion::{FermionParity, FermionParityIrrep},
     finite::{ZNIrrep, ZN},
     lie::{CU1Irrep, GroupId, LieGroup, U1Irrep, CU1, U1},
-    product,
+    product::Product,
     table::TableCategory,
 };
 use num_complex::Complex64;
@@ -357,19 +357,32 @@ fn generated_trivial_associator_counterexample() {
 fn products_take_the_conjunction() {
     let z2 = ZN::new(2).unwrap();
     let fib = TableCategory::fibonacci();
-    assert_eq!(certificates(&product(z2, U1)), (true, true));
-    assert_eq!(certificates(&product![z2, U1, FermionParity]), (true, true));
-    assert_eq!(certificates(&product(U1, CU1)), (false, true));
-    assert_eq!(certificates(&product(su2(), fib.clone())), (false, true));
-    // Nested: one non-trivial leaf anywhere decides the conjunction.
-    let inner = product(z2, FermionParity);
-    assert_eq!(certificates(&product(inner, U1)), (true, true));
+    assert_eq!(certificates(&Product::new((z2, U1))), (true, true));
     assert_eq!(
-        certificates(&product(U1, product(z2, product(FermionParity, CU1)))),
+        certificates(&Product::new((z2, U1, FermionParity))),
+        (true, true)
+    );
+    assert_eq!(certificates(&Product::new((U1, CU1))), (false, true));
+    assert_eq!(
+        certificates(&Product::new((su2(), fib.clone()))),
+        (false, true)
+    );
+    // Nested: one non-trivial leaf anywhere decides the conjunction.
+    let inner = Product::new((z2, FermionParity));
+    assert_eq!(certificates(&Product::new((inner, U1))), (true, true));
+    assert_eq!(
+        certificates(&Product::new((
+            U1,
+            Product::new((z2, Product::new((FermionParity, CU1))))
+        ))),
         (false, true)
     );
     assert_eq!(
-        certificates(&product![product(z2, U1), U1, product(fib, z2)]),
+        certificates(&Product::new((
+            Product::new((z2, U1)),
+            U1,
+            Product::new((fib, z2))
+        ))),
         (false, true)
     );
 }
@@ -377,7 +390,7 @@ fn products_take_the_conjunction() {
 #[test]
 fn product_certificates_hold_in_f() {
     let (z3, z3_objects) = zn(3);
-    let cat = product(z3, FermionParity);
+    let cat = Product::new((z3, FermionParity));
     let objects: Vec<_> = z3_objects
         .iter()
         .flat_map(|&a| parities().into_iter().map(move |p| (a, p)))
@@ -386,7 +399,7 @@ fn product_certificates_hold_in_f() {
     assert!(assert_canonical_unit(&cat, &objects, 0.0) > 0);
 
     let fib = TableCategory::fibonacci();
-    let cat = product(CU1, fib.clone());
+    let cat = Product::new((CU1, fib.clone()));
     let objects: Vec<_> = cu1_irreps()[..3]
         .iter()
         .flat_map(|&a| fib.objects().map(move |t| (a, t)))

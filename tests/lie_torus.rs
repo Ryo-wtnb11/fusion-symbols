@@ -172,7 +172,7 @@ fn typed_u1_matches_liegroup_bitwise() {
                         assert_eq!(typed, [sum]);
                         assert_eq!(typed, general);
                     }
-                    (Err(U1Error::U1ChargeOutOfRange { charge }), Err(LieError::LabelOverflow)) => {
+                    (Err(U1Error::LabelOverflow { charge }), Err(LieError::LabelOverflow)) => {
                         assert_eq!(charge, sum);
                         assert!(sum.abs() > i64::from(i32::MAX));
                     }

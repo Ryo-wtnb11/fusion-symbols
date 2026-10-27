@@ -3,7 +3,7 @@ use fusion_symbols::{
     category::{CgcBlock, FusionCategory, GroupRepresentations, SymbolBlock},
     finite::{ZNIrrep, ZN},
     lie::{GroupId, LieGroup},
-    product,
+    product::Product,
 };
 
 fn su2() -> LieGroup {
@@ -95,7 +95,7 @@ fn assert_f_from_cgc<C: GroupRepresentations<Scalar = f64>>(cat: &C, labels: [&C
 fn su2_su2_isometry_and_f() {
     let spin = su2();
     let one = spin.irrep(&[2], &[]).unwrap();
-    let cat = product(spin.clone(), spin);
+    let cat = Product::new((spin.clone(), spin));
     let a = (one.clone(), one);
     assert_orthonormal(&cat.cgc(&a, &a, &a).unwrap());
     assert_f_from_cgc(&cat, [&a; 6]);
@@ -107,7 +107,7 @@ fn su2_zn_isometry_and_f() {
     let one = spin.irrep(&[2], &[]).unwrap();
     let zn = ZN::new(3).unwrap();
     let z = |q| ZNIrrep::new(q, 3).unwrap();
-    let cat = product(spin, zn);
+    let cat = Product::new((spin, zn));
     let a = (one.clone(), z(1));
     let e = (one.clone(), z(2));
     let d = (one, z(0));
@@ -126,7 +126,7 @@ fn su3_su2_outer_multiplicity_isometry_and_f() {
     let spin = su2();
     let half = spin.irrep(&[1], &[]).unwrap();
     let one = spin.irrep(&[2], &[]).unwrap();
-    let cat = product(su3, spin);
+    let cat = Product::new((su3, spin));
     let a = (eight.clone(), half);
     let e = (eight, one);
     let block = cat.cgc(&a, &a, &e).unwrap();
@@ -141,7 +141,7 @@ fn last_factor_fastest_and_nested_products() {
     let half = spin.irrep(&[1], &[]).unwrap();
     let one = spin.irrep(&[2], &[]).unwrap();
     let unit = spin.unit();
-    let cat = product(spin.clone(), spin.clone());
+    let cat = Product::new((spin.clone(), spin.clone()));
     let a = (half.clone(), one.clone());
     let c = (one.clone(), unit.clone());
     let block = cat.cgc(&a, &a, &c).unwrap();
@@ -152,7 +152,7 @@ fn last_factor_fastest_and_nested_products() {
     assert!(want.abs() > 0.1);
     assert_eq!(block.at(combined), want);
     assert!(std::panic::catch_unwind(|| block.at([6, 0, 0, 0])).is_err());
-    let nested = product(cat, ZN::new(3).unwrap());
+    let nested = Product::new((cat, ZN::new(3).unwrap()));
     let charge = ZNIrrep::new(0, 3).unwrap();
     let nested_block = nested
         .cgc(&(a.clone(), charge), &(a, charge), &(c, charge))
@@ -161,7 +161,7 @@ fn last_factor_fastest_and_nested_products() {
     assert_eq!(nested_block.at(combined), want);
     // The arity-12 implementation remains lazy, including explicitly nested tuples.
     let z = ZN::new(3).unwrap();
-    let twelve = fusion_symbols::product![z, z, z, z, z, z, z, z, z, z, z, z];
+    let twelve = Product::new((z, z, z, z, z, z, z, z, z, z, z, z));
     assert_eq!(
         twelve
             .cgc(&twelve.unit(), &twelve.unit(), &twelve.unit())
@@ -177,7 +177,7 @@ fn su3_su3_multiplicity_last_factor_fastest() {
     let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
     let eight = su3.irrep(&[1, 1], &[]).unwrap();
     let c = su3.cgc(&eight, &eight, &eight).unwrap();
-    let cat = product(su3.clone(), su3);
+    let cat = Product::new((su3.clone(), su3));
     let a = (eight.clone(), eight);
     let block = cat.cgc(&a, &a, &a).unwrap();
     assert_eq!(block.dims(), [64, 64, 64, 4]);
@@ -218,7 +218,7 @@ fn axis_overflow_factor_errors_and_foreign_objects() {
     let spin = su2();
     let huge = spin.irrep(&[i64::from(u32::MAX)], &[]).unwrap();
     let unit = spin.unit();
-    let cat = product(spin.clone(), spin);
+    let cat = Product::new((spin.clone(), spin));
     let h = (huge.clone(), huge.clone());
     let u = (unit.clone(), unit.clone());
     // Absent channels need no dense allocation, but each magnetic axis must fit.
@@ -239,7 +239,7 @@ fn axis_overflow_factor_errors_and_foreign_objects() {
     ));
     let zn = ZN::new(3).unwrap();
     let zero = zn.unit();
-    let mixed = product(cat, zn);
+    let mixed = Product::new((cat, zn));
     let foreign = ZNIrrep::new(0, 4).unwrap();
     // The foreign last label must panic before the first factor can return an error.
     assert!(std::panic::catch_unwind(|| mixed.cgc(

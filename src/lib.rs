@@ -68,11 +68,11 @@
 //!
 //! ```
 //! use fusion_symbols::{finite::ZN, category::FusionCategory,
-//!     fermion::{FermionParity, FermionParityIrrep}, product};
-//! let cat = product(ZN::new(2).unwrap(), FermionParity);
+//!     fermion::{FermionParity, FermionParityIrrep}, product::Product};
+//! let cat = Product::new((ZN::new(2).unwrap(), FermionParity));
 //! let odd = (cat.factors().0.unit(), FermionParityIrrep::ODD);
 //! assert_eq!(cat.twist(&odd), -1.0);
-//! let three = product![ZN::new(2).unwrap(), FermionParity, ZN::new(2).unwrap()];
+//! let three = Product::new((ZN::new(2).unwrap(), FermionParity, ZN::new(2).unwrap()));
 //! assert_eq!(three.dim(&three.unit()), 1.0);
 //! ```
 //!
@@ -266,4 +266,3 @@ pub mod finite;
 pub mod table;
 
 pub mod product;
-pub use product::product;

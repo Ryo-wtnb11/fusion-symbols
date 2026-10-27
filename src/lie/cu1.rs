@@ -27,7 +27,7 @@ pub enum CU1Error {
         s: u8,
     },
     /// A fusion channel `2(j + k)` of [`CU1::fusion`] above `u32::MAX`.
-    TwiceChargeOutOfRange {
+    LabelOverflow {
         /// The exact twice charge.
         twice_charge: u64,
     },
@@ -40,7 +40,7 @@ impl std::fmt::Display for CU1Error {
                 f,
                 "not a CU(1) irrep: twice_charge {twice_charge}, s {s} (s ∈ {{0, 1}} for charge 0, s = 2 otherwise)"
             ),
-            CU1Error::TwiceChargeOutOfRange { twice_charge } => write!(
+            CU1Error::LabelOverflow { twice_charge } => write!(
                 f,
                 "CU(1) twice charge {twice_charge} exceeds u32::MAX"
             ),
@@ -89,7 +89,7 @@ impl CU1Irrep {
     fn from_exact(twice_charge: u64) -> Result<Self, CU1Error> {
         match u32::try_from(twice_charge) {
             Ok(q) => Ok(Self::from_twice_charge(q)),
-            Err(_) => Err(CU1Error::TwiceChargeOutOfRange { twice_charge }),
+            Err(_) => Err(CU1Error::LabelOverflow { twice_charge }),
         }
     }
 
@@ -210,7 +210,7 @@ impl FusionCategory for CU1 {
     ///
     /// # Errors
     ///
-    /// [`CU1Error::TwiceChargeOutOfRange`] when `2(j + k)` exceeds
+    /// [`CU1Error::LabelOverflow`] when `2(j + k)` exceeds
     /// `u32::MAX`.
     fn fusion(&self, a: &CU1Irrep, b: &CU1Irrep) -> Result<CU1Fusion, CU1Error> {
         let (a, b) = (*a, *b);
@@ -482,7 +482,7 @@ mod tests {
         ] {
             assert_eq!(
                 CU1.fusion(&a, &b).map(|_| ()),
-                Err(CU1Error::TwiceChargeOutOfRange { twice_charge: sum })
+                Err(CU1Error::LabelOverflow { twice_charge: sum })
             );
         }
         // The difference channels exist although the sum does not.

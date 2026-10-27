@@ -48,7 +48,7 @@ fn labels_zero_channels_and_warm_generation() {
     let misses = cache::tier_stats(Tier::SunCgc).misses;
     assert_eq!(cat.cgc(&eight, &eight, &eight).unwrap(), cgc);
     assert_eq!(cache::tier_stats(Tier::SunCgc).misses, misses);
-    let product = fusion_symbols::product(cat.clone(), a1.clone());
+    let product = fusion_symbols::product::Product::new((cat.clone(), a1.clone()));
     let channel = (eight.clone(), a1.irrep(&[2], &[]).unwrap());
     let first = product.cgc(&channel, &channel, &channel).unwrap();
     let tiers = [Tier::SunCgc, Tier::SunProduct, Tier::ThreeJ];

@@ -327,10 +327,10 @@ mod bcd_conformance {
 fn product_identities() {
     use fusion_symbols::{
         lie::{GroupId, LieGroup},
-        product,
+        product::Product,
     };
     let parity = FermionParityIrrep::ODD;
-    let fu1 = product(U1, FermionParity);
+    let fu1 = Product::new((U1, FermionParity));
     conformance(
         fu1,
         vec![
@@ -340,13 +340,13 @@ fn product_identities() {
     );
     let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
     let half = su2.irrep(&[1], &[]).unwrap();
-    let fsu2 = product(su2.clone(), FermionParity);
+    let fsu2 = Product::new((su2.clone(), FermionParity));
     conformance(fsu2.clone(), vec![fsu2.unit(), (half.clone(), parity)]);
     let fib = TableCategory::fibonacci();
     let tau = fib.object(2).unwrap();
-    let fibsu2 = product(fib, su2.clone());
+    let fibsu2 = Product::new((fib, su2.clone()));
     conformance(fibsu2.clone(), vec![fibsu2.unit(), (tau, half.clone())]);
-    let ss = product(su2.clone(), su2);
+    let ss = Product::new((su2.clone(), su2));
     conformance(ss.clone(), vec![ss.unit(), (half.clone(), half)]);
 }
 
@@ -356,11 +356,11 @@ fn product_multiplicity_residuals() {
     use fusion_symbols::{
         category::{f_unitarity_residual, hexagon_residual, pentagon_residual},
         lie::{GroupId, LieGroup},
-        product,
+        product::Product,
     };
     let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
     let octet = su3.irrep(&[1, 1], &[]).unwrap();
-    let cat = product(su3, FermionParity);
+    let cat = Product::new((su3, FermionParity));
     let o = (octet, FermionParityIrrep::ODD);
     let u = cat.unit();
     assert_eq!(

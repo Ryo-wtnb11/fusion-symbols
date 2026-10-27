@@ -68,7 +68,10 @@ fn every_shipped_entry_constructs() {
     for uuid in TableCategory::shipped_uuids() {
         let category = TableCategory::by_uuid(uuid).expect("shipped entry is valid");
         assert_eq!(category.uuid(), uuid);
-        assert_eq!(category.rank(), usize::from(category.code()[0]));
+        assert_eq!(
+            category.object_count(),
+            Ok(Some(u64::from(category.code()[0])))
+        );
         assert_eq!(
             TableCategory::by_code(category.code())
                 .expect("valid")
@@ -76,8 +79,11 @@ fn every_shipped_entry_constructs() {
             uuid
         );
         // Braiding index 0 is AnyonWiki's "unbraided".
-        assert_eq!(category.is_braided(), category.code()[5] != 0);
-        braided += usize::from(category.is_braided());
+        assert_eq!(
+            (category.braiding_style() != BraidingStyle::None),
+            category.code()[5] != 0
+        );
+        braided += usize::from(category.braiding_style() != BraidingStyle::None);
     }
     assert_eq!(braided, BRAIDED_COUNT);
     let fib = TableCategory::fibonacci();
@@ -129,7 +135,7 @@ fn rank_above_four_is_gated_by_the_feature() {
     if UNITARY {
         let category = rank5.expect("shipped with the feature");
         assert_eq!(category.uuid(), "37fa5126-97c6-11f1-a81f-1594c7705b4d");
-        assert_eq!(category.rank(), 5);
+        assert_eq!(category.object_count(), Ok(Some(5)));
     } else {
         assert_eq!(
             rank5.map(|c| c.uuid()),

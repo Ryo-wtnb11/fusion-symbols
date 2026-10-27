@@ -7,7 +7,6 @@ use fusion_symbols::{
         RBlock, SymbolBlock,
     },
     finite::ZN,
-    product,
     product::{Product, ProductError},
 };
 use std::cell::Cell;
@@ -209,31 +208,34 @@ fn linear(k: usize) -> [([usize; 4], usize); 11] {
 #[test]
 fn flat_product_leaf_calls_are_linear() {
     let c = Counter;
-    assert_eq!(costs(&product(c.clone(), c.clone())), linear(2));
-    assert_eq!(costs(&product![c.clone(), c.clone(), c.clone()]), linear(3));
+    assert_eq!(costs(&Product::new((c.clone(), c.clone()))), linear(2));
     assert_eq!(
-        costs(&product![c.clone(), c.clone(), c.clone(), c.clone()]),
+        costs(&Product::new((c.clone(), c.clone(), c.clone()))),
+        linear(3)
+    );
+    assert_eq!(
+        costs(&Product::new((c.clone(), c.clone(), c.clone(), c.clone()))),
         linear(4)
     );
     assert_eq!(
-        costs(&product![
+        costs(&Product::new((
             c.clone(),
             c.clone(),
             c.clone(),
             c.clone(),
             c.clone()
-        ]),
+        ))),
         linear(5)
     );
     assert_eq!(
-        costs(&product![
+        costs(&Product::new((
             c.clone(),
             c.clone(),
             c.clone(),
             c.clone(),
             c.clone(),
             c.clone()
-        ]),
+        ))),
         linear(6)
     );
 }
@@ -241,20 +243,27 @@ fn flat_product_leaf_calls_are_linear() {
 #[test]
 fn nested_product_leaf_calls_are_linear() {
     let c = Counter;
-    let p2 = product(c.clone(), c.clone());
-    let p3 = product(p2.clone(), c.clone());
-    let p4 = product(p3.clone(), c.clone());
-    let p5 = product(p4.clone(), c.clone());
-    let p6 = product(p5.clone(), c.clone());
+    let p2 = Product::new((c.clone(), c.clone()));
+    let p3 = Product::new((p2.clone(), c.clone()));
+    let p4 = Product::new((p3.clone(), c.clone()));
+    let p5 = Product::new((p4.clone(), c.clone()));
+    let p6 = Product::new((p5.clone(), c.clone()));
     assert_eq!(costs(&p2), linear(2));
     assert_eq!(costs(&p3), linear(3));
     assert_eq!(costs(&p4), linear(4));
     assert_eq!(costs(&p5), linear(5));
     assert_eq!(costs(&p6), linear(6));
     // Right-nested and balanced trees follow the same leaf count.
-    let right = product(c.clone(), product(c.clone(), product(c.clone(), c.clone())));
+    let right = Product::new((
+        c.clone(),
+        Product::new((c.clone(), Product::new((c.clone(), c.clone())))),
+    ));
     assert_eq!(costs(&right), linear(4));
-    let balanced = product![p2.clone(), product![c.clone(), p2.clone(), c.clone()], p2];
+    let balanced = Product::new((
+        p2.clone(),
+        Product::new((c.clone(), p2.clone(), c.clone())),
+        p2,
+    ));
     assert_eq!(costs(&balanced), linear(8));
 }
 
@@ -272,7 +281,7 @@ fn product_panic<R>(f: impl FnOnce() -> R + std::panic::UnwindSafe) {
 #[test]
 fn nested_foreign_objects_still_panic() {
     let c = Counter;
-    let cat = product(product(c.clone(), c.clone()), c);
+    let cat = Product::new((Product::new((c.clone(), c.clone())), c));
     let u = cat.unit();
     let bad = ((0, 1), 0);
     product_panic(|| cat.dual(&bad));
@@ -292,7 +301,7 @@ fn nested_foreign_objects_still_panic() {
 fn foreign_cgc_objects_panic_in_the_product() {
     let (z2, z3) = (ZN::new(2).unwrap(), ZN::new(3).unwrap());
     let foreign = z3.unit();
-    let tuple = product(z2, z2);
+    let tuple = Product::new((z2, z2));
     let u = tuple.unit();
     product_panic(|| tuple.cgc(&u, &(u.0, foreign), &u));
     let vector = Product::new(vec![z2, z2]);
@@ -390,11 +399,14 @@ fn leaf_blocks_disagreeing_with_n_return_typed_errors() {
             storage_len: 1,
         };
         assert_eq!(
-            query(&product(Counter, Malformed), symbol),
+            query(&Product::new((Counter, Malformed)), symbol),
             Err(expected.clone())
         );
         assert_eq!(
-            query(&product(product(Counter, Malformed), Counter), symbol),
+            query(
+                &Product::new((Product::new((Counter, Malformed)), Counter)),
+                symbol
+            ),
             Err(ProductError::Factor0(expected))
         );
     }
@@ -411,12 +423,16 @@ fn contains_cost<C: FusionCategory>(cat: &C, a: &C::Object) -> (bool, usize, [us
 #[test]
 fn product_contains_checks_each_leaf_once_without_other_queries() {
     let c = Counter;
-    let flat = product![c.clone(), c.clone(), c.clone(), c.clone()];
+    let flat = Product::new((c.clone(), c.clone(), c.clone(), c.clone()));
     assert_eq!(contains_cost(&flat, &flat.unit()), (true, 4, [0; 4]));
-    let p2 = product(c.clone(), c.clone());
-    let p4 = product(product(p2.clone(), c.clone()), c.clone());
+    let p2 = Product::new((c.clone(), c.clone()));
+    let p4 = Product::new((Product::new((p2.clone(), c.clone())), c.clone()));
     assert_eq!(contains_cost(&p4, &p4.unit()), (true, 4, [0; 4]));
-    let balanced = product![p2.clone(), product![c.clone(), p2.clone(), c.clone()], p2];
+    let balanced = Product::new((
+        p2.clone(),
+        Product::new((c.clone(), p2.clone(), c.clone())),
+        p2,
+    ));
     assert_eq!(
         contains_cost(&balanced, &balanced.unit()),
         (true, 8, [0; 4])
@@ -445,12 +461,16 @@ fn certificate_cost<C: FusionCategory>(cat: &C) -> (bool, usize, [usize; 4], usi
 #[test]
 fn product_certificates_ask_each_leaf_once_without_symbol_queries() {
     let c = Counter;
-    let flat = product![c.clone(), c.clone(), c.clone(), c.clone()];
+    let flat = Product::new((c.clone(), c.clone(), c.clone(), c.clone()));
     assert_eq!(certificate_cost(&flat), (true, 8, [0; 4], 0));
-    let p2 = product(c.clone(), c.clone());
-    let p4 = product(product(p2.clone(), c.clone()), c.clone());
+    let p2 = Product::new((c.clone(), c.clone()));
+    let p4 = Product::new((Product::new((p2.clone(), c.clone())), c.clone()));
     assert_eq!(certificate_cost(&p4), (true, 8, [0; 4], 0));
-    let balanced = product![p2.clone(), product![c.clone(), p2.clone(), c.clone()], p2];
+    let balanced = Product::new((
+        p2.clone(),
+        Product::new((c.clone(), p2.clone(), c.clone())),
+        p2,
+    ));
     assert_eq!(certificate_cost(&balanced), (true, 16, [0; 4], 0));
 }
 
@@ -459,7 +479,7 @@ fn certificates_default_to_false() {
     assert!(!Malformed.has_trivial_associator_gauge());
     assert!(!Malformed.has_canonical_unit());
     // A non-certifying leaf makes the conjunction false.
-    let cat = product(Counter, Malformed);
+    let cat = Product::new((Counter, Malformed));
     assert!(!cat.has_trivial_associator_gauge() && !cat.has_canonical_unit());
 }
 
@@ -517,30 +537,37 @@ fn enumeration_linear(k: usize) -> [([usize; 4], [usize; 4], usize); 6] {
 fn enumeration_and_derived_dimension_leaf_calls_are_linear() {
     let c = Counter;
     assert_eq!(
-        enumeration_costs(&product(c.clone(), c.clone())),
+        enumeration_costs(&Product::new((c.clone(), c.clone()))),
         enumeration_linear(2)
     );
     assert_eq!(
-        enumeration_costs(&product![c.clone(), c.clone(), c.clone(), c.clone()]),
+        enumeration_costs(&Product::new((c.clone(), c.clone(), c.clone(), c.clone()))),
         enumeration_linear(4)
     );
-    let p2 = product(c.clone(), c.clone());
-    let p3 = product(p2.clone(), c.clone());
-    let p4 = product(p3.clone(), c.clone());
-    let p5 = product(p4.clone(), c.clone());
-    let p6 = product(p5.clone(), c.clone());
+    let p2 = Product::new((c.clone(), c.clone()));
+    let p3 = Product::new((p2.clone(), c.clone()));
+    let p4 = Product::new((p3.clone(), c.clone()));
+    let p5 = Product::new((p4.clone(), c.clone()));
+    let p6 = Product::new((p5.clone(), c.clone()));
     assert_eq!(enumeration_costs(&p3), enumeration_linear(3));
     assert_eq!(enumeration_costs(&p6), enumeration_linear(6));
-    let right = product(c.clone(), product(c.clone(), product(c.clone(), c.clone())));
+    let right = Product::new((
+        c.clone(),
+        Product::new((c.clone(), Product::new((c.clone(), c.clone())))),
+    ));
     assert_eq!(enumeration_costs(&right), enumeration_linear(4));
-    let balanced = product![p2.clone(), product![c.clone(), p2.clone(), c.clone()], p2];
+    let balanced = Product::new((
+        p2.clone(),
+        Product::new((c.clone(), p2.clone(), c.clone())),
+        p2,
+    ));
     assert_eq!(enumeration_costs(&balanced), enumeration_linear(8));
 }
 
 #[test]
 fn nested_foreign_objects_panic_in_enumeration_and_derived_dimensions() {
     let c = Counter;
-    let cat = product(product(c.clone(), c.clone()), c);
+    let cat = Product::new((Product::new((c.clone(), c.clone())), c));
     let bad = ((0, 1), 0);
     assert!(std::panic::catch_unwind(|| cat.object_index(&bad)).is_err());
     assert!(std::panic::catch_unwind(|| cat.sqrt_dim(&bad)).is_err());
