@@ -499,13 +499,13 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
 
     // Crate-internal `__fusion_symbols_validated_*` entry points, not part of
     // the public API. A product calls them after validating every leaf object
-    // (and, for F/R/A/B, establishing nonzero representable shapes); a nested
-    // product overrides them to skip re-validation and shape recomputation,
-    // which would otherwise repeat at every nesting level. Symbol hooks return
-    // the block with its checked N axes; Product checks storage before indexing.
-    // The token is unnameable outside the crate, so they can be neither called nor
-    // overridden there; the prefix keeps them from colliding with downstream
-    // extension-trait methods.
+    // with `contains` (and, for F/R/A/B, establishing nonzero representable
+    // shapes); a nested product overrides them to skip re-validation and shape
+    // recomputation, which would otherwise repeat at every nesting level. Symbol
+    // hooks return the block with its checked N axes; Product checks storage
+    // before indexing. The token is unnameable outside the crate, so they can be
+    // neither called nor overridden there; the prefix keeps them from colliding
+    // with downstream extension-trait methods.
     #[doc(hidden)]
     fn __fusion_symbols_validated_sqrt_dim(&self, a: &Self::Object, _: sealed::Validated) -> f64 {
         self.sqrt_dim(a)
