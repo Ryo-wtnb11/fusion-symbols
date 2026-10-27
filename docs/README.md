@@ -2,9 +2,9 @@
 
 | Topic | Document |
 |---|---|
-| Scope, modules, labels and error contracts | [Design](overview.md) |
-| Fusion, CGC and symbol layout | [Using the API](user-guide/README.md) |
-| Cache ownership and reproducibility | [Resources](user-guide/resources.md) |
+| How to build groups, labels, symbols, CGC, products, tables; errors; caches | [User guide](user-guide/README.md) |
+| Capability boundaries, labels, validation, numerical and product contracts | [Design and contracts](overview.md) |
+| Cache budgets, concurrency, catalogs and fingerprints | [Caches and reproducibility](user-guide/resources.md) |
 | Frozen basis, sign and gauge rules | [SU(2)/SU(N)](gauge.md), [B/C/D](gauge_soN.md) |
 | Intentional reference differences | [TensorKitSectors comparison](tensorkitsectors-differences.md) |
 | Algorithm sources and external theory | [References](references.md) |

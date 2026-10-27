@@ -5,13 +5,16 @@ title: fusion-symbols
 authors:
   - family-names: Watanabe
     given-names: Ryo
+version: 0.9.0
+date-released: 2026-10-27
 repository-code: "https://github.com/Ryo-wtnb11/fusion-symbols"
 license:
   - MIT
   - Apache-2.0
 abstract: >-
-  A Rust library of fusion and recoupling symbols for symmetric tensors.
-  Racah-Wigner calculus: Clebsch-Gordan and recoupling
-  (F/R) coefficients for SU(2), SU(N), SO(N), and Sp(2N), computed on demand
-  for any admissible labels under a gauge frozen as a normative specification,
-  with Python bindings.
+  A Rust library of fusion and recoupling symbols for symmetric tensors:
+  Clebsch-Gordan coefficients and F/R symbols for compact connected Lie groups
+  (SU(N), SO(N), Spin(N), Sp(2N), U(N), tori, their products and quotients),
+  computed on demand for any admissible labels under a gauge frozen as a
+  normative specification, plus abelian, fermion-parity and tabulated
+  AnyonWiki fusion categories.

@@ -1,4 +1,5 @@
 //! Finite groups: closed-form cyclic categories [`ZN`] (including Z2).
+//! Non-abelian finite groups are not provided.
 //!
 //! Labels are validated at construction. Symbols are exact `f64` zeros and
 //! ones, with unique fusion; inadmissible vertices give zero, not errors.

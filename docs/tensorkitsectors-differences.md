@@ -82,7 +82,7 @@ cross-factor sign or imposed parity/charge relation. Products of
 `GroupRepresentations` provide lazy tuple or vector CGCs through `CgcBlock`,
 with the last factor fastest on all four axes; they add no coefficient cache.
 Initialized fusion iterators reset by cloning;
-the current higher-ranked bound supports owned providers.
+the higher-ranked iterator bound admits owned providers only.
 
 ### Reference guard inventory
 
@@ -120,28 +120,28 @@ oracles are in `tests/product.rs`; structural identities use
 validate engine availability and outward group identity before Product queries.
 `src/lie.rs::LieGroup::composite_label` reattaches the complete datum; quotient
 fusion closure follows from `ν−λ−μ ∈ Q ⊆ X`, rather than filtering channels.
-No new numerical generator or reference coefficient routine is ported.
+No numerical generator or reference coefficient routine is ported for composites.
 
 | Reference constraint | Mapping |
 |---|---|
-| TKS `product.jl::SectorTuple` common label type and factor order | Private factor labels plus the existing foreign-object panic at the outward GroupId boundary |
-| TKS Cartesian shape/storage assumptions | Existing `src/product.rs::ProductError::checked_block`, checked N/axis/storage arithmetic; malformed data retain their indexed source chain |
-| Restartable product iterators | Existing `src/product.rs::{advance,restarted}` clone initialized iterators; changed replay is a documented loud-panic invariant |
+| TKS `product.jl::SectorTuple` common label type and factor order | Private factor labels plus the foreign-object panic at the outward GroupId boundary |
+| TKS Cartesian shape/storage assumptions | `src/product.rs::ProductError::checked_block`, checked N/axis/storage arithmetic; malformed data retain their indexed source chain |
+| Restartable product iterators | `src/product.rs::{advance,restarted}` clone initialized iterators; changed replay is a documented loud-panic invariant |
 | Machine integer representability | Product overflow maps to `LieError::LabelOverflow`; infallible weight multiplicities panic on checked `u64` multiplication overflow |
-| Root datum has Q contained in X | Existing `src/lie/group.rs::GroupId::new` typed lattice validation; admission precedes engine label construction |
-| Canonical generator resources | Shared `src/lie/bcd/catalog.rs::CanonicalCatalog::seed_requirement` preflights checked seed totals before composite catalogs are allocated |
-| Numerical generation/verification | Existing simple-factor gates run unchanged, including special cases; Kronecker orthogonality and identities follow from the factor identities, verified by `tests/category_conformance.rs::composite_lie_identities` |
+| Root datum has Q contained in X | `src/lie/group.rs::GroupId::new` typed lattice validation; admission precedes engine label construction |
+| Canonical generator resources | `src/lie/bcd/catalog.rs::CanonicalCatalog::seed_requirement` preflights checked seed totals before composite catalogs are allocated |
+| Numerical generation/verification | Simple-factor gates run as for single factors, including special cases; Kronecker orthogonality and identities follow from the factor identities, verified by `tests/category_conformance.rs::composite_lie_identities` |
 | CU1 constructor, SUN UInt8 labels, and new dimension/generator ports | N/A: no such constructor or numerical routine is ported here |
 
 D₂'s convention is α₁ then α₂ in the exact A₁ gauge. N/F/R/A/B and CGCs use
 Product's factor order, with the last factor fastest on each coefficient axis;
-fusion still varies the first factor fastest. Composite fingerprints use
+fusion varies the first factor fastest. Composite fingerprints use
 Product framing of factor fingerprints. Quotienting adds no gauge change and
 needs no epoch bump; equal fingerprints do not equate outward group identities.
 
 ### Connected torus integration guards
 
-The arithmetic authority remains `src/lie/u1.rs::{U1Irrep::from_exact,U1::fusion,U1::dual}`.
+The arithmetic authority is `src/lie/u1.rs::{U1Irrep::from_exact,U1::fusion,U1::dual}`.
 The adapters `src/lie.rs::{LieGroup::irrep,LieGroup::fusion}` map invalid
 charges and unrepresentable fusion outcomes to typed `LieError::LabelOverflow`.
 `src/lie/u1.rs::U1Irrep::new` rejects `i32::MIN` with `U1Error`, proving dual
@@ -152,14 +152,14 @@ zero channel. `tests/lie_torus.rs::typed_u1_matches_liegroup_bitwise` checks
 both paths, including boundaries and the independent dual oracle.
 `LieGroup::label` checks full datum identity before every symbol shortcut.
 `LieGroup::composite_label` asserts lattice closure: root containment and additive
-charges keep every fusion outcome admitted. Ordered cover factors and Product's
-checked shape/storage/multiplicity guards are reused unchanged. Torus F/R/A/B/CGC
+charges keep every fusion outcome admitted. Ordered cover factors reuse Product's
+checked shape/storage/multiplicity guards. Torus F/R/A/B/CGC
 blocks use the same exact vertex condition, including every shortcut.
 The closed forms are exact zeros and ones, so numerical generation gates are
 vacuous; tensor products and lattice restriction preserve factor identities.
 Closed-form U1 calls never generate or sweep, including warm repeats in the
 bitwise equivalence test; no coefficient cache is needed.
-There is no new numerical or external constructor port (additional SUN/CU1
+No numerical or external constructor is ported here (additional SUN/CU1
 reference guards are N/A). Warm generated calls are checked directly with
-`src/lie.rs::tests::torus_composites_warm_calls_do_not_generate` and the existing
+`src/lie.rs::tests::torus_composites_warm_calls_do_not_generate` and the
 `src/lie/sun/cgc.rs::GENERATIONS` counter.

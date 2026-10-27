@@ -4,6 +4,23 @@
 Consumers own tensor-network representations and operations. There is no tensor
 engine dependency. The shared interface is `src/category.rs::FusionCategory`;
 CGC are the separate `GroupRepresentations` capability, read through `CgcBlock`.
+This page is the contract reference; task-oriented examples are in the
+[user guide](user-guide/README.md).
+
+## Capability boundaries
+
+- Connected compact Lie groups are classified by `GroupId` for every root
+  system, but coefficients exist only for classical factors (A, B, C, D) and
+  tori. Exceptional factors (G₂, F₄, E₆, E₇, E₈) make `LieGroup::new` return
+  `LieError::Unsupported`.
+- CU(1) = O(2) is the only disconnected group. Other O(N), Pin(N) and general
+  disconnected groups are not provided (tracked in
+  [#191](https://github.com/Ryo-wtnb11/fusion-symbols/issues/191)); noncompact
+  groups are out of scope.
+- Finite groups are the cyclic `ZN` and fermion parity. Finite non-abelian
+  Rep(G) is not supported ([#192](https://github.com/Ryo-wtnb11/fusion-symbols/issues/192)).
+- Tables are multiplicity-free, unitary, rank ≤ 7 AnyonWiki entries; other
+  database entries are refused with a typed reason.
 
 ## Families and features
 
@@ -46,14 +63,12 @@ groups and have no `group_id()`.
 
 ## Lie labels and global forms
 
-Construct `GroupId`, then `LieGroup`, then `LieGroup::irrep(&dynkin, &[])`.
 Dynkin numbering follows Bourbaki. `GroupId::sp(2*r)` uses the defining
 dimension, not the rank. A1, B1 and C1 use the exact SU(2) implementation;
 SO(3) and PSU(2) admit only even doubled spins. D₂ expands into α₁ then α₂,
 each in the exact A₁ gauge: dimensions are `(a+1)(b+1)`, and SO(4) admits
 `a+b` even while PSO(4) requires both labels even. Exceptional root-system
 variants have no coefficient engine.
-Apart from CU(1) = O(2), other O(N), Pin(N), and noncompact groups are unsupported.
 
 A global form filters labels through `src/lie/group.rs::GroupId::admits`;
 it does not change coefficients on shared irreps. Spin(N) admits spinors that
@@ -80,11 +95,11 @@ root-system block has an engine (including D₂'s two A₁ factors). Arbitrary
 intermediate character lattices restrict objects without changing cover
 coefficients or removing fusion outcomes: `ν−λ−μ ∈ Q ⊆ X` proves closure.
 Composites delegate to `Product<Vec<LieGroup>>` of ordered simple covers then
-rank-one torus covers. Single non-D₂ factors retain their original evaluator;
+rank-one torus covers. A single non-D₂ factor uses that factor's own evaluator and gauge;
 standard U(1) stores its charge inline and delegates to the closed-form `U1` arithmetic.
 The trivial group executes as an empty Product. Exceptional blocks return
 specific `LieError::Unsupported` errors.
-Generated factors still require `lie-generated`. B/C/D seed totals are checked
+Generated factors require `lie-generated`. B/C/D seed totals are checked
 against the aggregate catalog budget before allocating generators (see
 [resources](user-guide/resources.md#bcd-generator-catalogs)).
 
@@ -95,20 +110,20 @@ as B1/C1/A1, D3/A3, and D2/[A1,A1] remain distinct. `LieGroup::group_id` borrows
 the classification datum. `LieGroup::irrep(dynkin, charges)` checks lengths and
 nonnegative Dynkin labels, then lattice admission, then engine integer limits.
 `LieIrrep::charges` reads the signed torus coordinates in order through an
-allocation-free exact-size iterator; `dynkin()` remains semisimple-only.
+allocation-free exact-size iterator; `dynkin()` covers only the semisimple coordinates.
 Charges outside `-i32::MAX..=i32::MAX`, including `i32::MIN`, return `LabelOverflow`.
 U(1) label construction, clone, fusion iteration, and symbol/CGC queries allocate
-nothing. U(1) enumerates `0,1,−1,2,−2,…`, preserving its authority bytes.
+nothing. U(1) enumerates `0,1,−1,2,−2,…` and has the same authority bytes as `U1`.
 
 `LieIrrep::dynkin_labels` reads labels without allocation; `dynkin` collects
 them. Clones share weight buffers without allocation. Warm duals reuse shared
-labels in the existing `SunProduct` / `BcdCgc` tiers, charged to their byte
+labels in the `SunProduct` / `BcdCgc` tiers, charged to their byte
 budgets and subject to their Clock-PRO eviction, trim and reset controls.
 All coefficient tiers use one byte-weighted `quick_cache` wrapper, borrowed
 lookups and miss-only key ownership; F blocks share their storage directly.
 See [resources](user-guide/resources.md#coefficient-caches) for full-tier admission, weight-based entry caps,
 statistics and the unspecified removal order of explicit trims. Each irrep
-retains only its own weight; coefficient cache keys keep their existing charge.
+retains only its own weight.
 Single generated groups memoize the unit. Composite labels share their ordered
 factor labels through `Arc<Vec<LieIrrep>>`; their exact dimensions multiply and
 weight multiplicities form the Cartesian product with checked `u64` products.
@@ -145,7 +160,7 @@ hashing represent mathematical identity, independently of fingerprints.
   also propagates generated fusion arithmetic and generation failures;
   infallible `nsymbol` panics with a clear diagnostic for those failures.
 - Inadmissible F/R vertices give zero symbols. Logical axes come from N;
-  scalar storage still has all-one axes. Lie blocks have zero axes for absent
+  scalar storage has all-one axes. Lie blocks have zero axes for absent
   channels. See [symbol layout](user-guide/README.md#symbol-layout).
 - Lie constructors distinguish invalid labels, excluded global-form weights,
   label overflow and unsupported capabilities. Generated failures are opaque
@@ -158,7 +173,7 @@ hashing represent mathematical identity, independently of fingerprints.
   channels when the sum is outside the label range. Only fusion reports that
   overflow (`U1Error` on `U1`, `LieError::LabelOverflow` on `LieGroup`).
   CU(1) and rank-one Lie fusion also report label overflow. `ZN` and parity
-  category errors are `Infallible`; their constructors still validate labels.
+  category errors are `Infallible`; their constructors validate labels.
   `ZNIrrep::new` reduces charges, whereas `from_canonical` rejects them outside
   `0..N`. CU(1) uses the full `u32` twice-charge range.
 - Table lookup distinguishes unknown entries from known unsupported entries.
@@ -184,7 +199,7 @@ are explicit caller-invoked checks with caller-selected tolerances. Dense
 factorizations and CGC contractions use sequential t4a-faer; backend selection
 and extended precision are not public capabilities.
 
-`has_trivial_associator_gauge` certifies admissible F = 1 in the current gauge;
+`has_trivial_associator_gauge` certifies admissible F = 1 in the documented gauge;
 `has_canonical_unit` certifies identity F moves with an external unit leg
 (`a`, `b` or `c`, not merely `d`, `e` or `f`). Both default to false and
 products take the conjunction. All built-in families have a canonical unit;
@@ -237,7 +252,7 @@ braiding. Factor failures retain their immediate index. For N, a zero factor
 wins; otherwise overflow panics in `nsymbol` and is typed in `try_nsymbol`.
 F/R/A/B check their own multiplicities and layouts for typed overflow. Nested
 factor queries must themselves be representable. Fusion resets clone the
-initialized factor iterators; the current bound supports owned category types.
+initialized factor iterators; the higher-ranked iterator bound admits owned category types only.
 Runtime fusion uses checked mixed-radix front/back indices, implements
 `ExactSizeIterator` when the factors do, and `DoubleEndedIterator` when the
 factors do. It checks the outcome count for `usize` overflow before iteration.
@@ -245,7 +260,7 @@ Runtime factor failures use `ProductError::Factor { index, source }`.
 The Lie facade retains that factor path in `LieError::Generation`'s source
 chain for generation and malformed-data failures. Overflow maps to
 `LabelOverflow`; factor `LabelOverflow` and `Unsupported` propagate directly
-so callers can still match their variants.
+so callers can match their variants.
 
 Before composing a nonzero F/R/A/B block, Product checks each factor's
 storage axes against its checked N symbols and requires the exact row-major
