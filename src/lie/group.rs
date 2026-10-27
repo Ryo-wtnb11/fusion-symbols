@@ -650,7 +650,7 @@ fn lattice_size(roots: &[RootSystem], torus: usize) -> Result<usize, GroupError>
 // Bourbaki B has its short root last, C its long root last; D branches at r−2.
 // E has chain 1–3–4–5–… and node 2 attached to 4; F's first two roots are long,
 // and G's first root is short. D2 consists of two disconnected A1 roots.
-fn cartan(root: RootSystem, i: usize, j: usize) -> i64 {
+pub(super) fn cartan(root: RootSystem, i: usize, j: usize) -> i64 {
     if i == j {
         return 2;
     }

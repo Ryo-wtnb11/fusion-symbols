@@ -84,7 +84,8 @@ coordinates). Subtracting a simple root is `(μ − α_i)_j = μ_j − cartan(i,
 The invariant form is normalized so that long roots have length² 2:
 `(α_i, α_j) = d_j · cartan(i, j)`, where `d_j = (α_j, α_j)/2`. This gives
 `d = (1/3, 1)` for `G2`, `(1, 1, 1/2, 1/2)` for `F4`, and all ones for `E`. The
-code has no form today, so this is a definition, not a citation.
+code computes `d` and the form from `cartan` in
+`src/lie/general/roots.rs` (`CartanData::symmetrizer`, `CartanData::form`).
 
 **This normalization cannot move any value.** Every rule below uses only the
 integers `cartan(i, j)` and the pairing `⟨μ, α_i∨⟩ = μ_i`. The form appears
