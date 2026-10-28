@@ -194,9 +194,76 @@ pub(crate) fn matmul(a: &Dense, b: &Dense) -> Result<Dense, SweepError> {
     Ok(dense(c.as_ref()))
 }
 
-/// `Aᵀ · B` (`A†B` for real `A`), the projection contraction. One matmul.
-pub(crate) fn tmatmul(a: &Dense, b: &Dense) -> Result<Dense, SweepError> {
-    matmul(&a.transpose(), b)
+#[cfg(test)]
+std::thread_local! {
+    pub(super) static OLD_PROJECTIONS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    // Qᵀx products, materialized transposes, guard/projection pairs, basis versions.
+    pub(super) static PROJECTION_WORK: std::cell::Cell<(usize, usize, usize, usize)> = const { std::cell::Cell::new((0, 0, 0, 0)) };
+}
+
+/// A projection basis and its lazily materialized transpose. Only appending
+/// columns changes the basis; retaining the original layout preserves faer's bits.
+pub(super) struct ProjectionBasis {
+    q: Dense,
+    transpose: std::cell::OnceCell<Dense>,
+}
+
+impl ProjectionBasis {
+    pub fn new(q: Dense) -> Self {
+        #[cfg(test)]
+        PROJECTION_WORK.set({
+            let (products, transposes, pairs, versions) = PROJECTION_WORK.get();
+            (products, transposes, pairs, versions + 1)
+        });
+        Self {
+            q,
+            transpose: std::cell::OnceCell::new(),
+        }
+    }
+
+    pub fn q(&self) -> &Dense {
+        &self.q
+    }
+
+    pub fn into_inner(self) -> Dense {
+        self.q
+    }
+
+    pub fn try_cat_cols(&mut self, other: &Dense) -> Result<(), SweepError> {
+        self.q.try_cat_cols(other)?;
+        if other.cols == 0 {
+            return Ok(());
+        }
+        self.transpose.take();
+        #[cfg(test)]
+        PROJECTION_WORK.set({
+            let (products, transposes, pairs, versions) = PROJECTION_WORK.get();
+            (products, transposes, pairs, versions + 1)
+        });
+        Ok(())
+    }
+
+    /// `Qᵀ · x` with the same materialized input as the old per-call transpose.
+    pub fn tmatmul(&self, x: &Dense) -> Result<Dense, SweepError> {
+        #[cfg(test)]
+        {
+            let (products, transposes, pairs, versions) = PROJECTION_WORK.get();
+            PROJECTION_WORK.set((products + 1, transposes, pairs, versions));
+            if OLD_PROJECTIONS.get() {
+                PROJECTION_WORK.set((products + 1, transposes + 1, pairs, versions));
+                return matmul(&self.q.transpose(), x);
+            }
+        }
+        let transpose = self.transpose.get_or_init(|| {
+            #[cfg(test)]
+            PROJECTION_WORK.set({
+                let (products, transposes, pairs, versions) = PROJECTION_WORK.get();
+                (products, transposes + 1, pairs, versions)
+            });
+            self.q.transpose()
+        });
+        matmul(transpose, x)
+    }
 }
 
 /// Thin SVD `A = U · diag(s) · Vᵀ`, routed through the t4a-faer sequential kernels.
@@ -253,12 +320,12 @@ pub(crate) fn qr_positive_q(a: &Dense, tol: f64) -> Result<Dense, SweepError> {
             inputs.push(a.clone());
         }
     });
-    let mut basis = Dense::zeros(a.rows, 0);
+    let mut basis = ProjectionBasis::new(Dense::zeros(a.rows, 0));
     let mut keep = Vec::new();
     for j in 0..a.cols {
         let mut r = a.select_cols(&[j]);
         for _ in 0..2 {
-            let projection = matmul(&basis, &tmatmul(&basis, &r)?)?;
+            let projection = matmul(basis.q(), &basis.tmatmul(&r)?)?;
             for (x, p) in r.data.iter_mut().zip(projection.data) {
                 *x -= p;
             }
@@ -273,7 +340,7 @@ pub(crate) fn qr_positive_q(a: &Dense, tol: f64) -> Result<Dense, SweepError> {
         }
     }
     if keep.is_empty() {
-        return Ok(basis);
+        return Ok(basis.into_inner());
     }
     let selected = a.select_cols(&keep);
     let (packed, coeff) = qr(view(&selected));
@@ -283,6 +350,28 @@ pub(crate) fn qr_positive_q(a: &Dense, tol: f64) -> Result<Dense, SweepError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn projection_basis_reuses_and_invalidates_transpose() {
+        PROJECTION_WORK.set((0, 0, 0, 0));
+        let mut basis = ProjectionBasis::new(Dense::unit(2, 0));
+        let x = Dense {
+            rows: 2,
+            cols: 1,
+            data: vec![2.0, 3.0],
+        };
+        for _ in 0..2 {
+            assert_eq!(basis.tmatmul(&x).unwrap().data, [2.0]);
+        }
+        basis.try_cat_cols(&Dense::unit(2, 1)).unwrap();
+        for _ in 0..2 {
+            assert_eq!(basis.tmatmul(&x).unwrap().data, [2.0, 3.0]);
+        }
+        assert_eq!(PROJECTION_WORK.get(), (4, 2, 0, 2));
+        basis.try_cat_cols(&Dense::zeros(2, 0)).unwrap();
+        basis.tmatmul(&x).unwrap();
+        assert_eq!(PROJECTION_WORK.get(), (5, 2, 0, 2));
+    }
 
     #[test]
     fn d3_epoch3_qr_uses_independent_input_columns() {
@@ -333,8 +422,9 @@ mod tests {
             assert!((x - y).abs() < 1e-12);
         }
         // Independently certify positive-diagonal thin QR, including its sign.
-        let r = tmatmul(&actual, &selected).unwrap();
-        let gram = tmatmul(&actual, &actual).unwrap();
+        let basis = ProjectionBasis::new(actual.clone());
+        let r = basis.tmatmul(&selected).unwrap();
+        let gram = basis.tmatmul(&actual).unwrap();
         for i in 0..4 {
             assert!(r.at(i, i) > 1e-10);
             for j in 0..4 {

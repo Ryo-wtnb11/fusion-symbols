@@ -22,6 +22,8 @@ value/gauge rule noted below.
 
 ### Performance
 
+- B/C/D projections reuse basis transposes and guarded overlaps, preserving
+  every coefficient bit while avoiding repeated allocations and products.
 - B/C/D product ladders use ordered exact-nonzero adjacency for application,
   preserving coefficient bits and fingerprints while removing dense product storage.
 - Reuse each distinct SU(N) GT basis and ladder within CGC generation and index

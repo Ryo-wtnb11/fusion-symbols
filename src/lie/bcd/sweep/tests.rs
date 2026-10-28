@@ -947,3 +947,173 @@ fn product_ladder_merges_collisions_in_dense_order() {
         }
     }
 }
+
+// Drift reference copied from b2b2dcb, not a mathematical oracle.
+pub(super) fn old_project_out(q: &ProjectionBasis, x: &mut Dense) -> Result<(), SweepError> {
+    if q.q().cols == 0 {
+        return Ok(());
+    }
+    let qtx = q.tmatmul(x)?;
+    let qqtx = matmul(q.q(), &qtx)?;
+    for i in 0..x.data.len() {
+        x.data[i] -= qqtx.data[i];
+    }
+    Ok(())
+}
+
+fn old_overlap(q: &ProjectionBasis, x: &Dense) -> Result<f64, SweepError> {
+    if q.q().cols == 0 {
+        return Ok(0.0);
+    }
+    let qtx = q.tmatmul(x)?;
+    Ok(qtx.data.iter().fold(0.0f64, |m, &v| m.max(v.abs())))
+}
+
+pub(super) fn old_guarded_project_out(
+    q: &ProjectionBasis,
+    x: &mut Dense,
+    error: fn(f64) -> SweepError,
+) -> Result<(), SweepError> {
+    let residual = old_overlap(q, x)?;
+    if residual > EPS_SWEEP {
+        return Err(error(residual));
+    }
+    old_project_out(q, x)
+}
+
+#[test]
+fn projection_guards_reject_before_subtraction() {
+    let q = ProjectionBasis::new(Dense::unit(2, 0));
+    for error in [
+        (|residual| SweepError::OverlapWithVspace { residual }) as fn(f64) -> SweepError,
+        |residual| SweepError::OverlapWithUspace { residual },
+    ] {
+        for residual in [EPS_SWEEP / 2.0, EPS_SWEEP, EPS_SWEEP * 2.0] {
+            let mut x = Dense {
+                rows: 2,
+                cols: 1,
+                data: vec![residual, 1.0],
+            };
+            let before = x.clone();
+            let result = guarded_project_out(&q, &mut x, error);
+            if residual > EPS_SWEEP {
+                assert_eq!(result, Err(error(residual)));
+                assert_eq!(x, before, "guard must run before subtraction");
+            } else {
+                result.unwrap();
+                assert_eq!(x.data, [0.0, 1.0]);
+            }
+        }
+    }
+}
+
+#[test]
+fn projection_reuse_matches_old_bits_and_counts() {
+    use super::super::linalg::{OLD_PROJECTIONS, PROJECTION_WORK};
+    use crate::{
+        cache,
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
+
+    fn matrix_bits(out: &mut Vec<u64>, matrix: &Dense) {
+        out.extend([matrix.rows as u64, matrix.cols as u64]);
+        out.extend(matrix.data.iter().map(|x| x.to_bits()));
+    }
+
+    // Compare every f64 (including zeros) in the raw sweep, every catalog
+    // channel/copy, and the public F block. Fresh catalogs and reset caches
+    // keep the old path independent of the optimized path.
+    fn snapshot(id: GroupId, labels: &[i64], channel: &[i64]) -> Vec<u64> {
+        cache::reset();
+        let group = LieGroup::new(id).unwrap();
+        let a = group.irrep(labels).unwrap();
+        let c = group.irrep(channel).unwrap();
+        let mut out = Vec::new();
+        {
+            let mut catalog = group.catalog.as_ref().unwrap().lock().unwrap();
+            let a = a.bcd().unwrap();
+            let generators = catalog.generators(a).unwrap().clone();
+            let product = Generators::product(&generators, &generators).unwrap();
+            let blocks = get_symmetry_states(&product).unwrap();
+            out.push(blocks.len() as u64);
+            for block in blocks {
+                out.extend(block.irrep.dynkin().iter().map(|&x| x as u64));
+                out.extend([block.om.0 as u64, block.om.1 as u64]);
+                matrix_bits(&mut out, &block.cgc);
+                matrix_bits(&mut out, &block.z);
+                for ladder in block.gens.sp.dense() {
+                    matrix_bits(&mut out, ladder);
+                }
+                for cartan in &block.gens.sz {
+                    out.extend(cartan.iter().map(|x| x.to_bits()));
+                }
+            }
+            let channels = catalog.cgc_product(a, a).unwrap();
+            out.push(channels.len() as u64);
+            for cgc in channels {
+                out.extend(cgc.s3().dynkin().iter().map(|&x| x as u64));
+                let (rows, cols) = cgc.copy_shape();
+                out.extend([rows as u64, cols as u64, cgc.multiplicity() as u64]);
+                for mu in 0..cgc.multiplicity() {
+                    out.extend(cgc.copy(mu).iter().map(|x| x.to_bits()));
+                }
+            }
+        }
+        let f = group.f_symbol(&a, &a, &a, &a, &c, &c).unwrap();
+        assert!(!f.data().is_empty());
+        out.extend(f.dims().iter().map(|&n| n as u64));
+        out.extend(f.data().iter().map(|x| x.to_bits()));
+        out
+    }
+
+    fn ordered_bits(bits: u64) -> u64 {
+        if bits >> 63 == 0 {
+            bits | (1 << 63)
+        } else {
+            !bits
+        }
+    }
+
+    let _lock = cache::TEST_CACHE_LOCK.lock().unwrap();
+    let mut identical = true;
+    for (id, labels, channel) in [
+        (GroupId::sp(4).unwrap(), vec![2, 1], vec![2, 1]),
+        (GroupId::so(5).unwrap(), vec![2, 0], vec![2, 0]),
+        (GroupId::so(8).unwrap(), vec![0, 1, 0, 0], vec![0, 1, 0, 0]),
+        (GroupId::spin(7).unwrap(), vec![0, 0, 1], vec![0, 1, 0]),
+    ] {
+        let mut runs = Vec::new();
+        for old in [true, false] {
+            OLD_PROJECTIONS.set(old);
+            PROJECTION_WORK.set((0, 0, 0, 0));
+            let bits = snapshot(id.clone(), &labels, &channel);
+            runs.push((bits, PROJECTION_WORK.get()));
+        }
+        OLD_PROJECTIONS.set(false);
+        let [(old, (old_products, old_transposes, old_pairs, old_versions)), (new, (products, transposes, pairs, versions))] =
+            runs.try_into().unwrap();
+        let differences: Vec<_> = old
+            .iter()
+            .zip(&new)
+            .enumerate()
+            .filter(|(_, (a, b))| a != b)
+            .collect();
+        let max_ulp = differences
+            .iter()
+            .map(|(_, (a, b))| ordered_bits(**a).abs_diff(ordered_bits(**b)))
+            .max()
+            .unwrap_or(0);
+        println!("{labels:?}: values={} differences={} max_ulp={max_ulp}; products {old_products}->{products}, transposes {old_transposes}->{transposes}, guard/projection pairs={pairs}, basis versions={versions}", old.len(), differences.len());
+        assert_eq!(old.len(), new.len());
+        identical &= differences.is_empty();
+        assert!(transposes <= versions);
+        assert!(transposes < old_transposes);
+        assert_eq!(old_versions, versions);
+        assert_eq!(old_transposes, old_products);
+        assert_eq!(old_pairs, pairs);
+        assert!(pairs > 0);
+        assert_eq!(old_products - products, pairs);
+    }
+    assert!(identical, "projection path changed coefficient bits");
+}
