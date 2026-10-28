@@ -183,17 +183,30 @@ pub(super) struct ProductSpace {
 impl ProductSpace {
     fn new(a: &Ladders, b: &Ladders, nu: &[i64]) -> Self {
         let mut pairs = Vec::new();
-        // b's spaces are visited in magnetic order with m_a inner, so the
-        // pairs come out sorted by (m_b, m_a), which is the composite order.
-        for wb in &b.module.weights {
+        // Scan the smaller weight set, then restore §5.1 composite order if swapped.
+        let (inner, outer, swapped) = if a.module.weights.len() < b.module.weights.len() {
+            (b, a, true)
+        } else {
+            (a, b, false)
+        };
+        for wb in &outer.module.weights {
             let mu_a: Vec<i64> = nu.iter().zip(&wb.mu).map(|(x, y)| x - y).collect();
-            let Some(wa) = a.module.weight_index(&mu_a) else {
+            let Some(wa) = inner.module.weight_index(&mu_a) else {
                 continue;
             };
-            let wa = &a.module.weights[wa];
+            let wa = &inner.module.weights[wa];
             for q in wb.offset..wb.offset + wb.norms.len() {
-                pairs.extend((wa.offset..wa.offset + wa.norms.len()).map(|p| (p, q)));
+                pairs.extend((wa.offset..wa.offset + wa.norms.len()).map(|p| {
+                    if swapped {
+                        (q, p)
+                    } else {
+                        (p, q)
+                    }
+                }));
             }
+        }
+        if swapped {
+            pairs.sort_unstable_by_key(|&(p, q)| (q, p));
         }
         let index = pairs.iter().enumerate().map(|(t, &pq)| (pq, t)).collect();
         Self { pairs, index }
@@ -318,11 +331,12 @@ impl Channel {
                         .collect()
                 })
                 .collect();
-            for coeffs in &space.gs {
+            for (k, coeffs) in space.gs.iter().enumerate() {
                 let per_mu = (0..multiplicity)
                     .map(|mu| {
-                        let mut v = vec![Q::zero(); to.len()];
-                        for (r, cand) in coeffs.iter().zip(&lowered) {
+                        // §4.3: own-candidate coefficient is 1; later ones are 0.
+                        let mut v = lowered[k][mu].clone();
+                        for (r, cand) in coeffs[..k].iter().zip(&lowered) {
                             if r.is_zero() {
                                 continue;
                             }

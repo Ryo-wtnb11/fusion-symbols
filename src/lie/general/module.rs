@@ -288,41 +288,59 @@ fn build_space(
         }
     }
 
-    // §4.2/§4.3: greedy selection by exact Gram–Schmidt residual, in
-    // candidate order; coefficients are over all candidates.
-    let mut full: Vec<Vec<Q>> = Vec::new();
+    // Cache ⟨b_a, c_t⟩ once: GS uses it for projections and lowering uses it / n_a.
+    // Rejected candidates never occur in a residual, so GS needs only kept coordinates.
+    let mut gs: Vec<Vec<Q>> = Vec::with_capacity(usize::try_from(multiplicity).unwrap_or(0));
+    let mut inner: Vec<Vec<Q>> = Vec::new();
     let mut norms: Vec<Q> = Vec::new();
     let mut kept_idx: Vec<usize> = Vec::new();
     for t in 0..c {
-        let mut coeffs = vec![Q::zero(); c];
-        coeffs[t] = Q::from_integer(1.into());
         let mut n = gram[t][t].clone();
-        for (r, n_l) in full.iter().zip(&norms) {
-            let proj: Q = r
-                .iter()
-                .zip(&gram[t])
-                .filter(|(x, g)| !x.is_zero() && !g.is_zero())
-                .map(|(x, g)| x * g)
-                .sum();
-            if proj.is_zero() {
-                continue;
-            }
-            let scale = &proj / n_l;
-            n -= &scale * &proj;
-            for (x, y) in coeffs.iter_mut().zip(r) {
-                if !y.is_zero() {
-                    *x -= &scale * y;
+        let scales: Vec<Q> = inner
+            .iter()
+            .zip(&norms)
+            .map(|(row, n_l)| {
+                let proj = &row[t];
+                if proj.is_zero() {
+                    return Q::zero();
                 }
-            }
-        }
+                let scale = proj / n_l;
+                n -= &scale * proj;
+                scale
+            })
+            .collect();
         if n.is_negative() {
             return Err(ModuleError::IndefiniteForm { weight: mu }.into());
         }
-        if !n.is_zero() {
-            full.push(coeffs);
-            norms.push(n);
-            kept_idx.push(t);
+        if n.is_zero() {
+            continue;
         }
+        let mut coeffs = vec![Q::zero(); gs.len() + 1];
+        coeffs[gs.len()] = Q::from_integer(1.into());
+        for (scale, r) in scales.iter().zip(&gs) {
+            if !scale.is_zero() {
+                for (x, y) in coeffs.iter_mut().zip(r) {
+                    if !y.is_zero() {
+                        *x -= scale * y;
+                    }
+                }
+            }
+        }
+        // All earlier candidates lie in the preceding span, orthogonal to b_a.
+        let mut row = vec![Q::zero(); c];
+        row[t] = n.clone();
+        for col in t + 1..c {
+            row[col] = gram[t][col].clone();
+            for (scale, prev) in scales.iter().zip(&inner) {
+                if !scale.is_zero() && !prev[col].is_zero() {
+                    row[col] -= scale * &prev[col];
+                }
+            }
+        }
+        gs.push(coeffs);
+        inner.push(row);
+        norms.push(n);
+        kept_idx.push(t);
     }
     if u64::try_from(norms.len()).ok() != Some(multiplicity) {
         return Err(ModuleError::RankMismatch {
@@ -333,36 +351,28 @@ fn build_space(
         .into());
     }
 
-    // §4.5: F[a][b] = ⟨f_j b_b, b_a⟩ / n_a, and f_j b_b is candidate (j, b).
+    // §4.5: F[a][b] = ⟨b_a, c_(j,b)⟩ / n_a.
     let lower = (0..rank)
         .map(|j| {
             let s0 = start[j]?;
             let src = cands[s0].1;
-            let f = full
+            let f = inner
                 .iter()
                 .zip(&norms)
-                .map(|(r, n_a)| {
-                    (0..weights[src].norms.len())
-                        .map(|b| {
-                            let col = s0 + b;
-                            let dot: Q = r
-                                .iter()
-                                .zip(&gram)
-                                .filter(|(x, row)| !x.is_zero() && !row[col].is_zero())
-                                .map(|(x, row)| x * &row[col])
-                                .sum();
-                            dot / n_a
-                        })
+                .map(|(row, n_a)| {
+                    row[s0..s0 + weights[src].norms.len()]
+                        .iter()
+                        .map(|dot| dot / n_a)
                         .collect()
                 })
                 .collect();
             Some((src, f))
         })
         .collect();
-    let gs = full
-        .iter()
-        .map(|r| kept_idx.iter().map(|&t| r[t].clone()).collect())
-        .collect();
+    for row in &mut gs {
+        row.reserve_exact(norms.len() - row.len());
+        row.resize(norms.len(), Q::zero());
+    }
     let kept = kept_idx.iter().map(|&t| (cands[t].0, cands[t].2)).collect();
     Ok(WeightSpace {
         mu,

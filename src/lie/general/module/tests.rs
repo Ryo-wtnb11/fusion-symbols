@@ -470,3 +470,205 @@ fn entries(m: &IrrepModule) -> Vec<SignedSqrtRational> {
     }
     out
 }
+
+// The c236d39 §4 recursion is a drift reference, not an independent oracle.
+fn old_build_space(
+    data: &CartanData,
+    weights: &[WeightSpace],
+    index: &HashMap<Vec<i64>, usize>,
+    mu: Vec<i64>,
+    k: Vec<i64>,
+    offset: usize,
+    multiplicity: u64,
+) -> Result<WeightSpace, LieError> {
+    let rank = mu.len();
+    let raise =
+        |nu: &[i64], j: usize| -> Vec<i64> { (0..rank).map(|i| nu[i] + data.c(j, i)).collect() };
+    // §4.1: candidates (j, source weight, q); `start[j]` is where j's block begins.
+    let mut cands: Vec<(usize, usize, usize)> = Vec::new();
+    let mut start = vec![None; rank];
+    for (j, slot) in start.iter_mut().enumerate() {
+        if let Some(&src) = index.get(&raise(&mu, j)) {
+            *slot = Some(cands.len());
+            cands.extend((0..weights[src].norms.len()).map(|q| (j, src, q)));
+        }
+    }
+
+    // §4.4: ⟨f_j w, f_k w′⟩ = ⟨e_k w, e_j w′⟩ + δ_jk (μ+α_j)_j ⟨w, w′⟩, with
+    // ⟨e_k b_q, e_j b_q′⟩ = Σ_p F_k[q][p] F_j[q′][p] n_q n_q′ / n_p by contravariance.
+    let c = cands.len();
+    let mut gram = vec![vec![Q::zero(); c]; c];
+    for s in 0..c {
+        let (j, v1, q) = cands[s];
+        for t in s..c {
+            let (kk, v2, q2) = cands[t];
+            let (w1, w2) = (&weights[v1], &weights[v2]);
+            let mut g = Q::zero();
+            if let (Some((tau, f1)), Some((_, f2))) = (&w1.lower[kk], &w2.lower[j]) {
+                let n_tau = &weights[*tau].norms;
+                for (p, n_p) in n_tau.iter().enumerate() {
+                    if !f1[q][p].is_zero() && !f2[q2][p].is_zero() {
+                        g += &f1[q][p] * &f2[q2][p] / n_p;
+                    }
+                }
+                if !g.is_zero() {
+                    g *= &w1.norms[q] * &w2.norms[q2];
+                }
+            }
+            if j == kk && q == q2 {
+                g += Q::from_integer(w1.mu[j].into()) * &w1.norms[q];
+            }
+            gram[t][s] = g.clone();
+            gram[s][t] = g;
+        }
+    }
+
+    // §4.2/§4.3: greedy selection by exact Gram–Schmidt residual, in
+    // candidate order; coefficients are over all candidates.
+    let mut full: Vec<Vec<Q>> = Vec::new();
+    let mut norms: Vec<Q> = Vec::new();
+    let mut kept_idx: Vec<usize> = Vec::new();
+    for t in 0..c {
+        let mut coeffs = vec![Q::zero(); c];
+        coeffs[t] = Q::from_integer(1.into());
+        let mut n = gram[t][t].clone();
+        for (r, n_l) in full.iter().zip(&norms) {
+            let proj: Q = r
+                .iter()
+                .zip(&gram[t])
+                .filter(|(x, g)| !x.is_zero() && !g.is_zero())
+                .map(|(x, g)| x * g)
+                .sum();
+            if proj.is_zero() {
+                continue;
+            }
+            let scale = &proj / n_l;
+            n -= &scale * &proj;
+            for (x, y) in coeffs.iter_mut().zip(r) {
+                if !y.is_zero() {
+                    *x -= &scale * y;
+                }
+            }
+        }
+        if n.is_negative() {
+            return Err(ModuleError::IndefiniteForm { weight: mu }.into());
+        }
+        if !n.is_zero() {
+            full.push(coeffs);
+            norms.push(n);
+            kept_idx.push(t);
+        }
+    }
+    if u64::try_from(norms.len()).ok() != Some(multiplicity) {
+        return Err(ModuleError::RankMismatch {
+            weight: mu,
+            rank: norms.len(),
+            multiplicity,
+        }
+        .into());
+    }
+
+    // §4.5: F[a][b] = ⟨f_j b_b, b_a⟩ / n_a, and f_j b_b is candidate (j, b).
+    let lower = (0..rank)
+        .map(|j| {
+            let s0 = start[j]?;
+            let src = cands[s0].1;
+            let f = full
+                .iter()
+                .zip(&norms)
+                .map(|(r, n_a)| {
+                    (0..weights[src].norms.len())
+                        .map(|b| {
+                            let col = s0 + b;
+                            let dot: Q = r
+                                .iter()
+                                .zip(&gram)
+                                .filter(|(x, row)| !x.is_zero() && !row[col].is_zero())
+                                .map(|(x, row)| x * &row[col])
+                                .sum();
+                            dot / n_a
+                        })
+                        .collect()
+                })
+                .collect();
+            Some((src, f))
+        })
+        .collect();
+    let gs = full
+        .iter()
+        .map(|r| kept_idx.iter().map(|&t| r[t].clone()).collect())
+        .collect();
+    let kept = kept_idx.iter().map(|&t| (cands[t].0, cands[t].2)).collect();
+    Ok(WeightSpace {
+        mu,
+        k,
+        offset,
+        norms,
+        kept,
+        gs,
+        lower,
+    })
+}
+
+fn compare_old_module(root: RootSystem, lambda: &[i64]) {
+    let data = CartanData::new(root);
+    let new = IrrepModule::new(&data, lambda).unwrap();
+    let mut old = vec![WeightSpace {
+        mu: lambda.to_vec(),
+        k: vec![0; lambda.len()],
+        offset: 0,
+        norms: vec![Q::from_integer(1.into())],
+        kept: Vec::new(),
+        gs: vec![Vec::new()],
+        lower: vec![None; lambda.len()],
+    }];
+    for w in &new.weights[1..] {
+        let space = old_build_space(
+            &data,
+            &old,
+            &new.index,
+            w.mu.clone(),
+            w.k.clone(),
+            w.offset,
+            w.norms.len() as u64,
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                &space.mu,
+                &space.k,
+                space.offset,
+                &space.norms,
+                &space.kept,
+                &space.gs,
+                &space.lower
+            ),
+            (&w.mu, &w.k, w.offset, &w.norms, &w.kept, &w.gs, &w.lower),
+            "{root:?} {lambda:?} {:?}",
+            w.mu
+        );
+        old.push(space);
+    }
+    assert_eq!(old.iter().map(|w| w.norms.len()).sum::<usize>(), new.dim);
+}
+
+#[test]
+fn module_matches_old_path_exactly() {
+    for (root, lambda, _) in cases() {
+        compare_old_module(root, &lambda);
+    }
+    compare_old_module(RootSystem::F4, &unit(4, 2));
+}
+
+#[test]
+#[ignore = "large exact old/new module comparisons; run in release"]
+fn large_modules_match_old_path_exactly() {
+    for (root, lambda) in [
+        (RootSystem::E8, unit(8, 0)),
+        (RootSystem::E8, vec![0, 0, 0, 0, 0, 0, 0, 2]),
+        (RootSystem::E8, unit(8, 6)),
+        (RootSystem::E6, vec![1, 0, 0, 0, 1, 0]),
+    ] {
+        compare_old_module(root, &lambda);
+    }
+}
