@@ -52,14 +52,14 @@ fn disabled_policy_preserves_sun_product_value_without_retention() {
     // Exact B/C/D products share the existing BcdCgc byte policy.
     let bcd =
         fusion_symbols::lie::LieGroup::new(fusion_symbols::lie::GroupId::sp(4).unwrap()).unwrap();
-    let v = bcd.irrep(&[1, 0], &[]).unwrap();
+    let v = bcd.irrep(&[1, 0]).unwrap();
     assert_eq!(bcd.fusion(&v, &v).unwrap().len(), 3);
     let stats = tier_stats(CoefficientCacheTier::BcdCgc);
     assert_eq!(stats.entries, 0);
     assert_eq!(stats.bytes, 0);
     assert_eq!(stats.evictions, 1);
     // A zero B/C/D R budget still returns 4⊗4→10, retaining nothing.
-    let adjoint = bcd.irrep(&[2, 0], &[]).unwrap();
+    let adjoint = bcd.irrep(&[2, 0]).unwrap();
     assert_eq!(bcd.r_symbol(&v, &v, &adjoint).unwrap().dim(), 1);
     let stats = tier_stats(CoefficientCacheTier::BcdR);
     assert_eq!((stats.entries, stats.bytes, stats.misses), (0, 0, 1));

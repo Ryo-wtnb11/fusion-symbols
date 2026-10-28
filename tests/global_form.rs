@@ -308,7 +308,7 @@ mod against_bcd {
             for r in min_r..=min_r + 2 {
                 let group = published(series, r);
                 for label in sweep(r, 3) {
-                    let built = LieGroup::new(group.clone()).unwrap().irrep(&label, &[]);
+                    let built = LieGroup::new(group.clone()).unwrap().irrep(&label);
                     let admitted = group.admits(&label, &[]);
                     match (&built, admitted) {
                         (Ok(_), true) => {}
@@ -337,8 +337,8 @@ mod against_bcd {
                 .collect();
             for a in &labels {
                 for b in &labels {
-                    let ia = LieGroup::new(group.clone()).unwrap().irrep(a, &[]).unwrap();
-                    let ib = LieGroup::new(group.clone()).unwrap().irrep(b, &[]).unwrap();
+                    let ia = LieGroup::new(group.clone()).unwrap().irrep(a).unwrap();
+                    let ib = LieGroup::new(group.clone()).unwrap().irrep(b).unwrap();
                     for c in bcd_test::product(&LieGroup::new(group.clone()).unwrap(), &ia, &ib)
                         .unwrap()
                         .keys()
@@ -365,15 +365,14 @@ mod against_bcd {
             let labels: Vec<_> = sweep(r, 2)
                 .into_iter()
                 .filter(|l| {
-                    group.admits(l, &[])
-                        && LieGroup::new(group.clone()).unwrap().irrep(l, &[]).is_ok()
+                    group.admits(l, &[]) && LieGroup::new(group.clone()).unwrap().irrep(l).is_ok()
                 })
                 .collect();
             assert!(labels.len() > 2, "{group:?}: nothing to fuse");
             for a in &labels {
                 for b in &labels {
-                    let ia = LieGroup::new(group.clone()).unwrap().irrep(a, &[]).unwrap();
-                    let ib = LieGroup::new(group.clone()).unwrap().irrep(b, &[]).unwrap();
+                    let ia = LieGroup::new(group.clone()).unwrap().irrep(a).unwrap();
+                    let ib = LieGroup::new(group.clone()).unwrap().irrep(b).unwrap();
                     for c in bcd_test::product(&LieGroup::new(group.clone()).unwrap(), &ia, &ib)
                         .unwrap()
                         .keys()
@@ -419,7 +418,7 @@ mod against_bcd {
     fn so5_canonical_parent_hand_example() {
         use num_bigint::BigInt;
         let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
-        let irrep = |a: i64, b: i64| cat.irrep(&[a, b], &[]).unwrap();
+        let irrep = |a: i64, b: i64| cat.irrep(&[a, b]).unwrap();
         let spinor = irrep(1, 0); // B₂ ω₂, the 4
         let vector = irrep(0, 1); // B₂ ω₁, the 5
         let adjoint = irrep(2, 0); // B₂ 2ω₂, the 10
@@ -596,7 +595,7 @@ mod sun_forms {
         assert_eq!(
             fusion_symbols::lie::LieGroup::new(GroupId::su(3).unwrap())
                 .unwrap()
-                .irrep(&[], &[]),
+                .irrep(&[]),
             Err(LieError::InvalidLabel)
         );
     }
@@ -671,7 +670,7 @@ fn psp_rejection_uses_the_generic_not_admissible_error() {
     ] {
         let error = LieGroup::new(group.clone())
             .unwrap()
-            .irrep(&label, &[])
+            .irrep(&label)
             .unwrap_err();
         assert_eq!(error, LieError::NotAdmissible);
         assert!(!error.to_string().to_lowercase().contains("spinor"));
@@ -719,10 +718,10 @@ mod cross_form_coefficients {
         ] {
             let spin = LieGroup::new(GroupId::spin(n).unwrap()).unwrap();
             let so = LieGroup::new(GroupId::so(n).unwrap()).unwrap();
-            let cv = spin.irrep(&v_label, &[]).unwrap();
-            let qv = so.irrep(&v_label, &[]).unwrap();
-            let cc = spin.irrep(&c_label, &[]).unwrap();
-            let qc = so.irrep(&c_label, &[]).unwrap();
+            let cv = spin.irrep(&v_label).unwrap();
+            let qv = so.irrep(&v_label).unwrap();
+            let cc = spin.irrep(&c_label).unwrap();
+            let qc = so.irrep(&c_label).unwrap();
             assert_ne!(cv, qv, "objects retain the global form tag");
             let cover = spin.cgc(&cv, &cv, &cc).unwrap();
             let quot = so.cgc(&qv, &qv, &qc).unwrap();
@@ -887,10 +886,10 @@ mod cross_form_coefficients {
         };
         let spin = LieGroup::new(GroupId::spin(5).unwrap()).unwrap();
         let so = LieGroup::new(GroupId::so(5).unwrap()).unwrap();
-        let spinor = spin.irrep(&[0, 1], &[]).unwrap();
-        let vector = spin.irrep(&[1, 0], &[]).unwrap();
+        let spinor = spin.irrep(&[0, 1]).unwrap();
+        let vector = spin.irrep(&[1, 0]).unwrap();
         spin.cgc(&spinor, &spinor, &vector).unwrap();
-        assert_eq!(so.irrep(&[0, 1], &[]), Err(LieError::NotAdmissible));
+        assert_eq!(so.irrep(&[0, 1]), Err(LieError::NotAdmissible));
     }
 }
 

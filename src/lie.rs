@@ -17,6 +17,8 @@ pub use gt::GtPattern;
 mod group;
 pub mod su2;
 pub use group::{GroupError, GroupId, RootSystem};
+mod half_int;
+pub use half_int::HalfInt;
 
 use crate::category::{
     sealed::Validated, BraidingStyle, CgcBlock, EnumerationError, FBlock, FusionCategory,
@@ -199,7 +201,8 @@ enum LieEnumeration {
 pub enum LieError {
     /// A coefficient generation failed.
     Generation(GenerationError),
-    /// Wrong Dynkin/charge lengths or a negative Dynkin label.
+    /// Wrong Dynkin/charge lengths, a negative Dynkin label, or a spin on a
+    /// group other than SU(2) and SO(3).
     InvalidLabel,
     /// The group's global form excludes this weight.
     NotAdmissible,
@@ -666,6 +669,27 @@ impl LieGroup {
         }
         Ok(())
     }
+    /// Construct an irrep of a group without torus charges (torus rank zero).
+    /// A group with torus rank above zero returns [`LieError::InvalidLabel`];
+    /// use [`Self::irrep_with_charges`] there. Otherwise identical to
+    /// `irrep_with_charges(dynkin, &[])`.
+    pub fn irrep(&self, dynkin: &[i64]) -> Result<LieIrrep, LieError> {
+        if self.group.torus_rank() != 0 {
+            return Err(LieError::InvalidLabel);
+        }
+        self.irrep_with_charges(dynkin, &[])
+    }
+    /// The irrep of spin `j` of SU(2) or SO(3), in any rank-one presentation
+    /// (root systems exactly `[A(1)]`, `[B(1)]` or `[C(1)]`, no torus), whose
+    /// single Dynkin label is `2j`. Equal to `irrep(&[2j])`, so SO(3) rejects
+    /// half-integer `j` as [`LieError::NotAdmissible`]. Every other group
+    /// returns [`LieError::InvalidLabel`].
+    pub fn irrep_spin(&self, j: HalfInt) -> Result<LieIrrep, LieError> {
+        if !is_spin_group(&self.group) {
+            return Err(LieError::InvalidLabel);
+        }
+        self.irrep(&[i64::from(j.doubled())])
+    }
     /// Validate label lengths and nonnegative Dynkin labels, then lattice
     /// admission, then engine representability. Torus charges lie in
     /// `-i32::MAX..=i32::MAX`; out-of-range charges return [`LieError::LabelOverflow`].
@@ -673,7 +697,11 @@ impl LieGroup {
     /// returns [`LieError::LabelOverflow`] (so does its dual), here and from
     /// `fusion` when an outcome is such a label: its Frobenius–Schur phase is
     /// generated in the module basis, whose magnetic index is `u32`.
-    pub fn irrep(&self, dynkin: &[i64], charges: &[i64]) -> Result<LieIrrep, LieError> {
+    pub fn irrep_with_charges(
+        &self,
+        dynkin: &[i64],
+        charges: &[i64],
+    ) -> Result<LieIrrep, LieError> {
         if dynkin.len() != self.group.semisimple_rank()
             || charges.len() != self.group.torus_rank()
             || dynkin.iter().any(|&x| x < 0)
@@ -692,8 +720,10 @@ impl LieGroup {
                 .map(|factor| {
                     let end = offset + factor.group.semisimple_rank();
                     let charge_end = charge_offset + factor.group.torus_rank();
-                    let label =
-                        factor.irrep(&dynkin[offset..end], &charges[charge_offset..charge_end]);
+                    let label = factor.irrep_with_charges(
+                        &dynkin[offset..end],
+                        &charges[charge_offset..charge_end],
+                    );
                     charge_offset = charge_end;
                     offset = end;
                     label
@@ -825,6 +855,15 @@ impl LieIrrep {
         match self.payload {
             LiePayload::Torus(q) => q,
             _ => U1Irrep::UNIT,
+        }
+    }
+    /// The spin `j` of an irrep of SU(2) or SO(3), in any rank-one
+    /// presentation (as for [`LieGroup::irrep_spin`]); `None` for every other group.
+    /// The label is `u32`, checked when the irrep was admitted.
+    pub fn spin(&self) -> Option<HalfInt> {
+        match self.payload {
+            LiePayload::RankOne(dj) if is_spin_group(&self.group) => Some(HalfInt::half(dj)),
+            _ => None,
         }
     }
     /// Integer torus charges, in the datum's charge-coordinate order.
@@ -1062,7 +1101,7 @@ impl FusionCategory for LieGroup {
             return self
                 .unit
                 .get_or_init(|| {
-                    self.irrep(&vec![0; self.group.semisimple_rank()], &[])
+                    self.irrep(&vec![0; self.group.semisimple_rank()])
                         .expect("zero Dynkin labels have zero weight and are admitted by the constructed group")
                 })
                 .clone();
@@ -1590,8 +1629,7 @@ impl FusionCategory for LieGroup {
         };
         // The labels are nonnegative, of the right rank and admitted, so only
         // `LieError::LabelOverflow` remains.
-        self.irrep(&labels, &[])
-            .map_err(|_| EnumerationError::Overflow)
+        self.irrep(&labels).map_err(|_| EnumerationError::Overflow)
     }
     fn object_index(&self, a: &LieIrrep) -> Result<u64, EnumerationError> {
         let dj = self.label(a);
@@ -1932,6 +1970,13 @@ impl DoubleEndedIterator for LieFusion {
 }
 impl ExactSizeIterator for LieFusion {}
 
+fn is_spin_group(group: &GroupId) -> bool {
+    matches!(
+        group.root_systems(),
+        [RootSystem::A(1) | RootSystem::B(1) | RootSystem::C(1)]
+    ) && group.torus_rank() == 0
+}
+
 #[cfg(all(test, feature = "lie-generated"))]
 mod tests {
     use super::*;
@@ -1992,7 +2037,7 @@ mod tests {
             });
             let big = large.iter().map(|&x| vec![x; r]);
             for d in small.chain(big) {
-                let Ok(a) = cat.irrep(&d, &[]) else {
+                let Ok(a) = cat.irrep(&d) else {
                     continue; // spinor label of a non-spin group
                 };
                 let exact = match (a.generated(), a.bcd()) {
@@ -2021,7 +2066,7 @@ mod tests {
         let cover = LieGroup::new(GroupId::cover(&[RootSystem::A(2)], 1).unwrap()).unwrap();
         let quotient = LieGroup::new(GroupId::u(3).unwrap()).unwrap();
         for cat in [&cover, &quotient] {
-            let a = cat.irrep(&[1, 0], &[1]).unwrap();
+            let a = cat.irrep_with_charges(&[1, 0], &[1]).unwrap();
             let b = cat.dual(&a);
             let one = cat.unit();
             let query = || {
@@ -2101,8 +2146,8 @@ mod tests {
         );
         // Generation grows the B(2) catalog; reset returns to the seed count.
         let b2 = &cat.composite.as_ref().unwrap().factors()[1];
-        let s = b2.irrep(&[0, 1], &[]).unwrap();
-        let adj = b2.irrep(&[0, 2], &[]).unwrap();
+        let s = b2.irrep(&[0, 1]).unwrap();
+        let adj = b2.irrep(&[0, 2]).unwrap();
         b2.cgc(&s, &s, &adj).unwrap();
         assert!(cat.catalog_stats().unwrap().entries > 2 * 2);
         cat.reset_catalog().unwrap();
@@ -2134,8 +2179,8 @@ mod tests {
         )
         .unwrap();
         let query = |cat: &LieGroup| {
-            let a = cat.irrep(&[2, 1, 1, 1, 0], &[]).unwrap();
-            let e = cat.irrep(&[2, 1, 1, 0, 0], &[]).unwrap();
+            let a = cat.irrep(&[2, 1, 1, 1, 0]).unwrap();
+            let e = cat.irrep(&[2, 1, 1, 0, 0]).unwrap();
             cat.cgc(&a, &a, &e).unwrap();
             cat.f_symbol(&a, &a, &a, &a, &e, &e).unwrap();
             cat.r_symbol(&a, &a, &e).unwrap();
@@ -2206,7 +2251,7 @@ mod tests {
         let g = LieGroup::new(GroupId::g2()).unwrap();
         let mut fam = general::cgc::GeneralFamily::new(RootSystem::G2);
         let (v, adj) = (vec![1, 0], vec![0, 1]);
-        let [lv, ladj] = [&v, &adj].map(|x| g.irrep(x, &[]).unwrap());
+        let [lv, ladj] = [&v, &adj].map(|x| g.irrep(x).unwrap());
         let got = g.f_symbol(&lv, &lv, &lv, &lv, &ladj, &ladj).unwrap();
         let want = f_block_raw(&mut fam, &v, &v, &v, &v, &adj, &adj).unwrap();
         assert_eq!(got.dims(), want.dims());
@@ -2228,7 +2273,7 @@ mod tests {
     fn reset_catalog_drops_the_g2_memo() {
         let g = LieGroup::new(GroupId::g2()).unwrap();
         let clone = g.clone();
-        let x = g.irrep(&[2, 0], &[]).unwrap();
+        let x = g.irrep(&[2, 0]).unwrap();
         let f = |g: &LieGroup| {
             let block = g.f_symbol(&x, &x, &x, &x, &x, &x).unwrap();
             block.data().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
@@ -2244,7 +2289,7 @@ mod tests {
 
         let composite =
             LieGroup::new(GroupId::cover(&[RootSystem::G2, RootSystem::A(1)], 0).unwrap()).unwrap();
-        let a = composite.irrep(&[1, 0, 1], &[]).unwrap();
+        let a = composite.irrep(&[1, 0, 1]).unwrap();
         composite.r_symbol(&a, &a, &composite.unit()).unwrap();
         let factor = &composite.composite.as_ref().unwrap().factors()[0];
         assert!(factor.general.as_ref().unwrap().memo_stats().0 > 0);
@@ -2259,11 +2304,11 @@ mod tests {
     fn e6_complex_phase_is_generated_once_on_first_use() {
         let g = LieGroup::new(GroupId::e6()).unwrap();
         let engine = g.general.as_ref().unwrap();
-        let big = g.irrep(&[1, 0, 0, 0, 1, 0], &[]).unwrap(); // 7371
+        let big = g.irrep(&[1, 0, 0, 0, 1, 0]).unwrap(); // 7371
         assert_eq!(big.dim_exact(), 7371.into());
         assert_eq!(g.frobenius_schur_indicator(&big), 0.0);
         assert_eq!(engine.memo_stats(), (0, 0));
-        let v = g.irrep(&[1, 0, 0, 0, 0, 0], &[]).unwrap();
+        let v = g.irrep(&[1, 0, 0, 0, 0, 0]).unwrap();
         assert_eq!(g.frobenius_schur_phase(&v), 1.0);
         let after = engine.memo_stats();
         assert_eq!(after.0, 4, "modules 27 and 27̄, phases of both");
@@ -2340,7 +2385,7 @@ mod arithmetic_tests {
                     .collect();
                 for q in -2..=2 {
                     let charges = vec![q; cat.group.torus_rank()];
-                    if let Ok(label) = cat.irrep(&dynkin, &charges) {
+                    if let Ok(label) = cat.irrep_with_charges(&dynkin, &charges) {
                         labels.push(label);
                     }
                 }
@@ -2390,12 +2435,12 @@ mod arithmetic_tests {
     #[test]
     fn rank_one_n_stays_exact_when_fusion_labels_overflow() {
         let cat = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-        let a = cat.irrep(&[i64::from(u32::MAX)], &[]).unwrap();
-        let b = cat.irrep(&[1], &[]).unwrap();
-        let c = cat.irrep(&[i64::from(u32::MAX) - 1], &[]).unwrap();
+        let a = cat.irrep(&[i64::from(u32::MAX)]).unwrap();
+        let b = cat.irrep(&[1]).unwrap();
+        let c = cat.irrep(&[i64::from(u32::MAX) - 1]).unwrap();
         assert_eq!(cat.try_nsymbol(&a, &b, &c), Ok(1));
         assert!(matches!(cat.fusion(&a, &b), Err(LieError::LabelOverflow)));
-        let a = cat.irrep(&[i64::from(i32::MAX)], &[]).unwrap();
+        let a = cat.irrep(&[i64::from(i32::MAX)]).unwrap();
         assert!(matches!(
             cat.cgc(&a, &a, &cat.unit()),
             Err(LieError::LabelOverflow)

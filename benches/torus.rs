@@ -5,8 +5,8 @@ use fusion_symbols::{
 };
 fn torus(c: &mut Criterion) {
     let g = LieGroup::new(GroupId::u(1).unwrap()).unwrap();
-    let a = g.irrep(&[], &[3]).unwrap();
-    let b = g.irrep(&[], &[-5]).unwrap();
+    let a = g.irrep_with_charges(&[], &[3]).unwrap();
+    let b = g.irrep_with_charges(&[], &[-5]).unwrap();
     let one = g.unit();
     c.bench_function("torus/clone", |b| b.iter(|| black_box(&a).clone()));
     c.bench_function("torus/fusion_collect", |bench| {
@@ -16,7 +16,7 @@ fn torus(c: &mut Criterion) {
                 .collect::<Vec<_>>()
         })
     });
-    let sum = g.irrep(&[], &[-2]).unwrap();
+    let sum = g.irrep_with_charges(&[], &[-2]).unwrap();
     c.bench_function("torus/nsymbol", |bench| {
         bench.iter(|| g.nsymbol(black_box(&a), black_box(&b), black_box(&sum)))
     });
@@ -53,7 +53,7 @@ fn torus(c: &mut Criterion) {
     c.bench_function("u1/dim", |b| b.iter(|| g.dim(black_box(&a))));
 
     let g = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    let half = g.irrep(&[1], &[]).unwrap();
+    let half = g.irrep(&[1]).unwrap();
     let one = g.unit();
     c.bench_function("su2/clone", |b| b.iter(|| black_box(&half).clone()));
     c.bench_function("su2/nsymbol", |bench| {
@@ -73,7 +73,7 @@ fn torus(c: &mut Criterion) {
                 .collect::<Vec<_>>()
         })
     });
-    let six = g.irrep(&[6], &[]).unwrap();
+    let six = g.irrep(&[6]).unwrap();
     c.bench_function("su2/f_symbol_6", |bench| {
         bench.iter(|| {
             g.f_symbol(black_box(&six), &six, &six, &six, &six, &six)
@@ -82,8 +82,8 @@ fn torus(c: &mut Criterion) {
     });
 
     let g = LieGroup::new(GroupId::u(2).unwrap()).unwrap();
-    let a = g.irrep(&[1], &[1]).unwrap();
-    let b = g.irrep(&[1], &[-1]).unwrap();
+    let a = g.irrep_with_charges(&[1], &[1]).unwrap();
+    let b = g.irrep_with_charges(&[1], &[-1]).unwrap();
     let one = g.unit();
     c.bench_function("u2/clone", |b| b.iter(|| black_box(&a).clone()));
     c.bench_function("u2/fusion_collect", |bench| {
@@ -105,7 +105,7 @@ fn torus(c: &mut Criterion) {
     {
         // Keep group/label construction outside the timed warm lookup.
         let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
-        let octet = su3.irrep(&[1, 1], &[]).unwrap();
+        let octet = su3.irrep(&[1, 1]).unwrap();
         let _ = su3
             .f_symbol(&octet, &octet, &octet, &octet, &octet, &octet)
             .unwrap();
@@ -117,8 +117,8 @@ fn torus(c: &mut Criterion) {
         });
         let b2 = LieGroup::new(GroupId::so(5).unwrap()).unwrap();
         let unit = b2.unit();
-        let vector = b2.irrep(&[1, 0], &[]).unwrap();
-        let adjoint = b2.irrep(&[0, 2], &[]).unwrap();
+        let vector = b2.irrep(&[1, 0]).unwrap();
+        let adjoint = b2.irrep(&[0, 2]).unwrap();
         let _ = b2
             .f_symbol(&unit, &vector, &vector, &adjoint, &vector, &adjoint)
             .unwrap();

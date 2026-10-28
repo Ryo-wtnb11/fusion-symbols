@@ -114,7 +114,7 @@ against the aggregate catalog budget before allocating generators (see
 `Clone`, not `Copy`. Equality/hash/order use the ordered presentation and
 canonical lattice, so SU(n)/Z1 equals SU(n). Distinct root presentations such
 as B1/C1/A1, D3/A3, and D2/[A1,A1] remain distinct. `LieGroup::group_id` borrows
-the classification datum. `LieGroup::irrep(dynkin, charges)` checks lengths and
+the classification datum. `LieGroup::irrep_with_charges(dynkin, charges)` checks lengths and
 nonnegative Dynkin labels, then lattice admission, then engine integer limits.
 `LieIrrep::charges` reads the signed torus coordinates in order through an
 allocation-free exact-size iterator; `dynkin()` covers only the semisimple coordinates.

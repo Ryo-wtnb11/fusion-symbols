@@ -70,12 +70,12 @@ fn dynkin_labels_match_owned_labels_without_allocation() {
             if !id.admits(&[label], &[]) {
                 continue;
             }
-            let a = cat.irrep(&[label], &[]).unwrap();
+            let a = cat.irrep(&[label]).unwrap();
             assert!(a.dynkin_labels().eq([label]));
             check_labels(&a);
         }
-        let a = cat.irrep(&[4], &[]).unwrap();
-        let b = cat.irrep(&[6], &[]).unwrap();
+        let a = cat.irrep(&[4]).unwrap();
+        let b = cat.irrep(&[6]).unwrap();
         let expected = cat.fusion(&a, &b).unwrap().count();
         let before = counting_alloc::calls();
         let mut channels = 0;
@@ -117,7 +117,7 @@ fn dynkin_labels_match_owned_labels_without_allocation() {
                 })
                 .collect();
             if id.admits(&label, &[]) {
-                let a = cat.irrep(&label, &[]).unwrap();
+                let a = cat.irrep(&label).unwrap();
                 assert!(a.dynkin_labels().eq(label));
                 check_labels(&a);
                 check_labels(&cat.dual(&a));
@@ -129,11 +129,11 @@ fn dynkin_labels_match_owned_labels_without_allocation() {
             let mut label = vec![0; rank];
             label[i] = 1;
             if id.admits(&label, &[]) {
-                seeds.push(cat.irrep(&label, &[]).unwrap());
+                seeds.push(cat.irrep(&label).unwrap());
             }
         }
         if id == GroupId::psu(3).unwrap() {
-            seeds.push(cat.irrep(&[1, 1], &[]).unwrap());
+            seeds.push(cat.irrep(&[1, 1]).unwrap());
         }
         for a in &seeds {
             for b in &seeds {
@@ -150,7 +150,7 @@ fn dynkin_labels_match_owned_labels_without_allocation() {
         let cat = LieGroup::new(GroupId::spin(8).unwrap()).unwrap();
         // The last two D coordinates can require an intermediate of twice i64::MAX.
         for label in [[0, 0, i64::MAX, 0], [0, 0, 0, i64::MAX]] {
-            let a = cat.irrep(&label, &[]).unwrap();
+            let a = cat.irrep(&label).unwrap();
             let before = counting_alloc::calls();
             assert!(std::hint::black_box(&a).dynkin_labels().eq(label));
             let after = counting_alloc::calls();

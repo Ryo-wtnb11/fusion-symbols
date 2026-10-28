@@ -289,19 +289,22 @@ fn tori_and_trivial_data() {
 #[test]
 fn label_errors_precede_admission_then_engine_limits() {
     let g = LieGroup::new(GroupId::psu(2).unwrap()).unwrap();
-    assert_eq!(g.irrep(&[i64::MAX], &[0]), Err(LieError::InvalidLabel));
-    assert_eq!(g.irrep(&[-1], &[]), Err(LieError::InvalidLabel));
-    assert_eq!(g.irrep(&[i64::MAX], &[]), Err(LieError::NotAdmissible));
-    assert_eq!(g.irrep(&[i64::MAX - 1], &[]), Err(LieError::LabelOverflow));
+    assert_eq!(
+        g.irrep_with_charges(&[i64::MAX], &[0]),
+        Err(LieError::InvalidLabel)
+    );
+    assert_eq!(g.irrep(&[-1]), Err(LieError::InvalidLabel));
+    assert_eq!(g.irrep(&[i64::MAX]), Err(LieError::NotAdmissible));
+    assert_eq!(g.irrep(&[i64::MAX - 1]), Err(LieError::LabelOverflow));
     #[cfg(feature = "lie-generated")]
     {
         let g = LieGroup::new(GroupId::su_quotient(4, 2).unwrap()).unwrap();
         assert_eq!(
-            g.irrep(&[i64::MAX, i64::MAX, 0], &[]),
+            g.irrep(&[i64::MAX, i64::MAX, 0]),
             Err(LieError::NotAdmissible)
         );
         assert_eq!(
-            g.irrep(&[i64::MAX, 0, i64::MAX], &[]),
+            g.irrep(&[i64::MAX, 0, i64::MAX]),
             Err(LieError::LabelOverflow)
         );
     }

@@ -108,7 +108,7 @@ fn main() {
             |index| {
                 let g = su2.clone();
                 let spin = if distinct { 2 * (index as i64 + 1) } else { 2 };
-                let a = g.irrep(&[spin], &[]).unwrap();
+                let a = g.irrep(&[spin]).unwrap();
                 move || {
                     black_box(g.f_symbol(black_box(&a), &a, &a, &a, &a, &a).unwrap());
                 }
@@ -118,10 +118,10 @@ fn main() {
     #[cfg(feature = "lie-generated")]
     {
         let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
-        let octet = su3.irrep(&[1, 1], &[]).unwrap();
+        let octet = su3.irrep(&[1, 1]).unwrap();
         let su3_keys = distinct_f_keys(
             &su3,
-            &[&[1, 0], &[0, 1], &[1, 1]].map(|label| su3.irrep(label, &[]).unwrap()),
+            &[&[1, 0], &[0, 1], &[1, 1]].map(|label| su3.irrep(label).unwrap()),
         );
         measure("su3_distinct", |index| {
             let (g, [a, b, c, d, e, f]) = (su3.clone(), su3_keys[index].clone());
@@ -137,11 +137,11 @@ fn main() {
         });
         let b2 = LieGroup::new(GroupId::so(5).unwrap()).unwrap();
         let unit = b2.unit();
-        let vector = b2.irrep(&[1, 0], &[]).unwrap();
-        let adjoint = b2.irrep(&[0, 2], &[]).unwrap();
+        let vector = b2.irrep(&[1, 0]).unwrap();
+        let adjoint = b2.irrep(&[0, 2]).unwrap();
         let b2_keys = distinct_f_keys(
             &b2,
-            &[&[1, 0], &[0, 2], &[2, 0]].map(|label| b2.irrep(label, &[]).unwrap()),
+            &[&[1, 0], &[0, 2], &[2, 0]].map(|label| b2.irrep(label).unwrap()),
         );
         measure("b2_distinct", |index| {
             let (g, [a, b, c, d, e, f]) = (b2.clone(), b2_keys[index].clone());

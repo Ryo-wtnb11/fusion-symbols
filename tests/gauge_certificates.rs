@@ -16,7 +16,7 @@ fn su2() -> LieGroup {
 }
 fn su2_irreps() -> Vec<<LieGroup as FusionCategory>::Object> {
     let g = su2();
-    (0..4).map(|dj| g.irrep(&[dj], &[]).unwrap()).collect()
+    (0..4).map(|dj| g.irrep(&[dj]).unwrap()).collect()
 }
 fn zn(n: u32) -> (ZN, Vec<ZNIrrep>) {
     let objects = (0..i64::from(n))
@@ -219,7 +219,7 @@ fn generated_canonical_units_hold_in_f_to_rounding() {
     ];
     for (group, labels) in cases {
         let cat = LieGroup::new(group).unwrap();
-        let objects: Vec<_> = labels.iter().map(|l| cat.irrep(l, &[]).unwrap()).collect();
+        let objects: Vec<_> = labels.iter().map(|l| cat.irrep(l).unwrap()).collect();
         assert!(assert_canonical_unit(&cat, &objects, 1e-12) > 0);
     }
 }
@@ -297,7 +297,7 @@ fn trivial_associator_tables_are_the_untwisted_pointed_entries() {
 fn false_trivial_associators_have_a_non_unit_f() {
     // SU(2), exact 6j: F^{½½½}_½[0, 0] = {½ ½ 0; ½ ½ 0} = -1/2.
     let g = su2();
-    let (zero, half) = (g.irrep(&[0], &[]).unwrap(), g.irrep(&[1], &[]).unwrap());
+    let (zero, half) = (g.irrep(&[0]).unwrap(), g.irrep(&[1]).unwrap());
     let f = g
         .f_symbol(&half, &half, &half, &half, &zero, &zero)
         .unwrap();
@@ -344,8 +344,8 @@ fn generated_trivial_associator_counterexample() {
     let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
     let (one, three, bar) = (
         su3.unit(),
-        su3.irrep(&[1, 0], &[]).unwrap(),
-        su3.irrep(&[0, 1], &[]).unwrap(),
+        su3.irrep(&[1, 0]).unwrap(),
+        su3.irrep(&[0, 1]).unwrap(),
     );
     let f = su3
         .f_symbol(&three, &bar, &three, &three, &one, &one)

@@ -24,7 +24,7 @@ fn every_coefficient_tier_has_zero_allocation_warm_hits() {
     check(Tier::ThreeJ, || su2::wigner_3j(60, 60, 60, 0, 0, 0));
     check(Tier::SixJ, || su2::wigner_6j(60, 60, 60, 60, 60, 60));
     let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    let half = su2.irrep(&[1], &[]).unwrap();
+    let half = su2.irrep(&[1]).unwrap();
     let unit = su2.unit();
     check(Tier::DerivedF, || {
         su2.f_symbol(&half, &half, &half, &half, &unit, &unit)
@@ -35,7 +35,7 @@ fn every_coefficient_tier_has_zero_allocation_warm_hits() {
     {
         use fusion_symbols::category::GroupRepresentations;
         let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
-        let octet = su3.irrep(&[1, 1], &[]).unwrap();
+        let octet = su3.irrep(&[1, 1]).unwrap();
         check(Tier::SunProduct, || {
             su3.fusion(&octet, &octet).unwrap().count()
         });
@@ -48,8 +48,8 @@ fn every_coefficient_tier_has_zero_allocation_warm_hits() {
         check(Tier::SunR, || su3.r_symbol(&octet, &octet, &octet).unwrap());
         let b2 = LieGroup::new(GroupId::so(5).unwrap()).unwrap();
         let unit = b2.unit();
-        let vector = b2.irrep(&[1, 0], &[]).unwrap();
-        let adjoint = b2.irrep(&[0, 2], &[]).unwrap();
+        let vector = b2.irrep(&[1, 0]).unwrap();
+        let adjoint = b2.irrep(&[0, 2]).unwrap();
         // The B/C/D tier contains both exact products and CGC.
         check(Tier::BcdCgc, || {
             b2.fusion(&vector, &vector).unwrap().count()

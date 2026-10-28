@@ -18,8 +18,8 @@ fn overflow_propagates_through_fusion_n_f_r_a_b_and_cgc() {
         ),
     ] {
         let cat = LieGroup::new(group).unwrap();
-        let a = cat.irrep(huge, &[]).unwrap();
-        let b = cat.irrep(small, &[]).unwrap();
+        let a = cat.irrep(huge).unwrap();
+        let b = cat.irrep(small).unwrap();
         let unit = cat.unit();
         assert_eq!(cat.dual(&cat.dual(&a)), a);
         assert!(matches!(cat.fusion(&a, &b), Err(LieError::LabelOverflow)));

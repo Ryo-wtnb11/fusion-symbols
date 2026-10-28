@@ -126,10 +126,7 @@ fn generated_cache_resource_contract() {
     };
     let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
     let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    let a = vec![
-        su3.irrep(&[1, 1], &[]).unwrap(),
-        su2.irrep(&[2], &[]).unwrap(),
-    ];
+    let a = vec![su3.irrep(&[1, 1]).unwrap(), su2.irrep(&[2]).unwrap()];
     let runtime = Product::new(vec![su3, su2]);
     let query = || {
         runtime.fusion(&a, &a).unwrap().for_each(drop);

@@ -15,7 +15,7 @@ fn warm_product_composition_allocates_nothing() {
         LieGroup::new(GroupId::su(2).unwrap()).unwrap(),
         FermionParity,
     ));
-    let half = (cat.factors().0.irrep(&[1], &[]).unwrap(), Parity::ODD);
+    let half = (cat.factors().0.irrep(&[1]).unwrap(), Parity::ODD);
     let zero = cat.unit();
     let _ = cat
         .f_symbol(&half, &half, &half, &half, &zero, &zero)
@@ -57,9 +57,9 @@ fn warm_d2_queries_allocate_only_as_much_as_product() {
 
     let _serial = counting_alloc::serial();
     let cat = LieGroup::new(GroupId::spin(4).unwrap()).unwrap();
-    let a = cat.irrep(&[1, 1], &[]).unwrap();
+    let a = cat.irrep(&[1, 1]).unwrap();
     let spin = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    let half = spin.irrep(&[1], &[]).unwrap();
+    let half = spin.irrep(&[1]).unwrap();
     let product = fusion_symbols::product::Product::new(vec![spin.clone(), spin]);
     let parts = vec![half.clone(), half];
     assert_eq!(
@@ -100,13 +100,13 @@ fn warm_multiplicity_free_products_allocate_nothing() {
     let _serial = counting_alloc::serial();
     let none = [(0, 0); 4];
     let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    let h = su2.irrep(&[1], &[]).unwrap();
+    let h = su2.irrep(&[1]).unwrap();
     let (p1, m1) = (U1Irrep::new(1).unwrap(), U1Irrep::new(-1).unwrap());
 
     let u2 = LieGroup::new(GroupId::u(2).unwrap()).unwrap();
     let (a, b, one) = (
-        u2.irrep(&[1], &[1]).unwrap(),
-        u2.irrep(&[1], &[-1]).unwrap(),
+        u2.irrep_with_charges(&[1], &[1]).unwrap(),
+        u2.irrep_with_charges(&[1], &[-1]).unwrap(),
         u2.unit(),
     );
     // Not composition: A and B take the N symbol of a dual object, and the dual
@@ -229,7 +229,7 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
 
     let _serial = counting_alloc::serial();
     let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
-    let o = su3.irrep(&[1, 1], &[]).unwrap();
+    let o = su3.irrep(&[1, 1]).unwrap();
     let fib = TableCategory::fibonacci();
     let tau = fib.object(2).unwrap();
     let (n, m) = (

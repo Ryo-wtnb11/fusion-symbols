@@ -9,7 +9,7 @@ use fusion_symbols::{
 use std::collections::BTreeMap;
 
 fn label(cat: &LieGroup, dynkin: &[i64]) -> LieIrrep {
-    cat.irrep(dynkin, &[]).unwrap()
+    cat.irrep(dynkin).unwrap()
 }
 
 fn same_block<const R: usize>(
@@ -49,9 +49,12 @@ fn d2_forms_admission_and_hand_values() {
                 Err(EnumerationError::NotEnumerable)
             }
         );
-        assert_eq!(cat.irrep(&[0], &[]), Err(LieError::InvalidLabel));
-        assert_eq!(cat.irrep(&[0, 0], &[0]), Err(LieError::InvalidLabel));
-        assert_eq!(cat.irrep(&[-1, 0], &[]), Err(LieError::InvalidLabel));
+        assert_eq!(cat.irrep(&[0]), Err(LieError::InvalidLabel));
+        assert_eq!(
+            cat.irrep_with_charges(&[0, 0], &[0]),
+            Err(LieError::InvalidLabel)
+        );
+        assert_eq!(cat.irrep(&[-1, 0]), Err(LieError::InvalidLabel));
         for a in 0..=3 {
             for b in 0..=3 {
                 let admitted = match form {
@@ -61,7 +64,7 @@ fn d2_forms_admission_and_hand_values() {
                     3 => a % 2 == 0,
                     _ => b % 2 == 0,
                 };
-                let result = cat.irrep(&[a, b], &[]);
+                let result = cat.irrep(&[a, b]);
                 if !admitted {
                     assert_eq!(result, Err(LieError::NotAdmissible));
                     continue;
@@ -376,7 +379,7 @@ fn a1_a2_and_diagonal_su3_quotient() {
             for c in 0..3 {
                 for d in 0..3 {
                     assert_eq!(
-                        cat.irrep(&[a, b, c, d], &[]).is_ok(),
+                        cat.irrep(&[a, b, c, d]).is_ok(),
                         (a + 2 * b + c + 2 * d) % 3 == 0
                     );
                 }

@@ -11,9 +11,9 @@ fn warm_calls_do_not_lock_or_resweep() {
     cache::reset();
     let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
     let one = cat.unit();
-    let v = cat.irrep(&[0, 1], &[]).unwrap();
-    let adj = cat.irrep(&[2, 0], &[]).unwrap();
-    let other = cat.irrep(&[0, 2], &[]).unwrap();
+    let v = cat.irrep(&[0, 1]).unwrap();
+    let adj = cat.irrep(&[2, 0]).unwrap();
+    let other = cat.irrep(&[0, 2]).unwrap();
     let first = cat.f_symbol(&one, &v, &v, &adj, &v, &adj).unwrap();
     let cgc = cat.cgc(&v, &v, &adj).unwrap();
     // The same sweep populates every channel, including this unrequested one.
@@ -66,7 +66,7 @@ fn cached_r_is_bit_identical_to_the_raw_join() {
         (&c3, [&[1, 0, 0], &[1, 0, 0], &[1, 0, 0]], 0),
     ];
     for (cat, labels, dim) in samples {
-        let [a, b, c] = labels.map(|d| cat.irrep(d, &[]).unwrap());
+        let [a, b, c] = labels.map(|d| cat.irrep(d).unwrap());
         let [a, b, c] = [&a, &b, &c].map(|x| x.bcd().unwrap());
         let catalog = cat.catalog.as_ref().unwrap();
         cache::trim_to(cache::CoefficientCacheTier::BcdR, 0);
@@ -78,8 +78,8 @@ fn cached_r_is_bit_identical_to_the_raw_join() {
         assert_eq!(bits(&warm), bits(&cold), "warm R differs from cold R");
     }
     // Errors are not retained: a repeat reports the same typed error.
-    let v = b2.irrep(&[1, 0], &[]).unwrap();
-    let six = c3.irrep(&[1, 0, 0], &[]).unwrap();
+    let v = b2.irrep(&[1, 0]).unwrap();
+    let six = c3.irrep(&[1, 0, 0]).unwrap();
     let (v, six) = (v.bcd().unwrap(), six.bcd().unwrap());
     let catalog = b2.catalog.as_ref().unwrap();
     let first = super::r_symbol(catalog, v, six, v).unwrap_err();
@@ -98,7 +98,7 @@ fn poisoned_catalog_is_a_generation_error() {
     })
     .join()
     .is_err());
-    let v = cat.irrep(&[0, 1], &[]).unwrap();
+    let v = cat.irrep(&[0, 1]).unwrap();
     assert!(matches!(
         cat.cgc(&v, &v, &cat.unit()),
         Err(LieError::Generation(_))
@@ -112,7 +112,7 @@ fn warm_product_is_shared_without_resweeping() {
     let _guard = cache::TEST_CACHE_LOCK.lock().unwrap();
     cache::reset();
     let cat = LieGroup::new(GroupId::spin(5).unwrap()).unwrap();
-    let a = cat.irrep(&[0, 1], &[]).unwrap();
+    let a = cat.irrep(&[0, 1]).unwrap();
     let first = cat.fusion(&a, &a).unwrap().collect::<Vec<_>>();
     let product = super::super::shared_directproduct(a.bcd().unwrap(), a.bcd().unwrap()).unwrap();
     assert_eq!(cat.fusion(&a, &a).unwrap().collect::<Vec<_>>(), first);
@@ -171,7 +171,7 @@ fn d3_adjoint_square_84_channel_cgc_is_coherent_or_bricks() {
 fn d3_adjoint_f_symbol_closes_or_bricks() {
     let _guard = cache::TEST_CACHE_LOCK.lock().unwrap();
     let cat = LieGroup::new(GroupId::so(6).unwrap()).unwrap();
-    let g = cat.irrep(&[0, 1, 1], &[]).unwrap();
+    let g = cat.irrep(&[0, 1, 1]).unwrap();
     match cat.f_symbol(&g, &g, &g, &g, &g, &g) {
         Ok(_) => {}
         Err(LieError::Generation(error))
@@ -195,7 +195,7 @@ fn cgc_budget_covers_only_the_requested_channel() {
     let expected = probe.cgc(&s, &s, &one).unwrap();
     let needed = probe.bytes();
     let cat = LieGroup::with_catalog_budget(group, needed).unwrap();
-    let s = cat.irrep(&[0, 1], &[]).unwrap();
+    let s = cat.irrep(&[0, 1]).unwrap();
     let got = cat.cgc(&s, &s, &cat.unit()).unwrap();
     let stats = cat.catalog_stats().unwrap();
     assert_eq!((stats.bytes, stats.budget), (needed, needed));

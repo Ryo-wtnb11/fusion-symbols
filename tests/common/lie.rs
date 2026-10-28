@@ -7,7 +7,7 @@ pub fn group(a: &LieIrrep) -> LieGroup {
     LieGroup::new(GroupId::su(a.dynkin().len() + 1).unwrap()).unwrap()
 }
 pub fn irrep(d: &[i64]) -> Result<LieIrrep, LieError> {
-    LieGroup::new(GroupId::su(d.len() + 1).unwrap())?.irrep(d, &[])
+    LieGroup::new(GroupId::su(d.len() + 1).unwrap())?.irrep(d)
 }
 pub fn trivial(n: usize) -> Result<LieIrrep, LieError> {
     irrep(&vec![0; n - 1])
@@ -84,7 +84,7 @@ pub fn cgc(
 }
 
 pub fn irrep_in(group: &GroupId, d: &[i64]) -> Result<LieIrrep, LieError> {
-    LieGroup::new(group.clone())?.irrep(d, &[])
+    LieGroup::new(group.clone())?.irrep(d)
 }
 #[derive(Debug, PartialEq)]
 pub struct Entry {
@@ -122,5 +122,5 @@ pub fn torus() -> LieGroup {
     LieGroup::new(GroupId::u(1).unwrap()).unwrap()
 }
 pub fn u1_irrep(q: i32) -> Result<LieIrrep, LieError> {
-    torus().irrep(&[], &[i64::from(q)])
+    torus().irrep_with_charges(&[], &[i64::from(q)])
 }
