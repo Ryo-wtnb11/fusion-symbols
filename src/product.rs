@@ -69,6 +69,18 @@ impl<C> Product<C> {
     /// assert_eq!(chain.factors().len(), 3);
     /// ```
     ///
+    /// Objects are tuples of factor objects, and fusion acts factorwise:
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{U1Irrep, U1}, product::Product};
+    /// let cat = Product::new((U1, U1));
+    /// let q = |a, b| Ok::<_, fusion_symbols::lie::U1Error>((U1Irrep::new(a)?, U1Irrep::new(b)?));
+    /// let x = q(1, -2)?;
+    /// assert_eq!(cat.fusion(&x, &x)?.collect::<Vec<_>>(), [q(2, -4)?]);
+    /// assert_eq!(cat.nsymbol(&x, &x, &q(2, 0)?), 0);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
     /// Tuples outside 2..=12 factors are not categories:
     ///
     /// ```compile_fail

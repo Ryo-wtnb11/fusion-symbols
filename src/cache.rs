@@ -1850,6 +1850,18 @@ fn control(tier: CoefficientCacheTier) -> &'static dyn TierControl {
 /// the reset policy. **A library must not call `reset()`** — doing so would
 /// clear a cache another component is relying on, since there is one shared
 /// coefficient-value authority per process (consumers must not keep a mirror).
+///
+/// # Examples
+///
+/// ```
+/// use fusion_symbols::cache::{reset, tier_stats, CoefficientCacheTier, TierStats};
+///
+/// let _ = fusion_symbols::lie::su2::wigner_6j(2, 2, 2, 2, 2, 2);
+/// reset(); // application-owned: libraries must not call it
+/// for &tier in CoefficientCacheTier::ALL {
+///     assert_eq!(tier_stats(tier), TierStats::default());
+/// }
+/// ```
 pub fn reset() {
     for &tier in CoefficientCacheTier::ALL {
         control(tier).reset();
@@ -1875,6 +1887,17 @@ pub fn reset() {
 /// trimming first makes a later lookup miss. A miss computes outside the lock
 /// and can publish after this function returns. See [`CacheTrimReport`] for the
 /// report's linearization-point and memory-accounting boundaries.
+///
+/// # Examples
+///
+/// ```
+/// use fusion_symbols::cache::{tier_stats, trim_to, CoefficientCacheTier};
+///
+/// let _ = fusion_symbols::lie::su2::wigner_6j(2, 2, 2, 2, 2, 2);
+/// let report = trim_to(CoefficientCacheTier::SixJ, 0); // application-owned
+/// assert_eq!(report.remaining_entries, 0);
+/// assert_eq!(tier_stats(CoefficientCacheTier::SixJ).entries, 0);
+/// ```
 pub fn trim_to(tier: CoefficientCacheTier, target_charged_bytes: usize) -> CacheTrimReport {
     let (removed_entries, removed_charged_bytes, remaining_entries, remaining_charged_bytes) =
         control(tier).trim_to(target_charged_bytes);
@@ -1889,6 +1912,19 @@ pub fn trim_to(tier: CoefficientCacheTier, target_charged_bytes: usize) -> Cache
 
 /// Statistics for one coefficient-cache tier. See [`TierStats`] for its
 /// snapshot-consistency contract.
+///
+/// # Examples
+///
+/// ```
+/// use fusion_symbols::cache::{tier_stats, CoefficientCacheTier};
+///
+/// let before = tier_stats(CoefficientCacheTier::SixJ);
+/// let _ = fusion_symbols::lie::su2::wigner_6j(2, 2, 2, 2, 2, 2);
+/// let _ = fusion_symbols::lie::su2::wigner_6j(2, 2, 2, 2, 2, 2);
+/// let after = tier_stats(CoefficientCacheTier::SixJ);
+/// assert!(after.hits > before.hits); // the second call is served from the cache
+/// assert!(after.bytes <= fusion_symbols::cache::cache_budgets().limit(CoefficientCacheTier::SixJ));
+/// ```
 pub fn tier_stats(tier: CoefficientCacheTier) -> TierStats {
     control(tier).tier_stats()
 }

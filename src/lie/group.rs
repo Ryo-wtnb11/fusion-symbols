@@ -160,6 +160,18 @@ impl GroupId {
     /// Dynkin coordinates) must belong to the lattice. The empty datum is valid.
     /// Invalid ranks return [`GroupError::UnsupportedRank`]; malformed,
     /// singular, or root-excluding bases return [`GroupError::InvalidLattice`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::{GroupId, RootSystem};
+    ///
+    /// // U(2) = (SU(2) × U(1))/Z2: rows over the Dynkin label and the charge.
+    /// let u2 = GroupId::new(&[RootSystem::A(1)], 1, &[vec![1, 1], vec![0, 2]])?;
+    /// assert_eq!(u2, GroupId::u(2)?);
+    /// assert!(GroupId::new(&[RootSystem::A(1)], 0, &[vec![0]]).is_err()); // singular
+    /// # Ok::<(), fusion_symbols::lie::GroupError>(())
+    /// ```
     pub fn new(
         roots: &[RootSystem],
         torus_rank: usize,
@@ -261,6 +273,18 @@ impl GroupId {
 
     /// The full weight/charge lattice `P ⊕ Z^t` in the given presentation.
     /// Root containment and full rank are automatic for the identity basis.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::{GroupId, RootSystem};
+    ///
+    /// // SU(2) × SU(3) × U(1)
+    /// let g = GroupId::cover(&[RootSystem::A(1), RootSystem::A(2)], 1)?;
+    /// assert_eq!((g.semisimple_rank(), g.torus_rank()), (3, 1));
+    /// assert!(g.admits(&[1, 1, 0], &[5])); // every label and charge
+    /// # Ok::<(), fusion_symbols::lie::GroupError>(())
+    /// ```
     pub fn cover(roots: &[RootSystem], torus_rank: usize) -> Result<Self, GroupError> {
         lattice_size(roots, torus_rank)?;
         Ok(Self(Arc::new(Datum {
@@ -273,6 +297,17 @@ impl GroupId {
     /// Standard rank-`rank` torus, with integer charges. Requires rank ≥ 1.
     /// Executes through [`super::LieGroup`] with charges in `-i32::MAX..=i32::MAX`.
     /// Standard tori enumerate in Product order; nonstandard torus lattices do not.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::GroupId;
+    ///
+    /// let t2 = GroupId::torus(2)?;
+    /// assert_eq!((t2.semisimple_rank(), t2.torus_rank()), (0, 2));
+    /// assert!(GroupId::torus(0).is_err());
+    /// # Ok::<(), fusion_symbols::lie::GroupError>(())
+    /// ```
     pub fn torus(rank: usize) -> Result<Self, GroupError> {
         if rank == 0 {
             return Err(GroupError::UnsupportedRank {
@@ -288,6 +323,18 @@ impl GroupId {
     /// Executes through [`super::LieGroup`]: U(1) and U(2) in the base build,
     /// N ≥ 3 with `lie-generated`. U(1) enumerates 0,1,−1,…; N ≥ 2 returns
     /// [`EnumerationError::NotEnumerable`](crate::category::EnumerationError::NotEnumerable).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::GroupId;
+    ///
+    /// let u3 = GroupId::u(3)?;
+    /// assert!(u3.admits(&[1, 0], &[1])); // fundamental
+    /// assert!(!u3.admits(&[1, 0], &[0]));
+    /// assert_eq!(GroupId::u(1)?, GroupId::torus(1)?);
+    /// # Ok::<(), fusion_symbols::lie::GroupError>(())
+    /// ```
     pub fn u(n: usize) -> Result<Self, GroupError> {
         if n == 0 {
             return Err(GroupError::UnsupportedRank {
@@ -435,6 +482,16 @@ impl GroupId {
     }
 
     /// SU(n), the A(n−1) cover. Requires n ≥ 2.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::{GroupId, RootSystem};
+    ///
+    /// assert_eq!(GroupId::su(3)?.root_systems(), [RootSystem::A(2)]);
+    /// assert!(GroupId::su(1).is_err());
+    /// # Ok::<(), fusion_symbols::lie::GroupError>(())
+    /// ```
     pub fn su(n: usize) -> Result<Self, GroupError> {
         if n < 2 {
             return Err(GroupError::UnsupportedRank {
@@ -446,6 +503,18 @@ impl GroupId {
     }
     /// SU(n)/Z_k; k must divide n. Admission is `Σ i·aᵢ ≡ 0 (mod k)`.
     /// The trivial quotient k=1 equals SU(n); k=n gives PSU(n).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::{GroupError, GroupId};
+    ///
+    /// let so6 = GroupId::su_quotient(4, 2)?; // SU(4)/Z2 = SO(6)
+    /// assert!(so6.admits(&[0, 1, 0], &[])); // the 6
+    /// assert!(!so6.admits(&[1, 0, 0], &[])); // the 4
+    /// assert_eq!(GroupId::su_quotient(4, 3), Err(GroupError::NotACenterSubgroup { n: 4, k: 3 }));
+    /// # Ok::<(), fusion_symbols::lie::GroupError>(())
+    /// ```
     pub fn su_quotient(n: usize, k: usize) -> Result<Self, GroupError> {
         if n < 2 {
             return Err(GroupError::UnsupportedRank {
@@ -464,24 +533,77 @@ impl GroupId {
         )
     }
     /// PSU(n), the adjoint form SU(n)/Z_n.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::GroupId;
+    ///
+    /// assert_eq!(GroupId::psu(3)?, GroupId::su_quotient(3, 3)?);
+    /// assert!(GroupId::psu(3)?.admits(&[1, 1], &[])); // the adjoint 8
+    /// # Ok::<(), fusion_symbols::lie::GroupError>(())
+    /// ```
     pub fn psu(n: usize) -> Result<Self, GroupError> {
         Self::su_quotient(n, n)
     }
     /// Sp(m), the C(m/2) cover. Matrix dimension m must be even and ≥ 2.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::{GroupId, RootSystem};
+    ///
+    /// assert_eq!(GroupId::sp(4)?.root_systems(), [RootSystem::C(2)]);
+    /// assert!(GroupId::sp(3).is_err()); // odd matrix dimension
+    /// # Ok::<(), fusion_symbols::lie::GroupError>(())
+    /// ```
     pub fn sp(m: usize) -> Result<Self, GroupError> {
         Self::cover(&[RootSystem::C(sp_rank(m)?)], 0)
     }
     /// PSp(m); admission is `Σ_(i odd) aᵢ ≡ 0 (mod 2)`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::GroupId;
+    ///
+    /// let psp4 = GroupId::psp(4)?; // Sp(4)/Z2 = SO(5)
+    /// assert!(psp4.admits(&[0, 1], &[])); // the 5
+    /// assert!(!psp4.admits(&[1, 0], &[])); // the defining 4
+    /// # Ok::<(), fusion_symbols::lie::GroupError>(())
+    /// ```
     pub fn psp(m: usize) -> Result<Self, GroupError> {
         let r = sp_rank(m)?;
         Self::congruence(&[RootSystem::C(r)], 0, 2, (0..r).step_by(2).map(|i| (i, 1)))
     }
     /// Spin(n), the B((n−1)/2) or D(n/2) cover. Matrix dimension n ≥ 3.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::{GroupId, RootSystem};
+    ///
+    /// assert_eq!(GroupId::spin(5)?.root_systems(), [RootSystem::B(2)]);
+    /// assert_eq!(GroupId::spin(6)?.root_systems(), [RootSystem::D(3)]);
+    /// assert!(GroupId::spin(5)?.admits(&[0, 1], &[])); // the spinor 4
+    /// # Ok::<(), fusion_symbols::lie::GroupError>(())
+    /// ```
     pub fn spin(n: usize) -> Result<Self, GroupError> {
         Self::cover(&[orthogonal(n, "spin")?], 0)
     }
     /// SO(n), n ≥ 3. B_r admits `a_r` even; D_r admits
     /// `a_(r−1)+a_r` even (the retained tensor classes `{0,v}`).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::GroupId;
+    ///
+    /// let so5 = GroupId::so(5)?;
+    /// assert!(so5.admits(&[1, 0], &[])); // the vector 5
+    /// assert!(!so5.admits(&[0, 1], &[])); // no spinor
+    /// # Ok::<(), fusion_symbols::lie::GroupError>(())
+    /// ```
     pub fn so(n: usize) -> Result<Self, GroupError> {
         let root = orthogonal(n, "so")?;
         let r = root.rank();
@@ -504,6 +626,18 @@ impl GroupId {
     /// our r-uniform generator agrees with duality's `λ_r↦−λ_r`.
     /// For even r, both `p=a_(r−1)+t` and `q=a_r+t` must be even,
     /// where `t=Σ_(i odd ≤ r−2) aᵢ`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::GroupId;
+    ///
+    /// assert_eq!(GroupId::pso(5)?, GroupId::so(5)?);
+    /// let pso8 = GroupId::pso(8)?;
+    /// assert!(pso8.admits(&[0, 1, 0, 0], &[])); // the adjoint 28
+    /// assert!(!pso8.admits(&[1, 0, 0, 0], &[])); // not the vector 8
+    /// # Ok::<(), fusion_symbols::lie::GroupError>(())
+    /// ```
     pub fn pso(n: usize) -> Result<Self, GroupError> {
         let root = orthogonal(n, "pso")?;
         if matches!(root, RootSystem::B(_)) {
@@ -536,26 +670,72 @@ impl GroupId {
     /// G₂, the simply connected (and adjoint) form: the center is trivial.
     /// Infallible, like the other exceptional constructors: the rank is fixed.
     /// G₂ coefficients require `lie-generated`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::{GroupId, RootSystem};
+    ///
+    /// let g2 = GroupId::g2();
+    /// assert_eq!(g2.root_systems(), [RootSystem::G2]);
+    /// assert!(g2.admits(&[1, 0], &[])); // trivial center: every label
+    /// ```
     pub fn g2() -> Self {
         Self::named(&[RootSystem::G2], 0, Vec::new())
     }
     /// F₄, the simply connected (and adjoint) form: the center is trivial.
     /// Coefficients require `lie-generated`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::{GroupId, RootSystem};
+    ///
+    /// assert_eq!(GroupId::f4().root_systems(), [RootSystem::F4]);
+    /// assert_eq!(GroupId::f4().semisimple_rank(), 4);
+    /// ```
     pub fn f4() -> Self {
         Self::named(&[RootSystem::F4], 0, Vec::new())
     }
     /// Simply connected E₆ (center `Z3`); quotients come from [`Self::new`].
     /// Coefficients require `lie-generated`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::GroupId;
+    ///
+    /// assert_eq!(GroupId::e6().semisimple_rank(), 6);
+    /// assert!(GroupId::e6().admits(&[1, 0, 0, 0, 0, 0], &[])); // simply connected: every label
+    /// ```
     pub fn e6() -> Self {
         Self::named(&[RootSystem::E6], 0, Vec::new())
     }
     /// Simply connected E₇ (center `Z2`); quotients come from [`Self::new`].
     /// Coefficients require `lie-generated`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::GroupId;
+    ///
+    /// assert_eq!(GroupId::e7().semisimple_rank(), 7);
+    /// assert!(GroupId::e7().admits(&[0, 0, 0, 0, 0, 0, 1], &[])); // simply connected: every label
+    /// ```
     pub fn e7() -> Self {
         Self::named(&[RootSystem::E7], 0, Vec::new())
     }
     /// E₈, the simply connected (and adjoint) form: the center is trivial.
     /// Coefficients require `lie-generated`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::{GroupId, RootSystem};
+    ///
+    /// assert_eq!(GroupId::e8(), GroupId::cover(&[RootSystem::E8], 0).unwrap());
+    /// assert_eq!(GroupId::e8().semisimple_rank(), 8);
+    /// ```
     pub fn e8() -> Self {
         Self::named(&[RootSystem::E8], 0, Vec::new())
     }
@@ -567,12 +747,35 @@ impl GroupId {
     /// Naming is by the retained class: killing `z_(ω_r)` retains ω_r for
     /// r=0 mod 4 but ω_(r−1) for r=2 mod 4, since `(ω_r,ω_r)=r/4`.
     /// Slansky Table 36 labels `[ω_4]` sub-s, consistent with Table 41.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::GroupId;
+    ///
+    /// let ss8 = GroupId::half_spin_plus(8)?;
+    /// assert!(ss8.admits(&[0, 0, 0, 1], &[])); // the retained spinor
+    /// assert!(!ss8.admits(&[0, 0, 1, 0], &[])); // the other spinor
+    /// assert!(!ss8.admits(&[1, 0, 0, 0], &[])); // the vector
+    /// # Ok::<(), fusion_symbols::lie::GroupError>(())
+    /// ```
     pub fn half_spin_plus(n: usize) -> Result<Self, GroupError> {
         Self::half_spin(n, false)
     }
     /// Half-spin form retaining `[ω_(r−1)]` (`λ_r=−1/2`), Slansky's Sc(n).
     /// Admission is `q=a_r+Σ_(i odd ≤ r−2) aᵢ` even. Same range and retained-class
     /// naming rationale as [`Self::half_spin_plus`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::GroupId;
+    ///
+    /// let sc8 = GroupId::half_spin_minus(8)?;
+    /// assert!(sc8.admits(&[0, 0, 1, 0], &[]));
+    /// assert!(!sc8.admits(&[0, 0, 0, 1], &[]));
+    /// # Ok::<(), fusion_symbols::lie::GroupError>(())
+    /// ```
     pub fn half_spin_minus(n: usize) -> Result<Self, GroupError> {
         Self::half_spin(n, true)
     }

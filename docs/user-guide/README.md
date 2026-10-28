@@ -1,5 +1,7 @@
 # User guide
 
+New to the crate? Start with [getting started](getting-started.md).
+
 This guide shows how to do the common tasks. Install and features are in the
 [README](../../README.md); the precise contracts (validation order, overflow,
 enumeration, product layout) are in the [design reference](../overview.md);
@@ -8,6 +10,39 @@ per-item details are on [docs.rs](https://docs.rs/fusion-symbols).
 Every example compiles with the default features and is mirrored in
 `tests/doc_examples.rs`. Examples that use `?` run inside a function returning
 `Result<(), Box<dyn std::error::Error>>`.
+
+## API at a glance
+
+Object-taking calls are `FusionCategory` methods on the category value unless
+another type is named.
+
+| I want | Call | Reference |
+|---|---|---|
+| Build SU(N), SO(N), Spin(N), Sp(2r), U(N), a torus or G₂…E₈ | `LieGroup::new(GroupId::su(3)?)`, `GroupId::{so, spin, sp, u, torus, g2, …}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html#method.new) |
+| Build a product group or a quotient from root data | `GroupId::cover`, `GroupId::new` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.GroupId.html#method.cover) |
+| An irrep from Dynkin labels | `LieGroup::irrep(&[1, 1])` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html#method.irrep) |
+| An irrep with torus charges (U(N), tori) | `LieGroup::irrep_with_charges(&[1], &[1])` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html#method.irrep_with_charges) |
+| An SU(2) or SO(3) irrep from a spin | `LieGroup::irrep_spin(HalfInt::half(1))` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html#method.irrep_spin) |
+| Read a label back | `LieIrrep::{dynkin, dynkin_labels, charges, spin}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieIrrep.html) |
+| Dimension | `dim` (f64), `LieIrrep::dim_exact` (exact) | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.dim) |
+| Dual and Frobenius–Schur data | `dual`, `frobenius_schur_indicator`, `frobenius_schur_phase` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.dual) |
+| The unit object | `unit` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.unit) |
+| Fusion outcomes of `a ⊗ b` | `fusion(a, b)` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.fusion) |
+| Fusion multiplicity N | `nsymbol(a, b, c)`, `try_nsymbol` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.nsymbol) |
+| F symbol | `f_symbol(a, b, c, d, e, f)` → `[μ,ν,κ,λ]` block | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.f_symbol) |
+| R symbol, twist | `r_symbol(a, b, c)`, `twist(a)` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.r_symbol) |
+| A and B symbols | `a_symbol`, `b_symbol` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#method.a_symbol) |
+| Read a symbol block | `FBlock::{dims, at}`, `RBlock::{dim, at}`, `SymbolBlock` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/struct.FBlock.html) |
+| Clebsch–Gordan coefficients | `GroupRepresentations::cgc`, read with `CgcBlock::{dims, at}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.GroupRepresentations.html#tymethod.cgc) |
+| Exact SU(2) 3j, 6j, CG | `lie::su2::{wigner_3j, wigner_6j, clebsch_gordan}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/su2/index.html) |
+| U(1), Z_N, fermion parity, CU(1) | `U1` + `U1Irrep::new`, `ZN::new` + `ZNIrrep::new`, `FermionParity`, `CU1` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.U1.html) |
+| Fibonacci, Ising or another anyon table | `TableCategory::{fibonacci, ising, by_uuid, object}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/table/struct.TableCategory.html) |
+| Several symmetries at once | `Product::new((a, b))`, `Product::new(vec![…])` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/product/struct.Product.html#method.new) |
+| Test an object before use (no panic) | `contains(a)` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#method.contains) |
+| Enumerate objects | `object_count`, `object_at`, `object_index` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#method.object_count) |
+| Check pentagon, hexagon or F unitarity | `category::{pentagon_residual, hexagon_residual, f_unitarity_residual}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/index.html) |
+| Limit or inspect cache memory | `cache::{configure_cache_budgets, tier_stats, trim_to, reset}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/cache/index.html) |
+| Record the value convention | `authority_fingerprint` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.authority_fingerprint) |
 
 ## Choosing a category
 

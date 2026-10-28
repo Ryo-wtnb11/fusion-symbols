@@ -236,10 +236,45 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     type Error: std::error::Error;
 
     /// Multiplicity class of fusion.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::{FusionCategory, FusionStyle}, lie::{GroupId, LieGroup, U1}};
+    ///
+    /// assert_eq!(U1.fusion_style(), FusionStyle::Unique);
+    /// assert_eq!(LieGroup::new(GroupId::su(2)?)?.fusion_style(), FusionStyle::Simple);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn fusion_style(&self) -> FusionStyle;
     /// Braiding capability and symmetry class.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::{BraidingStyle, FusionCategory}, fermion::FermionParity,
+    ///     lie::{GroupId, LieGroup}, table::TableCategory};
+    ///
+    /// assert_eq!(LieGroup::new(GroupId::su(2)?)?.braiding_style(), BraidingStyle::Bosonic);
+    /// assert_eq!(FermionParity.braiding_style(), BraidingStyle::Fermionic);
+    /// assert_eq!(TableCategory::fibonacci().braiding_style(), BraidingStyle::Anyonic);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn braiding_style(&self) -> BraidingStyle;
     /// The single simple unit.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// let unit = su2.unit();
+    /// assert_eq!(unit.spin(), Some(HalfInt::half(0)));
+    /// assert_eq!(su2.fusion(&unit, &half)?.collect::<Vec<_>>(), [half]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn unit(&self) -> Self::Object;
     /// Whether `a` is an object of this category value; never panics.
     ///
@@ -254,29 +289,120 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// when the object type carries no category parameter. A category whose
     /// values differ by a parameter its objects record (a modulus, a group, a
     /// table) must override it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// let so3 = LieGroup::new(GroupId::so(3)?)?;
+    /// assert!(su2.contains(&half));
+    /// assert!(!so3.contains(&su2.irrep(&[2])?)); // another group's object
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn contains(&self, a: &Self::Object) -> bool {
         let _ = a;
         true
     }
     /// Dual of a validated object; foreign objects panic.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{U1Irrep, U1}};
+    ///
+    /// assert_eq!(U1.dual(&U1Irrep::new(3)?), U1Irrep::new(-3)?);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn dual(&self, a: &Self::Object) -> Self::Object;
     /// Quantum dimension; foreign objects panic.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// assert_eq!(su2.dim(&half), 2.0);
+    /// assert_eq!(su2.dim(&su2.irrep_spin(HalfInt::half(4))?), 5.0); // 2j + 1
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn dim(&self, a: &Self::Object) -> f64;
     /// Phase of `F(a, dual(a), a, a, unit, unit)`; foreign objects panic.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// assert_eq!(su2.frobenius_schur_phase(&half), -1.0); // pseudoreal
+    /// assert_eq!(su2.frobenius_schur_phase(&su2.irrep(&[2])?), 1.0); // real
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn frobenius_schur_phase(&self, a: &Self::Object) -> Self::Scalar;
     /// Phase if self-dual, otherwise zero (TensorKitSectors 0.3.9,
     /// `src/sectors.jl::frobenius_schur_indicator`); foreign objects panic.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{U1Irrep, U1}};
+    ///
+    /// assert_eq!(U1.frobenius_schur_indicator(&U1Irrep::new(1)?), 0.0); // not self-dual
+    /// assert_eq!(U1.frobenius_schur_indicator(&U1Irrep::UNIT), 1.0);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn frobenius_schur_indicator(&self, a: &Self::Object) -> Self::Scalar;
     /// Ribbon twist; panics on foreign objects or `BraidingStyle::None`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, fermion::{FermionParity, FermionParityIrrep}};
+    ///
+    /// assert_eq!(FermionParity.twist(&FermionParityIrrep::ODD), -1.0);
+    /// assert_eq!(FermionParity.twist(&FermionParityIrrep::EVEN), 1.0);
+    /// ```
     fn twist(&self, a: &Self::Object) -> Self::Scalar;
     /// Deterministic outcomes; checked arithmetic overflow is an error.
     /// Foreign objects panic before computation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// let one = su2.irrep_spin(HalfInt::half(2))?;
+    /// let out: Vec<_> = su2.fusion(&half, &one)?.map(|c| c.spin()).collect();
+    /// assert_eq!(out, [Some(HalfInt::half(1)), Some(HalfInt::half(3))]); // ½ ⊗ 1 = ½ ⊕ 3/2
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn fusion<'a>(
         &'a self,
         a: &Self::Object,
         b: &Self::Object,
     ) -> Result<Self::Fusion<'a>, Self::Error>;
     /// Exact vertex multiplicity, including zero; foreign objects panic.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// let one = su2.irrep_spin(HalfInt::half(2))?;
+    /// assert_eq!(su2.nsymbol(&half, &half, &one), 1);
+    /// assert_eq!(su2.nsymbol(&half, &half, &half), 0); // not an error
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn nsymbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> u32;
     /// Checked [`Self::nsymbol`]: an unrepresentable multiplicity is an
     /// error instead of a panic. Foreign objects still panic; use
@@ -287,6 +413,17 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// multiplicities, such as [`crate::product::Product`], or generates them,
     /// such as [`crate::lie::LieGroup`], overrides it.
     /// It costs the same as `nsymbol`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// assert_eq!(su2.try_nsymbol(&half, &half, &su2.unit())?, 1);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn try_nsymbol(
         &self,
         a: &Self::Object,
@@ -308,6 +445,16 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// A gauge property, not a gauge-invariant one: a gauge-equivalent
     /// category may differ. Costs O(1) per leaf category (a product takes the
     /// conjunction of its factors) and evaluates no symbol or dimension.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieGroup, U1}};
+    ///
+    /// assert!(U1.has_trivial_associator_gauge());
+    /// assert!(!LieGroup::new(GroupId::su(2)?)?.has_trivial_associator_gauge());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn has_trivial_associator_gauge(&self) -> bool {
         false
     }
@@ -333,12 +480,38 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// that does not override this method. Costs O(1) per leaf category (a
     /// product takes the conjunction of its factors) and evaluates no symbol
     /// or dimension.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieGroup}};
+    ///
+    /// assert!(LieGroup::new(GroupId::su(2)?)?.has_canonical_unit());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn has_canonical_unit(&self) -> bool {
         false
     }
     /// `F^{abc}_d[e,f]`; inadmissible vertices return zero storage. Logical
     /// axes are `[N(a,b,e), N(e,c,d), N(b,c,f), N(a,f,d)]`.
     /// Foreign objects panic; errors indicate genuine failure.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// let unit = su2.unit();
+    /// // F^{½½½}_½[0, 0] = sqrt(1 · 1) · {½ ½ 0; ½ ½ 0} = -1/2
+    /// let f = su2.f_symbol(&half, &half, &half, &half, &unit, &unit)?;
+    /// assert_eq!((f.dims(), f.at(0, 0, 0, 0)), ([1, 1, 1, 1], -0.5));
+    /// // ½ ⊗ ½ cannot give ½: the first axis has length zero.
+    /// let f = su2.f_symbol(&half, &half, &half, &half, &half, &unit)?;
+    /// assert_eq!(f.dims()[0], 0);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[allow(clippy::too_many_arguments)]
     fn f_symbol(
         &self,
@@ -351,6 +524,19 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     ) -> Result<Self::FSymbol, Self::Error>;
     /// `R^{ab}_c`; zero for `N = 0`, error if braiding is absent.
     /// Foreign objects panic before capability checks.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// let r = |c| su2.r_symbol(&half, &half, &c).map(|r| r.at(0, 0));
+    /// assert_eq!(r(su2.unit())?, -1.0); // antisymmetric singlet
+    /// assert_eq!(r(su2.irrep(&[2])?)?, 1.0); // symmetric triplet
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn r_symbol(
         &self,
         a: &Self::Object,
@@ -382,6 +568,19 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// # Panics
     /// Panics on foreign objects. The default also panics if the F block's
     /// size disagrees with `N(a,b,c)`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// let a = su2.a_symbol(&half, &half, &su2.unit())?;
+    /// assert_eq!(a.dim(), 1);
+    /// assert!((a.at(0, 0).abs() - 1.0).abs() < 1e-15); // unitary
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn a_symbol(
         &self,
         a: &Self::Object,
@@ -417,6 +616,19 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     ///
     /// # Panics
     /// As for [`Self::a_symbol`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// let b = su2.b_symbol(&half, &half, &su2.irrep(&[2])?)?;
+    /// assert_eq!(b.dim(), 1);
+    /// assert!((b.at(0, 0).abs() - 1.0).abs() < 1e-15); // unitary
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn b_symbol(
         &self,
         a: &Self::Object,
@@ -432,11 +644,33 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         Ok(rank2_block(n, f.as_slice().iter().map(|&x| scale * x)))
     }
     /// Opaque convention bytes; compare by equality, never parse.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieGroup, U1}};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// let sp2 = LieGroup::new(GroupId::sp(2)?)?; // same values, same convention
+    /// assert_eq!(su2.authority_fingerprint(), sp2.authority_fingerprint());
+    /// assert_ne!(su2.authority_fingerprint(), U1.authority_fingerprint());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn authority_fingerprint(&self) -> &[u8];
     /// `√d_a`; foreign objects panic.
     ///
     /// The default is `self.dim(a).sqrt()`. A product multiplies its factors'
     /// values left to right instead of taking the root of the product.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieGroup}};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// assert_eq!(su2.sqrt_dim(&su2.irrep(&[3])?), 2.0); // dim 4
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn sqrt_dim(&self, a: &Self::Object) -> f64 {
         self.dim(a).sqrt()
     }
@@ -444,6 +678,16 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     ///
     /// The default is `self.sqrt_dim(a).recip()`; a product multiplies its
     /// factors' values left to right.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieGroup}};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// assert_eq!(su2.inv_sqrt_dim(&su2.irrep(&[3])?), 0.5); // dim 4
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn inv_sqrt_dim(&self, a: &Self::Object) -> f64 {
         self.sqrt_dim(a).recip()
     }
@@ -451,6 +695,17 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     ///
     /// The default is `self.dim(a).recip()`; a product multiplies its
     /// factors' values left to right.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// assert_eq!(su2.inv_dim(&half), 0.5);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn inv_dim(&self, a: &Self::Object) -> f64 {
         self.dim(a).recip()
     }
@@ -470,6 +725,16 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// [`EnumerationError::NotEnumerable`] (the default) when this category
     /// value does not provide enumeration; [`EnumerationError::Overflow`] for a
     /// finite count above `u64::MAX`, while individual indices stay addressable.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, finite::ZN, lie::U1};
+    ///
+    /// assert_eq!(ZN::new(3)?.object_count()?, Some(3));
+    /// assert_eq!(U1.object_count()?, None); // infinite
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn object_count(&self) -> Result<Option<u64>, EnumerationError> {
         Err(EnumerationError::NotEnumerable)
     }
@@ -481,6 +746,17 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// [`EnumerationError::OutOfRange`] at or past a finite count;
     /// [`EnumerationError::Overflow`] when the object's label is not
     /// representable.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// assert_eq!(su2.object_at(1)?, half); // SU(2) index = 2j
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn object_at(&self, index: u64) -> Result<Self::Object, EnumerationError> {
         let _ = index;
         Err(EnumerationError::NotEnumerable)
@@ -494,6 +770,17 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     ///
     /// # Panics
     /// Panics on a foreign object, before testing enumerability.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{U1Irrep, U1}};
+    ///
+    /// // U(1) order 0, 1, -1, 2, -2, …
+    /// assert_eq!(U1.object_index(&U1Irrep::new(-2)?)?, 4);
+    /// assert_eq!(U1.object_at(4)?, U1Irrep::new(-2)?);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn object_index(&self, a: &Self::Object) -> Result<u64, EnumerationError> {
         assert!(self.contains(a), "foreign object");
         Err(EnumerationError::NotEnumerable)
@@ -748,6 +1035,20 @@ pub trait GroupRepresentations: FusionCategory {
     type Cgc: CgcBlock;
     /// CGC for validated objects; foreign objects panic, absent channels
     /// return blocks with multiplicity axis zero, and errors indicate genuine failure or absent capability.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::category::{CgcBlock, FusionCategory, GroupRepresentations};
+    /// use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// let c = su2.cgc(&half, &half, &su2.unit())?; // axes [m₁, m₂, m₃, μ], m ascending
+    /// let s = 0.5f64.sqrt(); // ⟨½ ±½; ½ ∓½ | 0 0⟩ = ±1/√2
+    /// assert!((c.at([1, 0, 0, 0]) - s).abs() < 1e-15 && (c.at([0, 1, 0, 0]) + s).abs() < 1e-15);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn cgc(
         &self,
         a: &Self::Object,
