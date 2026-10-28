@@ -142,18 +142,21 @@ pub(crate) fn f_block_raw<F: Family>(
 
     // Step 1: AB[(ma,mb,mc), (μ,ν)] = Σ_me A[ma,mb,me,μ] · B[me,mc,ν].
     // Group A and B by the shared magnetic index me, then cross each group.
-    let mut a_by_me: GroupBy4 = HashMap::new();
-    for x in &cab {
-        a_by_me
-            .entry(x.m3)
-            .or_default()
-            .push((x.m1, x.m2, x.mu, x.value)); // (ma, mb, μ, vA)
-    }
     // B is CGC(e,c,d)[:, :, m_d=0, :]: keep only m3 == 0.
     let mut b_by_me: HashMap<u32, Vec<(u32, u32, f64)>> = HashMap::new();
     for x in &cecd {
         if x.m3 == 0 {
             b_by_me.entry(x.m1).or_default().push((x.m2, x.mu, x.value)); // (mc, ν, vB)
+        }
+    }
+    // Only magnetic groups present in the fixed-d slice can contribute.
+    let mut a_by_me: GroupBy4 = HashMap::new();
+    for x in &cab {
+        if b_by_me.contains_key(&x.m3) {
+            a_by_me
+                .entry(x.m3)
+                .or_default()
+                .push((x.m1, x.m2, x.mu, x.value)); // (ma, mb, μ, vA)
         }
     }
     // AB keyed by (ma,mb,mc) -> Vec<(μ, ν, value)>.
@@ -172,18 +175,20 @@ pub(crate) fn f_block_raw<F: Family>(
     }
 
     // Step 2: CD[(ma,mb,mc), (κ,λ)] = Σ_mf C[mb,mc,mf,κ] · D[ma,mf,λ].
-    let mut c_by_mf: GroupBy4 = HashMap::new();
-    for x in &cbcf {
-        c_by_mf
-            .entry(x.m3)
-            .or_default()
-            .push((x.m1, x.m2, x.mu, x.value)); // (mb, mc, κ, vC)
-    }
     // D is CGC(a,f,d)[:, :, m_d=0, :]: keep only m3 == 0.
     let mut d_by_mf: HashMap<u32, Vec<(u32, u32, f64)>> = HashMap::new();
     for x in &cafd {
         if x.m3 == 0 {
             d_by_mf.entry(x.m2).or_default().push((x.m1, x.mu, x.value)); // (ma, λ, vD)
+        }
+    }
+    let mut c_by_mf: GroupBy4 = HashMap::new();
+    for x in &cbcf {
+        if d_by_mf.contains_key(&x.m3) {
+            c_by_mf
+                .entry(x.m3)
+                .or_default()
+                .push((x.m1, x.m2, x.mu, x.value)); // (mb, mc, κ, vC)
         }
     }
     let mut cd: PairGroup = HashMap::new();
@@ -195,9 +200,11 @@ pub(crate) fn f_block_raw<F: Family>(
         };
         for &(mb, mc, kappa, vc) in &c_by_mf[&mf] {
             for &(ma, lambda, vd) in dlist {
-                cd.entry((ma, mb, mc))
-                    .or_default()
-                    .push((kappa, lambda, vc * vd));
+                if ab.contains_key(&(ma, mb, mc)) {
+                    cd.entry((ma, mb, mc))
+                        .or_default()
+                        .push((kappa, lambda, vc * vd));
+                }
             }
         }
     }

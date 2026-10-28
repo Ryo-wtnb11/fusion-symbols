@@ -5,6 +5,7 @@ mod common;
 mod ab_symbols;
 mod bcd_fingerprint;
 mod bcd_fr;
+mod bit_identity;
 mod category_conformance;
 mod cu1_values;
 mod enumeration;

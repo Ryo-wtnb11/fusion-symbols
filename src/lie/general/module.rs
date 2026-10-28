@@ -272,9 +272,13 @@ fn build_space(
             if let (Some((tau, f1)), Some((_, f2))) = (&w1.lower[kk], &w2.lower[j]) {
                 let n_tau = &weights[*tau].norms;
                 for (p, n_p) in n_tau.iter().enumerate() {
-                    g += &f1[q][p] * &f2[q2][p] / n_p;
+                    if !f1[q][p].is_zero() && !f2[q2][p].is_zero() {
+                        g += &f1[q][p] * &f2[q2][p] / n_p;
+                    }
                 }
-                g *= &w1.norms[q] * &w2.norms[q2];
+                if !g.is_zero() {
+                    g *= &w1.norms[q] * &w2.norms[q2];
+                }
             }
             if j == kk && q == q2 {
                 g += Q::from_integer(w1.mu[j].into()) * &w1.norms[q];
@@ -294,14 +298,21 @@ fn build_space(
         coeffs[t] = Q::from_integer(1.into());
         let mut n = gram[t][t].clone();
         for (r, n_l) in full.iter().zip(&norms) {
-            let proj: Q = r.iter().zip(&gram[t]).map(|(x, g)| x * g).sum();
+            let proj: Q = r
+                .iter()
+                .zip(&gram[t])
+                .filter(|(x, g)| !x.is_zero() && !g.is_zero())
+                .map(|(x, g)| x * g)
+                .sum();
             if proj.is_zero() {
                 continue;
             }
             let scale = &proj / n_l;
             n -= &scale * &proj;
             for (x, y) in coeffs.iter_mut().zip(r) {
-                *x -= &scale * y;
+                if !y.is_zero() {
+                    *x -= &scale * y;
+                }
             }
         }
         if n.is_negative() {
@@ -334,7 +345,12 @@ fn build_space(
                     (0..weights[src].norms.len())
                         .map(|b| {
                             let col = s0 + b;
-                            let dot: Q = r.iter().zip(&gram).map(|(x, row)| x * &row[col]).sum();
+                            let dot: Q = r
+                                .iter()
+                                .zip(&gram)
+                                .filter(|(x, row)| !x.is_zero() && !row[col].is_zero())
+                                .map(|(x, row)| x * &row[col])
+                                .sum();
                             dot / n_a
                         })
                         .collect()

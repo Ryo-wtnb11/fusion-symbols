@@ -70,6 +70,14 @@ fn bench_6j_thousands(c: &mut Criterion) {
             }
         })
     });
+    c.bench_function("6j_thousands_cold", |b| {
+        b.iter(|| {
+            fusion_symbols::cache::reset();
+            for &d in SIX_J_THOUSANDS {
+                black_box(wigner_6j(d[0], d[1], d[2], d[3], d[4], d[5]));
+            }
+        })
+    });
 }
 
 /// The repeated-label regime: the same small label sets recur many
