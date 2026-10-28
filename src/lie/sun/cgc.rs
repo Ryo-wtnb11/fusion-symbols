@@ -154,26 +154,34 @@ fn weight_map(patterns: &[GtPattern], n: usize) -> Result<HashMap<Vec<i64>, Vec<
     Ok(m)
 }
 
-/// A GT ladder operator in sparse form: `by_col[c]` lists `(row, value)` of
-/// column `c`; `elem[(row, col)]` reads a single matrix element.
+/// Sparse GT adjacency. Lowering columns are in ascending destination-index order.
+#[derive(Default)]
 struct LadderOp {
     by_col: HashMap<usize, Vec<(usize, f64)>>,
+    #[cfg(test)]
     elem: HashMap<(usize, usize), f64>,
 }
 
-fn build_ops(mats: Vec<Vec<LadderEntry>>) -> Vec<LadderOp> {
+fn build_ops(mats: Vec<Vec<LadderEntry>>) -> (Vec<LadderOp>, Vec<LadderOp>) {
     mats.into_iter()
         .map(|mat| {
-            let mut by_col: HashMap<usize, Vec<(usize, f64)>> = HashMap::new();
-            let mut elem: HashMap<(usize, usize), f64> = HashMap::new();
+            let mut up = LadderOp::default();
+            let mut down = LadderOp::default();
             for e in mat {
                 let v = e.value.to_f64();
-                by_col.entry(e.col).or_default().push((e.row, v));
-                elem.insert((e.row, e.col), v);
+                up.by_col.entry(e.col).or_default().push((e.row, v));
+                // Creation visits source indices in ascending order, so its
+                // transpose has exactly the old weight-space traversal order.
+                down.by_col.entry(e.row).or_default().push((e.col, v));
+                #[cfg(test)]
+                {
+                    up.elem.insert((e.row, e.col), v);
+                    down.elem.insert((e.col, e.row), v);
+                }
             }
-            LadderOp { by_col, elem }
+            (up, down)
         })
-        .collect()
+        .unzip()
 }
 
 fn is_trivial(s: &Irrep) -> bool {
@@ -216,6 +224,8 @@ pub fn cgc(s1: &Irrep, s2: &Irrep, s3: &Irrep) -> Result<Cgc, SunError> {
 
 #[cfg(test)]
 thread_local! {
+    pub(super) static LADDER_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static MATCH_BUILDS: std::cell::RefCell<BTreeMap<(Vec<i64>, usize), usize>> = const { std::cell::RefCell::new(BTreeMap::new()) };
     pub(in crate::lie) static GENERATIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
@@ -310,43 +320,64 @@ fn trivial_cgc(
     })))
 }
 
-/// Precomputed per-pair data shared by the highest-weight and descent stages.
+/// One basis, weight map and rounded ladder pair per distinct irrep in a context.
+struct IrrepData {
+    pats: Vec<GtPattern>,
+    map: HashMap<Vec<i64>, Vec<usize>>,
+    creation: Vec<LadderOp>,
+    annih: Vec<LadderOp>,
+}
+
+impl IrrepData {
+    fn new(s: &Irrep) -> Result<Self, SunError> {
+        let pats = s.patterns();
+        let map = weight_map(&pats, s.rank())?;
+        let (creation, annih) = build_ops(s.try_creation_with_patterns(&pats)?);
+        Ok(Self {
+            pats,
+            map,
+            creation,
+            annih,
+        })
+    }
+}
+
+/// Per-generation data shared by the highest-weight and descent stages.
 struct Ctx {
     n: usize,
     d3: usize,
-    pats1: Vec<GtPattern>,
-    creation1: Vec<LadderOp>,
-    creation2: Vec<LadderOp>,
-    annih1: Vec<LadderOp>,
-    annih2: Vec<LadderOp>,
-    annih3: Vec<LadderOp>,
-    map1: HashMap<Vec<i64>, Vec<usize>>,
-    map2: HashMap<Vec<i64>, Vec<usize>>,
-    map3: HashMap<Vec<i64>, Vec<usize>>,
+    one: std::sync::Arc<IrrepData>,
+    two: std::sync::Arc<IrrepData>,
+    three: std::sync::Arc<IrrepData>,
     w3_top: Vec<i64>,
     wshift: i64,
 }
 
 impl Ctx {
     fn new(s1: &Irrep, s2: &Irrep, s3: &Irrep) -> Result<Self, SunError> {
+        use std::sync::Arc;
         let n = s1.rank();
-        let pats1 = s1.patterns();
-        let pats2 = s2.patterns();
-        let pats3 = s3.patterns();
         let wshift = coupling_shift(s1.weight(), s2.weight(), s3.weight(), n)?;
+        let one = Arc::new(IrrepData::new(s1)?);
+        let two = if s2 == s1 {
+            Arc::clone(&one)
+        } else {
+            Arc::new(IrrepData::new(s2)?)
+        };
+        let three = if s3 == s1 {
+            Arc::clone(&one)
+        } else if s3 == s2 {
+            Arc::clone(&two)
+        } else {
+            Arc::new(IrrepData::new(s3)?)
+        };
         Ok(Ctx {
             n,
-            d3: pats3.len(),
-            creation1: build_ops(s1.try_creation()?),
-            creation2: build_ops(s2.try_creation()?),
-            annih1: build_ops(s1.try_annihilation()?),
-            annih2: build_ops(s2.try_annihilation()?),
-            annih3: build_ops(s3.try_annihilation()?),
-            map1: weight_map(&pats1, n)?,
-            map2: weight_map(&pats2, n)?,
-            map3: weight_map(&pats3, n)?,
+            d3: three.pats.len(),
+            one,
+            two,
+            three,
             w3_top: s3.weight().to_vec(),
-            pats1,
             wshift,
         })
     }
@@ -389,17 +420,17 @@ fn highest_weight_cgc(
     let mut acc: Vec<((usize, usize, usize), usize, f64)> = Vec::new();
     let mut rowset: BTreeSet<(usize, usize, usize)> = BTreeSet::new();
 
-    for (m1, pat1) in ctx.pats1.iter().enumerate() {
+    for (m1, pat1) in ctx.one.pats.iter().enumerate() {
         let w1 = pattern_weight(pat1, n)?;
         // w2 = w3_top - w1 + wshift  (componentwise, wshift a scalar broadcast).
         let w2 = matching_weight(&ctx.w3_top, &w1, ctx.wshift)?;
-        for &m2 in get_indices(&ctx.map2, &w2) {
+        for &m2 in get_indices(&ctx.two.map, &w2) {
             let col = cols.len();
             cols.push((m1, m2));
             col_index.insert((m1, m2), col);
             for l in 0..n - 1 {
                 // Jp1 raises m1 (m2 fixed): column m1 of creation1[l].
-                if let Some(entries) = ctx.creation1[l].by_col.get(&m1) {
+                if let Some(entries) = ctx.one.creation[l].by_col.get(&m1) {
                     for &(m1p, v) in entries {
                         let key = (l, m1p, m2);
                         rowset.insert(key);
@@ -407,7 +438,7 @@ fn highest_weight_cgc(
                     }
                 }
                 // Jp2 raises m2 (m1 fixed): column m2 of creation2[l].
-                if let Some(entries) = ctx.creation2[l].by_col.get(&m2) {
+                if let Some(entries) = ctx.two.creation[l].by_col.get(&m2) {
                     for &(m2p, v) in entries {
                         let key = (l, m1, m2p);
                         rowset.insert(key);
@@ -541,123 +572,144 @@ fn findabsmax(vals: impl Iterator<Item = f64>) -> (f64, usize) {
 // Stage 2: lower-weight descent (clebschgordan.jl:lower_weight_CGC!).
 // ---------------------------------------------------------------------------
 
+struct DescentRoot<'a> {
+    l: usize,
+    parents: &'a [usize],
+    sources: Vec<((u32, u32), std::ops::Range<usize>)>,
+    edges: Vec<((usize, usize), f64)>,
+}
+
 fn lower_weight_cgc(
     data: &mut HashMap<(u32, u32, u32, u32), f64>,
     ctx: &Ctx,
     n123: usize,
 ) -> Result<(), SunError> {
-    let n = ctx.n;
-    // Reverse-lexicographic weight order: parents (higher weights) come first
-    // and are already solved. Skip the first (the highest weight, done above).
-    let mut w3list: Vec<Vec<i64>> = ctx.map3.keys().cloned().collect();
-    w3list.sort();
+    if n123 == 0 {
+        return Ok(());
+    }
+    let mut w3list: Vec<_> = ctx.three.map.keys().collect();
+    w3list.sort_unstable();
     w3list.reverse();
-    let mut w1list: Vec<_> = ctx.map1.keys().collect();
+    let mut w1list: Vec<_> = ctx.one.map.keys().collect();
     w1list.sort_unstable();
 
-    for alpha in 0..n123 {
-        for w3 in w3list.iter().skip(1) {
-            let m3list = &ctx.map3[w3];
-            let jmax = m3list.len();
-
-            // Parent rows: one block per level l for the raised weight w3'.
-            // imax = Σ_l |map3[w3' (l)]|.
-            let mut parent_blocks: Vec<(usize, Vec<usize>)> = Vec::new();
-            let mut imax = 0usize;
-            for l in 0..n - 1 {
-                let w3p = raise(w3, l)?;
-                let list = get_indices(&ctx.map3, &w3p).to_vec();
-                imax = crate::lie::checked_count(imax, list.len())
-                    .map_err(|_| SunError::LabelOverflow)?;
-                parent_blocks.push((l, list));
+    // All metadata is coefficient-independent. Keep alpha outermost when
+    // replaying it: first-seen masks and each individual solve stay unchanged.
+    let mut plans = Vec::new();
+    for w3 in w3list.into_iter().skip(1) {
+        let m3list = &ctx.three.map[w3];
+        let mut roots = Vec::new();
+        let mut imax = 0;
+        let mut capacity = 0;
+        for l in 0..ctx.n - 1 {
+            let w3p = raise(w3, l)?;
+            let parents = get_indices(&ctx.three.map, &w3p);
+            if parents.is_empty() {
+                continue;
             }
-
-            let mut eqs = Mat::try_zeros(imax, jmax)?;
-            // RHS over the unique (m1, m2) columns encountered.
-            let mut mask_index: HashMap<(usize, usize), usize> = HashMap::new();
-            let mut rhs_acc: Vec<(usize, (usize, usize), f64)> = Vec::new();
-
-            let mut i = 0usize;
-            for (l, m3plist) in &parent_blocks {
-                let l = *l;
-                let w3p = raise(w3, l)?;
-                for &m3p in m3plist {
-                    // eqs[i, j] = Jm3[m3, m3']  (annihilation3[l], element (m3, m3')).
-                    for (j, &m3) in m3list.iter().enumerate() {
-                        if let Some(&v) = ctx.annih3[l].elem.get(&(m3, m3p)) {
+            #[cfg(test)]
+            MATCH_BUILDS.with(|counts| {
+                *counts.borrow_mut().entry((w3.clone(), l)).or_default() += 1;
+            });
+            imax = crate::lie::checked_count(imax, parents.len())
+                .map_err(|_| SunError::LabelOverflow)?;
+            let mut root = DescentRoot {
+                l,
+                parents,
+                sources: Vec::new(),
+                edges: Vec::new(),
+            };
+            for &w1p in &w1list {
+                let w2p = matching_weight(&w3p, w1p, ctx.wshift)?;
+                let m2plist = get_indices(&ctx.two.map, &w2p);
+                if m2plist.is_empty() {
+                    continue;
+                }
+                // Retain checked weight arithmetic from the old path. Exact
+                // GT ladders can only reach these lowered weight spaces.
+                lower(w1p, l)?;
+                lower(&w2p, l)?;
+                for &m2p in m2plist {
+                    for &m1p in &ctx.one.map[w1p] {
+                        let start = root.edges.len();
+                        if let Some(entries) = ctx.one.annih[l].by_col.get(&m1p) {
+                            for &(m1, v) in entries {
+                                root.edges.push(((m1, m2p), v));
+                            }
+                        }
+                        if let Some(entries) = ctx.two.annih[l].by_col.get(&m2p) {
+                            for &(m2, v) in entries {
+                                root.edges.push(((m1p, m2), v));
+                            }
+                        }
+                        root.sources.push((
+                            (magnetic_index(m1p)?, magnetic_index(m2p)?),
+                            start..root.edges.len(),
+                        ));
+                    }
+                }
+            }
+            let contributions = crate::lie::checked_size([parents.len(), root.edges.len()])
+                .map_err(|_| SunError::LabelOverflow)?;
+            capacity = crate::lie::checked_count(capacity, contributions)
+                .map_err(|_| SunError::LabelOverflow)?;
+            roots.push(root);
+        }
+        let mut eqs = Mat::try_zeros(imax, m3list.len())?;
+        let mut i = 0;
+        for root in &roots {
+            for &m3p in root.parents {
+                if let Some(entries) = ctx.three.annih[root.l].by_col.get(&m3p) {
+                    for &(m3, v) in entries {
+                        if let Ok(j) = m3list.binary_search(&m3) {
                             eqs.add(i, j, v);
                         }
                     }
-                    // RHS: (Jm1 ⊗ I + I ⊗ Jm2) acting on parent CGC[m1',m2',m3',α].
-                    for &w1p in &w1list {
-                        let m1plist = &ctx.map1[w1p];
-                        let w2p = matching_weight(&w3p, w1p, ctx.wshift)?;
-                        let m2plist = get_indices(&ctx.map2, &w2p);
-                        if m2plist.is_empty() {
+                }
+                i += 1;
+            }
+        }
+        plans.push((m3list, eqs, roots, capacity));
+    }
+
+    for alpha in 0..n123 {
+        let alpha = magnetic_index(alpha)?;
+        for (m3list, eqs, roots, capacity) in &plans {
+            // Upper bounds count every structural edge for every parent,
+            // including zero coefficients: replay never grows either buffer.
+            let mut mask_index = HashMap::with_capacity(*capacity);
+            let mut rhs_acc = Vec::with_capacity(*capacity);
+            let mut i = 0;
+            for root in roots {
+                for &m3p in root.parents {
+                    let m3p = magnetic_index(m3p)?;
+                    for &((m1p, m2p), ref edges) in &root.sources {
+                        let coeff = *data.get(&(m1p, m2p, m3p, alpha)).unwrap_or(&0.0);
+                        if coeff == 0.0 {
                             continue;
                         }
-                        for &m2p in m2plist {
-                            for &m1p in m1plist {
-                                let cgc_coeff = *data
-                                    .get(&(
-                                        magnetic_index(m1p)?,
-                                        magnetic_index(m2p)?,
-                                        magnetic_index(m3p)?,
-                                        magnetic_index(alpha)?,
-                                    ))
-                                    .unwrap_or(&0.0);
-                                if cgc_coeff == 0.0 {
-                                    continue;
-                                }
-                                // Apply Jm1: lower m1' at level l -> m1.
-                                let w1 = lower(w1p, l)?;
-                                for &m1 in get_indices(&ctx.map1, &w1) {
-                                    if let Some(&jm1) = ctx.annih1[l].elem.get(&(m1, m1p)) {
-                                        push_rhs(
-                                            &mut mask_index,
-                                            &mut rhs_acc,
-                                            i,
-                                            (m1, m2p),
-                                            jm1 * cgc_coeff,
-                                        );
-                                    }
-                                }
-                                // Apply Jm2: lower m2' at level l -> m2.
-                                let w2 = lower(&w2p, l)?;
-                                for &m2 in get_indices(&ctx.map2, &w2) {
-                                    if let Some(&jm2) = ctx.annih2[l].elem.get(&(m2, m2p)) {
-                                        push_rhs(
-                                            &mut mask_index,
-                                            &mut rhs_acc,
-                                            i,
-                                            (m1p, m2),
-                                            jm2 * cgc_coeff,
-                                        );
-                                    }
-                                }
-                            }
+                        for &(pair, v) in &root.edges[edges.clone()] {
+                            push_rhs(&mut mask_index, &mut rhs_acc, i, pair, v * coeff);
                         }
                     }
                     i += 1;
                 }
             }
-
             let nmask = mask_index.len();
             if nmask == 0 {
                 continue;
             }
-            // Ordered mask (column index -> (m1,m2)); mask_index gives the order.
-            let mut mask: Vec<(usize, usize)> = vec![(0, 0); nmask];
+            let mut mask = vec![(0, 0); nmask];
             for (&pair, &c) in &mask_index {
                 mask[c] = pair;
             }
-            let mut rhs = Mat::try_zeros(imax, nmask)?;
+            let mut rhs = Mat::try_zeros(eqs.rows, nmask)?;
             for (row, pair, val) in rhs_acc {
                 rhs.add(row, mask_index[&pair], val);
             }
-
-            // sols = eqs \ rhs  (least squares), shape jmax x nmask.
-            let sols = linalg::lstsq(&eqs, &rhs)?;
+            #[cfg(test)]
+            descent_tests::record_solve(eqs, &rhs, &mask);
+            let sols = linalg::lstsq(eqs, &rhs)?;
             for (c, &(m1, m2)) in mask.iter().enumerate() {
                 for (j, &m3) in m3list.iter().enumerate() {
                     let v = sols.at(j, c);
@@ -667,7 +719,7 @@ fn lower_weight_cgc(
                                 magnetic_index(m1)?,
                                 magnetic_index(m2)?,
                                 magnetic_index(m3)?,
-                                magnetic_index(alpha)?,
+                                alpha,
                             ))
                             .or_insert(0.0) += v;
                     }
@@ -751,7 +803,7 @@ fn freeze(
 /// contracted over the coupling indices `(m1,m2)` only, per output column
 /// `(m3,α)` -- not summed over `m3`.
 fn check_orthonormal(cgc: &Cgc, ctx: &Ctx) -> Result<(), SunError> {
-    let [weights1, weights2, weights3] = [&ctx.map1, &ctx.map2, &ctx.map3].map(|map| {
+    let [weights1, weights2, weights3] = [&ctx.one.map, &ctx.two.map, &ctx.three.map].map(|map| {
         let mut weights = vec![&[][..]; map.values().map(Vec::len).sum()];
         for (weight, indices) in map {
             for &m in indices {
@@ -860,13 +912,13 @@ fn check_ladder(cgc: &Cgc, ctx: &Ctx) -> Result<(), SunError> {
             );
             let coeff = e.value;
             // Jm1 lowers m1'
-            if let Some(col) = ctx.annih1[l].by_col.get(&m1p) {
+            if let Some(col) = ctx.one.annih[l].by_col.get(&m1p) {
                 for &(m1, v) in col {
                     *lhs.entry((m1, m2p)).or_insert(0.0) += v * coeff;
                 }
             }
             // Jm2 lowers m2'
-            if let Some(col) = ctx.annih2[l].by_col.get(&m2p) {
+            if let Some(col) = ctx.two.annih[l].by_col.get(&m2p) {
                 for &(m2, v) in col {
                     *lhs.entry((m1p, m2)).or_insert(0.0) += v * coeff;
                 }
@@ -874,7 +926,7 @@ fn check_ladder(cgc: &Cgc, ctx: &Ctx) -> Result<(), SunError> {
         }
         // RHS[(m1,m2)] = Σ_m3 C[m1,m2,m3,α] Jm3[m3, m3'].
         let mut rhs: HashMap<(usize, usize), f64> = HashMap::new();
-        if let Some(col) = ctx.annih3[l]
+        if let Some(col) = ctx.three.annih[l]
             .by_col
             .get(&(usize::try_from(m3p).map_err(|_| SunError::LabelOverflow)?))
         {
@@ -980,7 +1032,8 @@ mod tests {
         let mut cgc = generate(&a, &b, &c, None).unwrap();
         let mut entry = cgc.entries()[0];
         let other_weight = ctx
-            .map3
+            .three
+            .map
             .values()
             .find(|indices| !indices.contains(&usize::try_from(entry.m3).unwrap()))
             .unwrap();
@@ -1004,7 +1057,12 @@ mod tests {
         let a = irr(&[1, 1]);
         let ctx = Ctx::new(&a, &a, &a).unwrap();
         let mut cgc = generate(&a, &a, &a, None).unwrap();
-        let indices = ctx.map3.values().find(|indices| indices.len() > 1).unwrap();
+        let indices = ctx
+            .three
+            .map
+            .values()
+            .find(|indices| indices.len() > 1)
+            .unwrap();
         let source = magnetic_index(indices[0]).unwrap();
         let target = magnetic_index(indices[1]).unwrap();
         // Duplicate a column across two states of the same weight: both norms
@@ -1142,3 +1200,7 @@ mod arithmetic_tests {
         assert_eq!(pattern_weight(&p, 2), Err(SunError::LabelOverflow));
     }
 }
+
+#[cfg(test)]
+#[path = "cgc_descent_tests.rs"]
+mod descent_tests;

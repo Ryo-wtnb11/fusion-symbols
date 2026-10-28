@@ -24,7 +24,8 @@ value/gauge rule noted below.
 
 - B/C/D product ladders use ordered exact-nonzero adjacency for application,
   preserving coefficient bits and fingerprints while removing dense product storage.
-
+- Reuse each distinct SU(N) GT basis and ladder within CGC generation and index
+  descent contributions once, preserving coefficient bits and fingerprints.
 - Unifying exact arithmetic removes the exceptional num-conversion boundary.
   A single-thread release smoke run of 100 large-j Wigner 6j evaluations
   improved from 0.113 s on `fe4100d` to 0.080 s.
