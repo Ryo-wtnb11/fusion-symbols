@@ -352,10 +352,6 @@ fn g2_7x7_to_7_hand_entries_and_order() {
         (1, 3, 1, 0, q(1, 6)),
         (0, 4, 1, 0, q(-1, 3)),
     ];
-    let want: Vec<_> = want
-        .into_iter()
-        .map(|(a, b, c, m, x)| (a, b, c, m, super::super::rational::to_num(&x)))
-        .collect();
     assert_eq!(got, want);
 }
 
@@ -384,10 +380,7 @@ fn trivial_couplings_are_the_identity() {
             assert_eq!(got.len(), mc.dim());
             for (m, (p, r, mcx, mu, x)) in got.into_iter().enumerate() {
                 assert_eq!((p + r, mcx, mu), (m, m, 0));
-                assert_eq!(
-                    x.signed_square(),
-                    super::super::rational::to_num(&Q::from(1))
-                );
+                assert_eq!(x.signed_square(), Q::from(1));
             }
         }
     }
@@ -426,10 +419,8 @@ fn check_radical_formation(root: RootSystem, a: &[i64], b: &[i64], c: &[i64]) {
                     continue;
                 }
                 let old = SignedSqrtRational::from_prefactor_radical(
-                    super::super::rational::to_num(x),
-                    super::super::rational::to_num(&ma.norm[pa])
-                        * super::super::rational::to_num(&mb.norm[pb])
-                        / super::super::rational::to_num(&scale),
+                    (x).clone(),
+                    &ma.norm[pa] * &mb.norm[pb] / &scale,
                 );
                 let (ga, gb, gc, gm, value) = entries.next().unwrap();
                 assert_eq!((*ga, *gb, *gc, *gm), (pa, pb, m, mu));
@@ -485,17 +476,17 @@ fn g2_27x27_golden_counts() {
         assert_eq!(e.len(), count);
         radicands.extend(e.into_iter().map(|x| x.4.radicand().clone()));
     }
-    let max_numer = radicands.iter().max_by_key(|r| r.numer().clone()).unwrap();
-    let max_denom = radicands.iter().max_by_key(|r| r.denom().clone()).unwrap();
-    assert!(radicands.contains(&super::super::rational::to_num(&q(33856, 446985))));
-    assert_eq!(
-        *max_numer,
-        super::super::rational::to_num(&q(33856, 268191))
-    );
-    assert_eq!(
-        *max_denom,
-        super::super::rational::to_num(&q(18769, 7051968))
-    );
+    let max_numer = radicands
+        .iter()
+        .max_by_key(|r| r.numerator_ref().clone())
+        .unwrap();
+    let max_denom = radicands
+        .iter()
+        .max_by_key(|r| r.denominator_ref().clone())
+        .unwrap();
+    assert!(radicands.contains(&q(33856, 446985)));
+    assert_eq!(*max_numer, q(33856, 268191));
+    assert_eq!(*max_denom, q(18769, 7051968));
 }
 
 // ---------------------------------------------------------------------------
@@ -749,7 +740,7 @@ fn resource_report() {
             let max_den = entries
                 .iter()
                 .map(|e| e.4.radicand().clone())
-                .max_by_key(|r| r.denom().clone());
+                .max_by_key(|r| r.denominator_ref().clone());
             println!(
                 "{root:?} {a:?}⊗{b:?}→{c:?} (dim {}, N {}): module {tm:?}, channel {tc:?}, nonzeros {}, max-denominator radicand {}",
                 mc.dim(),

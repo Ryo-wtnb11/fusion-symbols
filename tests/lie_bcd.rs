@@ -42,7 +42,7 @@ fn labels_weights_zero_blocks_and_catalog_budget() {
     };
     let cat = LieGroup::new(GroupId::spin(5).unwrap()).unwrap();
     let s = cat.irrep(&[0, 1]).unwrap();
-    assert_eq!(s.dim_exact(), 4.into());
+    assert_eq!(s.dim_exact(), 4);
     assert!(s.gt_patterns().is_none());
     assert_eq!(
         s.weight_multiplicities(),

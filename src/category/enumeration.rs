@@ -8,8 +8,8 @@
 //! Arithmetic is exact: inclusion–exclusion cancels large signed terms, so a
 //! saturating or wrapping integer would corrupt the count.
 
-use num_bigint::BigInt;
-use num_traits::{One, Signed, Zero};
+use malachite_base::num::basic::traits::{One, Zero};
+use malachite_nz::integer::Integer;
 
 /// Failure to enumerate objects or represent an enumeration result.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,7 +38,7 @@ impl std::error::Error for EnumerationError {}
 /// A category's object count as a product bound.
 pub(crate) enum Count {
     /// Exactly this many objects.
-    Finite(BigInt),
+    Finite(Integer),
     /// Finitely many, more than `u64::MAX`, exact value unknown: what a public
     /// [`crate::category::FusionCategory::object_count`] reports as `Overflow`.
     AboveU64,
@@ -50,7 +50,7 @@ impl Count {
     /// The product count: infinite if any factor is, else unknown above
     /// `u64::MAX` if any factor is (every count is at least one), else exact.
     pub(crate) fn product<'a>(counts: impl IntoIterator<Item = &'a Count>) -> Count {
-        let mut exact = Some(BigInt::one());
+        let mut exact = Some(Integer::ONE);
         let mut infinite = false;
         for count in counts {
             match count {
@@ -78,7 +78,7 @@ impl Count {
     /// least `2^64`: [`rank_checked`] reports `Overflow`, and an index
     /// `k ≤ u64::MAX` never lies in such a shell. A count `≥ 2^64` also never
     /// makes `k` out of range.
-    pub(crate) fn bound(&self) -> Option<BigInt> {
+    pub(crate) fn bound(&self) -> Option<Integer> {
         match self {
             Count::Finite(n) => Some(n.clone()),
             Count::AboveU64 | Count::Infinite => None,
@@ -89,9 +89,9 @@ impl Count {
 /// [`rank`] for factor counts that may be [`Count::AboveU64`]; `None` exactly
 /// when the index is at least `2^64` and an unknown bound could matter (see
 /// [`Count::bound`]).
-pub(crate) fn rank_checked(counts: &[&Count], x: &[BigInt]) -> Option<BigInt> {
-    let d: BigInt = x.iter().sum();
-    if d > BigInt::from(u64::MAX) && counts.iter().any(|c| matches!(c, Count::AboveU64)) {
+pub(crate) fn rank_checked(counts: &[&Count], x: &[Integer]) -> Option<Integer> {
+    let d: Integer = x.iter().sum();
+    if d > u64::MAX && counts.iter().any(|c| matches!(c, Count::AboveU64)) {
         return None;
     }
     let bounds: Vec<_> = counts.iter().map(|c| c.bound()).collect();
@@ -99,37 +99,37 @@ pub(crate) fn rank_checked(counts: &[&Count], x: &[BigInt]) -> Option<BigInt> {
 }
 
 /// `C(m, n)`, zero for `m < n` (including negative `m`).
-fn binomial(m: &BigInt, n: usize) -> BigInt {
-    if *m < BigInt::from(n) {
-        return BigInt::zero();
+fn binomial(m: &Integer, n: usize) -> Integer {
+    if *m < n {
+        return Integer::ZERO;
     }
-    let mut value = BigInt::one();
+    let mut value = Integer::ONE;
     for i in 0..n {
         // `value = C(m, i)`, so `value * (m - i)` is divisible by `i + 1`.
-        value = value * (m - i) / (i + 1);
+        value = value * (m - Integer::from(i)) / Integer::from(i + 1);
     }
     value
 }
 
 /// Number of tuples within `bounds` whose coordinate sum is at most `t`.
-pub(crate) fn cumulative(bounds: &[Option<BigInt>], t: &BigInt) -> BigInt {
-    if t.is_negative() {
-        return BigInt::zero();
+pub(crate) fn cumulative(bounds: &[Option<Integer>], t: &Integer) -> Integer {
+    if t < &0 {
+        return Integer::ZERO;
     }
     let n = bounds.len();
-    let finite: Vec<&BigInt> = bounds.iter().flatten().collect();
+    let finite: Vec<&Integer> = bounds.iter().flatten().collect();
     if finite.len() == n {
         // Every tuple is counted once `t` reaches the largest coordinate sum.
-        let top: BigInt = finite.iter().map(|&l| l - 1).sum();
+        let top: Integer = finite.iter().map(|&l| l - Integer::ONE).sum();
         if *t >= top {
             return finite.iter().copied().product();
         }
     }
     // Σ_{S ⊆ finite} (-1)^|S| C(t - Σ_S L + n, n); a subset whose bounds already
     // exceed `t` contributes zero, as does every superset of it.
-    fn terms(rest: &[&BigInt], budget: &BigInt, sign: bool, n: usize, acc: &mut BigInt) {
+    fn terms(rest: &[&Integer], budget: &Integer, sign: bool, n: usize, acc: &mut Integer) {
         let Some((&l, rest)) = rest.split_first() else {
-            let term = binomial(&(budget + n), n);
+            let term = binomial(&(budget + Integer::from(n)), n);
             if sign {
                 *acc -= term;
             } else {
@@ -139,28 +139,28 @@ pub(crate) fn cumulative(bounds: &[Option<BigInt>], t: &BigInt) -> BigInt {
         };
         terms(rest, budget, sign, n, acc);
         let reduced = budget - l;
-        if !reduced.is_negative() {
+        if !(reduced < 0) {
             terms(rest, &reduced, !sign, n, acc);
         }
     }
-    let mut acc = BigInt::zero();
+    let mut acc = Integer::ZERO;
     terms(&finite, t, false, n, &mut acc);
     acc
 }
 
 /// Exact tuple count, or `None` when a coordinate is unbounded.
-pub(crate) fn total(bounds: &[Option<BigInt>]) -> Option<BigInt> {
+pub(crate) fn total(bounds: &[Option<Integer>]) -> Option<Integer> {
     bounds
         .iter()
         .map(Option::as_ref)
-        .product::<Option<BigInt>>()
+        .product::<Option<Integer>>()
 }
 
 /// Zero-based Manhattan index of `x`, which must lie within `bounds`.
-pub(crate) fn rank(bounds: &[Option<BigInt>], x: &[BigInt]) -> BigInt {
+pub(crate) fn rank(bounds: &[Option<Integer>], x: &[Integer]) -> Integer {
     debug_assert_eq!(bounds.len(), x.len());
-    let mut s: BigInt = x.iter().sum();
-    let mut index = cumulative(bounds, &(&s - 1));
+    let mut s: Integer = x.iter().sum();
+    let mut index = cumulative(bounds, &(&s - Integer::ONE));
     for j in 0..x.len().saturating_sub(1) {
         let suffix = &bounds[j + 1..];
         index += cumulative(suffix, &s) - cumulative(suffix, &(&s - &x[j]));
@@ -170,46 +170,48 @@ pub(crate) fn rank(bounds: &[Option<BigInt>], x: &[BigInt]) -> BigInt {
 }
 
 /// Largest `v` in `lo..=hi` with `pred(v)`, given `pred(lo)` and monotone `pred`.
-fn last_true(mut lo: BigInt, mut hi: BigInt, pred: impl Fn(&BigInt) -> bool) -> BigInt {
+fn last_true(mut lo: Integer, mut hi: Integer, pred: impl Fn(&Integer) -> bool) -> Integer {
     while lo < hi {
-        let mid = (&lo + &hi + 1) / 2;
+        let mid = (&lo + &hi + Integer::ONE) >> 1u32;
         if pred(&mid) {
             lo = mid;
         } else {
-            hi = mid - 1;
+            hi = mid - Integer::ONE;
         }
     }
     lo
 }
 
 /// The tuple of Manhattan index `k`, or `None` past a finite enumeration.
-pub(crate) fn unrank(bounds: &[Option<BigInt>], k: &BigInt) -> Option<Vec<BigInt>> {
+pub(crate) fn unrank(bounds: &[Option<Integer>], k: &Integer) -> Option<Vec<Integer>> {
     let hi = match total(bounds) {
         Some(count) if *k >= count => return None,
-        Some(_) => bounds.iter().flatten().map(|l| l - 1).sum(),
+        Some(_) => bounds.iter().flatten().map(|l| l - Integer::ONE).sum(),
         None => {
             // An unbounded coordinate gives at least `t + 1` tuples of sum `≤ t`.
-            let mut hi = BigInt::one();
+            let mut hi = Integer::ONE;
             while cumulative(bounds, &hi) <= *k {
-                hi *= 2;
+                hi <<= 1u32;
             }
             hi
         }
     };
     // Shell `d`: the largest `d` with fewer than `k + 1` tuples of smaller sum.
-    let d = last_true(BigInt::zero(), hi, |d| cumulative(bounds, &(d - 1)) <= *k);
-    let mut rem = k - cumulative(bounds, &(&d - 1));
+    let d = last_true(Integer::ZERO, hi, |d| {
+        cumulative(bounds, &(d - Integer::ONE)) <= *k
+    });
+    let mut rem = k - cumulative(bounds, &(&d - Integer::ONE));
     let mut s = d;
     let mut x = Vec::with_capacity(bounds.len());
     for j in 0..bounds.len().saturating_sub(1) {
         let suffix = &bounds[j + 1..];
         let full = cumulative(suffix, &s);
-        let before = |v: &BigInt| &full - cumulative(suffix, &(&s - v));
+        let before = |v: &Integer| &full - cumulative(suffix, &(&s - v));
         let vmax = match &bounds[j] {
-            Some(l) if l - 1u8 < s => l - 1u8,
+            Some(l) if l - Integer::ONE < s => l - Integer::ONE,
             _ => s.clone(),
         };
-        let v = last_true(BigInt::zero(), vmax, |v| before(v) <= rem);
+        let v = last_true(Integer::ZERO, vmax, |v| before(v) <= rem);
         rem -= before(&v);
         s -= &v;
         x.push(v);
@@ -222,8 +224,8 @@ pub(crate) fn unrank(bounds: &[Option<BigInt>], k: &BigInt) -> Option<Vec<BigInt
 mod tests {
     use super::*;
 
-    fn b(bounds: &[Option<u64>]) -> Vec<Option<BigInt>> {
-        bounds.iter().map(|l| l.map(BigInt::from)).collect()
+    fn b(bounds: &[Option<u64>]) -> Vec<Option<Integer>> {
+        bounds.iter().map(|l| l.map(Integer::from)).collect()
     }
 
     // Brute-force enumeration by sum, then lexicographically.
@@ -260,9 +262,9 @@ mod tests {
             let big = b(&bounds);
             let cap = 6;
             for (k, x) in brute(&bounds, cap).iter().enumerate() {
-                let xb: Vec<BigInt> = x.iter().map(|&v| BigInt::from(v)).collect();
-                assert_eq!(rank(&big, &xb), BigInt::from(k), "{bounds:?} {x:?}");
-                assert_eq!(unrank(&big, &BigInt::from(k)), Some(xb));
+                let xb: Vec<Integer> = x.iter().map(|&v| Integer::from(v)).collect();
+                assert_eq!(rank(&big, &xb), Integer::from(k), "{bounds:?} {x:?}");
+                assert_eq!(unrank(&big, &Integer::from(k)), Some(xb));
             }
         }
     }

@@ -25,7 +25,11 @@ use crate::category::{
     FusionStyle, GroupRepresentations, RBlock,
 };
 use crate::product::{Product, ProductError};
-use num_bigint::BigInt;
+#[cfg(feature = "lie-generated")]
+use malachite_base::{
+    num::conversion::traits::RoundingFrom, rounding_modes::RoundingMode::Nearest,
+};
+use malachite_nz::{integer::Integer, natural::Natural};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -298,9 +302,8 @@ impl std::error::Error for LieError {
 /// the exact big-integer one. Both conversions are correctly rounded, so the
 /// bits do not depend on which path ran.
 #[cfg(feature = "lie-generated")]
-fn weyl_dim_f64(checked: Option<u128>, exact: impl FnOnce() -> BigInt) -> f64 {
-    use num_traits::ToPrimitive;
-    checked.map_or_else(|| exact().to_f64().unwrap_or(f64::INFINITY), |d| d as f64)
+fn weyl_dim_f64(checked: Option<u128>, exact: impl FnOnce() -> Natural) -> f64 {
+    checked.map_or_else(|| f64::rounding_from(&exact(), Nearest).0, |d| d as f64)
 }
 fn checked_dimension(value: impl TryInto<usize>) -> Result<usize, LieError> {
     value.try_into().map_err(|_| LieError::LabelOverflow)
@@ -1109,12 +1112,12 @@ impl LieIrrep {
     /// use fusion_symbols::lie::{GroupId, LieGroup};
     ///
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
-    /// assert_eq!(su2.irrep(&[3])?.dim_exact(), 4u32.into()); // 2j + 1
+    /// assert_eq!(su2.irrep(&[3])?.dim_exact(), 4u32); // 2j + 1
     /// let spin4 = LieGroup::new(GroupId::spin(4)?)?;
-    /// assert_eq!(spin4.irrep(&[1, 2])?.dim_exact(), 6u32.into()); // 2 · 3
+    /// assert_eq!(spin4.irrep(&[1, 2])?.dim_exact(), 6u32); // 2 · 3
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn dim_exact(&self) -> BigInt {
+    pub fn dim_exact(&self) -> Natural {
         if let Some(factors) = self.factors() {
             return factors.iter().map(Self::dim_exact).product();
         }
@@ -1130,7 +1133,7 @@ impl LieIrrep {
         if let Some(a) = self.generated() {
             return a.dim();
         }
-        BigInt::from(u64::from(self.dj()) + 1)
+        Natural::from(u64::from(self.dj()) + 1)
     }
     /// Weight multiplicities in Dynkin-then-charge coordinates, in ascending order.
     /// Panics if an intermediate weight or multiplicity is unrepresentable.
@@ -1832,10 +1835,10 @@ impl FusionCategory for LieGroup {
             }
             LieEnumeration::Dynkin => {
                 let bounds = vec![None; self.group.semisimple_rank()];
-                crate::category::unrank(&bounds, &BigInt::from(index))
+                crate::category::unrank(&bounds, &Integer::from(index))
                     .ok_or(EnumerationError::OutOfRange)?
                     .into_iter()
-                    .map(|a| i64::try_from(a).map_err(|_| EnumerationError::Overflow))
+                    .map(|a| i64::try_from(&a).map_err(|_| EnumerationError::Overflow))
                     .collect::<Result<_, _>>()?
             }
         };
@@ -1855,8 +1858,8 @@ impl FusionCategory for LieGroup {
             LieEnumeration::RankOne { stride } => Ok(u64::from(dj) / stride),
             LieEnumeration::Dynkin => {
                 let bounds = vec![None; self.group.semisimple_rank()];
-                let x: Vec<BigInt> = a.dynkin_labels().map(BigInt::from).collect();
-                u64::try_from(crate::category::rank(&bounds, &x))
+                let x: Vec<Integer> = a.dynkin_labels().map(Integer::from).collect();
+                u64::try_from(&crate::category::rank(&bounds, &x))
                     .map_err(|_| EnumerationError::Overflow)
             }
         }
@@ -1937,9 +1940,9 @@ impl GroupRepresentations for LieGroup {
         #[cfg(feature = "lie-generated")]
         if let (Some(a), Some(b), Some(c)) = (a.bcd(), b.bcd(), c.bcd()) {
             let dims = [
-                checked_dimension(a.dim())?,
-                checked_dimension(b.dim())?,
-                checked_dimension(c.dim())?,
+                checked_dimension(&a.dim())?,
+                checked_dimension(&b.dim())?,
+                checked_dimension(&c.dim())?,
                 bcd::fr::mult(a, b, c)?,
             ];
             return Ok(LieCgc {
@@ -2196,7 +2199,6 @@ mod tests {
 
     #[test]
     fn u128_cast_rounds_like_bigint_to_f64() {
-        use num_traits::ToPrimitive;
         let mut values = vec![u128::MAX, (1 << 53) - 1];
         for e in 53..128 {
             let p = 1u128 << e;
@@ -2210,14 +2212,13 @@ mod tests {
             (0..2000u128).map(|i| i.wrapping_mul(0x9e37_79b9_7f4a_7c15_f39c_c060_5ced_c835)),
         );
         for v in values {
-            let big = BigInt::from(v).to_f64().unwrap();
+            let big = f64::rounding_from(&Natural::from(v), Nearest).0;
             assert_eq!((v as f64).to_bits(), big.to_bits(), "{v}");
         }
     }
 
     #[test]
     fn generated_dim_bits_match_bigint_path() {
-        use num_traits::ToPrimitive;
         let mut checked = 0;
         let mut above_2_53 = 0;
         let su = |n| GroupId::su(n).unwrap();
@@ -2257,7 +2258,7 @@ mod tests {
                     (None, Some(x)) => x.ratio_dim(),
                     _ => unreachable!("{id:?} {d:?}"),
                 };
-                let want = exact.to_f64().unwrap_or(f64::INFINITY);
+                let want = f64::rounding_from(&exact, Nearest).0;
                 assert_eq!(cat.dim(&a).to_bits(), want.to_bits(), "{id:?} {d:?}");
                 assert_eq!(
                     cat.sqrt_dim(&a).to_bits(),
@@ -2265,7 +2266,7 @@ mod tests {
                     "{id:?} {d:?}"
                 );
                 checked += 1;
-                above_2_53 += usize::from(exact > BigInt::from(1u64 << 53));
+                above_2_53 += usize::from(exact > (1u64 << 53));
             }
         }
         assert!(checked > 1000 && above_2_53 > 10, "{checked} {above_2_53}");
@@ -2517,7 +2518,7 @@ mod tests {
         let g = LieGroup::new(GroupId::e6()).unwrap();
         let engine = g.general.as_ref().unwrap();
         let big = g.irrep(&[1, 0, 0, 0, 1, 0]).unwrap(); // 7371
-        assert_eq!(big.dim_exact(), 7371.into());
+        assert_eq!(big.dim_exact(), Natural::from(7371u32));
         assert_eq!(g.frobenius_schur_indicator(&big), 0.0);
         assert_eq!(engine.memo_stats(), (0, 0));
         let v = g.irrep(&[1, 0, 0, 0, 0, 0]).unwrap();

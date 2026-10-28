@@ -82,18 +82,21 @@
 //! - **base** (`default-features = false`): everything except the items below,
 //!   including every rank-one and D₂ Lie factor, tori and U(2), exact SU(2)
 //!   values, all closed-form families, rank ≤ 4 [`table`] categories (74),
-//!   products and caches. Dependencies are the `num-*` arithmetic crates and
-//!   `quick_cache`; there is no dense linear algebra.
+//!   products and caches. Exact arithmetic uses required Malachite 0.14
+//!   dependencies (LGPL-3.0-only); there is no dense linear algebra.
 //! - **`lie-generated`** (default): runtime coefficient generation for A, B, C
 //!   factors of rank ≥ 2, D factors of rank ≥ 3 and the exceptional types,
 //!   that is SU(N ≥ 3), SO(N ≥ 5), Spin(N ≥ 5), Sp(2r ≥ 4), U(N ≥ 3), G₂, F₄,
 //!   E₆, E₇, E₈ and products containing them.
 //!   Dense kernels run sequentially through `t4a-faer`; the caller owns
-//!   parallelism. Exceptional exact arithmetic uses Malachite 0.14
-//!   (`malachite-nz`, `malachite-q`, LGPL-3.0-only); public exact types
-//!   remain num-based.
+//!   parallelism.
 //! - **`anyonwiki-unitary`**: the 303 rank 5–7 [`table`] categories (embedded
 //!   data only).
+//!
+//! Public exact values use `malachite_nz::natural::Natural` for dimensions,
+//! `malachite_nz::integer::Integer` for signed integers, and
+//! `malachite_q::Rational` for rationals. These types are not re-exported;
+//! users name them through the Malachite crates directly.
 //!
 //! # Exactness and conventions
 //!

@@ -45,7 +45,7 @@
 
 use std::collections::HashMap;
 
-use num_bigint::BigInt;
+use malachite_nz::natural::Natural;
 
 use super::seeds::spinor_seeds;
 use super::sweep::{align_block, decompose, Block, Generators, SweepError};
@@ -722,10 +722,10 @@ fn box_count(c: &Irrep) -> Result<i64, BcdError> {
 /// `≺` is a **well order**: box count is a non-negative integer and, at a fixed
 /// box count and rank, only finitely many irreps exist (§14.1).
 #[cfg(test)]
-fn prec_key(c: &Irrep) -> (i64, BigInt, Vec<i64>) {
+fn prec_key(c: &Irrep) -> (i64, Natural, Vec<i64>) {
     try_prec_key(c).expect("test fixture has a representable box count")
 }
-fn try_prec_key(c: &Irrep) -> Result<(i64, BigInt, Vec<i64>), BcdError> {
+fn try_prec_key(c: &Irrep) -> Result<(i64, Natural, Vec<i64>), BcdError> {
     Ok((box_count(c)?, c.dim(), c.dynkin()))
 }
 
@@ -750,8 +750,8 @@ fn try_canonical_parent(
 ) -> Result<Option<(Irrep, Irrep)>, CatalogError> {
     /// A candidate parent pair with its `key(a,b)` (§14.2).
     struct Cand {
-        sum: BigInt,
-        dim_a: BigInt,
+        sum: Natural,
+        dim_a: Natural,
         dynkin_a: Vec<i64>,
         dynkin_b: Vec<i64>,
         a: Irrep,
@@ -759,7 +759,7 @@ fn try_canonical_parent(
     }
     impl Cand {
         /// The pair order `(dim_a + dim_b, dim_a, dynkin_a, dynkin_b)`.
-        fn key(&self) -> (&BigInt, &BigInt, &Vec<i64>, &Vec<i64>) {
+        fn key(&self) -> (&Natural, &Natural, &Vec<i64>, &Vec<i64>) {
             (&self.sum, &self.dim_a, &self.dynkin_a, &self.dynkin_b)
         }
     }
@@ -775,7 +775,7 @@ fn try_canonical_parent(
     for a in &below {
         let dim_a = a.dim();
         if let Some(cur) = &best {
-            if &dim_a * 2 > cur.sum {
+            if &dim_a << 1u32 > cur.sum {
                 break; // `below` is sorted ascending by (dim, dynkin).
             }
         }

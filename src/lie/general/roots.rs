@@ -29,7 +29,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use super::rational::Q;
 use malachite_nz::integer::Integer;
 #[cfg(test)]
-use num_rational::Ratio;
+use malachite_q::Rational;
 
 use crate::lie::group::cartan;
 use crate::lie::{LieError, RootSystem};
@@ -105,15 +105,18 @@ impl CartanData {
 
     /// `d_j = (α_j, α_j) / 2`, normalized so long roots have `d = 1` (§2.2).
     #[cfg(test)]
-    pub(crate) fn symmetrizer(&self) -> Vec<Ratio<i64>> {
+    pub(crate) fn symmetrizer(&self) -> Vec<Rational> {
         let long = self.long();
-        self.sym.iter().map(|&s| Ratio::new(s, long)).collect()
+        self.sym
+            .iter()
+            .map(|&s| Rational::from_signeds(s, long))
+            .collect()
     }
 
     /// The invariant form on simple roots, `(α_i, α_j) = d_j cartan(i, j)` (§2.2).
     #[cfg(test)]
-    pub(crate) fn form(&self, i: usize, j: usize) -> Ratio<i64> {
-        Ratio::new(self.sym[j] * self.c(i, j), self.long())
+    pub(crate) fn form(&self, i: usize, j: usize) -> Rational {
+        Rational::from_signeds(self.sym[j] * self.c(i, j), self.long())
     }
 
     #[cfg(test)]

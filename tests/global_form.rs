@@ -416,16 +416,16 @@ mod against_bcd {
     #[test]
     #[ignore = "diagnostic: SO(5) canonical-parent hand example; run with --ignored"]
     fn so5_canonical_parent_hand_example() {
-        use num_bigint::BigInt;
+        use malachite_nz::natural::Natural;
         let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
         let irrep = |a: i64, b: i64| cat.irrep(&[a, b]).unwrap();
         let spinor = irrep(1, 0); // B₂ ω₂, the 4
         let vector = irrep(0, 1); // B₂ ω₁, the 5
         let adjoint = irrep(2, 0); // B₂ 2ω₂, the 10
 
-        assert_eq!(spinor.dim_exact(), BigInt::from(4));
-        assert_eq!(vector.dim_exact(), BigInt::from(5));
-        assert_eq!(adjoint.dim_exact(), BigInt::from(10));
+        assert_eq!(spinor.dim_exact(), Natural::from(4u32));
+        assert_eq!(vector.dim_exact(), Natural::from(5u32));
+        assert_eq!(adjoint.dim_exact(), Natural::from(10u32));
 
         let ss = bcd_test::product(&cat, &spinor, &spinor).unwrap();
         let vv = bcd_test::product(&cat, &vector, &vector).unwrap();

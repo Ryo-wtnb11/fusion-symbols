@@ -7,9 +7,9 @@
 //! tiers run by default: the prime-factorized engine evaluates them in a
 //! fraction of a second.
 
-use num_bigint::BigInt;
-use num_rational::Ratio;
-use num_traits::{One, Zero};
+use malachite_base::num::basic::traits::{One, Zero};
+use malachite_nz::integer::Integer;
+use malachite_q::Rational;
 
 use fusion_symbols::lie::su2::wigner_6j;
 
@@ -18,14 +18,14 @@ fn tri(a: u32, b: u32, c: u32) -> bool {
 }
 
 /// `Σ_x (dx+1)(df+1) {a b x; c d f}²` over every admissible `x`.
-fn norm(a: u32, b: u32, c: u32, d: u32, f: u32) -> Ratio<BigInt> {
+fn norm(a: u32, b: u32, c: u32, d: u32, f: u32) -> Rational {
     assert!(tri(a, d, f) && tri(c, b, f));
     let lo = a.abs_diff(b).max(c.abs_diff(d));
     let hi = (a + b).min(c + d);
-    let mut sum = Ratio::zero();
+    let mut sum = Rational::ZERO;
     for x in (lo..=hi).step_by(2) {
         let v = wigner_6j(a, b, x, c, d, f);
-        sum += v.radicand() * Ratio::from(BigInt::from((x + 1) * (f + 1)));
+        sum += v.radicand() * Rational::from(Integer::from((x + 1) * (f + 1)));
     }
     sum
 }
@@ -41,7 +41,7 @@ fn six_j_orthogonality_is_exact_at_large_spins() {
         [1041, 1016, 8, 1019, 1010],
         [2337, 3101, 5, 3001, 3100],
     ] {
-        assert_eq!(norm(l[0], l[1], l[2], l[3], l[4]), Ratio::one(), "{l:?}");
+        assert_eq!(norm(l[0], l[1], l[2], l[3], l[4]), Rational::ONE, "{l:?}");
     }
 }
 
@@ -66,7 +66,7 @@ fn six_j_large_values_checked_against_wignersymbols() {
     for (d, sign, num, den) in exact {
         let got = wigner_6j(d[0], d[1], d[2], d[3], d[4], d[5]);
         assert_eq!(got.sign(), sign, "{d:?}");
-        let want = Ratio::new(num.parse::<BigInt>().unwrap(), den.parse().unwrap());
+        let want = Rational::from_integers(num.parse::<Integer>().unwrap(), den.parse().unwrap());
         assert_eq!(got.radicand(), &want, "{d:?}");
     }
     // Doubled spins in the thousands: `Float64` of the exact value.

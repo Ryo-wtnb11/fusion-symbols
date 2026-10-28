@@ -17,7 +17,7 @@ fn labels_zero_channels_and_warm_generation() {
     assert_eq!(cat.irrep(&[i64::MAX, 1]), Err(LieError::LabelOverflow));
     let quotient = LieGroup::new(GroupId::psu(3).unwrap()).unwrap();
     assert_eq!(quotient.irrep(&[1, 0]), Err(LieError::NotAdmissible));
-    assert_eq!(quotient.irrep(&[1, 1]).unwrap().dim_exact(), 8.into());
+    assert_eq!(quotient.irrep(&[1, 1]).unwrap().dim_exact(), 8);
     let three = cat.irrep(&[1, 0]).unwrap();
     let eight = cat.irrep(&[1, 1]).unwrap();
     let unit = cat.unit();

@@ -100,13 +100,13 @@
 //! with `a` trivial it is the `1×1×1×1` identity (value 1):
 //!
 
+use malachite_base::num::basic::traits::One;
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
 
-use num_bigint::BigInt;
-use num_rational::Ratio;
-use num_traits::One;
+use malachite_nz::natural::Natural;
+use malachite_q::Rational;
 
 use crate::lie::{GroupId, RootSystem};
 
@@ -519,11 +519,11 @@ impl Irrep {
     /// Computed from the Weyl dimension formula (Fulton–Harris §24.3,
     /// eq. 24.30) `dim = ∏_{α>0} ⟨λ+ρ,α⟩ / ⟨ρ,α⟩`, evaluated exactly over the
     /// positive roots (the product is integral) in checked machine arithmetic
-    /// and, only when that overflows, as a `Ratio<BigInt>`. This reproduces
+    /// and, only when that overflows, as a `Rational`. This reproduces
     /// the QSpace values `wdim_B/C/D` (`clebsch_aux.cc:458–559`).
-    pub fn dim(&self) -> BigInt {
+    pub fn dim(&self) -> Natural {
         self.checked_dim()
-            .map_or_else(|| self.ratio_dim(), BigInt::from)
+            .map_or_else(|| self.ratio_dim(), Natural::from)
     }
 
     /// [`Self::dim`] when it and its reduced intermediates fit `u128`.
@@ -533,13 +533,13 @@ impl Irrep {
     }
 
     /// [`Self::dim`] in unbounded exact arithmetic.
-    pub(crate) fn ratio_dim(&self) -> BigInt {
+    pub(crate) fn ratio_dim(&self) -> Natural {
         let roots = root_data(self.series, self.rank());
         self.weyl_factors(&roots)
-            .fold(Ratio::<BigInt>::one(), |acc, (n, d)| {
-                acc * Ratio::new(BigInt::from(n), BigInt::from(d))
+            .fold(Rational::ONE, |acc, (n, d)| {
+                acc * Rational::from_unsigneds(n, d)
             })
-            .to_integer()
+            .into_numerator()
     }
 
     /// The Weyl factors `(⟨2λ+2ρ,α⟩, ⟨2ρ,α⟩)` over the positive roots, both

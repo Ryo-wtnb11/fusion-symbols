@@ -73,7 +73,7 @@ fn d2_forms_admission_and_hand_values() {
                 assert_eq!(x.dynkin(), [a, b]);
                 assert!(x.dynkin_labels().eq([a, b]));
                 assert_eq!(x.charges().len(), 0);
-                assert_eq!(x.dim_exact(), ((a + 1) * (b + 1)).into());
+                assert_eq!(x.dim_exact(), ((a + 1) * (b + 1)));
                 assert!(x.gt_patterns().is_none());
                 // Independent A1 weights a,a-2,...,-a in each coordinate.
                 let weights: BTreeMap<_, _> = (0..=a)

@@ -37,8 +37,10 @@ use std::collections::BTreeMap;
 
 use std::collections::HashMap;
 
-use num_rational::Ratio;
-use num_traits::One;
+use malachite_base::{
+    num::conversion::traits::RoundingFrom, rounding_modes::RoundingMode::Nearest,
+};
+use malachite_q::Rational;
 
 #[cfg(test)]
 use super::directproduct;
@@ -383,11 +385,7 @@ impl Generators {
             .enumerate()
             .map(|(i, recs)| {
                 let g2 = seed.raising_scale2(i);
-                let g = if g2.is_one() {
-                    1.0
-                } else {
-                    ratio_f64(g2).sqrt()
-                };
+                let g = if g2 == 1 { 1.0 } else { ratio_f64(&g2).sqrt() };
                 let mut m = Dense::zeros(d, d);
                 for &(row, col, v) in recs {
                     m.set(row, col, v as f64 * g);
@@ -396,7 +394,7 @@ impl Generators {
             })
             .collect();
         let s = seed.cartan_scale();
-        let sf = ratio_f64(s);
+        let sf = ratio_f64(&s);
         let sz: Vec<Vec<f64>> = seed
             .cartan()
             .iter()
@@ -408,7 +406,7 @@ impl Generators {
             dim: d,
             sp,
             sz,
-            weight_denom: u32::try_from(*s.denom())
+            weight_denom: u32::try_from(s.denominator_ref())
                 .expect("seed Cartan denominators are exactly 1 or 2"),
         }
     }
@@ -542,7 +540,7 @@ impl Block {
     }
     /// The block dimension `d3 = dim(c)`.
     pub fn dim(&self) -> usize {
-        self.irrep.dim().try_into().unwrap_or(usize::MAX)
+        usize::try_from(&self.irrep.dim()).unwrap_or(usize::MAX)
     }
     /// The CGC isometry as a flat column-major `d1·d2 × d3` buffer.
     pub fn cgc(&self) -> &[f64] {
@@ -1357,10 +1355,10 @@ fn snap_grid(x: f64, denom: u32) -> f64 {
     }
 }
 
-/// `Ratio<i64>` as `f64` — the exact seed scales applied to the dense `f64`
+/// `Rational` as `f64` — the exact seed scales applied to the dense `f64`
 /// generator matrices ([`Generators::from_seed`]).
-fn ratio_f64(x: Ratio<i64>) -> f64 {
-    *x.numer() as f64 / *x.denom() as f64
+fn ratio_f64(x: &Rational) -> f64 {
+    f64::rounding_from(x, Nearest).0
 }
 
 // ---- intertwiner alignment of rediscovered frames (gauge_soN §15) ----------

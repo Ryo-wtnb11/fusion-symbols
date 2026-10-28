@@ -102,7 +102,7 @@ fn spinor_weights_are_half_integers_in_the_doubled_encoding() {
 #[test]
 fn the_recursion_reaches_a_non_base_spinor() {
     let x = ir(5, &[1, 1]);
-    assert_eq!(x.dim(), 16u32.into());
+    assert_eq!(x.dim(), 16u32);
     let mut cat = CanonicalCatalog::new(Series::B, 2).unwrap();
     assert_eq!(cat.generators(&x).unwrap().dim(), 16);
 }

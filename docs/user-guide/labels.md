@@ -70,14 +70,14 @@ number some diagrams differently (see [references](#references)).
 use fusion_symbols::lie::{GroupId, LieGroup};
 
 let su3 = LieGroup::new(GroupId::su(3)?)?;
-assert_eq!(su3.irrep(&[1, 1])?.dim_exact(), 8u32.into());
-assert_eq!(su3.irrep(&[3, 0])?.dim_exact(), 10u32.into());
+assert_eq!(su3.irrep(&[1, 1])?.dim_exact(), 8u32);
+assert_eq!(su3.irrep(&[3, 0])?.dim_exact(), 10u32);
 
 let spin7 = LieGroup::new(GroupId::spin(7)?)?;
-assert_eq!(spin7.irrep(&[0, 0, 1])?.dim_exact(), 8u32.into()); // spinor
+assert_eq!(spin7.irrep(&[0, 0, 1])?.dim_exact(), 8u32); // spinor
 
 let e7 = LieGroup::new(GroupId::e7())?;
-assert_eq!(e7.irrep(&[0, 0, 0, 0, 0, 0, 1])?.dim_exact(), 56u32.into());
+assert_eq!(e7.irrep(&[0, 0, 0, 0, 0, 0, 1])?.dim_exact(), 56u32);
 ```
 
 ## SU(N) and Young diagrams
@@ -112,7 +112,7 @@ let su3 = LieGroup::new(GroupId::su(3)?)?;
 for a in 0..4u32 {
     for b in 0..4u32 {
         let dim = (a + 1) * (b + 1) * (a + b + 2) / 2;
-        assert_eq!(su3.irrep(&[a.into(), b.into()])?.dim_exact(), dim.into());
+        assert_eq!(su3.irrep(&[a.into(), b.into()])?.dim_exact(), dim);
     }
 }
 ```
@@ -177,7 +177,7 @@ q ≡ Σᵢ i·aᵢ (mod N).
 use fusion_symbols::lie::{GroupId, LieError, LieGroup};
 
 let u3 = LieGroup::new(GroupId::u(3)?)?;
-assert_eq!(u3.irrep_with_charges(&[1, 0], &[1])?.dim_exact(), 3u32.into());
+assert_eq!(u3.irrep_with_charges(&[1, 0], &[1])?.dim_exact(), 3u32);
 assert!(u3.irrep_with_charges(&[1, 0], &[-2]).is_ok()); // −2 ≡ 1 (mod 3)
 assert_eq!(u3.irrep_with_charges(&[1, 0], &[0]), Err(LieError::NotAdmissible));
 assert!(u3.irrep_with_charges(&[1, 1], &[3]).is_ok()); // 1 + 2 ≡ 0 (mod 3)
@@ -196,7 +196,7 @@ use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
 let su2 = LieGroup::new(GroupId::su(2)?)?;
 let three_halves = su2.irrep_spin(HalfInt::half(3))?;
 assert_eq!(three_halves.dynkin(), [3]);
-assert_eq!(three_halves.dim_exact(), 4u32.into());
+assert_eq!(three_halves.dim_exact(), 4u32);
 assert_eq!(three_halves.spin(), Some(HalfInt::half(3)));
 
 let so3 = LieGroup::new(GroupId::so(3)?)?;

@@ -17,7 +17,7 @@ fn labels_forms_and_rank_one_isomorphisms() {
         Err(LieError::LabelOverflow)
     );
     let max = su.irrep(&[i64::from(u32::MAX)]).unwrap();
-    assert_eq!(max.dim_exact(), (u64::from(u32::MAX) + 1).into());
+    assert_eq!(max.dim_exact(), (u64::from(u32::MAX) + 1));
     assert!(matches!(
         su.fusion(&max, &su.irrep(&[1]).unwrap()),
         Err(LieError::LabelOverflow)

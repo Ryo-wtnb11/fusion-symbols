@@ -84,6 +84,7 @@
 //! Per-tier statistics are exposed via [`tier_stats`]; reset
 //! ownership is on [`reset`].
 
+use malachite_base::num::logic::traits::SignificantBits;
 use std::hash::Hash;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{LazyLock, OnceLock};
@@ -687,7 +688,9 @@ impl<I: CacheKeyCharge> CacheKeyCharge for (I, I, I, I, I, I) {
 impl CacheCharge for SignedSqrtRational {
     fn value_bytes(&self) -> usize {
         let r = self.radicand();
-        let value_limbs = (r.numer().bits() + r.denom().bits()).div_ceil(8) as usize;
+        let value_limbs = (r.numerator_ref().significant_bits()
+            + r.denominator_ref().significant_bits())
+        .div_ceil(8) as usize;
         // Conservatively charge both big integers, the shared rational and
         // the SignedSqrtRational shell (including inline/small-limb cases).
         const BIGINT_OVERHEAD: usize = 32;
@@ -1936,14 +1939,14 @@ pub(crate) static TEST_CACHE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use num_bigint::BigInt;
-    use num_rational::Ratio;
+    use malachite_nz::integer::Integer;
+    use malachite_q::Rational;
     use std::sync::Arc;
 
     fn val(n: i64) -> SignedSqrtRational {
         SignedSqrtRational::from_prefactor_radical(
-            Ratio::from(BigInt::from(1)),
-            Ratio::new(BigInt::from(n.unsigned_abs()), BigInt::from(1)),
+            Rational::from(1),
+            Rational::from_integers(Integer::from(n.unsigned_abs()), Integer::from(1)),
         )
     }
 
@@ -2087,8 +2090,8 @@ mod tests {
         let values = [
             val(1),
             SignedSqrtRational::from_prefactor_radical(
-                Ratio::from(BigInt::from(1)),
-                Ratio::new(BigInt::from(1) << 256, BigInt::from(1)),
+                Rational::from(1),
+                Rational::from_integers(Integer::from(1) << 256, Integer::from(1)),
             ),
             val(3),
         ];
@@ -2748,8 +2751,8 @@ mod tests {
         cache.get_or_compute(1u32, || small.clone());
         let before = cache.tier_stats();
         let large = SignedSqrtRational::from_prefactor_radical(
-            Ratio::from(BigInt::from(1)),
-            Ratio::new(BigInt::from(1) << 8192, BigInt::from(1)),
+            Rational::from(1),
+            Rational::from_integers(Integer::from(1) << 8192, Integer::from(1)),
         );
         assert!(entry_charge(&2u32, &large) > 512);
         assert_eq!(cache.get_or_compute(2u32, || large.clone()), large);

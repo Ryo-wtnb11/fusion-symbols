@@ -23,10 +23,13 @@
 //! For doubled spins in the thousands `N` is a few thousand, so the tables are
 //! a few megabytes and are amortized across every subsequent symbol.
 
+use malachite_base::num::{
+    arithmetic::traits::Pow,
+    basic::traits::{One, Zero},
+};
 use std::sync::RwLock;
 
-use num_bigint::BigInt;
-use num_traits::{One, Zero};
+use malachite_nz::integer::Integer;
 
 /// A signed integer stored as `sign * prod_i prime(i)^powers[i]`.
 ///
@@ -169,14 +172,14 @@ impl Pf {
 
     /// Reconstruct the big integer (`primefactorization.jl::_convert!`). This is
     /// the only place a prime is raised to a power and multiplied out.
-    pub(crate) fn to_bigint(&self) -> BigInt {
+    pub(crate) fn to_bigint(&self) -> Integer {
         if self.sign == 0 {
-            return BigInt::zero();
+            return Integer::ZERO;
         }
-        let mut acc = BigInt::one();
+        let mut acc = Integer::ONE;
         for (i, &e) in self.powers.iter().enumerate() {
             if e != 0 {
-                acc *= BigInt::from(nth_prime(i)).pow(e);
+                acc *= Integer::from(nth_prime(i)).pow(u64::from(e));
             }
         }
         if self.sign < 0 {
@@ -341,17 +344,17 @@ pub(crate) fn factorial(n: u64) -> Pf {
 // ---------------------------------------------------------------------------
 
 /// Sum a list of exact fractions `nums[i] / dens[i]`, each already prime
-/// factorized, into one reduced [`num_bigint`] rational
+/// factorized, into one reduced [`malachite_q::Rational`]
 /// (`primefactorization.jl::commondenominator!` + `sumlist!`,
 /// `WignerSymbols.jl::compute{3,6}jseries`).
 ///
 /// Puts every term over the lcm of the denominators, factors the gcd out of the
 /// numerators before reconstruction, sums the small remainders as big integers,
 /// then multiplies the common factor back. Big-integer work is confined here.
-pub(crate) fn sum_series(mut terms: Vec<(Pf, Pf)>) -> num_rational::Ratio<BigInt> {
-    use num_rational::Ratio;
+pub(crate) fn sum_series(mut terms: Vec<(Pf, Pf)>) -> malachite_q::Rational {
+    use malachite_q::Rational;
     if terms.is_empty() {
-        return Ratio::zero();
+        return Rational::ZERO;
     }
 
     // Common denominator = lcm of all denominators; rescale each numerator.
@@ -370,7 +373,7 @@ pub(crate) fn sum_series(mut terms: Vec<(Pf, Pf)>) -> num_rational::Ratio<BigInt
     for (num, _) in &terms[1..] {
         g.gcd_assign(num);
     }
-    let mut total = BigInt::zero();
+    let mut total = Integer::ZERO;
     for (num, _) in &mut terms {
         if !g.is_zero() {
             num.divexact_assign(&g);
@@ -379,19 +382,18 @@ pub(crate) fn sum_series(mut terms: Vec<(Pf, Pf)>) -> num_rational::Ratio<BigInt
     }
     total *= g.to_bigint();
 
-    Ratio::new(total, den.to_bigint())
+    Rational::from_integers(total, den.to_bigint())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use num_traits::One;
 
     /// Direct big-integer factorial, independent of the prime-factorized path.
-    fn direct_factorial(n: u64) -> BigInt {
-        let mut f = BigInt::one();
+    fn direct_factorial(n: u64) -> Integer {
+        let mut f = Integer::ONE;
         for k in 2..=n {
-            f *= BigInt::from(k);
+            f *= Integer::from(k);
         }
         f
     }
@@ -408,7 +410,7 @@ mod tests {
     fn primefactor_reconstructs() {
         for n in 1u64..=200 {
             let pf = Pf::from_powers(primefactor_powers(n));
-            assert_eq!(pf.to_bigint(), BigInt::from(n), "factoring {n}");
+            assert_eq!(pf.to_bigint(), Integer::from(n), "factoring {n}");
         }
     }
 
@@ -425,8 +427,8 @@ mod tests {
         }
         // Out-of-order / repeated queries hit the memoized table.
         assert_eq!(factorial(10).to_bigint(), direct_factorial(10));
-        assert_eq!(factorial(0).to_bigint(), BigInt::one());
-        assert_eq!(factorial(1).to_bigint(), BigInt::one());
+        assert_eq!(factorial(0).to_bigint(), Integer::ONE);
+        assert_eq!(factorial(1).to_bigint(), Integer::ONE);
     }
 
     #[test]
@@ -476,8 +478,8 @@ mod tests {
         let mut b = factorial(6); // 6!
         Pf::divgcd(&mut a, &mut b);
         // gcd(9!,6!) = 6!, so a = 9!/6! = 7*8*9 = 504, b = 1.
-        assert_eq!(a.to_bigint(), BigInt::from(504));
-        assert_eq!(b.to_bigint(), BigInt::one());
+        assert_eq!(a.to_bigint(), Integer::from(504));
+        assert_eq!(b.to_bigint(), Integer::ONE);
     }
 
     #[test]
@@ -487,7 +489,7 @@ mod tests {
             let a = Pf::from_powers(primefactor_powers(n));
             let (s, r) = a.splitsquare();
             let recon = s.to_bigint().pow(2) * r.to_bigint();
-            assert_eq!(recon, BigInt::from(n), "splitsquare {n}");
+            assert_eq!(recon, Integer::from(n), "splitsquare {n}");
         }
         // A factorial: (2n)! splits and reconstructs.
         let a = factorial(20);
@@ -507,7 +509,7 @@ mod tests {
 
     #[test]
     fn sum_series_matches_direct_rational() {
-        use num_rational::Ratio;
+        use malachite_q::Rational;
         // Sum 1/3! - 1/(2!*4!) + 3!/(5!) as prime-factorized terms.
         let terms = vec![
             (Pf::one(), factorial(3)),
@@ -526,9 +528,9 @@ mod tests {
             (factorial(3), factorial(5)),
         ];
         let got = sum_series(terms);
-        let want = Ratio::new(BigInt::one(), BigInt::from(6))
-            - Ratio::new(BigInt::one(), BigInt::from(48))
-            + Ratio::new(BigInt::from(6), BigInt::from(120));
+        let want = Rational::from_integers(Integer::ONE, Integer::from(6))
+            - Rational::from_integers(Integer::ONE, Integer::from(48))
+            + Rational::from_integers(Integer::from(6), Integer::from(120));
         assert_eq!(got, want);
     }
 }

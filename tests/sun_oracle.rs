@@ -16,9 +16,10 @@
 //! plus a few values checked against SUNRepresentations.jl 0.4.0.
 #![cfg(feature = "lie-generated")]
 
+use malachite_base::num::conversion::traits::ExactFrom;
 use std::collections::BTreeMap;
 
-use num_bigint::BigInt;
+use malachite_nz::natural::Natural;
 
 use crate::common::lie as lie_test;
 use lie_test::product as directproduct;
@@ -50,13 +51,13 @@ fn partition(dynkin: &[i64]) -> Vec<i64> {
         .collect()
 }
 
-fn weyl_dimension(dynkin: &[i64]) -> BigInt {
+fn weyl_dimension(dynkin: &[i64]) -> Natural {
     let l = partition(dynkin);
-    let (mut num, mut den) = (BigInt::from(1), BigInt::from(1));
+    let (mut num, mut den) = (Natural::from(1u32), Natural::from(1u32));
     for i in 0..l.len() {
         for j in i + 1..l.len() {
-            num *= l[i] - l[j] + (j - i) as i64;
-            den *= (j - i) as i64;
+            num *= Natural::exact_from(l[i] - l[j] + (j - i) as i64);
+            den *= Natural::from(j - i);
         }
     }
     num / den
@@ -124,7 +125,10 @@ fn dimensions_and_duals_are_the_closed_forms() {
         (&[1, 2, 0], 60),
         (&[1, 0, 0, 1], 24),
     ] {
-        assert_eq!(lie_test::irrep(d).unwrap().dim_exact(), BigInt::from(dim));
+        assert_eq!(
+            lie_test::irrep(d).unwrap().dim_exact(),
+            Natural::exact_from(dim)
+        );
     }
 }
 

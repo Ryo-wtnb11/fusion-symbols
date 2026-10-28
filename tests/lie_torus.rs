@@ -30,7 +30,7 @@ fn u1_values_bounds_and_fingerprint() {
         assert_eq!(g.object_at(index), Ok(a.clone()));
         assert_eq!(g.dual(&a), q(-n));
         assert_eq!(g.dual(&g.dual(&a)), a);
-        assert_eq!(a.dim_exact(), 1.into());
+        assert_eq!(a.dim_exact(), 1);
         assert_eq!(a.weight_multiplicities(), [(vec![n], 1)].into());
         assert_eq!(
             (g.dim(&a), g.frobenius_schur_phase(&a), g.twist(&a)),
@@ -442,7 +442,7 @@ fn tori_quotients_and_trivial_group() {
     );
     assert_eq!(g.nsymbol(&one, &one, &one), 1);
     assert_eq!(g.dim(&one), 1.0);
-    assert_eq!(one.dim_exact(), 1.into());
+    assert_eq!(one.dim_exact(), 1);
     assert_eq!(
         g.f_symbol(&one, &one, &one, &one, &one, &one)
             .unwrap()

@@ -14,8 +14,8 @@
 //! Exact orthogonality and Regge symmetry are in `tests/properties.rs`.
 //! Every spin is doubled (`dj = 2j`).
 
-use num_bigint::BigInt;
-use num_rational::Ratio;
+use malachite_nz::integer::Integer;
+use malachite_q::Rational;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
@@ -26,8 +26,8 @@ fn tri(a: u32, b: u32, c: u32) -> bool {
 }
 
 /// `sign · num / den` as the signed square of the expected value.
-fn signed(sign: i64, num: i64, den: i64) -> Ratio<BigInt> {
-    Ratio::new(BigInt::from(sign * num), BigInt::from(den))
+fn signed(sign: i64, num: i64, den: i64) -> Rational {
+    Rational::from_integers(Integer::from(sign * num), Integer::from(den))
 }
 
 fn projections(dj: u32) -> impl Iterator<Item = i32> {
@@ -35,8 +35,10 @@ fn projections(dj: u32) -> impl Iterator<Item = i32> {
     (-dj..=dj).step_by(2)
 }
 
-fn binomial(n: u32, k: u32) -> BigInt {
-    (0..k).fold(BigInt::from(1), |acc, i| acc * (n - i) / (i + 1))
+fn binomial(n: u32, k: u32) -> Integer {
+    (0..k).fold(Integer::from(1), |acc, i| {
+        acc * Integer::from(n - i) / Integer::from(i + 1)
+    })
 }
 
 fn parity(half_units: i64) -> i64 {
@@ -50,7 +52,7 @@ fn parity(half_units: i64) -> i64 {
 #[test]
 fn textbook_values_checked_against_wignersymbols() {
     // Checked against WignerSymbols.jl 2.0.0 (`RationalRoot{BigInt}`).
-    let six: [([u32; 6], Ratio<BigInt>); 7] = [
+    let six: [([u32; 6], Rational); 7] = [
         ([2, 2, 2, 2, 2, 2], signed(1, 1, 36)),
         ([1, 1, 2, 1, 1, 2], signed(1, 1, 36)),
         ([1, 1, 0, 1, 1, 0], signed(-1, 1, 4)),
@@ -63,7 +65,7 @@ fn textbook_values_checked_against_wignersymbols() {
         let got = wigner_6j(d[0], d[1], d[2], d[3], d[4], d[5]);
         assert_eq!(got.signed_square(), want, "6j {d:?}");
     }
-    let three: [([u32; 3], [i32; 3], Ratio<BigInt>); 5] = [
+    let three: [([u32; 3], [i32; 3], Rational); 5] = [
         ([2, 2, 0], [0, 0, 0], signed(-1, 1, 3)),
         ([2, 2, 4], [2, -2, 0], signed(1, 1, 30)),
         ([1, 1, 2], [1, 1, -2], signed(-1, 1, 3)),
@@ -75,7 +77,7 @@ fn textbook_values_checked_against_wignersymbols() {
         assert_eq!(got.signed_square(), want, "3j {j:?} {m:?}");
     }
     // `(dj1, dm1, dj2, dm2, dJ, dM)`.
-    let cg: [([u32; 3], [i32; 3], Ratio<BigInt>); 7] = [
+    let cg: [([u32; 3], [i32; 3], Rational); 7] = [
         ([1, 1, 2], [1, -1, 0], signed(1, 1, 2)),
         ([1, 1, 0], [1, -1, 0], signed(1, 1, 2)),
         ([2, 1, 1], [2, -1, 1], signed(1, 2, 3)),
@@ -144,7 +146,7 @@ fn clebsch_gordan_stretched_and_singlet_closed_forms() {
         for dm1 in (-dj1..=dj1).step_by(step) {
             for dm2 in (-dj2..=dj2).step_by(step) {
                 let l = [dj1, dm1, dj2, dm2, dj, dm1 + dm2];
-                let want = Ratio::new(
+                let want = Rational::from_integers(
                     binomial(dj1 as u32, k(dj1, dm1)) * binomial(dj2 as u32, k(dj2, dm2)),
                     binomial(dj as u32, k(dj, dm1 + dm2)),
                 );

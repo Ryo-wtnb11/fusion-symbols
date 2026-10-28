@@ -96,7 +96,7 @@ fn guide_labels_1() -> Result<(), Box<dyn std::error::Error>> {
     let su3 = LieGroup::new(GroupId::su(3)?)?;
     let three = su3.irrep(&[1, 0])?;
     assert_eq!(su3.dual(&three).dynkin(), vec![0, 1]); // 3-bar
-    assert_eq!(three.dim_exact(), 3u32.into());
+    assert_eq!(three.dim_exact(), 3u32);
 
     let u2 = LieGroup::new(GroupId::u(2)?)?;
     let det = u2.irrep_with_charges(&[0], &[2])?; // determinant: charge 2
@@ -295,7 +295,7 @@ fn getting_started_groups_and_irreps_1() -> Result<(), Box<dyn std::error::Error
 
     let su3 = LieGroup::new(GroupId::su(3)?)?;
     let eight = su3.irrep(&[1, 1])?; // the adjoint
-    assert_eq!(eight.dim_exact(), 8u32.into());
+    assert_eq!(eight.dim_exact(), 8u32);
 
     let u2 = LieGroup::new(GroupId::u(2)?)?;
     let doublet = u2.irrep_with_charges(&[1], &[-1])?; // SU(2) doublet, U(1) charge -1
@@ -484,7 +484,7 @@ fn contract_fusion_su3_octet_multiplicity() {
     let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
     let eight = cat.irrep(&[1, 1]).unwrap(); // SU(3) adjoint
-    assert_eq!(eight.dim_exact(), 8u32.into());
+    assert_eq!(eight.dim_exact(), 8u32);
     assert_eq!(
         cat.fusion(&eight, &eight)
             .unwrap()
@@ -522,7 +522,7 @@ fn contract_labels_spin7_spinor() {
 
     let spin7 = GroupId::spin(7).unwrap();
     let s = LieGroup::new(spin7).unwrap().irrep(&[0, 0, 1]).unwrap();
-    assert_eq!(s.dim_exact(), 8u32.into());
+    assert_eq!(s.dim_exact(), 8u32);
 
     // The same label is not a representation of SO(7).
     assert!(LieGroup::new(GroupId::so(7).unwrap())
@@ -696,7 +696,7 @@ fn contract_labels_su3_fundamental() {
     let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
 
     let fund = cat.irrep(&[1, 0]).unwrap(); // the 3 of SU(3)
-    assert_eq!(fund.dim_exact(), 3u32.into());
+    assert_eq!(fund.dim_exact(), 3u32);
     assert_eq!(cat.dual(&fund).dynkin(), vec![0, 1]); // the 3-bar
 }
 
@@ -782,7 +782,7 @@ fn contract_labels_spin5_spinor() {
 
     let spin5 = GroupId::spin(5).unwrap();
     let s = LieGroup::new(spin5).unwrap().irrep(&[0, 1]).unwrap();
-    assert_eq!(s.dim_exact(), 4u32.into()); // the Spin(5) Dirac spinor
+    assert_eq!(s.dim_exact(), 4u32); // the Spin(5) Dirac spinor
 
     // The same label is not a representation of SO(5).
     let so5 = GroupId::so(5).unwrap();
@@ -799,7 +799,7 @@ fn contract_fusion_sp4_defining_squared() {
     // Sp(4) = C_2. The defining 4, and 4 ⊗ 4 = 1 ⊕ 5 ⊕ 10.
     let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
     let four = cat.irrep(&[1, 0]).unwrap();
-    assert_eq!(four.dim_exact(), 4u32.into());
+    assert_eq!(four.dim_exact(), 4u32);
     let out = cat
         .fusion(&four, &four)
         .map(|it| {
@@ -1036,7 +1036,7 @@ fn contract_labels_su2_spin() {
     let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
     let s = group.irrep_spin(HalfInt::half(3)).unwrap();
     assert_eq!(s.dynkin(), vec![3]);
-    assert_eq!(s.dim_exact(), 4.into());
+    assert_eq!(s.dim_exact(), 4);
     assert_eq!(group.dual(&s), s);
     assert_eq!(group.frobenius_schur_phase(&s), -1.0);
 }
@@ -1052,10 +1052,10 @@ fn contract_labels_su3_irreps() {
     let three = cat.irrep(&[1, 0]).unwrap(); // SU(3) fundamental
     let eight = cat.irrep(&[1, 1]).unwrap(); // SU(3) adjoint
     let singlet = cat.unit();
-    assert_eq!(singlet.dim_exact(), 1.into());
+    assert_eq!(singlet.dim_exact(), 1);
 
-    assert_eq!(three.dim_exact(), 3u32.into());
-    assert_eq!(eight.dim_exact(), 8u32.into());
+    assert_eq!(three.dim_exact(), 3u32);
+    assert_eq!(eight.dim_exact(), 8u32);
     assert_eq!(cat.dual(&three).dynkin(), vec![0, 1]); // 3-bar
     assert_eq!(cat.dual(&eight), eight); // the adjoint is self-dual
 }
@@ -1070,7 +1070,7 @@ fn contract_labels_so5_vector() {
     // SO(5) = B_2. Dynkin [1, 0] is the 5-dimensional vector representation.
     let cat = LieGroup::new(GroupId::so(5).unwrap()).unwrap();
     let v = cat.irrep(&[1, 0]).unwrap();
-    assert_eq!(v.dim_exact(), 5u32.into());
+    assert_eq!(v.dim_exact(), 5u32);
     assert_eq!(cat.dual(&v), v);
     assert_eq!(cat.frobenius_schur_indicator(&v), 1.0); // real (orthogonal) self-duality
 }
@@ -1086,9 +1086,9 @@ fn contract_labels_sp4_reality() {
     let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
     let four = cat.irrep(&[1, 0]).unwrap();
     let five = cat.irrep(&[0, 1]).unwrap();
-    assert_eq!(four.dim_exact(), 4u32.into());
+    assert_eq!(four.dim_exact(), 4u32);
     assert_eq!(cat.frobenius_schur_indicator(&four), -1.0);
-    assert_eq!(five.dim_exact(), 5u32.into());
+    assert_eq!(five.dim_exact(), 5u32);
     assert_eq!(cat.frobenius_schur_indicator(&five), 1.0);
 }
 
@@ -1111,14 +1111,14 @@ fn labels_common_irreps_1() -> Result<(), Box<dyn std::error::Error>> {
     use fusion_symbols::lie::{GroupId, LieGroup};
 
     let su3 = LieGroup::new(GroupId::su(3)?)?;
-    assert_eq!(su3.irrep(&[1, 1])?.dim_exact(), 8u32.into());
-    assert_eq!(su3.irrep(&[3, 0])?.dim_exact(), 10u32.into());
+    assert_eq!(su3.irrep(&[1, 1])?.dim_exact(), 8u32);
+    assert_eq!(su3.irrep(&[3, 0])?.dim_exact(), 10u32);
 
     let spin7 = LieGroup::new(GroupId::spin(7)?)?;
-    assert_eq!(spin7.irrep(&[0, 0, 1])?.dim_exact(), 8u32.into()); // spinor
+    assert_eq!(spin7.irrep(&[0, 0, 1])?.dim_exact(), 8u32); // spinor
 
     let e7 = LieGroup::new(GroupId::e7())?;
-    assert_eq!(e7.irrep(&[0, 0, 0, 0, 0, 0, 1])?.dim_exact(), 56u32.into());
+    assert_eq!(e7.irrep(&[0, 0, 0, 0, 0, 0, 1])?.dim_exact(), 56u32);
     Ok(())
 }
 
@@ -1131,7 +1131,7 @@ fn labels_dimension_1() -> Result<(), Box<dyn std::error::Error>> {
     for a in 0..4u32 {
         for b in 0..4u32 {
             let dim = (a + 1) * (b + 1) * (a + b + 2) / 2;
-            assert_eq!(su3.irrep(&[a.into(), b.into()])?.dim_exact(), dim.into());
+            assert_eq!(su3.irrep(&[a.into(), b.into()])?.dim_exact(), dim);
         }
     }
     Ok(())
@@ -1163,10 +1163,7 @@ fn labels_torus_charges_and_un_1() -> Result<(), Box<dyn std::error::Error>> {
     use fusion_symbols::lie::{GroupId, LieError, LieGroup};
 
     let u3 = LieGroup::new(GroupId::u(3)?)?;
-    assert_eq!(
-        u3.irrep_with_charges(&[1, 0], &[1])?.dim_exact(),
-        3u32.into()
-    );
+    assert_eq!(u3.irrep_with_charges(&[1, 0], &[1])?.dim_exact(), 3u32);
     assert!(u3.irrep_with_charges(&[1, 0], &[-2]).is_ok()); // −2 ≡ 1 (mod 3)
     assert_eq!(
         u3.irrep_with_charges(&[1, 0], &[0]),
@@ -1188,7 +1185,7 @@ fn labels_rank_one_and_spins_1() -> Result<(), Box<dyn std::error::Error>> {
     let su2 = LieGroup::new(GroupId::su(2)?)?;
     let three_halves = su2.irrep_spin(HalfInt::half(3))?;
     assert_eq!(three_halves.dynkin(), [3]);
-    assert_eq!(three_halves.dim_exact(), 4u32.into());
+    assert_eq!(three_halves.dim_exact(), 4u32);
     assert_eq!(three_halves.spin(), Some(HalfInt::half(3)));
 
     let so3 = LieGroup::new(GroupId::so(3)?)?;
@@ -1239,7 +1236,7 @@ fn contract_labels_common_irrep_dimensions() -> Result<(), Box<dyn std::error::E
     ];
     for (group, label, dim) in cases {
         let g = LieGroup::new(group)?;
-        assert_eq!(g.irrep(label)?.dim_exact(), dim.into(), "{label:?}");
+        assert_eq!(g.irrep(label)?.dim_exact(), dim, "{label:?}");
     }
 
     // Spin ½ is not an SO(3) irrep.

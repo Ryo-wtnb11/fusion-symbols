@@ -8,14 +8,22 @@
 
 use std::sync::Arc;
 
-use num_bigint::{BigInt, BigUint};
-use num_rational::Ratio;
-use num_traits::{One, Signed, Zero};
+#[cfg(test)]
+use malachite_base::num::arithmetic::traits::Pow;
+use malachite_base::num::{
+    arithmetic::traits::FloorSqrt,
+    basic::traits::{One, Zero},
+    logic::traits::SignificantBits,
+};
+#[cfg(test)]
+use malachite_nz::integer::Integer;
+use malachite_nz::natural::Natural;
+use malachite_q::Rational;
 
 /// Signed square root of a nonnegative rational: the value `sign * sqrt(radicand)`.
 ///
 /// `sign` is `-1`, `0`, or `+1`; `radicand` is a reduced nonnegative
-/// `Ratio<BigInt>`. The zero value has `sign == 0` and `radicand == 0`.
+/// `Rational`. The zero value has `sign == 0` and `radicand == 0`.
 ///
 /// Exact equality (`Eq`) compares `sign` and `radicand`, so two values are
 /// equal iff they denote the same real number (the representation is canonical
@@ -25,7 +33,7 @@ use num_traits::{One, Signed, Zero};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SignedSqrtRational {
     sign: i8,
-    radicand: Option<Arc<Ratio<BigInt>>>,
+    radicand: Option<Arc<Rational>>,
 }
 
 impl SignedSqrtRational {
@@ -44,12 +52,12 @@ impl SignedSqrtRational {
     /// nonnegative (all triangle/dimension products are); a negative `d` is
     /// clamped to its absolute value rather than panicking, but callers never
     /// pass one.
-    pub(crate) fn from_prefactor_radical(s: Ratio<BigInt>, d: Ratio<BigInt>) -> Self {
-        if s.is_zero() || d.is_zero() {
+    pub(crate) fn from_prefactor_radical(s: Rational, d: Rational) -> Self {
+        if (s == 0) || (d == 0) {
             return Self::zero();
         }
-        let sign: i8 = if s.is_negative() { -1 } else { 1 };
-        let d = if d.is_negative() { -d } else { d };
+        let sign: i8 = if s < 0 { -1 } else { 1 };
+        let d = if d < 0 { -d } else { d };
         let radicand = (&s * &s) * d;
         SignedSqrtRational {
             sign,
@@ -57,52 +65,13 @@ impl SignedSqrtRational {
         }
     }
 
-    /// Form `s * sqrt(a * b / scale)` with checked u128 products and one gcd;
-    /// fall back to BigInt formation on any oversized operand or product.
-    #[cfg(all(test, feature = "lie-generated"))]
-    pub(crate) fn from_prefactor_radical_ratio(
-        s: &Ratio<BigInt>,
-        a: &Ratio<BigInt>,
-        b: &Ratio<BigInt>,
-        scale: &Ratio<BigInt>,
-    ) -> Self {
-        use num_traits::ToPrimitive;
-
-        let small = || {
-            let (mut n, mut d) = (1u128, 1u128);
-            for q in [s, s, a, b] {
-                n = n.checked_mul(q.numer().magnitude().to_u128()?)?;
-                d = d.checked_mul(q.denom().magnitude().to_u128()?)?;
-            }
-            n = n.checked_mul(scale.denom().magnitude().to_u128()?)?;
-            d = d.checked_mul(scale.numer().magnitude().to_u128()?)?;
-            if d == 0 {
-                return None;
-            }
-            let g = gcd(n, d);
-            // Positive denominator and division by gcd establish Ratio's invariant.
-            Some(Ratio::new_raw(
-                BigInt::from(div(n, g)),
-                BigInt::from(div(d, g)),
-            ))
-        };
-        match small() {
-            Some(r) if r.is_zero() => Self::zero(),
-            Some(r) => Self {
-                sign: if s.is_negative() { -1 } else { 1 },
-                radicand: Some(Arc::new(r)),
-            },
-            None => Self::from_prefactor_radical(s.clone(), a * b / scale),
-        }
-    }
-
     /// Accept an already reduced nonnegative radicand at the exceptional boundary.
     #[cfg(feature = "lie-generated")]
-    pub(crate) fn from_radicand(sign: i8, r: Ratio<BigInt>) -> Self {
-        if r.is_zero() {
+    pub(crate) fn from_radicand(sign: i8, r: Rational) -> Self {
+        if r == 0 {
             Self::zero()
         } else {
-            assert!(!r.is_negative());
+            assert!(!(r < 0));
             assert!(sign == -1 || sign == 1);
             Self {
                 sign,
@@ -117,19 +86,19 @@ impl SignedSqrtRational {
     }
 
     /// The nonnegative radicand `r` such that the value is `sign * sqrt(r)`.
-    pub fn radicand(&self) -> &Ratio<BigInt> {
-        static ZERO: Ratio<BigInt> = Ratio::new_raw(BigInt::ZERO, BigInt::ONE);
+    pub fn radicand(&self) -> &Rational {
+        static ZERO: Rational = Rational::ZERO;
         self.radicand.as_deref().unwrap_or(&ZERO)
     }
 
     /// The signed square `sign * radicand`. This is the natural exact
     /// comparison key: it equals the reference crate's `signed_sq`, so two
     /// coefficients agree exactly iff their signed squares are equal.
-    pub fn signed_square(&self) -> Ratio<BigInt> {
+    pub fn signed_square(&self) -> Rational {
         match self.sign {
-            0 => Ratio::zero(),
+            0 => Rational::ZERO,
             1 => self.radicand().clone(),
-            _ => -self.radicand().clone(),
+            _ => -self.radicand(),
         }
     }
 
@@ -140,8 +109,7 @@ impl SignedSqrtRational {
         if n == 0 || self.sign == 0 {
             return Self::zero();
         }
-        *Arc::make_mut(self.radicand.as_mut().expect("nonzero radicand")) *=
-            Ratio::from(BigInt::from(n));
+        *Arc::make_mut(self.radicand.as_mut().expect("nonzero radicand")) *= Rational::from(n);
         self
     }
 
@@ -175,11 +143,9 @@ impl SignedSqrtRational {
         if self.sign == 0 {
             return 0.0;
         }
-        let n = self.radicand().numer();
-        let d = self.radicand().denom();
+        let n = self.radicand().numerator_ref();
+        let d = self.radicand().denominator_ref();
         // radicand is nonnegative and reduced; numer/denom are nonnegative.
-        let n = n.magnitude(); // BigUint
-        let d = d.magnitude();
         let mag = sqrt_ratio_to_f64(n, d);
         if self.sign < 0 {
             -mag
@@ -190,12 +156,12 @@ impl SignedSqrtRational {
 }
 
 /// Nearest `f64` to `sqrt(n/d)` for nonnegative big integers, ties to even.
-fn sqrt_ratio_to_f64(n: &BigUint, d: &BigUint) -> f64 {
-    if n.is_zero() {
+fn sqrt_ratio_to_f64(n: &Natural, d: &Natural) -> f64 {
+    if n == &0 {
         return 0.0;
     }
-    let nb = n.bits() as i64;
-    let db = d.bits() as i64;
+    let nb = n.significant_bits() as i64;
+    let db = d.significant_bits() as i64;
     // floor(log2(sqrt(n/d))) ≈ (nb - db) / 2; choose g so Q ≈ sqrt(n/d)*2^g
     // lands around 54 bits.
     let mut g: i64 = 54 - (nb - db) / 2;
@@ -207,14 +173,14 @@ fn sqrt_ratio_to_f64(n: &BigUint, d: &BigUint) -> f64 {
         } else {
             n / (d << ((-two_g) as u64))
         };
-        if scaled.is_zero() {
+        if scaled == 0 {
             // g too small (only possible if n/d rounds below 1 at this scale);
             // push the scale up and retry.
             g += 8;
             continue;
         }
-        let q = scaled.sqrt();
-        let bits = q.bits() as i64;
+        let q = scaled.floor_sqrt();
+        let bits = q.significant_bits() as i64;
         if bits < 54 {
             g += (54 - bits + 1) / 2 + 1;
             continue;
@@ -226,16 +192,16 @@ fn sqrt_ratio_to_f64(n: &BigUint, d: &BigUint) -> f64 {
         break (q, g);
     };
 
-    let bits = q.bits() as i64;
+    let bits = q.significant_bits() as i64;
     let drop = bits - 53; // >= 1 since bits in 54..=56
-    let mant: BigUint = &q >> (drop as u64);
+    let mant: Natural = &q >> (drop as u64);
     // value ≈ mant * 2^(drop - exp)
     let value_exp = drop - exp;
 
     // Exact midpoint decision: compare sqrt(n/d) against (mant + 1/2)*2^value_exp.
     // Squared: n/d  vs  (2*mant+1)^2 * 2^(2*value_exp - 2).
     // Cross-multiply by d and clear the sign of the power of two.
-    let two_m1 = (&mant << 1u32) + BigUint::one();
+    let two_m1 = (&mant << 1u32) + Natural::ONE;
     let mid_sq_int = &two_m1 * &two_m1; // (2*mant+1)^2
     let p = 2 * value_exp - 2;
     let (lhs, rhs) = if p >= 0 {
@@ -244,35 +210,29 @@ fn sqrt_ratio_to_f64(n: &BigUint, d: &BigUint) -> f64 {
         (n << ((-p) as u64), &mid_sq_int * d)
     };
 
-    let chosen: BigUint = match lhs.cmp(&rhs) {
+    let chosen: Natural = match lhs.cmp(&rhs) {
         std::cmp::Ordering::Less => mant, // below midpoint -> round down
-        std::cmp::Ordering::Greater => mant + BigUint::one(), // above -> round up
+        std::cmp::Ordering::Greater => mant + Natural::ONE, // above -> round up
         std::cmp::Ordering::Equal => {
             // Exact midpoint: round half to even.
-            if (&mant & BigUint::one()).is_zero() {
+            if (&mant & Natural::ONE) == 0 {
                 mant
             } else {
-                mant + BigUint::one()
+                mant + Natural::ONE
             }
         }
     };
 
     // `chosen` has at most 54 bits (53, or 2^53 on carry) so it is exact in f64.
-    let mant_f = biguint_to_f64_exact(&chosen);
+    let mant_f = natural_to_f64_exact(&chosen);
     scale_pow2(mant_f, value_exp)
 }
 
-/// Exact `f64` of a `BigUint` that fits in 54 bits.
-fn biguint_to_f64_exact(x: &BigUint) -> f64 {
+/// Exact `f64` of a `Natural` that fits in 54 bits.
+fn natural_to_f64_exact(x: &Natural) -> f64 {
     // Fits in u64 (<= 2^54); u64->f64 is exact for values < 2^53 and exact for
     // 2^53 and 2^54 as well since they are powers of two with a single bit.
-    let digits = x.to_u64_digits();
-    match digits.as_slice() {
-        [] => 0.0,
-        [lo] => *lo as f64,
-        // Unreachable for <= 54-bit inputs, but stay total.
-        _ => f64::INFINITY,
-    }
+    u64::try_from(x).map_or(f64::INFINITY, |n| n as f64)
 }
 
 /// Multiply `x` by `2^exp` without libm, staying exact within the normal range.
@@ -365,38 +325,6 @@ mod tests {
 
     #[cfg(feature = "lie-generated")]
     #[test]
-    fn radical_ratio_matches_bigint_formation() {
-        let q = |n: i64, d: i64| Ratio::new(BigInt::from(n), BigInt::from(d));
-        // Drift check against the original exact formula, including zero, signs,
-        // oversized operands and overflow in numerator/denominator products.
-        for s in [
-            q(0, 1),
-            q(-2, 3),
-            Ratio::new(BigInt::from(u128::MAX), BigInt::from(3)),
-            Ratio::new(BigInt::one(), BigInt::one() << 80),
-            Ratio::new(BigInt::one(), BigInt::one() << 129),
-        ] {
-            for a in [
-                q(5, 7),
-                Ratio::from(BigInt::one() << 80),
-                Ratio::new(BigInt::one(), BigInt::one() << 80),
-            ] {
-                for b in [q(11, 13), q(-17, 19)] {
-                    for scale in [q(23, 29), Ratio::new(BigInt::one() << 140, 31.into())] {
-                        let want =
-                            SignedSqrtRational::from_prefactor_radical(s.clone(), &a * &b / &scale);
-                        let got =
-                            SignedSqrtRational::from_prefactor_radical_ratio(&s, &a, &b, &scale);
-                        assert_eq!(got, want);
-                        assert_eq!(got.to_f64().to_bits(), want.to_f64().to_bits());
-                    }
-                }
-            }
-        }
-    }
-
-    #[cfg(feature = "lie-generated")]
-    #[test]
     fn checked_integral_quotient_is_exact_up_to_u128() {
         fn q<const N: usize>(f: [(u128, u128); N]) -> Option<u128> {
             checked_integral_quotient(f)
@@ -425,18 +353,18 @@ mod tests {
     use std::cell::RefCell;
 
     thread_local! {
-        static FACT: RefCell<Vec<BigInt>> = RefCell::new(vec![BigInt::one()]);
+        static FACT: RefCell<Vec<Integer>> = RefCell::new(vec![Integer::ONE]);
     }
 
     /// `n!` as a big integer, memoized per thread in a growing table. Retained
     /// only as an independent reference for [`factorial_table_grows`]; the
     /// production factorial lives in the prime-factorized engine.
-    fn factorial(n: u64) -> BigInt {
+    fn factorial(n: u64) -> Integer {
         FACT.with(|cell| {
             let mut table = cell.borrow_mut();
             while (table.len() as u64) <= n {
                 let len = table.len();
-                let next = &table[len - 1] * BigInt::from(len as u64);
+                let next = &table[len - 1] * Integer::from(len as u64);
                 table.push(next);
             }
             table[n as usize].clone()
@@ -445,8 +373,8 @@ mod tests {
 
     fn ssr(s: i64, num: i64, den: i64) -> SignedSqrtRational {
         SignedSqrtRational::from_prefactor_radical(
-            Ratio::new(BigInt::from(s), BigInt::from(1)),
-            Ratio::new(BigInt::from(num), BigInt::from(den)),
+            Rational::from_integers(Integer::from(s), Integer::from(1)),
+            Rational::from_integers(Integer::from(num), Integer::from(den)),
         )
     }
 
@@ -457,7 +385,7 @@ mod tests {
         assert_eq!(z.to_f64(), 0.0);
         // 0 * sqrt(anything) collapses to the canonical zero.
         let also_zero =
-            SignedSqrtRational::from_prefactor_radical(Ratio::zero(), Ratio::from(BigInt::from(5)));
+            SignedSqrtRational::from_prefactor_radical(Rational::ZERO, Rational::from(5));
         assert_eq!(z, also_zero);
     }
 
@@ -466,10 +394,13 @@ mod tests {
         // value = -1 * sqrt(3/4): sign -1, radicand 3/4, signed_square -3/4.
         let v = ssr(-1, 3, 4);
         assert_eq!(v.sign(), -1);
-        assert_eq!(*v.radicand(), Ratio::new(BigInt::from(3), BigInt::from(4)));
+        assert_eq!(
+            *v.radicand(),
+            Rational::from_integers(Integer::from(3), Integer::from(4))
+        );
         assert_eq!(
             v.signed_square(),
-            Ratio::new(BigInt::from(-3), BigInt::from(4))
+            Rational::from_integers(Integer::from(-3), Integer::from(4))
         );
     }
 
@@ -477,11 +408,50 @@ mod tests {
     fn prefactor_folds_into_radicand() {
         // value = (2/3) * sqrt(5) has radicand (4/9)*5 = 20/9.
         let v = SignedSqrtRational::from_prefactor_radical(
-            Ratio::new(BigInt::from(2), BigInt::from(3)),
-            Ratio::from(BigInt::from(5)),
+            Rational::from_integers(Integer::from(2), Integer::from(3)),
+            Rational::from(5),
         );
         assert_eq!(v.sign(), 1);
-        assert_eq!(*v.radicand(), Ratio::new(BigInt::from(20), BigInt::from(9)));
+        assert_eq!(
+            *v.radicand(),
+            Rational::from_integers(Integer::from(20), Integer::from(9))
+        );
+    }
+
+    #[test]
+    fn rounding_matches_num_baseline() {
+        // Literal bits captured from origin/main fe4100d's num-based
+        // sqrt_ratio_to_f64 (2026-10-28), before this arithmetic migration.
+        let one = Natural::ONE;
+        let mid = (&one << 53u32) + &one;
+        let mid_odd = (&one << 53u32) + Natural::from(3u32);
+        for (n, d, bits) in [
+            (Natural::ZERO, one.clone(), 0x0000000000000000),
+            (one.clone(), one.clone(), 0x3ff0000000000000),
+            (2u32.into(), 3u32.into(), 0x3fea20bd700c2c3e),
+            (4u32.into(), 9u32.into(), 0x3fe5555555555555),
+            (&one << 1200u32, one.clone(), 0x6570000000000000),
+            (
+                Natural::from(3u32) << 1200u32,
+                7u32.into(),
+                0x6564f2ec413cb52b,
+            ),
+            (one.clone(), &one << 1200u32, 0x1a70000000000000),
+            (
+                3u32.into(),
+                Natural::from(7u32) << 1200u32,
+                0x1a64f2ec413cb52b,
+            ),
+            // Midpoints at 1 + 2^-53 (even down) and 1 + 3*2^-53 (even up),
+            // plus radicands immediately below/above the first midpoint.
+            (&mid * &mid, &one << 106u32, 0x3ff0000000000000),
+            (&mid * &mid - &one, &one << 106u32, 0x3ff0000000000000),
+            (&mid * &mid + &one, &one << 106u32, 0x3ff0000000000001),
+            (&mid_odd * &mid_odd, &one << 106u32, 0x3ff0000000000002),
+            (one.clone(), &one << 2148u32, 0x0000000000000001),
+        ] {
+            assert_eq!(sqrt_ratio_to_f64(&n, &d).to_bits(), bits, "sqrt({n}/{d})");
+        }
     }
 
     #[test]
@@ -504,8 +474,8 @@ mod tests {
         for num in 1u64..60 {
             for den in 1u64..60 {
                 let got = SignedSqrtRational::from_prefactor_radical(
-                    Ratio::one(),
-                    Ratio::new(BigInt::from(num), BigInt::from(den)),
+                    Rational::ONE,
+                    Rational::from_integers(Integer::from(num), Integer::from(den)),
                 )
                 .to_f64();
                 let approx = (num as f64 / den as f64).sqrt();
@@ -523,8 +493,9 @@ mod tests {
     #[test]
     fn to_f64_big_radicand() {
         // A radicand with hundreds of bits still rounds; sanity vs f64 path.
-        let big: BigInt = BigInt::from(2u64).pow(200) * 3;
-        let v = SignedSqrtRational::from_prefactor_radical(Ratio::one(), Ratio::from(big.clone()));
+        let big: Integer = Integer::from(2u64).pow(200) * Integer::from(3);
+        let v =
+            SignedSqrtRational::from_prefactor_radical(Rational::ONE, Rational::from(big.clone()));
         let got = v.to_f64();
         let want = (3.0f64).sqrt() * 2f64.powi(100);
         assert!(
@@ -535,10 +506,10 @@ mod tests {
 
     #[test]
     fn factorial_table_grows() {
-        assert_eq!(factorial(0), BigInt::one());
-        assert_eq!(factorial(5), BigInt::from(120));
-        assert_eq!(factorial(10), BigInt::from(3_628_800));
+        assert_eq!(factorial(0), Integer::ONE);
+        assert_eq!(factorial(5), Integer::from(120));
+        assert_eq!(factorial(10), Integer::from(3_628_800));
         // reproducible under repeated / out-of-order queries
-        assert_eq!(factorial(3), BigInt::from(6));
+        assert_eq!(factorial(3), Integer::from(6));
     }
 }

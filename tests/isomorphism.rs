@@ -294,7 +294,7 @@ fn spin6_su4_dimensions_agree_including_spinors() {
             "dim mismatch SU(4) {a:?} vs Spin(6)"
         );
     }
-    assert_eq!(su4_to_spin6(&[1, 0, 0]).dim_exact(), 4u32.into());
+    assert_eq!(su4_to_spin6(&[1, 0, 0]).dim_exact(), 4u32);
     assert!(!GroupId::so(6)
         .unwrap()
         .admits(&su4_to_spin6(&[1, 0, 0]).dynkin(), &[]));
@@ -355,7 +355,7 @@ fn spin5_sp4_dimensions_agree_including_spinors() {
             "dim mismatch Sp(4) {c:?} vs Spin(5)"
         );
     }
-    assert_eq!(sp4_to_spin5(&[1, 0]).dim_exact(), 4u32.into());
+    assert_eq!(sp4_to_spin5(&[1, 0]).dim_exact(), 4u32);
     assert!(!GroupId::so(5)
         .unwrap()
         .admits(&sp4_to_spin5(&[1, 0]).dynkin(), &[]));

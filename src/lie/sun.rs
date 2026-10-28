@@ -55,9 +55,13 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::sync::Arc;
 
-use num_bigint::BigInt;
-use num_rational::Ratio;
-use num_traits::{One, Signed, Zero};
+#[cfg(test)]
+use malachite_base::num::arithmetic::traits::Pow;
+use malachite_base::num::{arithmetic::traits::Abs, basic::traits::One};
+#[cfg(test)]
+use malachite_nz::integer::Integer;
+use malachite_nz::natural::Natural;
+use malachite_q::Rational;
 
 use super::GtPattern;
 use crate::exact::SignedSqrtRational;
@@ -352,10 +356,10 @@ impl Irrep {
     /// Ported from `sector.jl:dim`:
     /// `∏_{k₂=2..N, k₁=1..k₂-1} (k₂-k₁ + λ_{k₁} - λ_{k₂}) / (k₂-k₁)`.
     /// The product is an integer, evaluated in checked machine arithmetic and,
-    /// only when that overflows, as a `Ratio<BigInt>` (no `u*` cap on `N`).
-    pub fn dim(&self) -> BigInt {
+    /// only when that overflows, as a `Rational` (no `u*` cap on `N`).
+    pub fn dim(&self) -> Natural {
         self.checked_dim()
-            .map_or_else(|| self.ratio_dim(), BigInt::from)
+            .map_or_else(|| self.ratio_dim(), Natural::from)
     }
 
     /// [`Self::dim`] when it and its reduced intermediates fit `u128`.
@@ -364,12 +368,12 @@ impl Irrep {
     }
 
     /// [`Self::dim`] in unbounded exact arithmetic.
-    pub(crate) fn ratio_dim(&self) -> BigInt {
+    pub(crate) fn ratio_dim(&self) -> Natural {
         self.weyl_factors()
-            .fold(Ratio::<BigInt>::one(), |acc, (n, d)| {
-                acc * Ratio::new(BigInt::from(n), BigInt::from(d))
+            .fold(Rational::ONE, |acc, (n, d)| {
+                acc * Rational::from_unsigneds(n, d)
             })
-            .to_integer()
+            .into_numerator()
     }
 
     /// The Weyl factors `(k₂-k₁ + λ_{k₁} - λ_{k₂}, k₂-k₁)`; the weight is
@@ -495,18 +499,18 @@ impl Irrep {
                     //             / [ (m[k',l] - m[k,l] + k - k')
                     //                 (m[k',l] - m[k,l] + k - k' - 1) if k'≤l, k'≠k ]
                     let mkl = m.get(k, l);
-                    let mut coef = Ratio::<BigInt>::from(BigInt::from(-1));
+                    let mut coef = Rational::from(-1);
                     let mut skip = false;
                     for kp in 1..=(l + 1) {
                         let base = ladder_base(mkl, kp, k)?;
                         let f1 = ladder_factor(m.get(kp, l + 1), base, 0)?;
-                        coef *= BigInt::from(f1);
+                        coef *= Rational::from(f1);
                         if kp < l {
                             // reference: k' ≤ l-1 (so m[k', l-1] is in range)
                             let f2 = ladder_factor(m.get(kp, l - 1), base, 1)?;
-                            coef *= BigInt::from(f2);
+                            coef *= Rational::from(f2);
                         }
-                        if coef.numer().is_zero() {
+                        if coef.numerator_ref() == &0 {
                             skip = true; // coef == 0: no entry
                             break;
                         }
@@ -514,16 +518,16 @@ impl Irrep {
                             let g = ladder_factor(m.get(kp, l), base, 0)?;
                             // Julia's Rational hits denominator 0 here and the
                             // reference skips; we detect the zero divisor and
-                            // skip too (num_rational would panic on ÷0).
+                            // skip too (rational division by zero would panic).
                             let den = ladder_denominator(g)?;
                             if den == 0 {
                                 skip = true;
                                 break;
                             }
-                            coef /= BigInt::from(den);
+                            coef /= Rational::from(den);
                         }
                     }
-                    if skip || coef.numer().is_zero() {
+                    if skip || (coef.numerator_ref() == &0) {
                         continue;
                     }
                     // m' = m with m[k,l] raised by 1. Look up its basis index.
@@ -762,14 +766,14 @@ fn directproduct_uncached(a: &Irrep, b: &Irrep) -> Result<SunProduct, SunError> 
 
 /// `sign(coef) * sqrt(|coef|)` as an exact [`SignedSqrtRational`], matching
 /// `RationalRoots.signedroot`. `signed_square()` of the result equals `coef`.
-fn signedroot(coef: &Ratio<BigInt>) -> SignedSqrtRational {
-    if coef.is_zero() {
+fn signedroot(coef: &Rational) -> SignedSqrtRational {
+    if coef == &0 {
         return SignedSqrtRational::zero();
     }
-    let s = if coef.is_negative() {
-        Ratio::from(BigInt::from(-1))
+    let s = if coef < &0 {
+        Rational::from(-1)
     } else {
-        Ratio::from(BigInt::from(1))
+        Rational::from(1)
     };
     SignedSqrtRational::from_prefactor_radical(s, coef.abs())
 }
@@ -922,18 +926,18 @@ mod tests {
 
     #[test]
     fn weyl_dim_known_su3() {
-        assert_eq!(irr(&[0, 0]).dim(), BigInt::from(1)); // trivial
-        assert_eq!(irr(&[1, 0]).dim(), BigInt::from(3)); // fundamental
-        assert_eq!(irr(&[0, 1]).dim(), BigInt::from(3)); // antifundamental
-        assert_eq!(irr(&[1, 1]).dim(), BigInt::from(8)); // adjoint
-        assert_eq!(irr(&[2, 0]).dim(), BigInt::from(6));
-        assert_eq!(irr(&[3, 0]).dim(), BigInt::from(10));
+        assert_eq!(irr(&[0, 0]).dim(), Integer::from(1)); // trivial
+        assert_eq!(irr(&[1, 0]).dim(), Integer::from(3)); // fundamental
+        assert_eq!(irr(&[0, 1]).dim(), Integer::from(3)); // antifundamental
+        assert_eq!(irr(&[1, 1]).dim(), Integer::from(8)); // adjoint
+        assert_eq!(irr(&[2, 0]).dim(), Integer::from(6));
+        assert_eq!(irr(&[3, 0]).dim(), Integer::from(10));
     }
 
     #[test]
     fn weyl_dim_large_su2_labels_stay_exact() {
-        assert_eq!(irr(&[i64::MAX]).dim(), BigInt::from(1_u64) << 63);
-        assert_eq!(irr(&[i64::MAX - 1]).dim(), BigInt::from(i64::MAX));
+        assert_eq!(irr(&[i64::MAX]).dim(), Integer::from(1_u64) << 63);
+        assert_eq!(irr(&[i64::MAX - 1]).dim(), Integer::from(i64::MAX));
     }
 
     /// Every Dynkin vector of `len` entries, each in `0..=max`.
@@ -958,7 +962,7 @@ mod tests {
                 let x = irr(&d);
                 let exact = x.ratio_dim();
                 assert_eq!(
-                    x.checked_dim().map(BigInt::from),
+                    x.checked_dim().map(Natural::from),
                     Some(exact.clone()),
                     "{d:?}"
                 );
@@ -973,7 +977,7 @@ mod tests {
         // 6981463658331 is the largest m with m³ < 2¹²⁸.
         for (m, fits) in [(6_981_463_658_331_i64, true), (6_981_463_658_332, false)] {
             let x = irr(&[m - 1, m - 1]);
-            let cube = BigInt::from(m).pow(3);
+            let cube = Integer::from(m).pow(3);
             assert_eq!(x.checked_dim().is_some(), fits, "{m}");
             assert_eq!(x.dim(), cube, "{m}");
             assert_eq!(x.ratio_dim(), cube, "{m}");
@@ -1009,7 +1013,7 @@ mod tests {
             vec![1, 1, 0, 1],
         ] {
             let s = irr(&d);
-            assert_eq!(BigInt::from(s.patterns().len()), s.dim());
+            assert_eq!(Integer::from(s.patterns().len()), s.dim());
         }
     }
 
@@ -1176,10 +1180,10 @@ mod tests {
     fn assert_dim_sum_rule(a: &Irrep, b: &Irrep) {
         // dim(a)·dim(b) == Σ_c N^c_ab dim(c)
         let lhs = a.dim() * b.dim();
-        let rhs: BigInt = directproduct(a, b)
+        let rhs: Natural = directproduct(a, b)
             .unwrap()
             .iter()
-            .map(|(c, &m)| c.dim() * BigInt::from(m))
+            .map(|(c, &m)| c.dim() * Natural::from(m))
             .sum();
         assert_eq!(
             lhs,
@@ -1252,8 +1256,8 @@ mod tests {
                         e.row + 1,
                         e.col + 1,
                         (
-                            sq.numer().try_into().unwrap(),
-                            sq.denom().try_into().unwrap(),
+                            sq.numerator_ref().try_into().unwrap(),
+                            sq.denominator_ref().try_into().unwrap(),
                         ),
                     )
                 })
@@ -1303,7 +1307,7 @@ mod tests {
     fn su2_dim_dual_fusion_match_closed_form() {
         for dj in 0..=6i64 {
             let j = irr(&[dj]); // SU(2), Dynkin (2j)
-            assert_eq!(j.dim(), BigInt::from(dj + 1)); // 2j+1
+            assert_eq!(j.dim(), Integer::from(dj + 1)); // 2j+1
             assert_eq!(j.dual(), j); // SU(2) is self-dual
         }
         // Fusion range |j1-j2|..j1+j2, each multiplicity 1 (doubled labels).
@@ -1333,16 +1337,20 @@ mod tests {
             let s = irr(&[dj]);
             let cr = s.creation();
             assert_eq!(cr.len(), 1);
-            let mut got: Vec<(usize, usize, BigInt)> = cr[0]
+            let mut got: Vec<(usize, usize, Integer)> = cr[0]
                 .iter()
                 .map(|e| {
                     assert_eq!(e.value.sign(), 1);
-                    (e.row, e.col, e.value.signed_square().to_integer())
+                    (
+                        e.row,
+                        e.col,
+                        Integer::try_from(e.value.signed_square()).unwrap(),
+                    )
                 })
                 .collect();
             got.sort();
-            let want: Vec<(usize, usize, BigInt)> = (0..dj as usize)
-                .map(|x| (x + 1, x, BigInt::from((dj - x as i64) * (x as i64 + 1))))
+            let want: Vec<(usize, usize, Integer)> = (0..dj as usize)
+                .map(|x| (x + 1, x, Integer::from((dj - x as i64) * (x as i64 + 1))))
                 .collect();
             assert_eq!(got, want, "SU(2) creation dj={dj}");
         }

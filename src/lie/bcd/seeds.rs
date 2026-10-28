@@ -23,7 +23,7 @@
 //! whole scale into the (integer, mutually orthogonal) Cartan generators and
 //! keeps unit ladder entries. Consequently every quantity in this layer —
 //! seed entries, commutators, and the derived Cartan/root structure constants —
-//! is exact integer or rational (`Ratio<i64>`); [`crate::exact::SignedSqrtRational`]
+//! is exact integer or rational (`Rational`); [`crate::exact::SignedSqrtRational`]
 //! is *not* needed for the entries, and no float appears anywhere. Should a
 //! future QSpace revision introduce an irrational ladder normalization, the
 //! entry type here must be widened and this note revisited.
@@ -61,10 +61,10 @@
 //! - `Source/wbsparray.hh:633` — `froNorm2(B) = Σ_ij this_ij·B_ij` (the real
 //!   Frobenius inner product used for the Cartan projection).
 
-use num_rational::Ratio;
-use num_traits::One;
+use malachite_base::num::basic::traits::One;
 #[cfg(test)]
-use num_traits::Zero;
+use malachite_base::num::basic::traits::Zero;
+use malachite_q::Rational;
 
 use super::{BcdError, Series};
 
@@ -86,12 +86,12 @@ pub struct Seed {
     sz: Vec<Vec<i64>>,
     /// `Sz[i] = sz_scale · sz[i]`. `1` for every defining seed; `1/2` for the
     /// spinor seeds, whose Cartan eigenvalues are half-integers.
-    sz_scale: Ratio<i64>,
+    sz_scale: Rational,
     /// `Sp[i] = √(sp_scale2[i]) · sp[i]`. `1` everywhere except the `B_r`
     /// spinor seed's short-root generator, where it is `1/2` — see
     /// [`spinor_seeds`] for why the scale is a square root and why that is the
     /// only irrational entry in the layer.
-    sp_scale2: Vec<Ratio<i64>>,
+    sp_scale2: Vec<Rational>,
 }
 
 impl Seed {
@@ -123,16 +123,16 @@ impl Seed {
     /// The common rational scale of the [`cartan`](Self::cartan) records:
     /// `Sz[i] = cartan_scale · cartan()[i]`. `1` for every defining seed,
     /// `1/2` for a spinor seed.
-    pub fn cartan_scale(&self) -> Ratio<i64> {
-        self.sz_scale
+    pub fn cartan_scale(&self) -> Rational {
+        self.sz_scale.clone()
     }
 
     /// The **squared** rational scale of raising operator `i`:
     /// `Sp[i] = √(raising_scale2(i)) · raising()[i]`. `1` for every defining
     /// seed and for every long-root generator; `1/2` for the `B_r` spinor
     /// seed's short-root generator.
-    pub fn raising_scale2(&self, i: usize) -> Ratio<i64> {
-        self.sp_scale2[i]
+    pub fn raising_scale2(&self, i: usize) -> Rational {
+        self.sp_scale2[i].clone()
     }
 
     /// Test-only mutable access, for the mutation-sanity tests that corrupt one
@@ -258,8 +258,8 @@ fn setup_spn(r: usize, d: usize) -> Seed {
         dim: d,
         sp,
         sz,
-        sz_scale: Ratio::one(),
-        sp_scale2: vec![Ratio::one(); r],
+        sz_scale: Rational::ONE,
+        sp_scale2: vec![Rational::ONE; r],
     }
 }
 
@@ -290,8 +290,8 @@ fn setup_son(r: usize, d: usize) -> Seed {
         dim: d,
         sp,
         sz,
-        sz_scale: Ratio::one(),
-        sp_scale2: vec![Ratio::one(); r],
+        sz_scale: Rational::ONE,
+        sp_scale2: vec![Rational::ONE; r],
     }
 }
 
@@ -322,8 +322,8 @@ fn setup_sen(r: usize, d: usize) -> Seed {
         dim: d,
         sp,
         sz,
-        sz_scale: Ratio::one(),
-        sp_scale2: vec![Ratio::one(); r],
+        sz_scale: Rational::ONE,
+        sp_scale2: vec![Rational::ONE; r],
     }
 }
 
@@ -455,7 +455,7 @@ fn fock_seed(series: Series, r: usize, sector: Option<u32>) -> (Vec<i64>, Seed) 
 
     // Sp[i] on QSpace's node order.
     let mut sp: Vec<Vec<(usize, usize, i64)>> = Vec::with_capacity(r);
-    let mut sp_scale2 = vec![Ratio::<i64>::one(); r];
+    let mut sp_scale2 = vec![Rational::ONE; r];
     for i in 1..=r {
         let mut recs = Vec::new();
         for (col, &m) in states.iter().enumerate() {
@@ -477,7 +477,7 @@ fn fock_seed(series: Series, r: usize, sector: Option<u32>) -> (Vec<i64>, Seed) 
         sp.push(recs);
     }
     if series == Series::B {
-        sp_scale2[r - 1] = Ratio::new(1, 2);
+        sp_scale2[r - 1] = Rational::from_signeds(1, 2);
     }
 
     let seed = Seed {
@@ -486,7 +486,7 @@ fn fock_seed(series: Series, r: usize, sector: Option<u32>) -> (Vec<i64>, Seed) 
         dim: d,
         sp,
         sz,
-        sz_scale: Ratio::new(1, 2),
+        sz_scale: Rational::from_signeds(1, 2),
         sp_scale2,
     };
     (highest_weight_dynkin(&seed, &states, r), seed)
@@ -529,11 +529,11 @@ fn highest_weight_dynkin(seed: &Seed, states: &[usize], r: usize) -> Vec<i64> {
 pub struct CommReport {
     /// `cartan_coeffs[i][k] = f_{i,k}` with `[Sp_i, Sp_i^†] = Σ_k f_{i,k} Sz_k`
     /// (Frobenius projection; QSpace `CR`). `r × r`, exact rationals.
-    pub cartan_coeffs: Vec<Vec<Ratio<i64>>>,
+    pub cartan_coeffs: Vec<Vec<Rational>>,
     /// `root_weights[i][j] = d_{i,j}` with `[Sz_j, Sp_i] = d_{i,j} Sp_i`
     /// (QSpace `DZ`). `r × r`, exact rationals — the `i`-th root in the `Sz`
     /// basis.
-    pub root_weights: Vec<Vec<Ratio<i64>>>,
+    pub root_weights: Vec<Vec<Rational>>,
 }
 
 /// Verify — exactly — the QSpace commutator relations a [`Seed`] must satisfy,
@@ -543,7 +543,7 @@ pub struct CommReport {
 /// This is the Rust analogue of QSpace's `initCommRel` + `checkCommRel`
 /// (`clebsch.cc:5949-6120` @ `dd2cc7e`) and the foundation of the decomposition
 /// sweep's gate. Because every seed entry is an integer, the whole check is exact
-/// (`i64` matrix arithmetic; `Ratio<i64>` structure constants); there are no
+/// (`i64` matrix arithmetic; `Rational` structure constants); there are no
 /// float tolerances. Relations checked (see module docs for the basis
 /// convention):
 ///
@@ -581,7 +581,7 @@ pub fn check_commutators(seed: &Seed) -> Result<CommReport, BcdError> {
     }
 
     // (2) [Sp_i, Sp_i^†] = Σ_k f_{i,k} Sz_k.
-    let mut cartan_coeffs = vec![vec![Ratio::<i64>::zero(); r]; r];
+    let mut cartan_coeffs = vec![vec![Rational::ZERO; r]; r];
     for i in 0..r {
         let spt = transpose(&sp_dense[i], d);
         let c = commutator(&sp_dense[i], &spt, d);
@@ -594,33 +594,33 @@ pub fn check_commutators(seed: &Seed) -> Result<CommReport, BcdError> {
         // scales, `f = (g_i / s) · f_records` with `Sp_i = √g_i · sp_i` and
         // `Sz_k = s · sz_k`.
         let c_diag: Vec<i64> = (0..d).map(|p| c[p * d + p]).collect();
-        let scale = seed.sp_scale2[i] / seed.sz_scale;
+        let scale = &seed.sp_scale2[i] / &seed.sz_scale;
         cartan_coeffs[i] = seed
             .sz
             .iter()
-            .map(|szk| Ratio::new(fro_diag(&c_diag, szk), fro_diag(szk, szk)))
+            .map(|szk| Rational::from_signeds(fro_diag(&c_diag, szk), fro_diag(szk, szk)))
             .collect();
         // Residual C - Σ f_k Sz_k must vanish exactly (also proves C diagonal).
         for row in 0..d {
             for col in 0..d {
-                let mut res = Ratio::from_integer(c[row * d + col]);
+                let mut res = Rational::from(c[row * d + col]);
                 if row == col {
                     for (fk, szk) in cartan_coeffs[i].iter().zip(&seed.sz) {
-                        res -= *fk * szk[row];
+                        res -= fk * Rational::from(szk[row]);
                     }
                 }
-                if !res.is_zero() {
+                if !(res == 0) {
                     return Err(viol("[Sp,Sp^dagger] not in span(Sz)", i, i));
                 }
             }
         }
         for f in cartan_coeffs[i].iter_mut() {
-            *f *= scale;
+            *f *= &scale;
         }
     }
 
     // (3) [Sz_j, Sp_i] = d_{i,j} Sp_i.
-    let mut root_weights = vec![vec![Ratio::<i64>::zero(); r]; r];
+    let mut root_weights = vec![vec![Rational::ZERO; r]; r];
     for i in 0..r {
         // `j` indexes both `seed.sz[j]` and `root_weights[i][j]` and drives the
         // per-`j` commutator build; an index loop is the clear form here.
@@ -632,13 +632,13 @@ pub fn check_commutators(seed: &Seed) -> Result<CommReport, BcdError> {
             let (r0, c0, v0) = seed.sp[i][0];
             // On the integer records; the reported root component carries the
             // Cartan scale (the `Sp` scale cancels between the two sides).
-            let dz = Ratio::new(bc[r0 * d + c0], v0);
-            root_weights[i][j] = dz * seed.sz_scale;
+            let dz = Rational::from_signeds(bc[r0 * d + c0], v0);
+            root_weights[i][j] = &dz * &seed.sz_scale;
             for row in 0..d {
                 for col in 0..d {
-                    let res =
-                        Ratio::from_integer(bc[row * d + col]) - dz * sp_dense[i][row * d + col];
-                    if !res.is_zero() {
+                    let res = Rational::from(bc[row * d + col])
+                        - &dz * Rational::from(sp_dense[i][row * d + col]);
+                    if !(res == 0) {
                         return Err(viol("[Sz,Sp] not proportional to Sp", i, j));
                     }
                 }
