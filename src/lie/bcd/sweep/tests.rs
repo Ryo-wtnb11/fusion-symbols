@@ -611,3 +611,159 @@ fn alignment_is_deterministic() {
     let (c2, _) = align_block(&b1, &g0).unwrap();
     assert_eq!(c1.data, c2.data, "alignment must be bitwise deterministic");
 }
+
+// The pre-optimization scalar expansion, retained as an independent arithmetic
+// reference for both verification stages (not a coefficient/gauge oracle).
+fn scalar_commutator_residuals(sp: &[Dense], sz_diag: &[Vec<f64>], d0: usize) -> (f64, f64) {
+    let mut worst = 0.0f64;
+    // build dense Sz.
+    let szd: Vec<Dense> = sz_diag
+        .iter()
+        .map(|diag| {
+            let mut m = Dense::zeros(d0, d0);
+            for (a, &v) in diag.iter().enumerate() {
+                m.set(a, a, v);
+            }
+            m
+        })
+        .collect();
+    // [Sz_j, Sp_i] proportional to Sp_i.
+    for spi in sp.iter() {
+        for szj in szd.iter() {
+            let c = dense_commutator(szj, spi);
+            // eigenvalue d from the largest |Sp_i| entry.
+            let (mut br, mut bc, mut bv) = (0usize, 0usize, 0.0f64);
+            for a in 0..d0 {
+                for b in 0..d0 {
+                    if spi.at(a, b).abs() > bv.abs() {
+                        bv = spi.at(a, b);
+                        br = a;
+                        bc = b;
+                    }
+                }
+            }
+            if bv.abs() < EPS_SWEEP {
+                continue;
+            }
+            let dz = c.at(br, bc) / bv;
+            for a in 0..d0 {
+                for b in 0..d0 {
+                    worst = worst.max((c.at(a, b) - dz * spi.at(a, b)).abs());
+                }
+            }
+        }
+    }
+    let root = worst;
+    worst = 0.0;
+    // [Sp_i, Sp_i†] ∈ span(Sz): project onto Sz basis, check residual.
+    for spi in sp.iter() {
+        let spt = spi.transpose();
+        let comm = dense_commutator(spi, &spt);
+        // Frobenius-project the diagonal onto each Sz_j, then residual.
+        let mut recon = Dense::zeros(d0, d0);
+        for szj in szd.iter() {
+            let mut num = 0.0;
+            let mut den = 0.0;
+            for a in 0..d0 {
+                num += comm.at(a, a) * szj.at(a, a);
+                den += szj.at(a, a) * szj.at(a, a);
+            }
+            let f = if den > EPS_SWEEP { num / den } else { 0.0 };
+            for a in 0..d0 {
+                let cur = recon.at(a, a);
+                recon.set(a, a, cur + f * szj.at(a, a));
+            }
+        }
+        for a in 0..d0 {
+            for b in 0..d0 {
+                worst = worst.max((comm.at(a, b) - recon.at(a, b)).abs());
+            }
+        }
+    }
+    (root, worst)
+}
+
+fn dense_commutator(a: &Dense, b: &Dense) -> Dense {
+    let d = a.rows;
+    let mut c = Dense::zeros(d, d);
+    for i in 0..d {
+        for k in 0..d {
+            let aik = a.at(i, k);
+            let bik = b.at(i, k);
+            if aik == 0.0 && bik == 0.0 {
+                continue;
+            }
+            for j in 0..d {
+                // AB - BA
+                let cur = c.at(i, j);
+                c.set(i, j, cur + aik * b.at(k, j) - bik * a.at(k, j));
+            }
+        }
+    }
+    c
+}
+
+#[test]
+fn commutator_residual_matches_scalar_reference() {
+    use crate::lie::{bcd::catalog::CanonicalCatalog, GroupId};
+
+    for (series, group, label) in [
+        (Series::B, GroupId::so(5).unwrap(), vec![2, 0]),
+        (Series::C, GroupId::sp(4).unwrap(), vec![2, 1]),
+        (Series::B, GroupId::spin(7).unwrap(), vec![0, 0, 1]),
+    ] {
+        let irrep = Irrep::from_dynkin_in(&group, &label).unwrap();
+        let mut catalog = CanonicalCatalog::new(series, label.len()).unwrap();
+        let g = catalog.generators(&irrep).unwrap();
+        let (root, cartan) = scalar_commutator_residuals(&g.sp, &g.sz, g.dim);
+        let residual = commutator_residual(&g.sp, &g.sz, g.dim, 7).unwrap();
+        assert_residual_close(residual, root.max(cartan));
+    }
+}
+
+fn assert_residual_close(actual: f64, expected: f64) {
+    // Valid residuals are round-off; corruptions must agree relatively.
+    let tolerance = if expected < EPS_SWEEP {
+        1e-12
+    } else {
+        1e-12 * expected.abs()
+    };
+    assert!(
+        (actual - expected).abs() <= tolerance,
+        "residual {actual:e} != scalar reference {expected:e}"
+    );
+}
+
+#[test]
+fn corrupted_commutator_residual_matches_scalar_failure() {
+    // Seed setup does not call the verifier, so the sign-error negative control
+    // reaches the corrupted residual comparison rather than failing in setup.
+    let g = Generators::from_seed(&defining_seed(Series::B, 2).unwrap());
+    for root_corruption in [true, false] {
+        let mut bad = g.clone();
+        let s = &mut bad.sp[0];
+        if root_corruption {
+            // A diagonal root entry has zero Cartan shift, unlike this root.
+            s.set(0, 0, 1e-4);
+        } else {
+            // Rescale one existing edge: root shifts stay valid, but its
+            // ladder commutator's diagonal leaves span(Sz).
+            let entry = s.data.iter_mut().find(|v| v.abs() > EPS_SWEEP).unwrap();
+            *entry += 1e-4;
+        }
+        let (root, cartan) = scalar_commutator_residuals(&bad.sp, &bad.sz, bad.dim);
+        if root_corruption {
+            assert!(root > EPS_SWEEP);
+        } else {
+            assert!(root < EPS_SWEEP);
+            assert!(cartan > EPS_SWEEP);
+        }
+        match commutator_residual(&bad.sp, &bad.sz, bad.dim, 7) {
+            Err(SweepError::CommutatorResidual { block: 7, residual }) => {
+                assert!(residual > EPS_SWEEP);
+                assert_residual_close(residual, root.max(cartan));
+            }
+            result => panic!("expected the scalar reference's CommutatorResidual, got {result:?}"),
+        }
+    }
+}
