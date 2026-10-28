@@ -32,7 +32,7 @@ use std::sync::Arc;
 /// A Lie group with its global form. A(1), B(1), and C(1) share the exact
 /// SU(2) gauge and fingerprint; their single Dynkin label is doubled spin.
 /// With `lie-generated`, higher A-series groups use the GT gauge, B/C/D groups
-/// use the canonical generator bootstrap, and G2, F4, E7 and E8 use the exact
+/// use the canonical generator bootstrap, and G2, F4, E6, E7 and E8 use the exact
 /// exceptional engine (`docs/gauge_exceptional.md`). Clones share retained
 /// generators and the exceptional memo.
 /// Admissibility uses the caller's global form.
@@ -53,7 +53,7 @@ use std::sync::Arc;
 /// - composite covers: the Product's Manhattan order over ordered simple
 ///   factors then torus coordinates (D(2) expands to A(1), A(1)); every factor must be enumerable;
 /// - every composite quotient, other higher A-series global forms, G2, F4,
-///   E7, E8, and
+///   E6, E7, E8, and
 ///   B/C/D simple factors of rank at least two: [`EnumerationError::NotEnumerable`].
 ///
 /// # Panics
@@ -669,7 +669,12 @@ impl LieGroup {
         }
         Ok(())
     }
-    /// Construct an irrep of a group without torus charges (torus rank zero).
+    /// Construct an irrep of a group without torus charges (torus rank zero)
+    /// from the Dynkin labels of its highest weight: `dynkin[i]` is the
+    /// coefficient of the fundamental weight ωᵢ₊₁ in Bourbaki numbering, with
+    /// the labels of product factors concatenated in factor order. For SU(3),
+    /// `[1, 0]` is the 3, `[0, 1]` the 3̄ and `[1, 1]` the adjoint 8; see the
+    /// [Dynkin labels guide](https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/user-guide/labels.md).
     /// A group with torus rank above zero returns [`LieError::InvalidLabel`];
     /// use [`Self::irrep_with_charges`] there. Otherwise identical to
     /// `irrep_with_charges(dynkin, &[])`.
@@ -690,6 +695,10 @@ impl LieGroup {
         }
         self.irrep(&[i64::from(j.doubled())])
     }
+    /// Construct an irrep from Bourbaki Dynkin labels (see [`Self::irrep`])
+    /// followed by integer torus charges. For U(N), the fundamental has
+    /// charge +1 and `(dynkin, [q])` is admitted when `q ≡ Σ i·aᵢ (mod N)`.
+    ///
     /// Validate label lengths and nonnegative Dynkin labels, then lattice
     /// admission, then engine representability. Torus charges lie in
     /// `-i32::MAX..=i32::MAX`; out-of-range charges return [`LieError::LabelOverflow`].
@@ -997,7 +1006,7 @@ impl LieIrrep {
 /// A1 magnetic index zero is the lowest weight, followed by raising in steps
 /// of two; higher A-series magnetic indices follow the frozen GT basis order.
 /// B/C/D indices follow the canonical bootstrap gauge in `docs/gauge_soN.md`;
-/// G2, F4, E7 and E8 indices follow the basis order of `docs/gauge_exceptional.md` §3–§4.
+/// G2, F4, E6, E7 and E8 indices follow the basis order of `docs/gauge_exceptional.md` §3–§4.
 /// Composite CGCs use Product's last-factor-fastest decoding on every axis;
 /// D(2) factors are α₁ then α₂ in the exact A(1) gauge.
 /// A1 materialization uses the cached exact CG evaluator. Projection labels larger

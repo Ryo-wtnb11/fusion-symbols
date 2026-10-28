@@ -545,8 +545,7 @@ impl GroupId {
         Self::named(&[RootSystem::F4], 0, Vec::new())
     }
     /// Simply connected E₆ (center `Z3`); quotients come from [`Self::new`].
-    /// Classified only: [`super::LieGroup::new`] returns
-    /// [`super::LieError::Unsupported`] for it.
+    /// Coefficients require `lie-generated`.
     pub fn e6() -> Self {
         Self::named(&[RootSystem::E6], 0, Vec::new())
     }

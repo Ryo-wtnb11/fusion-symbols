@@ -20,7 +20,10 @@
 //! # Quick start
 //!
 //! Build a group from a [`lie::GroupId`], create irreps from Dynkin labels (and
-//! torus charges, or an SU(2) spin), and query symbols through [`category::FusionCategory`]:
+//! torus charges, or an SU(2) spin), and query symbols through [`category::FusionCategory`].
+//! Dynkin labels are the coordinates of the highest weight in the fundamental
+//! weights, numbered as in Bourbaki: SU(3) `[1, 0]` is the 3 and `[1, 1]` the
+//! adjoint 8. The [Dynkin labels] guide explains them and lists common irreps.
 //!
 //! ```
 //! use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
@@ -82,8 +85,9 @@
 //!   products and caches. Dependencies are the `num-*` arithmetic crates and
 //!   `quick_cache`; there is no dense linear algebra.
 //! - **`lie-generated`** (default): runtime coefficient generation for A, B, C
-//!   factors of rank ≥ 2 and D factors of rank ≥ 3, that is SU(N ≥ 3),
-//!   SO(N ≥ 5), Spin(N ≥ 5), Sp(2r ≥ 4), U(N ≥ 3) and products containing them.
+//!   factors of rank ≥ 2, D factors of rank ≥ 3 and the exceptional types,
+//!   that is SU(N ≥ 3), SO(N ≥ 5), Spin(N ≥ 5), Sp(2r ≥ 4), U(N ≥ 3), G₂, F₄,
+//!   E₆, E₇, E₈ and products containing them.
 //!   Dense kernels run sequentially through `t4a-faer`; the caller owns
 //!   parallelism.
 //! - **`anyonwiki-unitary`**: the 303 rank 5–7 [`table`] categories (embedded
@@ -93,8 +97,9 @@
 //!
 //! Labels, dimensions, duals, Frobenius–Schur indicators and fusion
 //! multiplicities are exact. SU(2) values are exact rationals under a square
-//! root, rounded once to `f64`. Generated CGC/F/R values are `f64`, checked
-//! by numerical gates that return typed errors on failure. Closed-form
+//! root, rounded once to `f64`. Exceptional coefficients are exact until one
+//! rounding to `f64`. SU(N) and B/C/D CGC/F/R values are `f64`, checked by
+//! numerical gates that return typed errors on failure. Closed-form
 //! families use `f64`; [`table`] uses [`num_complex::Complex64`]. Index order
 //! follows TensorKitSectors.jl (`F^{abc}_d[e, f]` with `e ∈ a ⊗ b`,
 //! `f ∈ b ⊗ c`; `R^{ab}_c`). Closed forms use TensorKitSectors' gauge;
@@ -107,13 +112,17 @@
 //!
 //! - [User guide]: task-oriented — choose a category, build groups and labels,
 //!   query symbols and CGC, use products and tables, handle errors and caches.
+//! - [Dynkin labels]: numbering, common irreps, dimensions, duals and U(N) charges.
 //! - [`docs/overview.md`]: capability boundaries and contracts.
 //! - [Caches and reproducibility][guide-resources].
-//! - [`docs/gauge.md`] / [`docs/gauge_soN.md`]: the frozen gauge specifications.
+//! - [`docs/gauge.md`] / [`docs/gauge_soN.md`] / [`docs/gauge_exceptional.md`]:
+//!   the frozen gauge specifications.
 //! - [`docs/references.md`] and [`docs/references_categories.md`]: algorithm
 //!   and data provenance.
 //!
 //! [User guide]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/user-guide/README.md
+//! [Dynkin labels]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/user-guide/labels.md
+//! [`docs/gauge_exceptional.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/gauge_exceptional.md
 //! [guide-resources]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/user-guide/resources.md
 //! [`docs/overview.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/overview.md
 //! [`docs/references.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/references.md

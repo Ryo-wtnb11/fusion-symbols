@@ -45,7 +45,7 @@ fusion-symbols = "0.10"
 
 | Feature | Default | Adds |
 |---|---|---|
-| `lie-generated` | yes | Runtime SU(N)/SO(N)/Spin(N)/Sp(2r) coefficients and the dense backend (`t4a-faer`, sequential; the caller owns parallelism) |
+| `lie-generated` | yes | Runtime coefficients for SU(N), SO(N), Spin(N), Sp(2r) of higher rank and for G₂, F₄, E₆, E₇, E₈, and the dense backend (`t4a-faer`, sequential; the caller owns parallelism) |
 | `anyonwiki-unitary` | no | 303 rank 5–7 table categories, data only |
 
 Use `default-features = false` for the base build without a dense backend.
@@ -71,6 +71,10 @@ assert_eq!(u2.dim(&fundamental), 2.0);
 assert!(u2.irrep_with_charges(&[1], &[0]).is_err()); // charge must match the SU(2) label mod 2
 ```
 
+Irreps are named by the Dynkin labels of their highest weight, in Bourbaki
+numbering; [Dynkin labels](docs/user-guide/labels.md) explains them and lists
+common irreps.
+
 Exact SU(2) recoupling, available without default features. Spins are
 doubled (`dj = 2j`), so `2` means spin 1:
 
@@ -85,6 +89,8 @@ assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
 
 - [User guide](docs/user-guide/README.md): choosing a category, building
   groups, labels, symbols, CGC, products, tables, errors and caches.
+- [Dynkin labels](docs/user-guide/labels.md): numbering, common irreps,
+  dimensions, duals, global forms and U(N) charges.
 - [API reference](https://docs.rs/fusion-symbols).
 - [Design and contracts](docs/overview.md),
   [caches and reproducibility](docs/user-guide/resources.md).

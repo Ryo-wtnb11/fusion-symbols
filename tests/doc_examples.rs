@@ -1,5 +1,5 @@
 //! Isolated process: resource examples can install a one-shot non-default cache policy.
-//! Every Rust block of `README.md` and `docs/user-guide/README.md` (rustfmt-formatted),
+//! Every Rust block of `README.md` and `docs/user-guide/*.md` (rustfmt-formatted),
 //! followed by further runnable contract examples.
 #![cfg(feature = "lie-generated")]
 
@@ -285,7 +285,7 @@ fn guide_caches_1() {
 // Contract examples beyond the guide blocks.
 
 #[test]
-fn overview_1() {
+fn contract_fusion_su3_octet_multiplicity() {
     use fusion_symbols::{
         category::FusionCategory,
         lie::{GroupId, LieGroup},
@@ -307,7 +307,7 @@ fn overview_1() {
 }
 
 #[test]
-fn overview_2() {
+fn contract_symbols_sp4_unit_f() {
     use fusion_symbols::{
         category::FusionCategory,
         lie::{GroupId, LieGroup},
@@ -326,7 +326,7 @@ fn overview_2() {
 }
 
 #[test]
-fn overview_3() {
+fn contract_labels_spin7_spinor() {
     use fusion_symbols::lie::{GroupId, LieGroup};
 
     let spin7 = GroupId::spin(7).unwrap();
@@ -341,16 +341,7 @@ fn overview_3() {
 }
 
 #[test]
-fn clebsch_gordan_1() {
-    use fusion_symbols::lie::su2::clebsch_gordan;
-
-    // ⟨½ +½, ½ −½ | 0 0⟩ = 1/√2, in doubled labels.
-    let cg = clebsch_gordan(1, 1, 1, -1, 0, 0);
-    assert!((cg.to_f64() - 0.5f64.sqrt()).abs() < 1e-15);
-}
-
-#[test]
-fn clebsch_gordan_2() {
+fn contract_cgc_1() {
     use fusion_symbols::{
         category::{CgcBlock, FusionCategory, GroupRepresentations},
         lie::{GroupId, LieGroup},
@@ -368,7 +359,7 @@ fn clebsch_gordan_2() {
 }
 
 #[test]
-fn clebsch_gordan_3() {
+fn contract_cgc_2() {
     use fusion_symbols::{
         category::{CgcBlock, GroupRepresentations},
         lie::{GroupId, LieGroup},
@@ -383,7 +374,7 @@ fn clebsch_gordan_3() {
 }
 
 #[test]
-fn clebsch_gordan_4() {
+fn contract_cgc_3() {
     use fusion_symbols::{
         category::{CgcBlock, GroupRepresentations},
         lie::{GroupId, LieGroup},
@@ -399,7 +390,7 @@ fn clebsch_gordan_4() {
 }
 
 #[test]
-fn fusion_1() {
+fn contract_fusion_1() {
     use fusion_symbols::{
         category::FusionCategory,
         lie::{GroupId, HalfInt, LieGroup},
@@ -415,7 +406,7 @@ fn fusion_1() {
 }
 
 #[test]
-fn fusion_2() {
+fn contract_fusion_2() {
     use fusion_symbols::{
         category::FusionCategory,
         lie::{GroupId, LieGroup},
@@ -440,7 +431,7 @@ fn fusion_2() {
 }
 
 #[test]
-fn fusion_3() {
+fn contract_fusion_3() {
     use fusion_symbols::{
         category::FusionCategory,
         lie::{GroupId, LieGroup},
@@ -460,7 +451,7 @@ fn fusion_3() {
 }
 
 #[test]
-fn fusion_4() {
+fn contract_fusion_4() {
     use fusion_symbols::{
         category::FusionCategory,
         lie::{GroupId, LieGroup},
@@ -487,7 +478,7 @@ fn fusion_4() {
 }
 
 #[test]
-fn fusion_5() {
+fn contract_fusion_5() {
     use fusion_symbols::{
         category::FusionCategory,
         lie::{CU1Irrep, CU1},
@@ -506,15 +497,7 @@ fn fusion_5() {
 }
 
 #[test]
-fn getting_started_1() {
-    use fusion_symbols::lie::su2::wigner_6j;
-
-    let sixj = wigner_6j(2, 2, 2, 2, 2, 2);
-    assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
-}
-
-#[test]
-fn getting_started_2() {
+fn contract_labels_su3_fundamental() {
     use fusion_symbols::{
         category::FusionCategory,
         lie::{GroupId, LieGroup},
@@ -527,7 +510,7 @@ fn getting_started_2() {
 }
 
 #[test]
-fn getting_started_3() {
+fn contract_cgc_su2_checked_6j() {
     use fusion_symbols::lie::su2::{wigner_6j_checked, Su2Error};
 
     // Admissible, and genuinely nonzero.
@@ -541,7 +524,7 @@ fn getting_started_3() {
 }
 
 #[test]
-fn groups_1() {
+fn contract_fusion_su2_spin_one() {
     use fusion_symbols::{
         category::FusionCategory,
         lie::{GroupId, HalfInt, LieGroup},
@@ -557,7 +540,7 @@ fn groups_1() {
 }
 
 #[test]
-fn groups_2() {
+fn contract_fusion_su3_octet_decomposition() {
     use fusion_symbols::{
         category::FusionCategory,
         lie::{GroupId, LieGroup},
@@ -578,7 +561,7 @@ fn groups_2() {
 }
 
 #[test]
-fn groups_3() {
+fn contract_fusion_so5_vector_squared() {
     use fusion_symbols::{
         category::FusionCategory,
         lie::{GroupId, LieGroup},
@@ -603,7 +586,7 @@ fn groups_3() {
 }
 
 #[test]
-fn groups_4() {
+fn contract_labels_spin5_spinor() {
     use fusion_symbols::lie::{GroupId, LieGroup};
 
     let spin5 = GroupId::spin(5).unwrap();
@@ -616,7 +599,7 @@ fn groups_4() {
 }
 
 #[test]
-fn groups_5() {
+fn contract_fusion_sp4_defining_squared() {
     use fusion_symbols::{
         category::FusionCategory,
         lie::{GroupId, LieGroup},
@@ -642,7 +625,7 @@ fn groups_5() {
 }
 
 #[test]
-fn groups_6() {
+fn contract_labels_psu3_admission() {
     use fusion_symbols::lie::{GroupId, LieGroup};
     let psu3 = GroupId::psu(3).unwrap(); // SU(3)/Z₃
 
@@ -654,7 +637,7 @@ fn groups_6() {
 }
 
 #[test]
-fn recoupling_1() {
+fn contract_symbols_1() {
     use fusion_symbols::category::{FusionCategory, SymbolBlock};
     use fusion_symbols::finite::{ZNIrrep, ZN};
 
@@ -671,7 +654,7 @@ fn recoupling_1() {
 }
 
 #[test]
-fn recoupling_2() {
+fn contract_symbols_2() {
     use fusion_symbols::{
         category::FusionCategory,
         lie::{su2::wigner_6j, GroupId, HalfInt, LieGroup},
@@ -689,7 +672,7 @@ fn recoupling_2() {
 }
 
 #[test]
-fn recoupling_3() {
+fn contract_symbols_3() {
     use fusion_symbols::{
         category::FusionCategory,
         lie::{GroupId, LieGroup},
@@ -714,26 +697,7 @@ fn recoupling_3() {
 }
 
 #[test]
-fn recoupling_4() {
-    use fusion_symbols::{
-        category::FusionCategory,
-        lie::{GroupId, LieGroup},
-    };
-
-    let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap(); // Sp(4) = C_2
-    let triv = cat.unit();
-    let five = cat.irrep(&[0, 1]).unwrap(); // the 5
-    let ten = cat.irrep(&[2, 0]).unwrap(); // the adjoint 10
-
-    let block = cat
-        .f_symbol(&triv, &five, &five, &ten, &five, &ten)
-        .unwrap();
-    assert_eq!(block.dims(), [1, 1, 1, 1]);
-    assert!((block.at(0, 0, 0, 0) - 1.0).abs() < 1e-9);
-}
-
-#[test]
-fn recoupling_5() {
+fn contract_symbols_5() {
     use fusion_symbols::{
         category::{CgcBlock, FusionCategory, GroupRepresentations},
         lie::{GroupId, LieGroup, LieIrrep},
@@ -839,7 +803,7 @@ fn recoupling_5() {
 }
 
 #[test]
-fn recoupling_6() {
+fn contract_symbols_6() {
     use fusion_symbols::{
         category::FusionCategory,
         lie::{GroupId, LieGroup},
@@ -863,7 +827,7 @@ fn recoupling_6() {
 }
 
 #[test]
-fn representations_1() {
+fn contract_tables_fibonacci_object() {
     use fusion_symbols::{category::FusionCategory, table::TableCategory};
 
     let fib = TableCategory::fibonacci();
@@ -873,7 +837,7 @@ fn representations_1() {
 }
 
 #[test]
-fn representations_2() {
+fn contract_labels_su2_spin() {
     use fusion_symbols::{
         category::FusionCategory,
         lie::{GroupId, HalfInt, LieGroup},
@@ -887,7 +851,7 @@ fn representations_2() {
 }
 
 #[test]
-fn representations_3() {
+fn contract_labels_su3_irreps() {
     use fusion_symbols::{
         category::FusionCategory,
         lie::{GroupId, LieGroup},
@@ -906,7 +870,7 @@ fn representations_3() {
 }
 
 #[test]
-fn representations_4() {
+fn contract_labels_so5_vector() {
     use fusion_symbols::{
         category::FusionCategory,
         lie::{GroupId, LieGroup},
@@ -921,7 +885,7 @@ fn representations_4() {
 }
 
 #[test]
-fn representations_5() {
+fn contract_labels_sp4_reality() {
     use fusion_symbols::{
         category::FusionCategory,
         lie::{GroupId, LieGroup},
@@ -937,46 +901,195 @@ fn representations_5() {
     assert_eq!(cat.frobenius_schur_indicator(&five), 1.0);
 }
 
-/// `docs/user-guide/resources.md`.
+/// `docs/user-guide/resources.md#coefficient-caches`.
 #[test]
-fn resources_1() {
+fn resources_coefficient_caches_1() {
     use fusion_symbols::cache::{
         configure_cache_budgets, CoefficientCacheBudgets, CoefficientCacheTier,
     };
-
     let budgets =
-        CoefficientCacheBudgets::default().with_limit(CoefficientCacheTier::SixJ, 1 << 20); // 1 MiB of 6j
-    let _ = configure_cache_budgets(budgets);
+        CoefficientCacheBudgets::default().with_limit(CoefficientCacheTier::SixJ, 1 << 20);
+    if let Err(err) = configure_cache_budgets(budgets) {
+        eprintln!("cache budgets were already fixed: {err}");
+    }
 }
 
-/// `docs/user-guide/resources.md`.
+/// `docs/user-guide/labels.md#common-irreps`.
 #[test]
-fn resources_2() {
-    use fusion_symbols::cache::{reset, tier_stats, trim_to, CoefficientCacheTier};
+fn labels_common_irreps_1() -> Result<(), Box<dyn std::error::Error>> {
+    use fusion_symbols::lie::{GroupId, LieGroup};
 
-    let stats = tier_stats(CoefficientCacheTier::SixJ);
-    let _ = stats.entries; // per-tier entries / bytes / hits / misses / evictions
-    let bytes: usize = CoefficientCacheTier::ALL
-        .iter()
-        .map(|&tier| tier_stats(tier).bytes)
-        .sum(); // a sum of independent per-tier snapshots
-    let _ = bytes;
+    let su3 = LieGroup::new(GroupId::su(3)?)?;
+    assert_eq!(su3.irrep(&[1, 1])?.dim_exact(), 8u32.into());
+    assert_eq!(su3.irrep(&[3, 0])?.dim_exact(), 10u32.into());
 
-    // Release one tier down to a target charge, with unspecified removal order.
-    let report = trim_to(CoefficientCacheTier::SixJ, 0);
-    let _ = report.removed_entries;
+    let spin7 = LieGroup::new(GroupId::spin(7)?)?;
+    assert_eq!(spin7.irrep(&[0, 0, 1])?.dim_exact(), 8u32.into()); // spinor
 
-    reset(); // all tiers: entries, bytes, counters to zero
+    let e7 = LieGroup::new(GroupId::e7())?;
+    assert_eq!(e7.irrep(&[0, 0, 0, 0, 0, 0, 1])?.dim_exact(), 56u32.into());
+    Ok(())
 }
 
-/// `docs/user-guide/resources.md`.
+/// `docs/user-guide/labels.md#dimension`.
 #[test]
-fn resources_3() {
+fn labels_dimension_1() -> Result<(), Box<dyn std::error::Error>> {
+    use fusion_symbols::lie::{GroupId, LieGroup};
+
+    let su3 = LieGroup::new(GroupId::su(3)?)?;
+    for a in 0..4u32 {
+        for b in 0..4u32 {
+            let dim = (a + 1) * (b + 1) * (a + b + 2) / 2;
+            assert_eq!(su3.irrep(&[a.into(), b.into()])?.dim_exact(), dim.into());
+        }
+    }
+    Ok(())
+}
+
+/// `docs/user-guide/labels.md#duals`.
+#[test]
+fn labels_duals_1() -> Result<(), Box<dyn std::error::Error>> {
     use fusion_symbols::{
         category::FusionCategory,
         lie::{GroupId, LieGroup},
     };
-    let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    let fingerprint = group.authority_fingerprint();
-    assert!(!fingerprint.is_empty());
+
+    let su3 = LieGroup::new(GroupId::su(3)?)?;
+    assert_eq!(su3.dual(&su3.irrep(&[2, 0])?).dynkin(), [0, 2]);
+
+    let e6 = LieGroup::new(GroupId::e6())?;
+    let v = e6.irrep(&[1, 0, 1, 0, 0, 0])?;
+    assert_eq!(e6.dual(&v).dynkin(), [0, 0, 0, 0, 1, 1]);
+
+    let sp4 = LieGroup::new(GroupId::sp(4)?)?;
+    assert_eq!(sp4.frobenius_schur_indicator(&sp4.irrep(&[1, 0])?), -1.0);
+    Ok(())
+}
+
+/// `docs/user-guide/labels.md#torus-charges-and-un`.
+#[test]
+fn labels_torus_charges_and_un_1() -> Result<(), Box<dyn std::error::Error>> {
+    use fusion_symbols::lie::{GroupId, LieError, LieGroup};
+
+    let u3 = LieGroup::new(GroupId::u(3)?)?;
+    assert_eq!(
+        u3.irrep_with_charges(&[1, 0], &[1])?.dim_exact(),
+        3u32.into()
+    );
+    assert!(u3.irrep_with_charges(&[1, 0], &[-2]).is_ok()); // −2 ≡ 1 (mod 3)
+    assert_eq!(
+        u3.irrep_with_charges(&[1, 0], &[0]),
+        Err(LieError::NotAdmissible)
+    );
+    assert!(u3.irrep_with_charges(&[1, 1], &[3]).is_ok()); // 1 + 2 ≡ 0 (mod 3)
+    assert_eq!(
+        u3.irrep_with_charges(&[1, 1], &[1]),
+        Err(LieError::NotAdmissible)
+    );
+    Ok(())
+}
+
+/// `docs/user-guide/labels.md#rank-one-and-spins`.
+#[test]
+fn labels_rank_one_and_spins_1() -> Result<(), Box<dyn std::error::Error>> {
+    use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
+
+    let su2 = LieGroup::new(GroupId::su(2)?)?;
+    let three_halves = su2.irrep_spin(HalfInt::half(3))?;
+    assert_eq!(three_halves.dynkin(), [3]);
+    assert_eq!(three_halves.dim_exact(), 4u32.into());
+    assert_eq!(three_halves.spin(), Some(HalfInt::half(3)));
+
+    let so3 = LieGroup::new(GroupId::so(3)?)?;
+    assert!(so3.irrep_spin(HalfInt::half(1)).is_err());
+    Ok(())
+}
+
+// Contract examples beyond the labels blocks: the table of common irreps in
+// `docs/user-guide/labels.md`, whose dimensions were checked independently
+// with the Weyl formula, and the U(N) charge rule `q ≡ Σ i·aᵢ (mod N)`.
+
+#[test]
+fn contract_labels_common_irrep_dimensions() -> Result<(), Box<dyn std::error::Error>> {
+    use fusion_symbols::{
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
+
+    let cases: [(GroupId, &[i64], u32); 28] = [
+        (GroupId::su(2)?, &[5], 6),
+        (GroupId::su(2)?, &[2], 3),    // adjoint
+        (GroupId::so(3)?, &[2], 3),    // vector, doubled spin
+        (GroupId::so(4)?, &[1, 1], 4), // vector, two A₁ labels
+        (GroupId::su(3)?, &[1, 0], 3),
+        (GroupId::su(3)?, &[0, 1], 3),
+        (GroupId::su(3)?, &[1, 1], 8),
+        (GroupId::su(3)?, &[2, 0], 6),
+        (GroupId::su(3)?, &[3, 0], 10),
+        (GroupId::su(5)?, &[1, 0, 0, 0], 5),
+        (GroupId::su(5)?, &[1, 0, 0, 1], 24),
+        (GroupId::so(7)?, &[1, 0, 0], 7),
+        (GroupId::spin(7)?, &[0, 0, 1], 8),
+        (GroupId::so(10)?, &[1, 0, 0, 0, 0], 10),
+        (GroupId::spin(10)?, &[0, 0, 0, 1, 0], 16),
+        (GroupId::spin(10)?, &[0, 0, 0, 0, 1], 16),
+        (GroupId::sp(6)?, &[1, 0, 0], 6),
+        (GroupId::g2(), &[1, 0], 7),
+        (GroupId::g2(), &[0, 1], 14),
+        (GroupId::f4(), &[0, 0, 0, 1], 26),
+        (GroupId::f4(), &[1, 0, 0, 0], 52),
+        (GroupId::e6(), &[1, 0, 0, 0, 0, 0], 27),
+        (GroupId::e6(), &[0, 0, 0, 0, 0, 1], 27),
+        (GroupId::e6(), &[0, 1, 0, 0, 0, 0], 78),
+        (GroupId::e7(), &[0, 0, 0, 0, 0, 0, 1], 56),
+        (GroupId::e7(), &[1, 0, 0, 0, 0, 0, 0], 133),
+        (GroupId::e8(), &[0, 0, 0, 0, 0, 0, 0, 1], 248),
+        (GroupId::e8(), &[1, 0, 0, 0, 0, 0, 0, 0], 3875),
+    ];
+    for (group, label, dim) in cases {
+        let g = LieGroup::new(group)?;
+        assert_eq!(g.irrep(label)?.dim_exact(), dim.into(), "{label:?}");
+    }
+
+    // Spin ½ is not an SO(3) irrep.
+    assert_eq!(
+        LieGroup::new(GroupId::so(3)?)?.irrep(&[1]),
+        Err(fusion_symbols::lie::LieError::NotAdmissible)
+    );
+
+    // The half-spinors of Spin(10) are each other's duals; the E₆ 27 and 27̄ too.
+    let spin10 = LieGroup::new(GroupId::spin(10)?)?;
+    let s = spin10.irrep(&[0, 0, 0, 1, 0])?;
+    assert_eq!(spin10.dual(&s).dynkin(), [0, 0, 0, 0, 1]);
+    let e6 = LieGroup::new(GroupId::e6())?;
+    let v = e6.irrep(&[1, 0, 0, 0, 0, 0])?;
+    assert_eq!(e6.dual(&v).dynkin(), [0, 0, 0, 0, 0, 1]);
+    Ok(())
+}
+
+#[test]
+fn contract_labels_un_charge_rule() -> Result<(), Box<dyn std::error::Error>> {
+    use fusion_symbols::lie::{GroupId, LieError, LieGroup};
+
+    for n in 2..=4usize {
+        let un = LieGroup::new(GroupId::u(n)?)?;
+        let rank = n - 1;
+        for first in 0..2i64 {
+            for last in 0..2i64 {
+                let mut label = vec![0i64; rank];
+                label[0] += first;
+                label[rank - 1] += last;
+                let class = (first + last * rank as i64).rem_euclid(n as i64);
+                for q in -6i64..=6 {
+                    let got = un.irrep_with_charges(&label, &[q]);
+                    if q.rem_euclid(n as i64) == class {
+                        assert!(got.is_ok(), "U({n}) {label:?} q={q}");
+                    } else {
+                        assert_eq!(got, Err(LieError::NotAdmissible), "U({n}) {label:?} q={q}");
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }

@@ -100,7 +100,7 @@ generators; the lattice must have full rank and contain every root. The
 validation rules and the D-series naming conventions.
 
 Which groups need `lie-generated`: every simple factor of type A(r ≥ 2),
-B(r ≥ 2), C(r ≥ 2), D(r ≥ 3), G₂, F₄, E₇ or E₈. Rank-one factors (A1, B1, C1), D2, and tori
+B(r ≥ 2), C(r ≥ 2), D(r ≥ 3), G₂, F₄, E₆, E₇ or E₈. Rank-one factors (A1, B1, C1), D2, and tori
 work in the base build. Without the feature, `LieGroup::new` returns
 `LieError::Unsupported { requires: "lie-generated" }`.
 
@@ -110,7 +110,9 @@ work in the base build. Without the feature, `LieGroup::new` returns
 labels (Bourbaki numbering, factors in order); groups with a torus, such as
 U(N), take integer torus charges through `irrep_with_charges(dynkin, charges)`.
 SU(2) and SO(3), in any rank-one presentation, also take a spin, `irrep_spin(HalfInt::half(1))` for spin ½,
-whose Dynkin label is `2j`.
+whose Dynkin label is `2j`. [Dynkin labels](labels.md) explains the labels,
+lists common irreps with their labels and dimensions, and gives the duality
+and U(N) charge rules.
 
 ```rust
 use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieError, LieGroup}};
@@ -322,12 +324,10 @@ assert_eq!(chain.unit(), vec![U1Irrep::UNIT; 4]);
 ```
 
 Nesting is kept: `Product::new((Product::new((a, b)), c))` has objects
-`((x, y), z)`, distinct from the flat product. Fusion varies the first factor
-fastest; every multiplicity and CGC axis varies the last factor fastest.
-Products add no cross-factor sign; a fermionic product's signs come from its
-parity factor. `Product<Vec<_>>` objects must have one entry per factor.
-A product is a `GroupRepresentations` when all factors are. Errors carry the
-failing factor's position (`ProductError`). For a connected group such as
+`((x, y), z)`, distinct from the flat product. Products add no cross-factor
+sign; a fermionic product's signs come from its parity factor. A product is a
+`GroupRepresentations` when all factors are. Axis order, validation and errors
+are in [enumeration and products](../overview.md#enumeration-and-products). For a connected group such as
 SU(2) × U(1) you can also build one `LieGroup` from
 `GroupId::cover(&[RootSystem::A(1)], 1)`; the values are the same, and only
 `LieGroup` can express quotients such as U(2).
