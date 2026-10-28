@@ -22,6 +22,9 @@ value/gauge rule noted below.
 
 ### Performance
 
+- Reuse each resident ordered B/C/D decomposition across canonical parents and
+  requested channels, reducing repeated sweeps while preserving coefficient bits.
+
 - B/C/D projections reuse basis transposes and guarded overlaps, preserving
   every coefficient bit while avoiding repeated allocations and products.
 - Enumerate each B/C/D Weyl-orbit weight once and expand the smaller product

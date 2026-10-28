@@ -11,7 +11,25 @@ least-recently-used replacement. Default retained-entry charge caps are:
 | SU(2) 3j, 6j, derived F | `BASE_CACHE_MAX_BYTES`: 192 MiB (3 × 64 MiB) |
 | SU(N) product / CGC / F / R, B/C/D product+CGC / F / R (`lie-generated`) | `GENERATED_CACHE_MAX_BYTES`: 768 MiB + 128 KiB |
 
-The B/C/D product and CGC entries share `CoefficientCacheTier::BcdCgc`.
+B/C/D exact products, duals, raw ordered-product decompositions and completed
+CGC channels share the 256 MiB `CoefficientCacheTier::BcdCgc` cap. A raw
+entry owns every discovered CGC copy, projected dense generator and Cartan/weight
+table in discovery order, before alignment. Its charge includes allocation
+capacities, nested matrix/vector shells, deep labels, the key, value and shared
+ownership bookkeeping. Scratch and product adjacency are not retained.
+Completed channels own separate coefficient buffers and retain no raw entry.
+Either can be evicted independently; externally held values remain valid.
+
+Canonical recursion and requested channels reuse a raw decomposition only for
+the same ordered pair of canonical input frames. One sweep serves that pair
+while its raw entry remains resident. Eviction, reset, disabled retention or
+oversize rejection can require another sweep. A raw hit still reconstructs
+missing local canonical frames under the requesting catalog's budget.
+Public CGC ensures only its requested input/output chains. On an F/R channel
+miss, optional canonical children from that product are committed as one batch
+only if they fit; already-coherent siblings may then be published. Unrequested
+outputs requiring recursion or alignment wait for demand, including their
+possible generation errors.
 Caps exclude container capacity, allocator metadata, transient/external clones,
 returned values and RSS.
 
@@ -52,9 +70,8 @@ constructing owned keys or copying coefficient buffers.
 Exact SU(2) values share their immutable rational payload; generated F and R blocks
 are stored directly, sharing their coefficient storage. Concurrent
 misses on a key, including `LieGroup` dual lookups, share one successful
-computation; waiters count as hits. Errors are not retained. Whole-product
-B/C/D sweeps also publish other channels, and a dual lookup also records the
-reverse dual.
+computation; waiters count as hits. Errors are not retained. B/C/D F/R misses
+may also publish coherent siblings, and a dual lookup records the reverse dual.
 
 Each entry's real charge is one owned key (including label backing), its value
 and one cached charge word. For a tier with
@@ -82,7 +99,8 @@ Ghost history contains hashes, not owned labels or coefficient payloads, and
 belongs to excluded container scaffolding. Reset also invalidates in-flight
 placeholders and B/C/D sweeps that started before it: their callers
 receive computed values, but neither the requested value nor the sweep's other
-channels are retained. Returned values remain valid across trim, eviction and
+channels or nested raw decompositions are retained, even if a child starts
+after reset. Returned values remain valid across trim, eviction and
 reset.
 
 ### Concurrency

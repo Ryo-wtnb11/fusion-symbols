@@ -20,7 +20,7 @@
 //! # On-demand materialization
 //!
 //! [`generators`](CanonicalCatalog::generators) and
-//! [`cgc`](CanonicalCatalog::cgc) recursively materialize an irrep's
+//! [`cgc_with`](CanonicalCatalog::cgc_with) recursively materialize an irrep's
 //! canonical-parent chain as needed. The recursion is well-founded (§14 of the
 //! gauge doc): each parent is strictly smaller than its child in a fixed
 //! well-order over the exact irrep data, and the chain bottoms out at the base
@@ -40,16 +40,18 @@
 //!
 //! # Single-threaded
 //!
-//! The API is `&mut self`; there is no global state and no interior mutability,
-//! so sharing one catalog across threads requires external synchronization.
+//! The API is `&mut self`; sharing a catalog requires external synchronization.
+//! Production requests supply their global raw-cache publication context.
 
 use std::collections::HashMap;
 
 use malachite_nz::natural::Natural;
 
 use super::seeds::spinor_seeds;
-use super::sweep::{align_block, decompose, Block, Generators, SweepError};
+use super::sweep::{align_block, decompose, Block, Decomposition, Generators, SweepError};
 use super::{defining_seed, directproduct, BcdError, Irrep, Series};
+use crate::cache::BcdCgcSweep;
+use std::sync::Arc;
 
 /// Default byte budget for a catalog (256 MiB). Generator sets are dense `f64`
 /// `D×D` blocks; a family exercised over modest ranks stays far below this,
@@ -88,7 +90,7 @@ pub enum CatalogError {
     /// or an intermediate irrep (empty/negative/spinor/excluded-rank). Wraps the
     /// label-level [`BcdError`].
     Label(BcdError),
-    /// [`cgc`](CanonicalCatalog::cgc) was asked for a triple with `N^c_ab = 0`
+    /// [`cgc_with`](CanonicalCatalog::cgc_with) was asked for a triple with `N^c_ab = 0`
     /// (the coupled irrep `c` does not appear in `a ⊗ b`, per the exact
     /// [`directproduct`]). The reference sweep would simply never emit such a
     /// block; a query API must reject the ill-posed question loudly instead of
@@ -413,7 +415,7 @@ impl CanonicalCatalog {
     #[cfg(test)]
     pub fn generators(&mut self, c: &Irrep) -> Result<&Generators, CatalogError> {
         self.check_group(c)?;
-        self.ensure(c)?;
+        self.ensure(c, None)?;
         Ok(self.store.get(c).expect("ensure guarantees presence"))
     }
 
@@ -431,7 +433,19 @@ impl CanonicalCatalog {
     ///   not appear in `s1 ⊗ s2`) — the ill-posed-input guard.
     /// - [`CatalogError::BudgetExceeded`] / [`CatalogError::Sweep`] as for
     ///   [`generators`](Self::generators).
+    #[cfg(test)]
     pub fn cgc(&mut self, s1: &Irrep, s2: &Irrep, s3: &Irrep) -> Result<CatalogCgc, CatalogError> {
+        self.cgc_with(s1, s2, s3, None, false)
+    }
+
+    pub(crate) fn cgc_with(
+        &mut self,
+        s1: &Irrep,
+        s2: &Irrep,
+        s3: &Irrep,
+        sweep: Option<&BcdCgcSweep<'_>>,
+        complete: bool,
+    ) -> Result<CatalogCgc, CatalogError> {
         self.check_group(s1)?;
         self.check_group(s2)?;
         self.check_group(s3)?;
@@ -447,45 +461,72 @@ impl CanonicalCatalog {
             });
         }
 
-        // Canonical bases of the two factors (and s3, for the debug-assert).
-        self.ensure(s1)?;
-        self.ensure(s2)?;
-        self.ensure(s3)?;
-
-        let g1 = self
-            .store
-            .get(s1)
-            .expect("ensure succeeded for this irrep without an intervening reset")
-            .clone();
-        let g2 = self
-            .store
-            .get(s2)
-            .expect("ensure succeeded for this irrep without an intervening reset")
-            .clone();
-        let product = Generators::product(&g1, &g2)?;
-        let decomp = decompose(&product, &expected)?;
-
-        // Collect the s3 copies in outer-multiplicity index order.
-        let mut copies: Vec<&Block> = decomp.blocks().iter().filter(|b| b.irrep() == s3).collect();
-        copies.sort_by_key(|b| b.outer_multiplicity().0);
-        self.assemble_cgc(s1, s2, s3, &copies)
+        self.ensure(s1, sweep)?;
+        self.ensure(s2, sweep)?;
+        self.ensure(s3, sweep)?;
+        let decomp = canonical_product(s1, s2, &self.store[s1], &self.store[s2], sweep)?;
+        let wanted = self.assemble_channel(s1, s2, s3, &decomp)?;
+        if complete {
+            if let Some(sweep) = sweep {
+                self.complete_product(s1, s2, s3, &decomp, sweep)?;
+            }
+        }
+        Ok(wanted)
     }
 
-    /// Every coupled channel of `s1 ⊗ s2` from a **single** decomposition sweep,
-    /// one [`CatalogCgc`] per distinct coupled irrep `s3` (each byte-identical to
-    /// [`cgc`](Self::cgc)`(s1, s2, s3)`).
-    ///
-    /// This is the sweep-once-per-product primitive the B/C/D F/R value tier
-    /// ([`crate::cache::bcd_cgc`]) is built on: the associativity/braiding
-    /// gates request many different `s3` from the same `s1 ⊗ s2`, and
-    /// [`cgc`](Self::cgc) re-runs the full `s1 ⊗ s2` sweep for each — this runs it
-    /// once and hands back all channels. `pub(crate)`: the
-    /// per-channel [`cgc`](Self::cgc) stays the public surface.
-    ///
-    /// # Errors
-    /// - [`CatalogError::WrongGroup`] if `s1`/`s2` are not of this family.
-    /// - [`CatalogError::BudgetExceeded`] / [`CatalogError::Sweep`] as for
-    ///   [`generators`](Self::generators).
+    fn assemble_channel(
+        &self,
+        a: &Irrep,
+        b: &Irrep,
+        c: &Irrep,
+        raw: &Decomposition,
+    ) -> Result<CatalogCgc, CatalogError> {
+        let mut copies: Vec<&Block> = raw.blocks().iter().filter(|b| b.irrep() == c).collect();
+        copies.sort_by_key(|b| b.outer_multiplicity().0);
+        self.assemble_cgc(a, b, c, &copies)
+    }
+
+    /// F/R may complete canonical children without recursion or another sweep.
+    fn complete_product(
+        &mut self,
+        a: &Irrep,
+        b: &Irrep,
+        requested: &Irrep,
+        raw: &Decomposition,
+        sweep: &BcdCgcSweep<'_>,
+    ) -> Result<(), CatalogError> {
+        let mut staged = Vec::new();
+        harvest(self.series, self.rank, &self.store, &mut staged, a, b, raw)?;
+        match self.commit_staged(staged) {
+            Ok(()) | Err(CatalogError::BudgetExceeded { .. }) => {}
+            Err(error) => return Err(error),
+        }
+        let channels: std::collections::BTreeSet<_> =
+            raw.blocks().iter().map(Block::irrep).collect();
+        for c in channels {
+            if c == requested {
+                continue; // the requested triple is published through its guard
+            }
+            let Some(stored) = self.store.get(c) else {
+                continue;
+            };
+            if raw
+                .blocks()
+                .iter()
+                .filter(|b| b.irrep() == c)
+                .all(|b| b.generators().coherence_residual(stored) <= TOL_BASIS_COHERENT)
+            {
+                if let Ok(channel) = self.assemble_channel(a, b, c, raw) {
+                    sweep.publish(channel);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Uncached all-channel reference path for bit comparisons. Production
+    /// uses requested-channel assembly and bounded optional F/R completion.
+    #[cfg(test)]
     pub(crate) fn cgc_product(
         &mut self,
         s1: &Irrep,
@@ -493,8 +534,8 @@ impl CanonicalCatalog {
     ) -> Result<Vec<CatalogCgc>, CatalogError> {
         self.check_group(s1)?;
         self.check_group(s2)?;
-        self.ensure(s1)?;
-        self.ensure(s2)?;
+        self.ensure(s1, None)?;
+        self.ensure(s2, None)?;
 
         let expected = directproduct(s1, s2)?;
         let g1 = self
@@ -521,7 +562,7 @@ impl CanonicalCatalog {
         // runs in release too, not only debug).
         let channels: Vec<Irrep> = by_irrep.keys().cloned().collect();
         for c in &channels {
-            self.ensure(c)?;
+            self.ensure(c, None)?;
         }
         let mut out = Vec::with_capacity(by_irrep.len());
         for (c, mut copies) in by_irrep {
@@ -532,8 +573,8 @@ impl CanonicalCatalog {
     }
 
     /// Assemble a [`CatalogCgc`] for `s1 ⊗ s2 → s3` from its outer-multiplicity
-    /// copies (already OM-sorted). Shared by [`cgc`](Self::cgc) and
-    /// [`cgc_product`](Self::cgc_product) so both produce the identical isometry.
+    /// copies (already OM-sorted). Shared by [`cgc_with`](Self::cgc_with) and
+    /// the all-channel test path so both produce the identical isometry.
     ///
     /// Each copy is brought into `s3`'s stored canonical frame before its columns
     /// are appended: a copy already coherent to [`TOL_BASIS_COHERENT`]
@@ -614,13 +655,16 @@ impl CanonicalCatalog {
     /// Ensure `c`'s generators are committed, materializing its canonical-parent
     /// chain atomically: assemble every new set into a staging buffer, check the
     /// total against the budget, and commit only if it fits.
-    fn ensure(&mut self, c: &Irrep) -> Result<(), CatalogError> {
+    fn ensure(&mut self, c: &Irrep, sweep: Option<&BcdCgcSweep<'_>>) -> Result<(), CatalogError> {
         if self.store.contains_key(c) {
             return Ok(());
         }
         let mut staged: Vec<(Irrep, Generators)> = Vec::new();
-        build_into(self.series, self.rank, &self.store, &mut staged, c)?;
+        build_into(self.series, self.rank, &self.store, &mut staged, c, sweep)?;
+        self.commit_staged(staged)
+    }
 
+    fn commit_staged(&mut self, staged: Vec<(Irrep, Generators)>) -> Result<(), CatalogError> {
         let needed = staged
             .iter()
             .try_fold(self.bytes, |n, (_, g)| {
@@ -942,6 +986,7 @@ fn build_into(
     store: &HashMap<Irrep, Generators>,
     staged: &mut Vec<(Irrep, Generators)>,
     c: &Irrep,
+    sweep: Option<&BcdCgcSweep<'_>>,
 ) -> Result<(), CatalogError> {
     if lookup(store, staged, c).is_some() {
         return Ok(()); // already committed or staged (includes the base cases)
@@ -975,19 +1020,51 @@ fn build_into(
     // error path is unreachable by that theorem; kept as defense-in-depth.
     let (a, b) = try_canonical_parent(series, rank, c)?
         .ok_or_else(|| CatalogError::NoCanonicalParent { dynkin: c.dynkin() })?;
-    build_into(series, rank, store, staged, &a)?;
-    build_into(series, rank, store, staged, &b)?;
+    build_into(series, rank, store, staged, &a, sweep)?;
+    build_into(series, rank, store, staged, &b, sweep)?;
 
     let ga = lookup(store, staged, &a)
-        .expect("successful recursive build_into stages this irrep or finds it in the store")
-        .clone();
+        .expect("successful recursive build_into establishes canonical inputs");
     let gb = lookup(store, staged, &b)
-        .expect("successful recursive build_into stages this irrep or finds it in the store")
-        .clone();
-    let product = Generators::product(&ga, &gb)?;
-    let expected = directproduct(&a, &b)?;
-    let decomp = decompose(&product, &expected)?;
+        .expect("successful recursive build_into establishes canonical inputs");
+    let decomp = canonical_product(&a, &b, ga, gb, sweep)?;
+    harvest(series, rank, store, staged, &a, &b, &decomp)?;
+    debug_assert!(
+        lookup(store, staged, c).is_some(),
+        "canonical parent must produce c"
+    );
+    Ok(())
+}
 
+/// Called only after both canonical input frames have been established. The
+/// loader is nonrecursive and never acquires a catalog or descendant key.
+fn canonical_product(
+    a: &Irrep,
+    b: &Irrep,
+    ga: &Generators,
+    gb: &Generators,
+    sweep: Option<&BcdCgcSweep<'_>>,
+) -> Result<Arc<Decomposition>, CatalogError> {
+    let compute = || {
+        let product = Generators::product(ga, gb)?;
+        Ok(Arc::new(decompose(&product, &directproduct(a, b)?)?))
+    };
+    match sweep {
+        Some(sweep) => sweep.raw(a, b, compute),
+        None => compute(),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn harvest(
+    series: Series,
+    rank: usize,
+    store: &HashMap<Irrep, Generators>,
+    staged: &mut Vec<(Irrep, Generators)>,
+    a: &Irrep,
+    b: &Irrep,
+    decomp: &Decomposition,
+) -> Result<(), CatalogError> {
     for block in decomp.blocks() {
         let ci = block.irrep();
         if let Some(existing) = lookup(store, staged, ci) {
@@ -1006,10 +1083,6 @@ fn build_into(
         }
     }
 
-    debug_assert!(
-        lookup(store, staged, c).is_some(),
-        "the canonical parent of c must produce c's block"
-    );
     Ok(())
 }
 

@@ -2315,6 +2315,7 @@ mod tests {
 
     #[test]
     fn composite_catalog_budget_split_and_reset() {
+        let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
         use RootSystem::{A, B, C, D};
         let byte_budget = |s: CatalogStats| (s.bytes, s.budget);
         let roots = [A(1), B(2), D(2), C(2)];
