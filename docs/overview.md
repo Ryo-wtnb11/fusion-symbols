@@ -2,16 +2,16 @@
 
 `fusion-symbols` provides representation and fusion-category mathematics.
 Consumers own tensor-network representations and operations. There is no tensor
-engine dependency. The shared interface is `src/category.rs::FusionCategory`;
+engine dependency. The shared interface is `category::FusionCategory`;
 CGC are the separate `GroupRepresentations` capability, read through `CgcBlock`.
 This page is the contract reference; task-oriented examples are in the
 [user guide](user-guide/README.md).
 
 ## Capability boundaries
 
-- Connected compact Lie groups are classified by `GroupId` for every root
-  system, but coefficients exist only for classical factors (A, B, C, D), G₂,
-  F₄, E₇, E₈ and tori. E₆ factors make `LieGroup::new` return
+- Connected compact Lie groups are classified by `GroupId` and computed by
+  `LieGroup` for every root system (A–G) and tori. Higher-rank and exceptional
+  factors need `lie-generated`; without it `LieGroup::new` returns
   `LieError::Unsupported`.
 - CU(1) = O(2) is the only disconnected group. Other O(N), Pin(N) and general
   disconnected groups are not provided (tracked in
@@ -47,112 +47,71 @@ data without adding a dependency. See `Cargo.toml::features`.
 
 ## Dedicated typed categories
 
-Every connected compact group is classified by `GroupId` and computed through
-`LieGroup` when its root systems have supported engines. A dedicated typed
-category is added only when its labels are fixed-size values and its symbols
-are closed-form, a measured hot-path need exists, it is the arithmetic authority
-called by `LieGroup`, and it provides `group_id()` plus a bitwise equivalence test.
+Every connected compact group is computed through `LieGroup`. A dedicated
+typed category exists only where fixed-size labels and closed-form symbols
+remove measurable overhead, and it returns bitwise-identical values.
 
 `U1` is the only connected group with a dedicated typed category. Its `Copy`
-labels and scalar symbols avoid the general label and block overhead measured
-by `benches/torus.rs::torus`; `tests/lie_torus.rs::typed_u1_matches_liegroup_bitwise`
-checks the equivalence contract. `U1::group_id()` returns `GroupId::u(1)`.
+labels and scalar symbols avoid the general label and block overhead, with the
+same values as `LieGroup::new(GroupId::u(1)?)`. `U1::group_id()` returns
+`GroupId::u(1)`.
 For Tᵗ at typed speed, use a tuple `Product` of `U1` factors, such as
 `Product::new((U1, U1, U1))`. `ZN`, `FermionParity`, and `CU1` are not connected
 groups and have no `group_id()`.
 
 ## Lie labels and global forms
 
-Dynkin numbering follows Bourbaki. `GroupId::sp(2*r)` uses the defining
-dimension, not the rank. A1, B1 and C1 use the exact SU(2) implementation;
-SO(3) and PSU(2) admit only even doubled spins. D₂ expands into α₁ then α₂,
-each in the exact A₁ gauge: dimensions are `(a+1)(b+1)`, and SO(4) admits
-`a+b` even while PSO(4) requires both labels even. G₂, F₄, E₆, E₇ and E₈
-use the exact engine of [gauge_exceptional.md](gauge_exceptional.md)
-(`lie-generated`). G₂, F₄, E₇ and E₈ irreps are all self-dual, and all are
-real except the E₇ irreps with odd `a₂ + a₅ + a₇`, which are pseudo-real.
-E₆ duality swaps `a₁ ↔ a₆` and `a₃ ↔ a₅`; its self-dual irreps are real, and
-a complex irrep's Frobenius–Schur phase is derived from the gauge (§6.3) and
-generated on first use. `irrep` rejects a complex E₆ label whose dimension
-exceeds `u32::MAX` with `LieError::LabelOverflow`, because that phase is
-generated in a basis with `u32` indices. `GroupId::{g2, f4, e6, e7, e8}` build
-the simply connected forms.
+Labels are the Dynkin labels of the highest weight in Bourbaki numbering,
+followed by torus charges; [Dynkin labels](user-guide/labels.md) defines them
+and gives numbering, dimensions, duals and the U(N) charge rule.
+`GroupId::sp(2*r)`, `so(n)` and `spin(n)` take the defining dimension, not the
+rank. A1, B1 and C1 use the exact SU(2) implementation; SO(3) and PSU(2) admit
+only even doubled spins. D₂ expands into α₁ then α₂, each in the exact A₁
+gauge: dimensions are `(a+1)(b+1)`, and SO(4) admits `a+b` even while PSO(4)
+requires both labels even. G₂, F₄, E₆, E₇ and E₈ use the exact engine of
+[gauge_exceptional.md](gauge_exceptional.md) (`lie-generated`);
+`GroupId::{g2, f4, e6, e7, e8}` build the simply connected forms. G₂, F₄, E₇
+and E₈ irreps are all self-dual, and all are real except the E₇ irreps with
+odd `a₂ + a₅ + a₇`, which are pseudo-real. E₆ duality swaps `a₁ ↔ a₆` and
+`a₃ ↔ a₅`; its self-dual irreps are real, and a complex irrep's
+Frobenius–Schur phase is derived from the gauge (§6.3) and generated on first
+use. `irrep` rejects a complex E₆ label whose dimension exceeds `u32::MAX`
+with `LieError::LabelOverflow`, because that phase is generated in a basis
+with `u32` indices.
 
-A global form filters labels through `src/lie/group.rs::GroupId::admits`;
-it does not change coefficients on shared irreps. Spin(N) admits spinors that
-SO(N) excludes. Supported constructors also include `su_quotient`, `psu`,
-`psp`, `pso`, `half_spin_plus`, and `half_spin_minus`. D-series central-class
-and half-spin naming conventions are fixed in [references](references.md#global-form--fixed-conventions).
-Objects retain the full group tag, including isomorphic groups.
-`GroupId` is a validated classification datum: ordered root-system blocks,
-torus rank, and a full-rank character lattice containing every root. `new`
-accepts square `i64` row generators and stores their canonical upper triangular
-row HNF, with `0 ≤ H[i,j] < H[j,j]` above the positive pivots. `cover` chooses
-the full weight/charge lattice. `root_systems`, `semisimple_rank`, `torus_rank`
-and `character_lattice` expose the presentation and canonical basis.
-`admits(dynkin, charges)` is exact and total: lengths must match, Dynkin labels
-must be nonnegative, and signed charges must lie in the character lattice.
-Invalid ranks, malformed/singular/root-excluding lattices, and unaddressable
-sizes or unrepresentable HNF entries return typed `GroupError`s.
+A `GroupId` is a validated classification datum: ordered root-system blocks,
+a torus rank, and a full-rank character lattice, the lattice of admitted
+(label, charge) coordinates, which must contain every root. A global form
+filters labels through `GroupId::admits`; it never changes coefficients on
+shared irreps, and fusion of admitted labels stays admitted. Spin(N) admits
+spinors that SO(N) excludes. Besides the constructors in the
+[user guide](user-guide/README.md#building-lie-groups), `GroupId::new` accepts
+square integer row generators of any lattice; `cover` chooses the full
+weight/charge lattice. D-series central-class and half-spin naming
+conventions are fixed in [references](references.md#global-form--fixed-conventions).
+`character_lattice` returns the canonical basis, the row Hermite normal form
+with `0 ≤ H[i,j] < H[j,j]` above the positive pivots. Invalid ranks return
+`GroupError::UnsupportedRank`; malformed, singular or root-excluding
+lattices return `InvalidLattice`; overflowing sizes or entries return
+`SizeOverflow`. Unsupported presentations are rejected before any coefficient
+catalog is created.
 
-`torus(t)` classifies the standard positive-rank torus; `u(n)` imposes
-`q ≡ Σ i·aᵢ (mod n)`. General constructors also classify coupled products,
-the empty datum, and exceptional central quotients. These classifications
-execute through `LieGroup::new` exactly when every
-root-system block has an engine (including D₂'s two A₁ factors). Arbitrary
-intermediate character lattices restrict objects without changing cover
-coefficients or removing fusion outcomes: `ν−λ−μ ∈ Q ⊆ X` proves closure.
-Composites delegate to `Product<Vec<LieGroup>>` of ordered simple covers then
-rank-one torus covers. A single non-D₂ factor uses that factor's own evaluator and gauge;
-standard U(1) stores its charge inline and delegates to the closed-form `U1` arithmetic.
-The trivial group executes as an empty Product.
-Generated factors require `lie-generated`. B/C/D seed totals are checked
-against the aggregate catalog budget before allocating generators (see
-[resources](user-guide/resources.md#bcd-generator-catalogs)).
+Equality, hashing and order use the ordered presentation and canonical
+lattice, so SU(n)/Z1 equals SU(n), while distinct presentations such as
+B1/C1/A1, D3/A3 and D2/[A1,A1] remain distinct. Objects retain the full group
+tag. `LieGroup::new` succeeds exactly when every root-system block has an
+engine; generated factors require `lie-generated`. Composites compute as the
+ordered product of their simple covers followed by rank-one torus covers, so
+each factor keeps its own gauge.
 
-`GroupId` has private fields and shares immutable data through `Arc`; it is
-`Clone`, not `Copy`. Equality/hash/order use the ordered presentation and
-canonical lattice, so SU(n)/Z1 equals SU(n). Distinct root presentations such
-as B1/C1/A1, D3/A3, and D2/[A1,A1] remain distinct. `LieGroup::group_id` borrows
-the classification datum. `LieGroup::irrep_with_charges(dynkin, charges)` checks lengths and
-nonnegative Dynkin labels, then lattice admission, then engine integer limits.
-`LieIrrep::charges` reads the signed torus coordinates in order through an
-allocation-free exact-size iterator; `dynkin()` covers only the semisimple coordinates.
-Charges outside `-i32::MAX..=i32::MAX`, including `i32::MIN`, return `LabelOverflow`.
-U(1) label construction, clone, fusion iteration, and symbol/CGC queries allocate
-nothing. U(1) enumerates `0,1,−1,2,−2,…` and has the same authority bytes as `U1`.
-
-`LieIrrep::dynkin_labels` reads labels without allocation; `dynkin` collects
-them. Clones share weight buffers without allocation. Warm duals reuse shared
-labels in the `SunProduct` / `BcdCgc` tiers, charged to their byte
-budgets and subject to their Clock-PRO eviction, trim and reset controls.
-All coefficient tiers use one byte-weighted `quick_cache` wrapper, borrowed
-lookups and miss-only key ownership; F blocks share their storage directly.
-See [resources](user-guide/resources.md#coefficient-caches) for full-tier admission, weight-based entry caps,
-statistics and the unspecified removal order of explicit trims. Each irrep
-retains only its own weight.
-Single generated groups memoize the unit. Composite labels share their ordered
-factor labels through `Arc<Vec<LieIrrep>>`; their exact dimensions multiply and
-weight multiplicities form the Cartesian product with checked `u64` products.
+`irrep_with_charges(dynkin, charges)` checks lengths and nonnegative Dynkin
+labels, then lattice admission, then engine integer limits. Charges outside
+`-i32::MAX..=i32::MAX` return `LabelOverflow`. `dynkin`/`dynkin_labels` read
+the semisimple coordinates and `charges` the torus coordinates.
 `dim_exact` returns `BigInt`; the category's `dim` returns `f64`.
-B/C/D dimensions and Frobenius–Schur data reuse immutable root data: one
-process-lifetime entry per constructed `(series, rank)`, with O(rank³) integers,
-independent of the number of labels or queries. SU(N) and B/C/D Weyl
-dimensions are exact in checked `u128` arithmetic and fall back to exact
-big-integer arithmetic, which allocates, only when a dimension or its reduced
-intermediates exceed `u128`.
-`weight_multiplicities` uses Dynkin coordinates followed by torus charges. `gt_patterns` gives the
-Gelfand–Tsetlin basis for A-series rank ≥ 2, and `None` for A1, B/C/D, and composites.
-
-Classification validates root ranks, basis shape, full rank, and root
-containment. Invalid ranks return `UnsupportedRank`; malformed or root-excluding
-bases return `InvalidLattice`. Rank-sum overflow, allocation failure, and
-unrepresentable canonical entries return `SizeOverflow`. General bases are
-normalized with exact unimodular row operations. Named constructors build the
-canonical lattice directly in O(rank) time or less; full rank and root containment
-hold by construction. Only entries differing from the identity matrix are stored;
-`character_lattice()` allocates a dense matrix with rank squared entries.
-Unsupported presentations are rejected before any coefficient catalog is created.
+`weight_multiplicities` uses Dynkin coordinates followed by torus charges.
+`gt_patterns` gives the Gelfand–Tsetlin (GT) basis for A-series rank ≥ 2, and
+`None` for A1, B/C/D, exceptional groups and composites.
 
 ## Validation and errors
 
@@ -194,8 +153,11 @@ hashing represent mathematical identity, independently of fingerprints.
 
 Lie dimensions, duals, Frobenius–Schur indicators, weights and fusion
 multiplicities are exact. SU(2) coefficients use signed square-rooted rationals
-and round once to `f64`. Higher-rank Lie coefficients use verification-gated
-`f64`; tables are offline projections of exact AnyonWiki data to `Complex64`.
+and round once to `f64`. G₂, F₄, E₆, E₇ and E₈ coefficients are computed
+exactly and round once to `f64`. SU(N) and B/C/D
+coefficients are computed in `f64` and accepted only after numerical
+verification checks; tables are offline projections of exact AnyonWiki data
+to `Complex64`.
 Closed-form U(1), CU(1), Z_N and parity symbols are `f64`.
 
 SU(N) uses a highest-weight nullspace in the GT basis and lowering descent.
@@ -282,4 +244,3 @@ variants (tuples) or `Factor { index, source }` (runtime products) retain the
 path to the malformed factor. Zero-channel queries skip
 factor symbol evaluation. `ProductError` is non-exhaustive; matches need a
 fallback arm.
-See `src/product.rs::Product` and `ProductError`.

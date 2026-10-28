@@ -2,8 +2,9 @@
 
 ## Coefficient caches
 
-Every coefficient-cache tier is process-global, byte-weighted Clock-PRO and independently bounded
-(`src/cache.rs`). Default retained-entry charge caps are:
+Every coefficient-cache tier is process-global and independently bounded by
+bytes. Eviction uses Clock-PRO, a scan-resistant approximation of
+least-recently-used replacement. Default retained-entry charge caps are:
 
 | Tiers | Aggregate cap |
 |---|---|
@@ -20,7 +21,9 @@ Configure once, **before any cache operation or policy observation**:
 use fusion_symbols::cache::{configure_cache_budgets, CoefficientCacheBudgets, CoefficientCacheTier};
 let budgets = CoefficientCacheBudgets::default()
     .with_limit(CoefficientCacheTier::SixJ, 1 << 20);
-configure_cache_budgets(budgets).unwrap();
+if let Err(err) = configure_cache_budgets(budgets) {
+    eprintln!("cache budgets were already fixed: {err}");
+}
 ```
 
 Configuration is one-shot and shrink-only; defaults are the maximum caps.
@@ -121,6 +124,21 @@ shared block (such as the SU(3) octet F block) stays limited however many
 threads query it. In hot loops, query once and hold the returned block rather
 than repeating the query.
 
+## Retained group data and allocation
+
+Besides the caches above, B/C/D groups retain immutable root data for the
+process lifetime: one entry per constructed (series, rank), O(rank³)
+integers, independent of the number of irreps or queries. `reset()` and
+`reset_catalog()` do not release it. Exact SU(N) and B/C/D Weyl dimensions
+are computed in checked `u128` arithmetic and fall back to allocating
+big-integer arithmetic only when a dimension or an intermediate overflows.
+Warm `LieGroup` dual lookups reuse shared labels retained in the
+`SunProduct` and `BcdCgc` tiers, charged to their budgets. U(1) through
+`LieGroup` allocates nothing for label construction, clones, fusion
+iteration and symbol/CGC queries. Composite weight multiplicities multiply
+factor multiplicities in checked `u64`; the infallible query panics on
+overflow.
+
 ## B/C/D generator catalogs
 
 Each B/C/D `LieGroup` owns a generator catalog; clones share it. The default
@@ -194,11 +212,8 @@ state never changes a returned bit.
 
 ## Exactness and fingerprints
 
-Lie combinatorics and discrete conventions are exact. SU(2) closed forms
-and exceptional coefficients round once; other generated Lie coefficient values are
-verification-gated `f64`.
-Table values are offline binary64 projections; their dimensions are derived
-numerically from F. See [design](../overview.md#numerical-and-capability-contracts).
+Which values are exact and which are rounded is listed in
+[numerical contracts](../overview.md#numerical-and-capability-contracts).
 No cross-process bit identity is promised for SU(N) and B/C/D coefficients. Discrete
 sign, basis or multiplicity-order changes are not ordinary round-off.
 
@@ -212,7 +227,8 @@ unstable in rustdoc.
 A value-changing specification correction requires the spec edit, affected
 family's epoch bump, CHANGELOG breaking-change entry and regenerated golden
 values in one change. Ordinary prose or cache edits require no epoch bump.
-Fingerprint `racah:` prefixes remain permanent identifiers. Normative rules:
+Fingerprints that begin with `racah:` (the crate's former name) keep that
+prefix permanently. Normative rules:
 [SU(2)/SU(N)](../gauge.md#status-frozen-normative-specification),
 [B/C/D](../gauge_soN.md#status-frozen-normative-specification),
 [exceptional](../gauge_exceptional.md#status-frozen-normative-specification).
