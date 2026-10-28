@@ -101,7 +101,7 @@
 //!
 
 use malachite_base::num::basic::traits::One;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -1223,38 +1223,45 @@ fn weyl_sign_count(rank: usize) -> Result<u32, BcdError> {
         .ok_or(BcdError::LabelOverflow)
 }
 fn try_weyl_orbit(series: Series, mu: &[i64]) -> Result<Vec<Vec<i64>>, BcdError> {
-    let r = mu.len();
-    let mut set: HashSet<Vec<i64>> = HashSet::new();
-    for signs in 0u32..weyl_sign_count(r)? {
-        let flips = signs.count_ones();
-        if series == Series::D && !flips.is_multiple_of(2) {
-            continue;
+    weyl_sign_count(mu.len())?;
+    let nonzero = mu.iter().filter(|&&x| x != 0).count();
+    // A zero frees D parity; otherwise absolute values must retain chirality.
+    let constrained = series == Series::D && nonzero == mu.len() && nonzero != 0;
+    let sign_count = weyl_sign_count(nonzero - usize::from(constrained))?;
+    let negative_count = mu.iter().filter(|&&x| x < 0).count() as u32;
+    let mut permutation = mu
+        .iter()
+        .map(|x| x.checked_abs().ok_or(BcdError::LabelOverflow))
+        .collect::<Result<Vec<_>, _>>()?;
+    permutation.sort_unstable();
+    let mut orbit = Vec::new();
+    loop {
+        for mut signs in 0..sign_count {
+            if constrained {
+                // Force the last sign instead of generating and discarding half.
+                signs |= ((signs.count_ones() + negative_count) % 2) << (nonzero - 1);
+            }
+            let mut signed = permutation.clone();
+            for x in signed.iter_mut().filter(|x| **x != 0) {
+                if signs & 1 != 0 {
+                    *x = -*x;
+                }
+                signs >>= 1;
+            }
+            orbit.push(signed);
         }
-        let signed: Vec<i64> = (0..r)
-            .map(|i| if signs & (1 << i) != 0 { -mu[i] } else { mu[i] })
-            .collect();
-        permute_into(&signed, &mut set);
+        // Next lexicographic multiset permutation: repeated entries never branch.
+        let Some(i) = permutation.windows(2).rposition(|w| w[0] < w[1]) else {
+            break;
+        };
+        let j = permutation
+            .iter()
+            .rposition(|&x| x > permutation[i])
+            .expect("the increasing pair supplies a successor");
+        permutation.swap(i, j);
+        permutation[i + 1..].reverse();
     }
-    Ok(set.into_iter().collect())
-}
-
-/// Insert every permutation of `v` into `set`.
-fn permute_into(v: &[i64], set: &mut HashSet<Vec<i64>>) {
-    let mut idx: Vec<usize> = (0..v.len()).collect();
-    permute_rec(v, &mut idx, 0, set);
-}
-
-fn permute_rec(v: &[i64], idx: &mut Vec<usize>, k: usize, set: &mut HashSet<Vec<i64>>) {
-    let n = idx.len();
-    if k == n {
-        set.insert(idx.iter().map(|&i| v[i]).collect());
-        return;
-    }
-    for i in k..n {
-        idx.swap(k, i);
-        permute_rec(v, idx, k + 1, set);
-        idx.swap(k, i);
-    }
+    Ok(orbit)
 }
 
 // ---- Brauer–Klimyk / Racah–Speiser product decomposition -----------------
@@ -1277,8 +1284,9 @@ fn permute_rec(v: &[i64], idx: &mut Vec<usize>, k: usize, set: &mut HashSet<Vec<
 ///
 ///
 /// Algorithm (Racah–Speiser / Brauer–Klimyk, Humphreys §24): for every weight
-/// `μ` of `b` (multiplicity `m_b(μ)` from Freudenthal, expanded over its Weyl
-/// orbit), form `ξ = a + μ + ρ`. If `ξ` is Weyl-singular it contributes `0`;
+/// `μ` of the smaller-dimensional factor `b` (swapping inputs, with the first
+/// input expanded on a dimension tie), use its Freudenthal multiplicity `m_b(μ)` and
+/// Weyl orbit to form `ξ = a + μ + ρ`. If `ξ` is Weyl-singular it contributes `0`;
 /// otherwise let `w` be the Weyl element making `ξ` dominant, and add
 /// `det(w)·m_b(μ)` to the coefficient of the irrep with highest weight
 /// `w(ξ) − ρ`. All arithmetic is exact integer; `ρ`-shifts are carried at
@@ -1303,6 +1311,18 @@ fn directproduct_uncached(a: &Irrep, b: &Irrep) -> Result<BTreeMap<Irrep, u32>, 
     let series = a.series;
     let r = a.rank();
     let two_rho = two_rho(series, r);
+    // Preserve the original overflow preflight before choosing an expansion route.
+    for ((&av, &bv), &rho) in a.two_weight.iter().zip(b.two_weight.iter()).zip(&two_rho) {
+        add_weight(add_weight(av, rho)?, bv)?;
+    }
+    if a.two_weight.iter().all(|&x| x == 0) {
+        return Ok(BTreeMap::from([(b.clone(), 1)]));
+    }
+    if b.two_weight.iter().all(|&x| x == 0) {
+        return Ok(BTreeMap::from([(a.clone(), 1)]));
+    }
+    // Like SU(N), expand the first input on a dimension tie.
+    let (a, b) = if a.dim() <= b.dim() { (b, a) } else { (a, b) };
     // 2(a + ρ), constant across the μ loop (the stored weight is already 2a).
     let two_a_rho: Vec<i64> = a
         .two_weight
@@ -1310,10 +1330,6 @@ fn directproduct_uncached(a: &Irrep, b: &Irrep) -> Result<BTreeMap<Irrep, u32>, 
         .zip(&two_rho)
         .map(|(&av, &tr)| add_weight(av, tr))
         .collect::<Result<_, _>>()?;
-    // Reject the largest possible sum before enumerating b's weights.
-    for (&ar, &w) in two_a_rho.iter().zip(b.two_weight.iter()) {
-        add_weight(ar, w)?;
-    }
 
     let mut acc: BTreeMap<Vec<i64>, i64> = BTreeMap::new();
     for (mu, &m) in &b.try_two_weight_multiplicities()? {

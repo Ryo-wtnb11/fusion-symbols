@@ -24,6 +24,9 @@ value/gauge rule noted below.
 
 - B/C/D projections reuse basis transposes and guarded overlaps, preserving
   every coefficient bit while avoiding repeated allocations and products.
+- Enumerate each B/C/D Weyl-orbit weight once and expand the smaller product
+  factor, with exact identity products and unchanged values, fingerprints and
+  cache keys.
 - B/C/D product ladders use ordered exact-nonzero adjacency for application,
   preserving coefficient bits and fingerprints while removing dense product storage.
 - Reuse each distinct SU(N) GT basis and ladder within CGC generation and index
