@@ -808,3 +808,189 @@ fn memo_eviction_bounds_and_phase_pairs() {
     fam.trim(0, 0);
     assert_eq!((fam.memo_len(), fam.memo_bytes()), (0, 0));
 }
+
+// Frozen pre-sparse algorithm: drift reference, not a mathematical oracle.
+fn dense_echelon_nullspace(mut m: Vec<Vec<Q>>, cols: usize) -> (Vec<usize>, Vec<Vec<Q>>) {
+    let mut pivot_of_row: Vec<usize> = Vec::new();
+    let mut is_pivot = vec![false; cols];
+    for col in (0..cols).rev() {
+        let r0 = pivot_of_row.len();
+        let Some(r) = (r0..m.len()).find(|&r| !m[r][col].is_zero()) else {
+            continue;
+        };
+        m.swap(r0, r);
+        let inv = m[r0][col].recip();
+        for x in m[r0].iter_mut().filter(|x| !x.is_zero()) {
+            *x *= &inv;
+        }
+        let pivot = m[r0].clone();
+        for (r, row) in m.iter_mut().enumerate() {
+            if r == r0 || row[col].is_zero() {
+                continue;
+            }
+            let scale = row[col].clone();
+            for (x, y) in row.iter_mut().zip(&pivot) {
+                if !y.is_zero() {
+                    *x -= &scale * y;
+                }
+            }
+        }
+        pivot_of_row.push(col);
+        is_pivot[col] = true;
+    }
+    let free: Vec<usize> = (0..cols).filter(|&f| !is_pivot[f]).collect();
+    let basis = free
+        .iter()
+        .map(|&f| {
+            let mut v = vec![Q::zero(); cols];
+            v[f] = Q::one();
+            for (row, &pc) in m.iter().zip(&pivot_of_row) {
+                if !row[f].is_zero() {
+                    v[pc] = -row[f].clone();
+                }
+            }
+            v
+        })
+        .collect();
+    (free, basis)
+}
+
+fn compare_nullspace(data: &CartanData, a: &Ladders, b: &Ladders, top: &[i64], n: usize) {
+    let p = ProductSpace::new(a, b, top);
+    let mut rows: Vec<Vec<Q>> = Vec::new();
+    for i in 0..top.len() {
+        let nu: Vec<i64> = (0..top.len()).map(|k| top[k] + data.c(i, k)).collect();
+        let target = ProductSpace::new(a, b, &nu);
+        if target.pairs.is_empty() {
+            continue;
+        }
+        let base = rows.len();
+        rows.resize(base + target.len(), vec![Q::zero(); p.len()]);
+        for (col, &(pa, pb)) in p.pairs.iter().enumerate() {
+            for (p2, y) in &a.raise[i][pa] {
+                rows[base + target.at((*p2, pb))][col] += y;
+            }
+            for (q2, y) in &b.raise[i][pb] {
+                rows[base + target.at((pa, *q2))][col] += y;
+            }
+        }
+    }
+    let sparse = raising_rows(data, a, b, &p, top);
+    let expected_rows: Vec<BTreeMap<usize, Q>> = rows
+        .iter()
+        .map(|row| {
+            row.iter()
+                .enumerate()
+                .filter(|(_, x)| !x.is_zero())
+                .map(|(col, x)| (col, x.clone()))
+                .collect()
+        })
+        .collect();
+    assert_eq!(sparse, expected_rows, "raising assembly at {top:?}");
+    let expected = dense_echelon_nullspace(rows, p.len());
+    assert_eq!(expected.1.len(), n);
+    assert_eq!(
+        echelon_nullspace(sparse, p.len()),
+        expected,
+        "rational basis at {top:?}"
+    );
+}
+
+#[test]
+fn sparse_nullspace_matches_dense_channels() {
+    let mut count = 0;
+    for (root, a, b) in [
+        (RootSystem::G2, G7.to_vec(), G7.to_vec()),
+        (RootSystem::G2, G7.to_vec(), G14.to_vec()),
+        (RootSystem::G2, G14.to_vec(), G14.to_vec()),
+        (RootSystem::G2, G27.to_vec(), G27.to_vec()),
+        (RootSystem::F4, unit(4, 3), unit(4, 3)),
+        (RootSystem::F4, unit(4, 3), unit(4, 0)),
+        (RootSystem::E6, unit(6, 0), unit(6, 0)),
+        (RootSystem::E6, unit(6, 0), unit(6, 5)),
+        (RootSystem::E6, unit(6, 0), unit(6, 1)),
+        (RootSystem::E7, unit(7, 6), unit(7, 6)),
+        (RootSystem::E7, unit(7, 6), unit(7, 0)),
+    ] {
+        let mut fam = GeneralFamily::new(root);
+        let outcomes = fam.product(&a, &b).unwrap().clone();
+        fam.module(&a).unwrap();
+        fam.module(&b).unwrap();
+        for (c, n) in outcomes {
+            compare_nullspace(
+                &fam.data,
+                &fam.modules[&a].value,
+                &fam.modules[&b].value,
+                &c,
+                n as usize,
+            );
+            count += 1;
+        }
+    }
+    eprintln!("Compared {count} exceptional channels exactly");
+}
+
+#[test]
+#[ignore = "large E8 dense-reference comparisons; run in release"]
+fn sparse_nullspace_matches_dense_e8_channels() {
+    let data = CartanData::new(RootSystem::E8);
+    let a = Ladders::new(&data, &unit(8, 7)).unwrap();
+    for top in [vec![0; 8], unit(8, 7), unit(8, 0)] {
+        compare_nullspace(&data, &a, &a, &top, 1);
+    }
+    for b in [vec![0, 0, 0, 0, 0, 0, 0, 2], unit(8, 6)] {
+        let b = Ladders::new(&data, &b).unwrap();
+        compare_nullspace(&data, &a, &b, &unit(8, 7), 1);
+    }
+}
+
+#[test]
+fn sparse_nullspace_degenerate_matrices() {
+    for (rows, cols) in [(0, 0), (0, 3), (3, 0), (3, 4), (4, 3)] {
+        for seed in 0..32 {
+            let dense: Vec<Vec<Q>> = (0..rows)
+                .map(|i| {
+                    (0..cols)
+                        .map(|j| q(((i * 13 + j * 7 + seed) % 5) as i64 - 2, (j + 1) as i64))
+                        .collect()
+                })
+                .collect();
+            let sparse = dense
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .enumerate()
+                        .filter(|(_, x)| !x.is_zero())
+                        .map(|(j, x)| (j, x.clone()))
+                        .collect()
+                })
+                .collect();
+            assert_eq!(
+                echelon_nullspace(sparse, cols),
+                dense_echelon_nullspace(dense, cols)
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "large E8 channel timing; run in release with --nocapture"]
+fn performance_large_e8_channels() {
+    let a = unit(8, 7);
+    let samples: usize = std::env::var("FS_PERF_SAMPLES")
+        .unwrap_or_else(|_| "3".into())
+        .parse()
+        .unwrap();
+    for b in [vec![0, 0, 0, 0, 0, 0, 0, 2], unit(8, 6)] {
+        for _ in 0..samples {
+            let mut fam = GeneralFamily::new(RootSystem::E8);
+            let t = Instant::now();
+            let entries = fam.cgc_entries(&a, &b, &a).unwrap();
+            eprintln!(
+                "CHANNEL {b:?}: {} entries in {:.9} s",
+                entries.len(),
+                t.elapsed().as_secs_f64()
+            );
+        }
+    }
+}

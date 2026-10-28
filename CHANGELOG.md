@@ -9,6 +9,11 @@ value/gauge rule noted below.
 
 ### Performance
 
+- Exceptional highest-weight assembly and exact elimination retain only
+  nonzero rational coordinates, preserving the canonical pivot basis and every
+  coefficient bit. Sequential release E₈ `248⁴` F-unitarity improved from
+  13.026 s to 10.475 s (1.24×), with median peak RSS reduced from 2.65 to
+  0.85 GiB; `248 ⊗ 27000/30380 → 248` queries improved by 1.28×.
 - Exceptional CGC radical formation uses checked `u128` products and one
   exact reduction, with the original BigInt formation as fallback. Exact values,
   entry order, fingerprints and final rounding are unchanged. Sequential release
@@ -19,8 +24,7 @@ value/gauge rule noted below.
   clones and policy metadata are charged. Sequential release E₈ `248⁴`
   F-unitarity improved from 74.61 s to 15.80 s (4.72×), with module builds
   reduced from 38 to 8 and channel builds from 64 to 13. Values, fingerprints,
-  `reset_catalog` and poison recovery are unchanged. See the resource guide for the
-  LRU comparison, peak RSS and small/warm timings.
+  `reset_catalog` and poison recovery are unchanged.
 
 ## [0.10.0] - 2026-10-28
 
