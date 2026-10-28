@@ -454,6 +454,19 @@ fn echelon_nullspace(mut m: Vec<Vec<Q>>, cols: usize) -> (Vec<usize>, Vec<Vec<Q>
 /// `a ⊗ b` as coupled label → `N^c_{ab}`.
 type Decomposition = BTreeMap<Vec<i64>, u32>;
 
+struct MemoEntry<T> {
+    value: T,
+    bytes: usize,
+    used: u64,
+}
+
+fn evict_oldest<K: Clone + Eq + std::hash::Hash, V>(
+    entries: &mut HashMap<K, MemoEntry<V>>,
+) -> Option<usize> {
+    let key = entries.iter().min_by_key(|(_, e)| e.used)?.0.clone();
+    Some(entries.remove(&key)?.bytes)
+}
+
 /// The exceptional engine as a [`Family`]: exact CGC (§5) and `κ_a` (§6.3),
 /// with F and R from the generic `frcore` contractions (§7).
 ///
@@ -462,12 +475,15 @@ type Decomposition = BTreeMap<Vec<i64>, u32>;
 /// of all four.
 pub(crate) struct GeneralFamily {
     data: CartanData,
-    modules: HashMap<Vec<i64>, Ladders>,
-    products: HashMap<(Vec<i64>, Vec<i64>), Decomposition>,
-    channels: HashMap<[Vec<i64>; 3], Vec<MEntry>>,
-    /// `κ_a` of non-self-dual labels, stored for `a` and `ā` together.
-    phases: HashMap<Vec<i64>, i8>,
+    modules: HashMap<Vec<i64>, MemoEntry<Ladders>>,
+    products: HashMap<(Vec<i64>, Vec<i64>), MemoEntry<Decomposition>>,
+    channels: HashMap<[Vec<i64>; 3], MemoEntry<Vec<MEntry>>>,
+    /// One `κ` per non-self-dual pair, keyed by its smaller label.
+    phases: HashMap<Vec<i64>, MemoEntry<i8>>,
     bytes: usize,
+    clock: u64,
+    #[cfg(test)]
+    pub(super) builds: [usize; 2],
 }
 
 impl GeneralFamily {
@@ -479,6 +495,9 @@ impl GeneralFamily {
             channels: HashMap::new(),
             phases: HashMap::new(),
             bytes: 0,
+            clock: 0,
+            #[cfg(test)]
+            builds: [0; 2],
         }
     }
 
@@ -487,9 +506,9 @@ impl GeneralFamily {
         &self.data
     }
 
-    /// Retained memo entries over modules, products, channels and phases.
+    /// Retained memo entries; each phase pair counts as two label entries.
     pub(super) fn memo_len(&self) -> usize {
-        self.modules.len() + self.products.len() + self.channels.len() + self.phases.len()
+        self.modules.len() + self.products.len() + self.channels.len() + 2 * self.phases.len()
     }
 
     /// Estimated retained bytes of the memo (capacity-based, saturating).
@@ -497,19 +516,47 @@ impl GeneralFamily {
         self.bytes
     }
 
+    /// Only the owner calls this, after a query's module borrows have ended.
+    /// Completed channels and paired phases are useful without their modules.
+    pub(super) fn trim(&mut self, max_entries: usize, max_bytes: usize) {
+        while self.memo_len() > max_entries || self.memo_bytes() > max_bytes {
+            let bytes = evict_oldest(&mut self.modules)
+                .or_else(|| evict_oldest(&mut self.products))
+                .or_else(|| evict_oldest(&mut self.channels))
+                .or_else(|| evict_oldest(&mut self.phases))
+                .expect("an over-budget memo has entries");
+            self.bytes -= bytes;
+        }
+    }
+
     pub(super) fn module(&mut self, lambda: &[i64]) -> Result<&Ladders, LieError> {
+        self.clock = self.clock.saturating_add(1);
         if !self.modules.contains_key(lambda) {
             let built = Ladders::new(&self.data, lambda)?;
-            self.bytes = self
-                .bytes
-                .saturating_add(labels_bytes(lambda) + built.bytes());
-            self.modules.insert(lambda.to_vec(), built);
+            #[cfg(test)]
+            {
+                self.builds[0] += 1;
+            }
+            let bytes =
+                labels_bytes(lambda) + built.bytes() + std::mem::size_of::<MemoEntry<Ladders>>();
+            self.bytes = self.bytes.saturating_add(bytes);
+            self.modules.insert(
+                lambda.to_vec(),
+                MemoEntry {
+                    value: built,
+                    bytes,
+                    used: self.clock,
+                },
+            );
         }
-        Ok(&self.modules[lambda])
+        let hit = self.modules.get_mut(lambda).unwrap();
+        hit.used = self.clock;
+        Ok(&hit.value)
     }
 
     /// `a ⊗ b` by Brauer–Klimyk, label → `N^c_{ab}`.
     pub(crate) fn product(&mut self, a: &[i64], b: &[i64]) -> Result<&Decomposition, LieError> {
+        self.clock = self.clock.saturating_add(1);
         let key = (a.to_vec(), b.to_vec());
         if !self.products.contains_key(&key) {
             let n = self.data.tensor_product(a, b)?;
@@ -517,12 +564,23 @@ impl GeneralFamily {
                 .keys()
                 .map(|c| labels_bytes(c) + std::mem::size_of::<u32>())
                 .sum();
-            self.bytes = self
-                .bytes
-                .saturating_add(labels_bytes(a) + labels_bytes(b) + entries);
-            self.products.insert(key.clone(), n);
+            let bytes = labels_bytes(a)
+                + labels_bytes(b)
+                + entries
+                + std::mem::size_of::<MemoEntry<Decomposition>>();
+            self.bytes = self.bytes.saturating_add(bytes);
+            self.products.insert(
+                key.clone(),
+                MemoEntry {
+                    value: n,
+                    bytes,
+                    used: self.clock,
+                },
+            );
         }
-        Ok(&self.products[&key])
+        let hit = self.products.get_mut(&key).unwrap();
+        hit.used = self.clock;
+        Ok(&hit.value)
     }
 
     /// The rational channel with its three modules.
@@ -536,30 +594,42 @@ impl GeneralFamily {
         for l in [a, b, c] {
             self.module(l)?;
         }
-        let (ma, mb, mc) = (&self.modules[a], &self.modules[b], &self.modules[c]);
+        let (ma, mb, mc) = (
+            &self.modules[a].value,
+            &self.modules[b].value,
+            &self.modules[c].value,
+        );
         Ok((Channel::new(&self.data, ma, mb, mc, n)?, ma, mb, mc))
     }
 
     /// `κ_a` of §6.3: the closed form `(−1)^{⟨λ, 2ρ∨⟩}` for a self-dual irrep,
     /// and `(−1)^{⟨λ, 2ρ∨⟩} σ_a σ_ā` otherwise.
     pub(crate) fn frobenius_schur_phase(&mut self, a: &[i64]) -> Result<i8, LieError> {
-        let closed = self.data.two_rho_vee_sign(a)?;
         let dual = self.data.dual(a)?;
         if dual == a {
-            return Ok(closed);
+            return self.data.two_rho_vee_sign(a);
         }
-        if let Some(&hit) = self.phases.get(a) {
-            return Ok(hit);
+        self.clock = self.clock.saturating_add(1);
+        let key = a.min(&dual);
+        if let Some(hit) = self.phases.get_mut(key) {
+            hit.used = self.clock;
+            return Ok(hit.value);
         }
+        let closed = self.data.two_rho_vee_sign(a)?;
         let sigma_a = self.module(a)?.principal_sign(a)?;
         let sigma_dual = self.module(&dual)?.principal_sign(&dual)?;
         // κ_ā = κ_a (§6.3), so one generation answers both labels.
         let kappa = closed * sigma_a * sigma_dual;
-        self.bytes = self
-            .bytes
-            .saturating_add(labels_bytes(a) + labels_bytes(&dual) + 2 * std::mem::size_of::<i8>());
-        self.phases.insert(a.to_vec(), kappa);
-        self.phases.insert(dual, kappa);
+        let bytes = labels_bytes(key) + std::mem::size_of::<MemoEntry<i8>>();
+        self.bytes = self.bytes.saturating_add(bytes);
+        self.phases.insert(
+            key.to_vec(),
+            MemoEntry {
+                value: kappa,
+                bytes,
+                used: self.clock,
+            },
+        );
         Ok(kappa)
     }
 }
@@ -587,8 +657,14 @@ impl Family for GeneralFamily {
         c: &Vec<i64>,
     ) -> Result<Vec<MEntry>, LieError> {
         let key = [a.clone(), b.clone(), c.clone()];
-        if let Some(hit) = self.channels.get(&key) {
-            return Ok(hit.clone());
+        self.clock = self.clock.saturating_add(1);
+        if let Some(hit) = self.channels.get_mut(&key) {
+            hit.used = self.clock;
+            return Ok(hit.value.clone());
+        }
+        #[cfg(test)]
+        {
+            self.builds[1] += 1;
         }
         let (channel, ma, mb, mc) = self.channel(a, b, c)?;
         let entries = channel
@@ -605,10 +681,19 @@ impl Family for GeneralFamily {
             })
             .collect::<Result<Vec<_>, LieError>>()?;
         let key_bytes: usize = key.iter().map(|l| labels_bytes(l)).sum();
-        self.bytes = self
-            .bytes
-            .saturating_add(key_bytes + entries.capacity() * std::mem::size_of::<MEntry>());
-        self.channels.insert(key, entries.clone());
+        let retained = entries.clone();
+        let bytes = key_bytes
+            + retained.capacity() * std::mem::size_of::<MEntry>()
+            + std::mem::size_of::<MemoEntry<Vec<MEntry>>>();
+        self.bytes = self.bytes.saturating_add(bytes);
+        self.channels.insert(
+            key,
+            MemoEntry {
+                value: retained,
+                bytes,
+                used: self.clock,
+            },
+        );
         Ok(entries)
     }
 }

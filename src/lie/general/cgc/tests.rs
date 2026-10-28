@@ -691,3 +691,63 @@ fn resource_report() {
         }
     }
 }
+
+/// Charges follow retained entries (including policy metadata), and both
+/// limits hold even when a single entry or dual pair cannot fit.
+#[test]
+fn memo_eviction_bounds_and_phase_pairs() {
+    let mut fam = GeneralFamily::new(RootSystem::E6);
+    let a = unit(6, 0);
+    let dual = fam.data.dual(&a).unwrap();
+    assert_eq!(fam.frobenius_schur_phase(&a).unwrap(), 1);
+    let builds = fam.builds;
+    // Drop modules, preserving the two completed signs.
+    fam.trim(2, usize::MAX);
+    assert!(fam.modules.is_empty());
+    assert_eq!(fam.phases.len(), 1);
+    let bytes = fam.memo_bytes();
+    assert_eq!(bytes, fam.phases.values().map(|e| e.bytes).sum::<usize>());
+    fam.trim(2, bytes);
+    for l in [&a, &dual] {
+        assert_eq!(fam.frobenius_schur_phase(l).unwrap(), 1);
+    }
+    assert_eq!(fam.builds, builds);
+    // A byte short cannot retain just half of a pair.
+    fam.trim(2, bytes - 1);
+    assert_eq!((fam.memo_len(), fam.memo_bytes()), (0, 0));
+    assert_eq!(fam.frobenius_schur_phase(&dual).unwrap(), 1);
+    assert_eq!(fam.frobenius_schur_phase(&a).unwrap(), 1);
+    assert_eq!(fam.builds, [2 * builds[0], 0]);
+    fam.trim(1, usize::MAX);
+    assert_eq!((fam.memo_len(), fam.memo_bytes()), (0, 0));
+
+    let mut fam = GeneralFamily::new(RootSystem::G2);
+    let (a, b) = (G7.to_vec(), G14.to_vec());
+    let bits = |entries: Vec<MEntry>| {
+        entries
+            .into_iter()
+            .map(|e| (e.m1, e.m2, e.m3, e.mu, e.value.to_bits()))
+            .collect::<Vec<_>>()
+    };
+    let expected = bits(fam.cgc_entries(&a, &a, &b).unwrap());
+    // A completed channel owns its data after all modules/products are gone.
+    fam.trim(1, usize::MAX);
+    assert_eq!(fam.channels.len(), 1);
+    assert!(fam.modules.is_empty() && fam.products.is_empty());
+    let entry = fam.channels.values().next().unwrap();
+    assert_eq!(
+        entry.bytes,
+        3 * labels_bytes(&a)
+            + entry.value.capacity() * std::mem::size_of::<MEntry>()
+            + std::mem::size_of::<MemoEntry<Vec<MEntry>>>()
+    );
+    let bytes = fam.memo_bytes();
+    assert_eq!(bytes, entry.bytes);
+    fam.trim(1, bytes);
+    assert_eq!(bits(fam.cgc_entries(&a, &a, &b).unwrap()), expected);
+    fam.trim(1, bytes - 1);
+    assert_eq!((fam.memo_len(), fam.memo_bytes()), (0, 0));
+    assert_eq!(bits(fam.cgc_entries(&a, &a, &b).unwrap()), expected);
+    fam.trim(0, 0);
+    assert_eq!((fam.memo_len(), fam.memo_bytes()), (0, 0));
+}

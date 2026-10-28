@@ -171,13 +171,22 @@ warm CGC/F/R calls consult those caches before locking the catalog.
 
 G₂, F₄, E₆, E₇ and E₈ coefficients bypass the global coefficient caches and their
 budgets. Each such `LieGroup` (and each such factor of a composite) owns a memo of exact
-modules, tensor products, CGC channels and E₆ Frobenius–Schur phases; clones share it. Once it holds 512
-entries or an estimated 256 MiB, the next query starts from an empty memo.
-The bounds are checked only between queries: one query adds at most 14
-entries, and its transient working set may exceed 256 MiB. A single entry for
-an irrep of a few hundred dimensions can be tens of MiB (the exact rational
-module and its ladder operators), so a few entries can reach the byte bound.
-The estimate counts stored data only; resident memory runs about twice it.
+modules, tensor products, CGC channels and E₆ Frobenius–Schur phases; clones share it.
+After each coefficient or complex-phase query, under the same mutex, whole completed
+entries are evicted until at most 512 entries and an estimated 256 MiB remain.
+The eviction order is modules, tensor products, rounded channels, then phase pairs,
+least recently used within each class. Rounded channels own their data and survive
+module eviction. A complex phase is stored once under the smaller of its dual labels;
+it serves both labels and counts as two entries, so eviction cannot split the pair.
+An entry that cannot fit is evicted when that query ends. Eviction never
+runs while a query borrows modules, and a query's transient working set may exceed
+the retained limits.
+
+The estimate charges retained label/data buffers and per-entry value, byte-count
+and recency metadata; a channel is charged for the stored clone's capacity.
+Hash-table/B-tree node overhead, unused map capacity, allocator metadata, returned
+buffers and query scratch are excluded; the bound is not a peak-RSS limit.
+A single module-plus-ladders entry can be tens or hundreds of MiB.
 Fusion outcomes and N use only root-system combinatorics and never wait for
 the memo; F, R and CGC queries on one exceptional group run one at a time.
 
@@ -186,10 +195,32 @@ about 0.018 s for E₇ `1539`, 0.048 s for E₈ `3875`, 1.23 s for E₈ `27000`
 and 1.77 s for E₈ `30380`. These timings exclude ladder flattening; estimated
 retained module-plus-ladder sizes are still about 6, 15, 174 and 220 MiB,
 respectively (`benches/exceptional.rs` reproduces these cases). A query
-touching both of the last two exceeds the byte bound on its own, so the next
-query starts cold. F-unitarity over four E₈ `248`s still rebuilds modules and
-channels repeatedly; a release run takes about 75 s. Transient
-memory can reach GiB even though the retained memo has a smaller bound.
+touching both of the last two exceeds the byte bound on its own; completed
+channels can still stay warm after those modules are evicted.
+
+Release, sequential E₈ `248⁴` F-unitarity measurements at base `888062e`:
+
+| Policy | Instrumented query time | Module builds (rebuilds) | Channel builds (rebuilds) | Peak RSS |
+|---|---:|---:|---:|---:|
+| Wholesale reset (base accounting) | 72.34 s | 38 (33) | 64 (51) | 3.03 GiB |
+| Plain LRU (retained-clone accounting) | 34.36 s | 17 (12) | 34 (21) | 2.91 GiB |
+| Class order above (retained-clone accounting) | 15.51 s | 8 (3) | 13 (0) | 2.76 GiB |
+
+The public ignored test `tests/lie_exceptional.rs::self_dual::e8_f_unitarity_on_the_adjoint`
+without counters took 74.61 s before and 15.80 s after (4.72×); both returned
+residual `4.8405723873656825e-14`; peak RSS was 3.04 → 2.64 GiB.
+These are measured whole workloads, not the
+older trace projections. RSS is from `getrusage` (`time -l` cannot read sysctl
+in the sandbox), and includes transient allocations. The LRU comparison uses
+the same accounting and query-end boundaries as the chosen policy.
+`src/lie/general.rs::tests::e8_memo_workload_report` reproduces generation counts
+in release; `small_memo_workload_report` measures five fresh groups and 128 warm
+calls per group. Median cold/warm times (base → chosen) were G₂ `7` singlet R
+39.5 → 38.5 µs / 1.090 → 1.069 µs, F₄ `26` singlet R
+259 → 256 µs / 3.388 → 3.386 µs, and E₆ `27` phase
+164 → 159 µs / 0.113 → 0.117 µs. Warm calls built no modules or channels;
+the E₆ warm difference is 4 ns. These microsecond measurements are descriptive,
+not performance assertions.
 
 The Frobenius–Schur phase of a complex E₆ irrep is derived from the gauge, so
 its first `frobenius_schur_phase` call (or first A symbol) builds the exact
