@@ -198,52 +198,14 @@ respectively (`benches/exceptional.rs` reproduces these cases). A query
 touching both of the last two exceeds the byte bound on its own; completed
 channels can still stay warm after those modules are evicted.
 
-Release, sequential E₈ `248⁴` F-unitarity measurements at base `888062e`:
-
-| Policy | Instrumented query time | Module builds (rebuilds) | Channel builds (rebuilds) | Peak RSS |
-|---|---:|---:|---:|---:|
-| Wholesale reset (base accounting) | 72.34 s | 38 (33) | 64 (51) | 3.03 GiB |
-| Plain LRU (retained-clone accounting) | 34.36 s | 17 (12) | 34 (21) | 2.91 GiB |
-| Class order above (retained-clone accounting) | 15.51 s | 8 (3) | 13 (0) | 2.76 GiB |
-
-The public ignored test `tests/lie_exceptional.rs::self_dual::e8_f_unitarity_on_the_adjoint`
-without counters took 74.61 s before and 15.80 s after (4.72×); both returned
-residual `4.8405723873656825e-14`; peak RSS was 3.04 → 2.64 GiB.
-These are measured whole workloads, not the
-older trace projections. RSS is from `getrusage` (`time -l` cannot read sysctl
-in the sandbox), and includes transient allocations. The LRU comparison uses
-the same accounting and query-end boundaries as the chosen policy.
-`src/lie/general.rs::tests::e8_memo_workload_report` reproduces generation counts
-in release; `small_memo_workload_report` measures five fresh groups and 128 warm
-calls per group. Median cold/warm times (base → chosen) were G₂ `7` singlet R
-39.5 → 38.5 µs / 1.090 → 1.069 µs, F₄ `26` singlet R
-259 → 256 µs / 3.388 → 3.386 µs, and E₆ `27` phase
-164 → 159 µs / 0.113 → 0.117 µs. Warm calls built no modules or channels;
-the E₆ warm difference is 4 ns. These microsecond measurements are descriptive,
-not performance assertions.
-
-At base `3d48cf6` (after memo retention), checked `u128` radical formation
-replaces intermediate BigInt rational reductions with integer products and one
-gcd. Oversized operands or products fall back to the original exact formula;
-the canonical signed square root and correctly rounded conversion are unchanged.
-On macOS arm64 with Rust 1.99.1, three alternating sequential release runs of
-the public E₈ F-unitarity test had median query time **15.904 → 13.515 s**
-(1.18×); every residual was `4.8405723873656825e-14`.
-No CPU affinity was imposed; each test used one worker and sequential kernels.
-
-| Cold workload | Exact radical formation, before → after | Formation share, before → after |
-|---|---:|---:|
-| E₈ `248⁴` F-unitarity | 2.840 → 0.127 s | 17.51% → 0.96% |
-| `248 ⊗ 27000 → 248` | 0.450 → 0.017 s | 16.09% → 0.71% |
-| `248 ⊗ 30380 → 248` | 0.427 → 0.017 s | 11.71% → 0.53% |
-
-These stage timings use temporary instrumentation: one full F-unitarity profile
-and the median-query sample of three fresh-family channel profiles per revision.
-The channel median query times, including module construction, were
-2.793 → 2.349 s and 3.643 → 3.145 s, respectively. The full profile built eight
-modules and thirteen channels in both revisions. Formation includes exact-value
-allocation; conversion includes mapping and dropping the temporary exact entries.
-The rounding implementation was not changed. Timing instrumentation is not shipped.
+Measured in release on one core, the E₈ `248⁴` F-unitarity check (the ignored
+`tests/lie_exceptional.rs::self_dual::e8_f_unitarity_on_the_adjoint`) takes
+about 10.5 s with a process peak RSS of about 0.85 GiB, and a single
+`248 ⊗ 27000 → 248` or `248 ⊗ 30380 → 248` channel about 1.8 s or 2.4 s from
+a fresh group. Exact module construction and CGC descent account for most of
+that time. Peak RSS includes transient query allocations and is not bounded by
+the retained-memo limits above. `benches/exceptional.rs` reproduces the module
+and phase cases.
 
 The Frobenius–Schur phase of a complex E₆ irrep is derived from the gauge, so
 its first `frobenius_schur_phase` call (or first A symbol) builds the exact

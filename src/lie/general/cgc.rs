@@ -253,24 +253,7 @@ impl Channel {
         let p = ProductSpace::new(a, b, top);
 
         // §5.2: H is the nullspace of the stacked Δ(e_i) on span(P).
-        let mut rows: Vec<Vec<Q>> = Vec::new();
-        for i in 0..top.len() {
-            let nu: Vec<i64> = (0..top.len()).map(|k| top[k] + data.c(i, k)).collect();
-            let target = ProductSpace::new(a, b, &nu);
-            if target.pairs.is_empty() {
-                continue;
-            }
-            let base = rows.len();
-            rows.resize(base + target.len(), vec![Q::zero(); p.len()]);
-            for (col, &(pa, pb)) in p.pairs.iter().enumerate() {
-                for (p2, y) in &a.raise[i][pa] {
-                    rows[base + target.at((*p2, pb))][col] += y;
-                }
-                for (q2, y) in &b.raise[i][pb] {
-                    rows[base + target.at((pa, *q2))][col] += y;
-                }
-            }
-        }
+        let rows = raising_rows(data, a, b, &p, top);
         let (_pivots, echelon) = echelon_nullspace(rows, p.len());
         if echelon.len() != multiplicity {
             return Err(CgcError::NullityMismatch {
@@ -402,6 +385,42 @@ impl Channel {
     }
 }
 
+/// Stacked raising coproducts on `P`, retaining only nonzero coordinates.
+fn raising_rows(
+    data: &CartanData,
+    a: &Ladders,
+    b: &Ladders,
+    p: &ProductSpace,
+    top: &[i64],
+) -> Vec<BTreeMap<usize, Q>> {
+    let mut rows = Vec::new();
+    for i in 0..top.len() {
+        let nu: Vec<i64> = (0..top.len()).map(|k| top[k] + data.c(i, k)).collect();
+        let target = ProductSpace::new(a, b, &nu);
+        if target.pairs.is_empty() {
+            continue;
+        }
+        let base = rows.len();
+        rows.resize_with(base + target.len(), BTreeMap::new);
+        for (col, &(pa, pb)) in p.pairs.iter().enumerate() {
+            for (p2, y) in &a.raise[i][pa] {
+                *rows[base + target.at((*p2, pb))]
+                    .entry(col)
+                    .or_insert_with(Q::zero) += y;
+            }
+            for (q2, y) in &b.raise[i][pb] {
+                *rows[base + target.at((pa, *q2))]
+                    .entry(col)
+                    .or_insert_with(Q::zero) += y;
+            }
+        }
+    }
+    for row in &mut rows {
+        row.retain(|_, x| !x.is_zero());
+    }
+    rows
+}
+
 /// The echelon basis of `ker M` (§5.3): `E_k[p_l] = δ_kl` and `E_k[t] = 0`
 /// for `t < p_k`, returned with its pivots `p_1 < … < p_N`.
 ///
@@ -409,29 +428,38 @@ impl Channel {
 /// `f` then gives the kernel vector with `1` at `f`, `0` at every other free
 /// column, and nonzeros only at pivot columns processed before `f`, which lie
 /// after `f`. These vectors are exactly the echelon basis, and the free columns
-/// are its pivots, so no second elimination is needed.
-fn echelon_nullspace(mut m: Vec<Vec<Q>>, cols: usize) -> (Vec<usize>, Vec<Vec<Q>>) {
+/// are its pivots, so no second elimination is needed. Sparse updates are exact
+/// row operations on the same matrix; uniqueness of RREF (with reversed columns)
+/// fixes the same free columns and rational vectors, independent of storage.
+fn echelon_nullspace(mut m: Vec<BTreeMap<usize, Q>>, cols: usize) -> (Vec<usize>, Vec<Vec<Q>>) {
     let mut pivot_of_row: Vec<usize> = Vec::new();
     let mut is_pivot = vec![false; cols];
     for col in (0..cols).rev() {
         let r0 = pivot_of_row.len();
-        let Some(r) = (r0..m.len()).find(|&r| !m[r][col].is_zero()) else {
+        let Some(r) = (r0..m.len()).find(|&r| m[r].contains_key(&col)) else {
             continue;
         };
         m.swap(r0, r);
-        let inv = m[r0][col].recip();
-        for x in m[r0].iter_mut().filter(|x| !x.is_zero()) {
+        let inv = m[r0][&col].recip();
+        for x in m[r0].values_mut() {
             *x *= &inv;
         }
         let pivot = m[r0].clone();
         for (r, row) in m.iter_mut().enumerate() {
-            if r == r0 || row[col].is_zero() {
+            if r == r0 {
                 continue;
             }
-            let scale = row[col].clone();
-            for (x, y) in row.iter_mut().zip(&pivot) {
-                if !y.is_zero() {
-                    *x -= &scale * y;
+            let Some(scale) = row.remove(&col) else {
+                continue;
+            };
+            for (&j, y) in &pivot {
+                if j == col {
+                    continue;
+                }
+                let x = row.entry(j).or_insert_with(Q::zero);
+                *x -= &scale * y;
+                if x.is_zero() {
+                    row.remove(&j);
                 }
             }
         }
@@ -445,8 +473,8 @@ fn echelon_nullspace(mut m: Vec<Vec<Q>>, cols: usize) -> (Vec<usize>, Vec<Vec<Q>
             let mut v = vec![Q::zero(); cols];
             v[f] = Q::one();
             for (row, &pc) in m.iter().zip(&pivot_of_row) {
-                if !row[f].is_zero() {
-                    v[pc] = -row[f].clone();
+                if let Some(x) = row.get(&f) {
+                    v[pc] = -x.clone();
                 }
             }
             v
