@@ -154,7 +154,11 @@ hashing represent mathematical identity, independently of fingerprints.
 Lie dimensions, duals, Frobenius–Schur indicators, weights and fusion
 multiplicities are exact. SU(2) coefficients use signed square-rooted rationals
 and round once to `f64`. G₂, F₄, E₆, E₇ and E₈ coefficients are computed
-exactly and round once to `f64`. SU(N) and B/C/D
+exactly with Malachite 0.14 (`malachite-nz`, `malachite-q`, under
+`lie-generated`) and round once to `f64`. Each emitted exceptional radicand
+converts exactly once to the public num-based exact representation; each
+exceptional dimension converts once when its label is built. Internal module,
+nullspace and descent arithmetic stays in Malachite. SU(N) and B/C/D
 coefficients are computed in `f64` and accepted only after numerical
 verification checks; tables are offline projections of exact AnyonWiki data
 to `Complex64`.

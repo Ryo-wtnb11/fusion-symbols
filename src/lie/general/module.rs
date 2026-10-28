@@ -11,14 +11,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use num_bigint::BigInt;
-use num_rational::Ratio;
-use num_traits::{Signed, Zero};
-
 use super::roots::CartanData;
 use crate::lie::{GenerationError, LieError};
 
-pub(super) type Q = Ratio<BigInt>;
+pub(super) use super::rational::Q;
 
 /// Estimated bytes of a `Vec<i64>` with its header.
 pub(super) fn labels_bytes(v: &[i64]) -> usize {
@@ -27,8 +23,8 @@ pub(super) fn labels_bytes(v: &[i64]) -> usize {
 
 /// Estimated heap bytes of one rational: its numerator and denominator digits.
 pub(super) fn q_heap(q: &Q) -> usize {
-    let words = |x: &BigInt| x.bits().div_ceil(64) as usize;
-    8 * (words(q.numer()) + words(q.denom()))
+    (q.numerator_ref().limbs().len() + q.denominator_ref().limbs().len())
+        * std::mem::size_of::<malachite_nz::platform::Limb>()
 }
 
 /// Estimated bytes of a vector of rationals, capacity-based.
@@ -187,7 +183,7 @@ impl IrrepModule {
                     mu,
                     k,
                     offset,
-                    norms: vec![Q::from_integer(1.into())],
+                    norms: vec![Q::from(1)],
                     kept: Vec::new(),
                     gs: vec![Vec::new()],
                 }
@@ -231,8 +227,12 @@ impl IrrepModule {
         let Some((src, f)) = &space.lower[j] else {
             return SignedSqrtRational::zero();
         };
-        let ratio = &space.norms[a] / &self.weights[*src].norms[b];
-        SignedSqrtRational::from_prefactor_radical(f[a][b].clone(), ratio)
+        super::rational::radical(
+            &f[a][b],
+            &space.norms[a],
+            &Q::from(1),
+            &self.weights[*src].norms[b],
+        )
     }
 }
 
@@ -262,26 +262,26 @@ fn build_space(
     // §4.4: ⟨f_j w, f_k w′⟩ = ⟨e_k w, e_j w′⟩ + δ_jk (μ+α_j)_j ⟨w, w′⟩, with
     // ⟨e_k b_q, e_j b_q′⟩ = Σ_p F_k[q][p] F_j[q′][p] n_q n_q′ / n_p by contravariance.
     let c = cands.len();
-    let mut gram = vec![vec![Q::zero(); c]; c];
+    let mut gram = vec![vec![Q::from(0); c]; c];
     for s in 0..c {
         let (j, v1, q) = cands[s];
         for t in s..c {
             let (kk, v2, q2) = cands[t];
             let (w1, w2) = (&weights[v1], &weights[v2]);
-            let mut g = Q::zero();
+            let mut g = Q::from(0);
             if let (Some((tau, f1)), Some((_, f2))) = (&w1.lower[kk], &w2.lower[j]) {
                 let n_tau = &weights[*tau].norms;
                 for (p, n_p) in n_tau.iter().enumerate() {
-                    if !f1[q][p].is_zero() && !f2[q2][p].is_zero() {
+                    if f1[q][p].numerator_ref() != &0 && f2[q2][p].numerator_ref() != &0 {
                         g += &f1[q][p] * &f2[q2][p] / n_p;
                     }
                 }
-                if !g.is_zero() {
+                if g.numerator_ref() != &0 {
                     g *= &w1.norms[q] * &w2.norms[q2];
                 }
             }
             if j == kk && q == q2 {
-                g += Q::from_integer(w1.mu[j].into()) * &w1.norms[q];
+                g += Q::from(w1.mu[j]) * &w1.norms[q];
             }
             gram[t][s] = g.clone();
             gram[s][t] = g;
@@ -301,38 +301,38 @@ fn build_space(
             .zip(&norms)
             .map(|(row, n_l)| {
                 let proj = &row[t];
-                if proj.is_zero() {
-                    return Q::zero();
+                if proj.numerator_ref() == &0 {
+                    return Q::from(0);
                 }
                 let scale = proj / n_l;
                 n -= &scale * proj;
                 scale
             })
             .collect();
-        if n.is_negative() {
+        if n < 0 {
             return Err(ModuleError::IndefiniteForm { weight: mu }.into());
         }
-        if n.is_zero() {
+        if n.numerator_ref() == &0 {
             continue;
         }
-        let mut coeffs = vec![Q::zero(); gs.len() + 1];
-        coeffs[gs.len()] = Q::from_integer(1.into());
+        let mut coeffs = vec![Q::from(0); gs.len() + 1];
+        coeffs[gs.len()] = Q::from(1);
         for (scale, r) in scales.iter().zip(&gs) {
-            if !scale.is_zero() {
+            if scale.numerator_ref() != &0 {
                 for (x, y) in coeffs.iter_mut().zip(r) {
-                    if !y.is_zero() {
+                    if y.numerator_ref() != &0 {
                         *x -= scale * y;
                     }
                 }
             }
         }
         // All earlier candidates lie in the preceding span, orthogonal to b_a.
-        let mut row = vec![Q::zero(); c];
+        let mut row = vec![Q::from(0); c];
         row[t] = n.clone();
         for col in t + 1..c {
             row[col] = gram[t][col].clone();
             for (scale, prev) in scales.iter().zip(&inner) {
-                if !scale.is_zero() && !prev[col].is_zero() {
+                if scale.numerator_ref() != &0 && prev[col].numerator_ref() != &0 {
                     row[col] -= scale * &prev[col];
                 }
             }
@@ -371,7 +371,7 @@ fn build_space(
         .collect();
     for row in &mut gs {
         row.reserve_exact(norms.len() - row.len());
-        row.resize(norms.len(), Q::zero());
+        row.resize(norms.len(), Q::from(0));
     }
     let kept = kept_idx.iter().map(|&t| (cands[t].0, cands[t].2)).collect();
     Ok(WeightSpace {

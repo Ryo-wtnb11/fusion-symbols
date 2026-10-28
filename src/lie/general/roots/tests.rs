@@ -212,7 +212,11 @@ fn differential_sun() {
         let box_ = labels(r, if r <= 2 { 3 } else { 2 });
         for l in &box_ {
             let irrep = sun_irrep(l);
-            assert_eq!(d.weyl_dimension(l).unwrap(), irrep.dim(), "A{r} {l:?}");
+            assert_eq!(
+                super::super::rational::integer_to_num(&d.weyl_dimension(l).unwrap()),
+                irrep.dim(),
+                "A{r} {l:?}"
+            );
             assert_eq!(d.dual(l).unwrap(), irrep.dual().dynkin(), "A{r} {l:?}");
             assert_eq!(
                 d.weight_multiplicities(l).unwrap(),
@@ -257,7 +261,11 @@ fn differential_bcd() {
         for l in labels(r, total) {
             let irrep = bcd_irrep(series, &l);
             let tag = format!("{series:?}{r} {l:?}");
-            assert_eq!(d.weyl_dimension(&l).unwrap(), irrep.dim(), "{tag}");
+            assert_eq!(
+                super::super::rational::integer_to_num(&d.weyl_dimension(&l).unwrap()),
+                irrep.dim(),
+                "{tag}"
+            );
             assert_eq!(d.dual(&l).unwrap(), irrep.dual().dynkin(), "{tag}");
             assert_eq!(
                 d.weight_multiplicities(&l).unwrap(),
@@ -308,13 +316,13 @@ fn exceptional_fundamental_dimensions() {
         let d = CartanData::new(root);
         assert_eq!(
             d.weyl_dimension(&vec![0; root.rank()]).unwrap(),
-            BigInt::one()
+            Integer::from(1)
         );
         for (i, &dim) in dims.iter().enumerate() {
             let l = unit(root.rank(), i, 1);
             assert_eq!(
                 d.weyl_dimension(&l).unwrap(),
-                BigInt::from(dim),
+                Integer::from(dim),
                 "{root} ω{}",
                 i + 1
             );
@@ -328,14 +336,14 @@ fn g2_weyl_dimension_closed_form() {
     // dim = (a+1)(b+1)(a+b+2)(a+2b+3)(a+3b+4)(2a+3b+5)/120.
     let g2 = CartanData::new(RootSystem::G2);
     let closed = |a: i64, b: i64| {
-        let f = |x: i64| BigInt::from(x);
+        let f = |x: i64| Integer::from(x);
         f(a + 1)
             * f(b + 1)
             * f(a + b + 2)
             * f(a + 2 * b + 3)
             * f(a + 3 * b + 4)
             * f(2 * a + 3 * b + 5)
-            / 120
+            / f(120)
     };
     for a in 0..6 {
         for b in 0..6 {
@@ -369,7 +377,10 @@ fn exceptional_duals() {
     }
     // The 27/27̄ pair.
     assert_eq!(e6.dual(&unit(6, 0, 1)).unwrap(), unit(6, 5, 1));
-    assert_eq!(e6.weyl_dimension(&unit(6, 5, 1)).unwrap(), BigInt::from(27));
+    assert_eq!(
+        e6.weyl_dimension(&unit(6, 5, 1)).unwrap(),
+        Integer::from(27)
+    );
 }
 
 #[test]
@@ -533,13 +544,16 @@ fn exceptional_decompositions() {
     // The channel dimensions named in §9.3.
     assert_eq!(
         e7.weyl_dimension(&unit(7, 6, 2)).unwrap(),
-        BigInt::from(1463)
+        Integer::from(1463)
     );
     assert_eq!(
         e6.weyl_dimension(&[1, 0, 0, 0, 0, 1]).unwrap(),
-        BigInt::from(650)
+        Integer::from(650)
     );
-    assert_eq!(f4.weyl_dimension(&[0, 0, 0, 2]).unwrap(), BigInt::from(324));
+    assert_eq!(
+        f4.weyl_dimension(&[0, 0, 0, 2]).unwrap(),
+        Integer::from(324)
+    );
 }
 
 /// Brauer–Klimyk walks the 241 distinct weights of 248 and reflects each
@@ -560,7 +574,7 @@ fn e8_adjoint_square() {
         ])
     );
     for (l, dim) in [(unit(8, 7, 2), 27000), (unit(8, 6, 1), 30380)] {
-        assert_eq!(e8.weyl_dimension(&l).unwrap(), BigInt::from(dim));
+        assert_eq!(e8.weyl_dimension(&l).unwrap(), Integer::from(dim));
     }
 }
 
@@ -583,8 +597,10 @@ fn invalid_and_huge_labels() {
 
     let m = i64::MAX;
     // The Weyl dimension is exact past u128 (G2 closed form, as above).
-    let f = |x: i64| BigInt::from(x);
-    let expected = (f(m) + 1) * (f(m) + 2) * (f(m) + 3) * (f(m) + 4) * (f(m) * 2 + 5) / 120;
+    let f = |x: i64| Integer::from(x);
+    let expected =
+        (f(m) + f(1)) * (f(m) + f(2)) * (f(m) + f(3)) * (f(m) + f(4)) * (f(m) * f(2) + f(5))
+            / f(120);
     assert_eq!(g2.weyl_dimension(&[m, 0]).unwrap(), expected);
     assert_eq!(g2.two_rho_vee_sign(&[m, m]), Ok(1));
     // −(m, 0) → s₁ → (m, −m) → s₂ needs m − 3m: out of range.
@@ -606,5 +622,5 @@ fn invalid_and_huge_labels() {
         Err(LieError::LabelOverflow)
     );
     let e8 = CartanData::new(RootSystem::E8);
-    assert!(e8.weyl_dimension(&[m; 8]).unwrap() > BigInt::from(u128::MAX));
+    assert!(e8.weyl_dimension(&[m; 8]).unwrap() > u128::MAX);
 }

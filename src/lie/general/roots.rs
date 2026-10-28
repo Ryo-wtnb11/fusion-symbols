@@ -26,9 +26,10 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
-use num_bigint::BigInt;
+use super::rational::Q;
+use malachite_nz::integer::Integer;
+#[cfg(test)]
 use num_rational::Ratio;
-use num_traits::{One, Zero};
 
 use crate::lie::group::cartan;
 use crate::lie::{LieError, RootSystem};
@@ -135,7 +136,7 @@ impl CartanData {
 
     /// `dim L(λ) = ∏_{α>0} (λ+ρ, α) / (ρ, α)` (§9.1), in checked `u128` and,
     /// only when that overflows, in big rationals.
-    pub(crate) fn weyl_dimension(&self, lambda: &[i64]) -> Result<BigInt, LieError> {
+    pub(crate) fn weyl_dimension(&self, lambda: &[i64]) -> Result<Integer, LieError> {
         self.check_label(lambda)?;
         let factors = self
             .positive
@@ -156,14 +157,13 @@ impl CartanData {
             })
             .collect::<Result<Vec<_>, LieError>>()?;
         if let Some(d) = crate::exact::checked_integral_quotient(factors.iter().copied()) {
-            return Ok(BigInt::from(d));
+            return Ok(Integer::from(d));
         }
-        Ok(factors
+        let dim = factors
             .into_iter()
-            .fold(Ratio::<BigInt>::one(), |acc, (n, d)| {
-                acc * Ratio::new(BigInt::from(n), BigInt::from(d))
-            })
-            .to_integer())
+            .fold(Q::from(1), |acc, (n, d)| acc * Q::from_unsigneds(n, d));
+        // The Weyl formula is integral for every validated dominant label.
+        Ok(Integer::try_from(dim).expect("Weyl dimension is integral"))
     }
 
     /// `s_i w`, in place: `w_j ← w_j − w_i cartan(i, j)`.
@@ -418,26 +418,33 @@ fn coefficient_sum(rank: usize, roots: &[Vec<i64>]) -> Vec<i64> {
 /// along the edges of each connected component.
 fn symmetrizer(rank: usize, cartan: &[i64]) -> Vec<i64> {
     // Zero marks a node not yet reached; every reached d is positive.
-    let mut d = vec![Ratio::<i64>::zero(); rank];
+    let mut d = vec![Q::from(0); rank];
     for start in 0..rank {
-        if !d[start].is_zero() {
+        if d[start].numerator_ref() != &0 {
             continue;
         }
-        d[start] = Ratio::one();
+        d[start] = Q::from(1);
         let mut stack = vec![start];
         while let Some(i) = stack.pop() {
             for j in 0..rank {
                 let (cij, cji) = (cartan[i * rank + j], cartan[j * rank + i]);
-                if j != i && cij != 0 && d[j].is_zero() {
-                    d[j] = d[i] * Ratio::new(cji, cij);
+                if j != i && cij != 0 && d[j].numerator_ref() == &0 {
+                    d[j] = &d[i] * Q::from_signeds(cji, cij);
                     stack.push(j);
                 }
             }
         }
     }
     // Finite type: every ratio d_i / d_j is 1, 2 or 3, so d / min d is integral.
-    let min = d.iter().copied().min().unwrap_or_else(Ratio::one);
-    d.iter().map(|x| (x / min).to_integer()).collect()
+    let min = d.iter().min().cloned().unwrap_or_else(|| Q::from(1));
+    d.iter()
+        .map(|x| {
+            i64::try_from(
+                &Integer::try_from(x / &min).expect("finite-type symmetrizer is integral"),
+            )
+            .expect("finite-type symmetrizer fits i64")
+        })
+        .collect()
 }
 
 fn add(a: &[i64], b: &[i64]) -> Result<Vec<i64>, LieError> {

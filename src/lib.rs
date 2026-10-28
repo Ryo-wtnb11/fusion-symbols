@@ -89,7 +89,9 @@
 //!   that is SU(N ≥ 3), SO(N ≥ 5), Spin(N ≥ 5), Sp(2r ≥ 4), U(N ≥ 3), G₂, F₄,
 //!   E₆, E₇, E₈ and products containing them.
 //!   Dense kernels run sequentially through `t4a-faer`; the caller owns
-//!   parallelism.
+//!   parallelism. Exceptional exact arithmetic uses Malachite 0.14
+//!   (`malachite-nz`, `malachite-q`, LGPL-3.0-only); public exact types
+//!   remain num-based.
 //! - **`anyonwiki-unitary`**: the 303 rank 5–7 [`table`] categories (embedded
 //!   data only).
 //!
