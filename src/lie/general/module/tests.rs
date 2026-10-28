@@ -259,7 +259,7 @@ fn g2_7_order_candidates_and_entries() {
             (x.sign(), x.radicand().clone()),
             (
                 1,
-                num_rational::Ratio::from_integer(num_bigint::BigInt::from(q))
+                malachite_q::Rational::from(malachite_nz::integer::Integer::from(q))
             )
         );
     }
@@ -279,7 +279,7 @@ fn e6_minuscule_entries_are_zero_or_one() {
                         (x.sign(), x.radicand().clone()),
                         (
                             1,
-                            num_rational::Ratio::from_integer(num_bigint::BigInt::from(1))
+                            malachite_q::Rational::from(malachite_nz::integer::Integer::from(1))
                         )
                     );
                     ones += 1;
@@ -363,6 +363,34 @@ fn build_times() {
 #[ignore = "release performance report"]
 fn performance_modules() {
     use std::hash::{DefaultHasher, Hash, Hasher};
+    // Preserve the fixture's num 0.4 hash encoding without retaining num types.
+    // Ratio hashes the floor-division continued fraction; BigInt hashes its
+    // sign discriminant, then its magnitude's little-endian u64 limbs.
+    struct LegacyHash<'a>(&'a Q);
+    impl Hash for LegacyHash<'_> {
+        fn hash<H: Hasher>(&self, state: &mut H) {
+            use malachite_base::num::arithmetic::traits::DivMod;
+            use malachite_nz::integer::Integer;
+            let mut n = Integer::from_sign_and_abs(self.0 >= &0, self.0.to_numerator());
+            let mut d = Integer::from(self.0.to_denominator());
+            while d != 0 {
+                let (q, r) = n.div_mod(&d);
+                let sign: isize = if q < 0 {
+                    0
+                } else if q == 0 {
+                    1
+                } else {
+                    2
+                };
+                sign.hash(state);
+                if q != 0 {
+                    q.unsigned_abs_ref().to_limbs_asc().hash(state);
+                }
+                (n, d) = (d, r);
+            }
+            1isize.hash(state); // terminal zero integer
+        }
+    }
     let samples: usize = std::env::var("FS_PERF_SAMPLES")
         .unwrap_or_else(|_| "3".into())
         .parse()
@@ -403,19 +431,17 @@ fn performance_modules() {
             let mut depths = BTreeMap::<i64, usize>::new();
             let mut max_mult = 0;
             for w in &m.weights {
-                let conv = |v: &Vec<Q>| {
-                    v.iter()
-                        .map(super::super::rational::to_num)
-                        .collect::<Vec<_>>()
-                };
+                fn conv(v: &[Q]) -> Vec<LegacyHash<'_>> {
+                    v.iter().map(LegacyHash).collect()
+                }
                 let norms = conv(&w.norms);
-                let gs: Vec<_> = w.gs.iter().map(conv).collect();
+                let gs: Vec<_> = w.gs.iter().map(|v| conv(v)).collect();
                 let lower: Vec<_> = w
                     .lower
                     .iter()
                     .map(|x| {
                         x.as_ref()
-                            .map(|(src, f)| (*src, f.iter().map(conv).collect::<Vec<_>>()))
+                            .map(|(src, f)| (*src, f.iter().map(|v| conv(v)).collect::<Vec<_>>()))
                     })
                     .collect();
                 (&w.mu, &w.k, w.offset, &norms, &w.kept, &gs, &lower).hash(&mut hash);
@@ -453,11 +479,7 @@ fn golden_values() {
     let (_, g27) = build(RootSystem::G2, &[2, 0]);
     for mu in [[2, -1], [1, -1]] {
         let x = g27.f_entry(g27.weight_index(&mu).unwrap(), 1, 1, 1);
-        assert_eq!(
-            (x.sign(), x.radicand().clone()),
-            (-1, super::super::rational::to_num(&q(2, 3))),
-            "{mu:?}"
-        );
+        assert_eq!((x.sign(), x.radicand().clone()), (-1, q(2, 3)), "{mu:?}");
     }
     let zero = &g27.weights[g27.weight_index(&[0, 0]).unwrap()];
     assert_eq!(zero.norms, vec![q(96, 1), q(16, 1), q(84, 1)]);
@@ -473,10 +495,7 @@ fn golden_values() {
         .map(|x| x.radicand().clone())
         .collect();
     let expected = [q(1, 1), q(1, 2), q(2, 1), q(3, 2)];
-    assert_eq!(
-        radicands,
-        BTreeSet::from(expected.map(|x| super::super::rational::to_num(&x)))
-    );
+    assert_eq!(radicands, BTreeSet::from(expected));
 
     let (_, g64) = build(RootSystem::G2, &[1, 1]);
     let all = entries(&g64);

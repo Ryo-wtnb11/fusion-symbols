@@ -35,7 +35,7 @@ use crate::category::{
     unrank, BraidingStyle, CgcBlock, Count, EnumerationError, FBlock, FusionCategory, FusionStyle,
     GroupRepresentations, Promote, RBlock, Scalar, Storage, SymbolBlock,
 };
-use num_bigint::BigInt;
+use malachite_nz::integer::Integer;
 use std::{
     any::Any,
     convert::Infallible,
@@ -492,7 +492,7 @@ fn fingerprint<'a>(
     bytes.into()
 }
 
-fn product_unrank(factors: &[ExactCount], index: u64) -> Result<Vec<BigInt>, EnumerationError> {
+fn product_unrank(factors: &[ExactCount], index: u64) -> Result<Vec<Integer>, EnumerationError> {
     // The zero-coordinate product has exactly one object. The general unrank
     // routine requires at least one coordinate.
     if factors.is_empty() {
@@ -503,7 +503,7 @@ fn product_unrank(factors: &[ExactCount], index: u64) -> Result<Vec<BigInt>, Enu
         };
     }
     let bounds: Vec<_> = factors.iter().map(|c| c.total.bound()).collect();
-    unrank(&bounds, &BigInt::from(index)).ok_or(EnumerationError::OutOfRange)
+    unrank(&bounds, &Integer::from(index)).ok_or(EnumerationError::OutOfRange)
 }
 
 fn product_rank(factors: Vec<Ranked>) -> Result<Ranked, EnumerationError> {
@@ -623,7 +623,7 @@ macro_rules! product_queries {
             }
             fn object_count(&$this) -> Result<Option<u64>, EnumerationError> {
                 match $this.__fusion_symbols_exact_object_count(Validated(()))?.total {
-                    Count::Finite(n) => u64::try_from(n).map(Some).map_err(|_| EnumerationError::Overflow),
+                    Count::Finite(n) => u64::try_from(&n).map(Some).map_err(|_| EnumerationError::Overflow),
                     Count::AboveU64 => Err(EnumerationError::Overflow),
                     Count::Infinite => Ok(None),
                 }
@@ -636,7 +636,7 @@ macro_rules! product_queries {
             fn object_index(&$this, a: &Self::Object) -> Result<u64, EnumerationError> {
                 validate($this, &[a]);
                 let Ranked { index, .. } = $this.__fusion_symbols_validated_object_index(a, Validated(()))?;
-                u64::try_from(index).map_err(|_| EnumerationError::Overflow)
+                u64::try_from(&index).map_err(|_| EnumerationError::Overflow)
             }
             fn frobenius_schur_phase(&$this, a: &Self::Object) -> Self::Scalar {
                 validate($this, &[a]);
@@ -1120,7 +1120,7 @@ where
             .zip(x)
             .map(|((c, count), i)| {
                 c.__fusion_symbols_counted_object_at(
-                    u64::try_from(i).map_err(|_| EnumerationError::Overflow)?,
+                    u64::try_from(&i).map_err(|_| EnumerationError::Overflow)?,
                     count,
                     t,
                 )

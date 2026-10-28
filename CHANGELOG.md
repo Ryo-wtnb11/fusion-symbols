@@ -7,19 +7,29 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Breaking
+
+- Public exact types now use Malachite: dimensions return `Natural` and
+  `SignedSqrtRational` exposes `Rational`. Users name the types through
+  `malachite_nz` / `malachite_q` directly; there are no re-exports.
+
 ### Dependencies
 
-- `lie-generated` enables optional `malachite-nz` and `malachite-q` 0.14
-  (LGPL-3.0-only) for exceptional exact arithmetic. Public exact types remain
-  num-based; the base dependency set is unchanged.
+- Malachite 0.14 (`malachite-base`, `malachite-nz`, `malachite-q`) is required
+  for all exact arithmetic, including base builds (LGPL-3.0-only).
+  Remove `num-bigint` and `num-rational`; the crate remains MIT OR Apache-2.0.
 
 ### Performance
+
+- Unifying exact arithmetic removes the exceptional num-conversion boundary.
+  A single-thread release smoke run of 100 large-j Wigner 6j evaluations
+  improved from 0.113 s on `fe4100d` to 0.080 s.
 
 - B/C/D commutator verification keeps Cartans diagonal and uses sequential
   dense kernels for ladder products, preserving coefficient bits and
   fingerprints.
 - Exceptional modules, nullspaces, descent and radical formation use Malachite
-  rationals, converting only the final exact values to num. All exact data,
+  rationals throughout. All exact data,
   coefficient bits and fingerprints are unchanged. A sequential release E₈
   `248⁴` F-unitarity smoke run improved from 6.176 s to 2.879 s (2.15×).
 - Exceptional module construction reuses exact residual inner products for

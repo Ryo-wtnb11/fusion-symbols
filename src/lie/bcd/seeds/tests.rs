@@ -5,7 +5,7 @@
 
 use super::*;
 use crate::lie::bcd::Irrep;
-use num_rational::Ratio;
+use malachite_q::Rational;
 
 fn ivec(entries: &[(usize, usize, i64)]) -> Vec<(usize, usize, i64)> {
     let mut v = entries.to_vec();
@@ -115,7 +115,7 @@ fn dims_match_s30_defining_wdim() {
         let irr = Irrep::from_dynkin(series, &dynkin).unwrap();
         assert_eq!(
             irr.dim(),
-            num_bigint::BigInt::from(s.dim()),
+            malachite_nz::integer::Integer::from(s.dim()),
             "{series:?}_{r} vs Irrep::dim"
         );
     }
@@ -153,20 +153,20 @@ fn report_cartan_and_roots_are_exact() {
     //     projection in QSpace's non-Chevalley basis — the long root does not
     //     land on a single Cartan generator).
     let rep = check_commutators(&defining_seed(Series::C, 2).unwrap()).unwrap();
-    let one = Ratio::from_integer(1);
-    let zero = Ratio::from_integer(0);
-    let half = Ratio::new(1, 2);
-    assert_eq!(rep.cartan_coeffs[0], vec![one, zero]);
-    assert_eq!(rep.cartan_coeffs[1], vec![-half, half]);
+    let one = Rational::from(1);
+    let zero = Rational::from(0);
+    let half = Rational::from_signeds(1, 2);
+    assert_eq!(rep.cartan_coeffs[0], vec![one.clone(), zero.clone()]);
+    assert_eq!(rep.cartan_coeffs[1], vec![-&half, half]);
     // Roots in the Sz basis (hand-derived from [Sz_j,Sp_i]).
-    let two = Ratio::from_integer(2);
-    let mtwo = Ratio::from_integer(-2);
-    assert_eq!(rep.root_weights[0], vec![two, zero]); // α_0=(2,0)
+    let two = Rational::from(2);
+    let mtwo = Rational::from(-2);
+    assert_eq!(rep.root_weights[0], vec![two.clone(), zero.clone()]); // α_0=(2,0)
     assert_eq!(rep.root_weights[1], vec![mtwo, two]); // α_1=(-2,2)
 
     // B2 short root: [Sp_1,Sp_1^†]=Sz_0 (projects onto a DIFFERENT Cartan).
     let repb = check_commutators(&defining_seed(Series::B, 2).unwrap()).unwrap();
-    assert_eq!(repb.cartan_coeffs[1], vec![one, zero]);
+    assert_eq!(repb.cartan_coeffs[1], vec![one.clone(), zero.clone()]);
 }
 
 // ---- weight consistency vs the classical defining-rep weights ------------

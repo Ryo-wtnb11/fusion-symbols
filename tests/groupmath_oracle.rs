@@ -12,7 +12,7 @@
 use crate::common::lie as lie_test;
 use std::collections::BTreeMap;
 
-use num_bigint::BigInt;
+use malachite_nz::natural::Natural;
 
 use crate::common::bcd as bcd_test;
 use bcd_test::Series;
@@ -61,7 +61,7 @@ fn parse_channels(s: &str) -> Channels {
 
 /// racah dimensions and product channels for a group token, so both the SU(N)
 /// and B/C/D pipelines feed one comparison. Returns `(dim_a, dim_b, channels)`.
-fn racah_side(group: &str, a: &[i64], b: &[i64]) -> (BigInt, BigInt, Channels) {
+fn racah_side(group: &str, a: &[i64], b: &[i64]) -> (Natural, Natural, Channels) {
     // B/C/D groups: (series, expected rank is implied by the label length).
     let bcd_series = match group {
         "SO5" | "SO7" => Some(Series::B),
@@ -96,8 +96,8 @@ struct Row {
     group: String,
     a: Vec<i64>,
     b: Vec<i64>,
-    dim_a: BigInt,
-    dim_b: BigInt,
+    dim_a: Natural,
+    dim_b: Natural,
     channels: Channels,
 }
 
@@ -145,9 +145,9 @@ fn racah_reproduces_groupmath_products() {
             "{} {:?} x {:?} channels disagree with GroupMath",
             r.group, r.a, r.b
         );
-        let sum: BigInt = channels
+        let sum: Natural = channels
             .iter()
-            .map(|(c, &n)| racah_side(&r.group, c, &r.b).0 * n)
+            .map(|(c, &n)| racah_side(&r.group, c, &r.b).0 * Natural::from(n))
             .sum();
         assert_eq!(sum, &dim_a * &dim_b, "{} dimension sum rule", r.group);
     }

@@ -3,9 +3,13 @@
 //! property over arbitrary inputs. Regge orbit invariance is a unit test of the
 //! crate-private key in `src/lie/su2.rs`.
 
-use num_bigint::BigInt;
-use num_rational::Ratio;
-use num_traits::{One, Signed, Zero};
+use malachite_base::num::{
+    arithmetic::traits::{Abs, FloorSqrt},
+    basic::traits::{One, Zero},
+};
+use malachite_nz::integer::Integer;
+use malachite_q::Rational;
+
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
@@ -18,16 +22,19 @@ fn tri(a: u32, b: u32, c: u32) -> bool {
 
 /// Exact rational square root of a nonnegative rational that is a perfect
 /// square; `None` otherwise. Used to divide out the common irrational factor.
-fn exact_rational_sqrt(r: &Ratio<BigInt>) -> Option<Ratio<BigInt>> {
-    if r.is_zero() {
-        return Some(Ratio::zero());
+fn exact_rational_sqrt(r: &Rational) -> Option<Rational> {
+    if r == &0 {
+        return Some(Rational::ZERO);
     }
-    let n = r.numer().magnitude();
-    let d = r.denom().magnitude();
-    let ns = n.sqrt();
-    let ds = d.sqrt();
+    let n = r.numerator_ref();
+    let d = r.denominator_ref();
+    let ns = n.floor_sqrt();
+    let ds = d.floor_sqrt();
     if &(&ns * &ns) == n && &(&ds * &ds) == d {
-        Some(Ratio::new(BigInt::from(ns), BigInt::from(ds)))
+        Some(Rational::from_integers(
+            Integer::from(ns),
+            Integer::from(ds),
+        ))
     } else {
         None
     }
@@ -38,14 +45,14 @@ fn exact_rational_sqrt(r: &Ratio<BigInt>) -> Option<Ratio<BigInt>> {
 /// a perfect square); return the rational coefficient `R` such that the sum
 /// equals `R * sqrt(rho0)`, where `rho0` is the first nonzero term's radicand.
 /// Also returns `rho0`.
-fn factor_common_sqrt(terms: &[Ratio<BigInt>]) -> (Ratio<BigInt>, Ratio<BigInt>) {
-    let mut rho0: Option<Ratio<BigInt>> = None;
-    let mut acc = Ratio::zero();
+fn factor_common_sqrt(terms: &[Rational]) -> (Rational, Rational) {
+    let mut rho0: Option<Rational> = None;
+    let mut acc = Rational::ZERO;
     for t in terms {
-        if t.is_zero() {
+        if t == &0 {
             continue;
         }
-        let sign = Ratio::from(BigInt::from(if t.is_negative() { -1 } else { 1 }));
+        let sign = Rational::from(if t < &0 { -1 } else { 1 });
         let rho = t.abs();
         match &rho0 {
             None => {
@@ -59,12 +66,14 @@ fn factor_common_sqrt(terms: &[Ratio<BigInt>]) -> (Ratio<BigInt>, Ratio<BigInt>)
             }
         }
     }
-    (acc, rho0.unwrap_or_else(Ratio::zero))
+    (acc, rho0.unwrap_or(Rational::ZERO))
 }
 
 /// Signed square of the product `a * b * k`: `ssq(a) * ssq(b) * k * |k|`.
-fn product_signed_square(a: &SignedSqrtRational, b: &SignedSqrtRational, k: i64) -> Ratio<BigInt> {
-    a.signed_square() * b.signed_square() * Ratio::from(BigInt::from(k) * BigInt::from(k.abs()))
+fn product_signed_square(a: &SignedSqrtRational, b: &SignedSqrtRational, k: i64) -> Rational {
+    a.signed_square()
+        * b.signed_square()
+        * Rational::from(Integer::from(k) * Integer::from(k.abs()))
 }
 
 #[test]
@@ -109,16 +118,16 @@ fn six_j_orthogonality_exact() {
             ));
             x += 2;
         }
-        if terms.iter().all(Zero::is_zero) {
+        if terms.iter().all(|x| x == &0) {
             continue;
         }
         let (r, rho0) = factor_common_sqrt(&terms);
         if dj3 == dj6 {
             // sqrt(rho0) must be rational and R*sqrt(rho0) == 1.
             let s = exact_rational_sqrt(&rho0).expect("diagonal radicand is a square");
-            assert_eq!(r * s, Ratio::one(), "6j orthogonality diagonal != 1");
+            assert_eq!(r * s, Rational::ONE, "6j orthogonality diagonal != 1");
         } else {
-            assert!(r.is_zero(), "6j orthogonality off-diagonal != 0");
+            assert!((r == 0), "6j orthogonality off-diagonal != 0");
         }
         cases += 1;
     }
@@ -144,7 +153,7 @@ fn cg_orthogonality_sum_of_squares_is_one() {
         let m3choices: Vec<i32> = (-(dj3 as i32)..=dj3 as i32).step_by(2).collect();
         let dm3 = m3choices[rng.gen_range(0..m3choices.len())];
 
-        let mut sum: Ratio<BigInt> = Ratio::zero();
+        let mut sum: Rational = Rational::ZERO;
         let mut dm1 = -(dj1 as i32);
         while dm1 <= dj1 as i32 {
             let dm2 = dm3 - dm1;
@@ -157,7 +166,7 @@ fn cg_orthogonality_sum_of_squares_is_one() {
         }
         assert_eq!(
             sum,
-            Ratio::one(),
+            Rational::ONE,
             "CG sum of squares != 1 for j=({dj1},{dj2},{dj3}) m3={dm3}"
         );
         cases += 1;
@@ -201,11 +210,11 @@ fn cg_cross_j3_orthogonality_zero() {
             }
             dm1 += 2;
         }
-        if terms.iter().all(Zero::is_zero) {
+        if terms.iter().all(|x| x == &0) {
             continue;
         }
         let (r, _rho0) = factor_common_sqrt(&terms);
-        assert!(r.is_zero(), "CG cross-j3 orthogonality != 0");
+        assert!((r == 0), "CG cross-j3 orthogonality != 0");
         cases += 1;
     }
     assert!(cases >= 10, "only {cases} CG cross cases");

@@ -102,7 +102,7 @@ fn g2_positive_roots_and_highest_roots() {
 
 #[test]
 fn symmetrizer_and_form() {
-    let r = |n, d| Ratio::new(n, d);
+    let r = |n, d| Rational::from_signeds(n, d);
     // §2.2: long roots have length² 2.
     assert_eq!(
         CartanData::new(RootSystem::G2).symmetrizer(),
@@ -140,8 +140,8 @@ fn symmetrizer_and_form() {
         RootSystem::E8,
     ] {
         let d = CartanData::new(root);
-        for (i, &di) in d.symmetrizer().iter().enumerate() {
-            assert_eq!(d.form(i, i), di * 2);
+        for (i, di) in d.symmetrizer().iter().enumerate() {
+            assert_eq!(d.form(i, i), di * Rational::from(2));
             for j in 0..root.rank() {
                 assert_eq!(d.form(i, j), d.form(j, i), "{root} ({i},{j})");
             }
@@ -212,11 +212,7 @@ fn differential_sun() {
         let box_ = labels(r, if r <= 2 { 3 } else { 2 });
         for l in &box_ {
             let irrep = sun_irrep(l);
-            assert_eq!(
-                super::super::rational::integer_to_num(&d.weyl_dimension(l).unwrap()),
-                irrep.dim(),
-                "A{r} {l:?}"
-            );
+            assert_eq!(d.weyl_dimension(l).unwrap(), irrep.dim(), "A{r} {l:?}");
             assert_eq!(d.dual(l).unwrap(), irrep.dual().dynkin(), "A{r} {l:?}");
             assert_eq!(
                 d.weight_multiplicities(l).unwrap(),
@@ -261,11 +257,7 @@ fn differential_bcd() {
         for l in labels(r, total) {
             let irrep = bcd_irrep(series, &l);
             let tag = format!("{series:?}{r} {l:?}");
-            assert_eq!(
-                super::super::rational::integer_to_num(&d.weyl_dimension(&l).unwrap()),
-                irrep.dim(),
-                "{tag}"
-            );
+            assert_eq!(d.weyl_dimension(&l).unwrap(), irrep.dim(), "{tag}");
             assert_eq!(d.dual(&l).unwrap(), irrep.dual().dynkin(), "{tag}");
             assert_eq!(
                 d.weight_multiplicities(&l).unwrap(),

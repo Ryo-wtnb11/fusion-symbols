@@ -8,7 +8,8 @@ pub(crate) mod roots;
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use num_bigint::BigInt;
+use malachite_base::num::arithmetic::traits::UnsignedAbs;
+use malachite_nz::natural::Natural;
 
 use self::cgc::GeneralFamily;
 use self::roots::CartanData;
@@ -104,7 +105,7 @@ impl Engine {
     /// `u32::MAX`: its `κ_a` is generated in the module basis (§6.3), whose
     /// magnetic index is `u32`, and `frobenius_schur_phase` is infallible.
     pub(crate) fn irrep(&self, dynkin: &[i64]) -> Result<Irrep, LieError> {
-        let dim = rational::integer_to_num(&self.data.weyl_dimension(dynkin)?);
+        let dim = self.data.weyl_dimension(dynkin)?.unsigned_abs();
         let dual = self.data.dual(dynkin)?;
         if dual != dynkin && u32::try_from(&dim).is_err() {
             return Err(LieError::LabelOverflow);
@@ -204,7 +205,7 @@ pub(crate) struct Irrep(Arc<Data>);
 struct Data {
     dynkin: Vec<i64>,
     dual: Vec<i64>,
-    dim: BigInt,
+    dim: Natural,
     dim_f64: f64,
     /// `⟨−w₀λ, 2ρ∨⟩ = ⟨λ, 2ρ∨⟩`, so the dual carries the same sign.
     sign: i8,
@@ -215,7 +216,7 @@ impl Irrep {
         &self.0.dynkin
     }
 
-    pub(crate) fn dim(&self) -> &BigInt {
+    pub(crate) fn dim(&self) -> &Natural {
         &self.0.dim
     }
 

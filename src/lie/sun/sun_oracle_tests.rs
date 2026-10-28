@@ -16,11 +16,11 @@
 //! plus a few values checked against SUNRepresentations.jl 0.4.0.
 #![cfg(feature = "lie-generated")]
 
+use malachite_base::num::basic::traits::Zero;
 use std::collections::BTreeMap;
 
-use num_bigint::BigInt;
-use num_rational::Ratio;
-use num_traits::Zero;
+use malachite_nz::integer::Integer;
+use malachite_q::Rational;
 
 use crate::lie::sun::Irrep;
 
@@ -132,26 +132,26 @@ fn patterns_follow_the_gt_iterator_order() {
 /// `⟨M + δ_{k,l}| E_{l,l+1} |M⟩² = −Π_{i≤l+1}(ℓ_{i,l+1} − ℓ_{k,l})
 /// Π_{i≤l−1}(ℓ_{i,l−1} − ℓ_{k,l} − 1) / Π_{i≤l, i≠k}(ℓ_{i,l} − ℓ_{k,l})(ℓ_{i,l} − ℓ_{k,l} − 1)`
 /// with `ℓ_{i,l} = m_{i,l} − i`.
-fn gt_raising_square(p: &[i64], n: usize, k: usize, l: usize) -> Ratio<BigInt> {
+fn gt_raising_square(p: &[i64], n: usize, k: usize, l: usize) -> Rational {
     let ell = |i: usize, row: usize| entry(p, n, i, row) - i as i64;
     let lk = ell(k, l);
-    let mut num = BigInt::from(-1);
-    let mut den = BigInt::from(1);
+    let mut num = Integer::from(-1);
+    let mut den = Integer::from(1);
     for i in 1..=l + 1 {
-        num *= ell(i, l + 1) - lk;
+        num *= Integer::from(ell(i, l + 1) - lk);
     }
     for i in 1..l {
-        num *= ell(i, l - 1) - lk - 1;
+        num *= Integer::from(ell(i, l - 1) - lk - 1);
     }
-    if num.is_zero() {
+    if num == 0 {
         // Raising would leave the betweenness cone; a denominator factor can
         // vanish together with it.
-        return Ratio::zero();
+        return Rational::ZERO;
     }
     for i in (1..=l).filter(|&i| i != k) {
-        den *= (ell(i, l) - lk) * (ell(i, l) - lk - 1);
+        den *= Integer::from((ell(i, l) - lk) * (ell(i, l) - lk - 1));
     }
-    Ratio::new(num, den)
+    Rational::from_integers(num, den)
 }
 
 #[test]
@@ -168,7 +168,7 @@ fn creation_matrices_are_the_gt_raising_operators() {
                 for (col, p) in pats.iter().enumerate() {
                     for k in 1..=l {
                         let sq = gt_raising_square(p, n, k, l);
-                        if sq.is_zero() {
+                        if sq == 0 {
                             continue;
                         }
                         let mut up = p.clone();
@@ -184,14 +184,14 @@ fn creation_matrices_are_the_gt_raising_operators() {
                 assert_eq!(got, want, "{d:?} l={l}");
                 // `[E_l, E_l^T]` is diagonal `w_l − w_{l+1}`; its diagonal is
                 // exact: `Σ_j E_ij² − Σ_j E_ji²`.
-                let mut diag = vec![Ratio::<BigInt>::zero(); pats.len()];
+                let mut diag = vec![Rational::ZERO; pats.len()];
                 for ((row, col), sq) in &got {
                     diag[*row] += sq;
                     diag[*col] -= sq;
                 }
                 for (i, p) in pats.iter().enumerate() {
                     let w = weight(p, n);
-                    assert_eq!(diag[i], Ratio::from(BigInt::from(w[l - 1] - w[l])), "{d:?}");
+                    assert_eq!(diag[i], Rational::from(w[l - 1] - w[l]), "{d:?}");
                 }
             }
         }
@@ -199,12 +199,12 @@ fn creation_matrices_are_the_gt_raising_operators() {
     // Checked against SUNRepresentations.jl 0.4.0 (`creation`): SU(3)
     // adjoint, level 2, `(row, col) → entry²` (1-based basis indices).
     let adj = Irrep::from_dynkin(&[1, 1]).unwrap().creation();
-    let got: BTreeMap<(usize, usize), Ratio<BigInt>> = adj[1]
+    let got: BTreeMap<(usize, usize), Rational> = adj[1]
         .iter()
         .map(|e| ((e.row + 1, e.col + 1), e.value.signed_square()))
         .collect();
-    let r = |a: i64, b: i64| Ratio::new(BigInt::from(a), BigInt::from(b));
-    let want: BTreeMap<(usize, usize), Ratio<BigInt>> = [
+    let r = |a: i64, b: i64| Rational::from_integers(Integer::from(a), Integer::from(b));
+    let want: BTreeMap<(usize, usize), Rational> = [
         ((4, 1), r(1, 1)),
         ((3, 2), r(3, 2)),
         ((5, 2), r(1, 2)),

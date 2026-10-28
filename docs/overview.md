@@ -108,7 +108,7 @@ each factor keeps its own gauge.
 labels, then lattice admission, then engine integer limits. Charges outside
 `-i32::MAX..=i32::MAX` return `LabelOverflow`. `dynkin`/`dynkin_labels` read
 the semisimple coordinates and `charges` the torus coordinates.
-`dim_exact` returns `BigInt`; the category's `dim` returns `f64`.
+`dim_exact` returns `malachite_nz::natural::Natural`; the category's `dim` returns `f64`.
 `weight_multiplicities` uses Dynkin coordinates followed by torus charges.
 `gt_patterns` gives the Gelfand–Tsetlin (GT) basis for A-series rank ≥ 2, and
 `None` for A1, B/C/D, exceptional groups and composites.
@@ -154,11 +154,10 @@ hashing represent mathematical identity, independently of fingerprints.
 Lie dimensions, duals, Frobenius–Schur indicators, weights and fusion
 multiplicities are exact. SU(2) coefficients use signed square-rooted rationals
 and round once to `f64`. G₂, F₄, E₆, E₇ and E₈ coefficients are computed
-exactly with Malachite 0.14 (`malachite-nz`, `malachite-q`, under
-`lie-generated`) and round once to `f64`. Each emitted exceptional radicand
-converts exactly once to the public num-based exact representation; each
-exceptional dimension converts once when its label is built. Internal module,
-nullspace and descent arithmetic stays in Malachite. SU(N) and B/C/D
+exactly with the same required Malachite 0.14 arithmetic family as the rest
+of the crate and round once to `f64`. Public exact rationals are
+`malachite_q::Rational`; there are no arithmetic backend conversions.
+SU(N) and B/C/D
 coefficients are computed in `f64` and accepted only after numerical
 verification checks; tables are offline projections of exact AnyonWiki data
 to `Complex64`.

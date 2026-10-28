@@ -114,7 +114,7 @@ fn magnetic_index(value: usize) -> Result<u32, LieError> {
 fn sparse_entries(s1: &Irrep, cgc: &CatalogCgc) -> Result<Vec<MEntry>, LieError> {
     let (rows, d3) = cgc.copy_shape();
     // d1 = dim(s1); the row index is m1 + d1·m2 (first factor fast).
-    let d1 = super::super::checked_dimension(s1.dim())?;
+    let d1 = super::super::checked_dimension(&s1.dim())?;
     let mult = cgc.multiplicity();
     let mut out = Vec::new();
     for mu in 0..mult {

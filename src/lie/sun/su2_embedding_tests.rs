@@ -17,6 +17,7 @@
 
 use super::{cgc, Irrep};
 use crate::lie::su2::clebsch_gordan;
+use malachite_base::num::conversion::traits::ExactFrom;
 use rand::{Rng, SeedableRng};
 
 /// GT basis index `x` (0..=dj) of an SU(2) irrep maps to the doubled magnetic
@@ -165,7 +166,10 @@ fn so4_su2xsu2_two_paths_agree() {
             // dim (p+1)(q+1) via the sun N=2 dims, integer-exact.
             let dl = Irrep::from_dynkin(&[p]).unwrap().dim();
             let dr = Irrep::from_dynkin(&[q]).unwrap().dim();
-            assert_eq!(dl.clone() * dr, num_bigint::BigInt::from((p + 1) * (q + 1)));
+            assert_eq!(
+                dl.clone() * dr,
+                malachite_nz::natural::Natural::exact_from((p + 1) * (q + 1))
+            );
 
             // Factor products: SU(2) via GT engine (sun N=2) vs exact base. Only
             // the left factor (p, p2) is exercised — the right factor (q) obeys the

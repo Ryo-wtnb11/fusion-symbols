@@ -6,8 +6,9 @@
 //! Identity preserves the ordered presentation, including B1/C1/A1 and D3/A3.
 //! D2 denotes two ordered A1 coordinates within one presentation block.
 
-use num_bigint::BigInt;
-use num_traits::{One, Signed, ToPrimitive, Zero};
+use malachite_base::num::basic::traits::One;
+use malachite_nz::integer::Integer;
+
 use std::{fmt, sync::Arc};
 
 /// Root-system presentation of a compact semisimple Lie algebra.
@@ -187,11 +188,11 @@ impl GroupId {
         let mut h = Vec::new();
         h.try_reserve_exact(size)
             .map_err(|_| GroupError::SizeOverflow)?;
-        h.extend(generators.iter().flatten().map(|&x| BigInt::from(x)));
+        h.extend(generators.iter().flatten().map(|&x| Integer::from(x)));
         // Unimodular Euclidean row operations preserve exactly the input lattice.
         for j in 0..n {
             for i in j + 1..n {
-                while !h[i * n + j].is_zero() {
+                while h[i * n + j] != 0 {
                     let q = &h[j * n + j] / &h[i * n + j];
                     for k in j..n {
                         let sub = &q * &h[i * n + k];
@@ -200,12 +201,12 @@ impl GroupId {
                     }
                 }
             }
-            if h[j * n + j].is_zero() {
+            if h[j * n + j] == 0 {
                 return Err(GroupError::InvalidLattice {
                     reason: "singular basis",
                 });
             }
-            if h[j * n + j].is_negative() {
+            if h[j * n + j] < 0 {
                 for k in j..n {
                     h[j * n + k] = -&h[j * n + k];
                 }
@@ -213,10 +214,10 @@ impl GroupId {
             for i in 0..j {
                 let pivot = &h[j * n + j];
                 let mut q = &h[i * n + j] / pivot;
-                if (&h[i * n + j] % pivot).is_negative() {
-                    q -= 1;
+                if (&h[i * n + j] % pivot) < 0 {
+                    q -= Integer::ONE;
                 }
-                if !q.is_zero() {
+                if !(q == 0) {
                     for k in j..n {
                         let sub = &q * &h[j * n + k];
                         h[i * n + k] -= sub;
@@ -225,18 +226,22 @@ impl GroupId {
             }
         }
         let mut hnf = Vec::new();
-        let differs = |k: usize, x: &BigInt| {
+        let differs = |k: usize, x: &Integer| {
             if k / n == k % n {
-                !x.is_one()
+                x != &1
             } else {
-                !x.is_zero()
+                x != &0
             }
         };
         hnf.try_reserve_exact(h.iter().enumerate().filter(|(k, x)| differs(*k, x)).count())
             .map_err(|_| GroupError::SizeOverflow)?;
         for (k, x) in h.iter().enumerate() {
             if differs(k, x) {
-                hnf.push((k / n, k % n, x.to_i64().ok_or(GroupError::SizeOverflow)?));
+                hnf.push((
+                    k / n,
+                    k % n,
+                    i64::try_from(x).map_err(|_| GroupError::SizeOverflow)?,
+                ));
             }
         }
         let group = Self(Arc::new(Datum {
@@ -449,7 +454,8 @@ impl GroupId {
         };
         fast().unwrap_or_else(|| {
             // Arbitrarily coupled lattices can require larger exact intermediates.
-            let mut remainder: Vec<BigInt> = (0..n).map(|i| BigInt::from(coordinate(i))).collect();
+            let mut remainder: Vec<Integer> =
+                (0..n).map(|i| Integer::from(coordinate(i))).collect();
             let mut entries = self.0.hnf.iter().peekable();
             for i in 0..n {
                 let pivot = if let Some(&&(row, col, value)) = entries.peek() {
@@ -462,15 +468,16 @@ impl GroupId {
                 } else {
                     1
                 };
-                if !(&remainder[i] % pivot).is_zero() {
+                let pivot = Integer::from(pivot);
+                if (&remainder[i] % &pivot) != 0 {
                     return false;
                 }
-                let coefficient = &remainder[i] / pivot;
+                let coefficient = &remainder[i] / &pivot;
                 while let Some(&&(row, col, value)) = entries.peek() {
                     if row != i {
                         break;
                     }
-                    remainder[col] -= &coefficient * value;
+                    remainder[col] -= &coefficient * Integer::from(value);
                     entries.next();
                 }
             }

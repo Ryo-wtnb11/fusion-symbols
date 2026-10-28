@@ -96,7 +96,7 @@ fn spinor_dimensions_are_the_clifford_module_dimensions() {
         for label in spinor_labels(n, r) {
             assert_eq!(
                 ir(n, &label).dim_exact(),
-                want.into(),
+                want,
                 "dim of Spin({n}) {label:?}"
             );
         }

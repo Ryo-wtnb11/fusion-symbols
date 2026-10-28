@@ -155,7 +155,7 @@ fn check_irrep(cat: &mut CanonicalCatalog, series: Series, irrep: &Irrep) {
         .collect();
     let (e, h) = generators(cat, irrep);
     let n = e[0].len();
-    assert_eq!(irrep.dim(), n.into(), "{irrep:?}");
+    assert_eq!(irrep.dim(), n, "{irrep:?}");
     if n == 1 {
         assert!(e.iter().chain(&h).all(|x| max_abs(x) < TOL), "trivial");
         return;

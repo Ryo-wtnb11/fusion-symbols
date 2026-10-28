@@ -43,7 +43,7 @@ assert_eq!(one.spin(), HalfInt::integer(1));
 
 let su3 = LieGroup::new(GroupId::su(3)?)?;
 let eight = su3.irrep(&[1, 1])?; // the adjoint
-assert_eq!(eight.dim_exact(), 8u32.into());
+assert_eq!(eight.dim_exact(), 8u32);
 
 let u2 = LieGroup::new(GroupId::u(2)?)?;
 let doublet = u2.irrep_with_charges(&[1], &[-1])?; // SU(2) doublet, U(1) charge -1

@@ -23,7 +23,7 @@
 //!
 //! [User Guide]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/user-guide/README.md
 
-use num_rational::Ratio;
+use malachite_q::Rational;
 
 use crate::cache;
 pub use crate::exact::SignedSqrtRational;
@@ -154,8 +154,8 @@ fn wigner_6j_uncached(
     let (mut sden, mut rden) = den.splitsquare();
     Pf::divgcd(&mut snum, &mut sden);
     Pf::divgcd(&mut rnum, &mut rden);
-    let s = Ratio::new(snum.to_bigint(), sden.to_bigint());
-    let r = Ratio::new(rnum.to_bigint(), rden.to_bigint());
+    let s = Rational::from_integers(snum.to_bigint(), sden.to_bigint());
+    let r = Rational::from_integers(rnum.to_bigint(), rden.to_bigint());
 
     // Racah alternating sum over k (in halved units). Widen to i64 before
     // summing (as delta_sq_pf does): u32 addition of four doubled spins could
@@ -256,8 +256,8 @@ fn wigner_3j_uncached(
     let (mut sden, mut rden) = den.splitsquare();
     Pf::divgcd(&mut snum, &mut sden);
     Pf::divgcd(&mut rnum, &mut rden);
-    let s = Ratio::new(snum.to_bigint(), sden.to_bigint());
-    let r = Ratio::new(rnum.to_bigint(), rden.to_bigint());
+    let s = Rational::from_integers(snum.to_bigint(), sden.to_bigint());
+    let r = Rational::from_integers(rnum.to_bigint(), rden.to_bigint());
 
     // Alternating k-sum (halved units). Arguments (all >= 0 within range):
     //   k, (j1+j2-j3)/2 - k, (j1-m1)/2 - k, (j2+m2)/2 - k,
@@ -1266,9 +1266,9 @@ pub(super) fn fingerprint() -> &'static [u8] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use num_bigint::BigInt;
+    use malachite_nz::integer::Integer;
 
-    fn sq(v: &SignedSqrtRational) -> Ratio<BigInt> {
+    fn sq(v: &SignedSqrtRational) -> Rational {
         v.signed_square()
     }
 
@@ -1284,7 +1284,10 @@ mod tests {
     fn six_j_known_value() {
         // {1/2 1/2 1; 1/2 1/2 1} = 1/6, so signed_square = 1/36.
         let v = wigner_6j(1, 1, 2, 1, 1, 2);
-        assert_eq!(sq(&v), Ratio::new(BigInt::from(1), BigInt::from(36)));
+        assert_eq!(
+            sq(&v),
+            Rational::from_integers(Integer::from(1), Integer::from(36))
+        );
         assert!((v.to_f64() - 1.0 / 6.0).abs() < 1e-14);
     }
 
@@ -1292,7 +1295,10 @@ mod tests {
     fn six_j_all_ones() {
         // {1 1 1; 1 1 1} = 1/6.
         let v = wigner_6j(2, 2, 2, 2, 2, 2);
-        assert_eq!(sq(&v), Ratio::new(BigInt::from(1), BigInt::from(36)));
+        assert_eq!(
+            sq(&v),
+            Rational::from_integers(Integer::from(1), Integer::from(36))
+        );
     }
 
     #[test]
@@ -1307,7 +1313,10 @@ mod tests {
         // (1/2 1/2 1; 1/2 -1/2 0) = +1/sqrt(6), signed_square = +1/6
         // (checked against WignerSymbols.jl 2.0.0).
         let v = wigner_3j(1, 1, 2, 1, -1, 0);
-        assert_eq!(sq(&v), Ratio::new(BigInt::from(1), BigInt::from(6)));
+        assert_eq!(
+            sq(&v),
+            Rational::from_integers(Integer::from(1), Integer::from(6))
+        );
     }
 
     #[test]
@@ -1320,7 +1329,10 @@ mod tests {
     fn cg_known_value() {
         // <1/2 1/2, 1/2 -1/2 | 1 0> = 1/sqrt(2), signed_square = 1/2.
         let v = clebsch_gordan(1, 1, 1, -1, 2, 0);
-        assert_eq!(sq(&v), Ratio::new(BigInt::from(1), BigInt::from(2)));
+        assert_eq!(
+            sq(&v),
+            Rational::from_integers(Integer::from(1), Integer::from(2))
+        );
         assert!((v.to_f64() - (0.5f64).sqrt()).abs() < 1e-14);
     }
 
@@ -1328,7 +1340,7 @@ mod tests {
     fn cg_stretched_is_one() {
         // <1/2 1/2, 1/2 1/2 | 1 1> = 1.
         let v = clebsch_gordan(1, 1, 1, 1, 2, 2);
-        assert_eq!(sq(&v), Ratio::from(BigInt::from(1)));
+        assert_eq!(sq(&v), Rational::from(1));
         assert!((v.to_f64() - 1.0).abs() < 1e-14);
     }
 
@@ -1574,8 +1586,8 @@ mod tests {
                             for dj6 in 0..=4u32 {
                                 let f = f_symbol_exact(dj1, dj2, dj3, dj4, dj5, dj6);
                                 let w = wigner_6j(dj1, dj2, dj5, dj3, dj4, dj6);
-                                let dim = BigInt::from(((dj5 + 1) * (dj6 + 1)) as i64);
-                                let mut expected = w.signed_square() * Ratio::from(dim);
+                                let dim = Integer::from(((dj5 + 1) * (dj6 + 1)) as i64);
+                                let mut expected = w.signed_square() * Rational::from(dim);
                                 let sum = (dj1 as i64) + (dj2 as i64) + (dj3 as i64) + (dj4 as i64);
                                 if (sum / 2).rem_euclid(2) == 1 {
                                     expected = -expected;

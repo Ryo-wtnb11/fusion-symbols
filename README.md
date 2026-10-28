@@ -48,11 +48,10 @@ fusion-symbols = "0.10"
 | `lie-generated` | yes | Runtime coefficients for SU(N), SO(N), Spin(N), Sp(2r) of higher rank and for G₂, F₄, E₆, E₇, E₈, and the dense backend (`t4a-faer`, sequential; the caller owns parallelism) |
 | `anyonwiki-unitary` | no | 303 rank 5–7 table categories, data only |
 
-The base dependencies are `num-bigint`, `num-rational`, `num-traits`,
-`num-complex` and `quick_cache`. `lie-generated` also enables `t4a-faer`
-and Malachite 0.14 (`malachite-nz`, `malachite-q`) for exceptional exact
-arithmetic. Public exact types remain num-based.
-Use `default-features = false` for the base build without these optional dependencies.
+The required dependencies include Malachite 0.14 (`malachite-base`,
+`malachite-nz`, `malachite-q`) for all exact arithmetic, `num-traits`,
+`num-complex` and `quick_cache`. `lie-generated` adds `t4a-faer`.
+Use `default-features = false` for the base build without the dense backend.
 
 ## Example
 
@@ -147,5 +146,4 @@ data.
 Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
 [MIT license](LICENSE-MIT) at your option.
 
-The optional Malachite 0.14 dependencies enabled by `lie-generated` are
-licensed LGPL-3.0-only. This crate's own source remains MIT OR Apache-2.0.
+Malachite 0.14 is a required dependency licensed LGPL-3.0-only. This crate's own source remains MIT OR Apache-2.0.

@@ -60,7 +60,7 @@ mod g2 {
     };
     use fusion_symbols::lie::{GroupId, LieGroup, LieIrrep, RootSystem};
     use fusion_symbols::product::Product;
-    use num_bigint::BigInt;
+    use malachite_nz::natural::Natural;
     use std::time::Instant;
 
     fn g2() -> LieGroup {
@@ -99,7 +99,7 @@ mod g2 {
             ([3, 0], 77),
         ] {
             let a = g.irrep(&label).unwrap();
-            assert_eq!(a.dim_exact(), BigInt::from(dim), "{label:?}");
+            assert_eq!(a.dim_exact(), Natural::from(dim as u64), "{label:?}");
             assert_eq!(g.dim(&a), f64::from(dim));
             assert_eq!(a.dynkin(), label);
             assert_eq!(a.dynkin_labels().collect::<Vec<_>>(), label);
@@ -319,7 +319,7 @@ mod self_dual {
     };
     use fusion_symbols::lie::{GroupId, LieGroup, LieIrrep, RootSystem};
     use fusion_symbols::product::Product;
-    use num_bigint::BigInt;
+    use malachite_nz::natural::Natural;
     use std::time::Instant;
 
     /// Bourbaki labels, independently checked against the Weyl formula.
@@ -373,7 +373,7 @@ mod self_dual {
     fn check(g: &LieGroup, labels: &[(&[i64], u32, f64)]) {
         for &(label, dim, fs) in labels {
             let a = g.irrep(label).unwrap();
-            assert_eq!(a.dim_exact(), BigInt::from(dim), "{label:?}");
+            assert_eq!(a.dim_exact(), Natural::from(dim as u64), "{label:?}");
             assert_eq!(g.dim(&a), f64::from(dim));
             assert_eq!(g.dual(&a), a);
             assert_eq!(g.frobenius_schur_indicator(&a), fs, "{label:?}");
@@ -532,7 +532,7 @@ mod e6 {
     };
     use fusion_symbols::lie::{GroupId, LieError, LieGroup, LieIrrep, RootSystem};
     use fusion_symbols::product::Product;
-    use num_bigint::BigInt;
+    use malachite_nz::natural::Natural;
     use std::time::Instant;
 
     /// Bourbaki labels; dimensions from an independent Weyl-formula script
@@ -599,7 +599,7 @@ mod e6 {
         let g = e6();
         for (label, dim, dual) in TABLE {
             let a = l(&g, label);
-            assert_eq!(a.dim_exact(), BigInt::from(dim), "{label:?}");
+            assert_eq!(a.dim_exact(), Natural::from(dim as u64), "{label:?}");
             assert_eq!(g.dim(&a), f64::from(dim));
             assert_eq!(g.dual(&a), l(&g, dual), "{label:?}");
             assert_eq!(g.twist(&a), 1.0);
@@ -675,14 +675,14 @@ mod e6 {
         }
         // dim 2 096 092 350 ≤ u32::MAX, and the dual of the rejected pair.
         let below = l(&g, [0, 0, 0, 0, 0, 14]);
-        assert_eq!(below.dim_exact(), BigInt::from(2_096_092_350u32));
+        assert_eq!(below.dim_exact(), Natural::from(2_096_092_350u32));
         // Its product with 27̄ reaches (0, …, 0, 15).
         assert!(matches!(
             g.fusion(&below, &l(&g, V27B)),
             Err(LieError::LabelOverflow)
         ));
         let big = l(&g, [15, 0, 0, 0, 0, 15]);
-        assert_eq!(big.dim_exact(), BigInt::from(212_360_413_913_278_488u64));
+        assert_eq!(big.dim_exact(), Natural::from(212_360_413_913_278_488u64));
         assert_eq!(g.frobenius_schur_phase(&big), 1.0);
     }
 

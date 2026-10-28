@@ -52,7 +52,7 @@ pub(crate) mod sealed {
     /// a nested product ranks in one pass over its leaves.
     pub struct Ranked {
         pub(crate) count: super::enumeration::Count,
-        pub(crate) index: num_bigint::BigInt,
+        pub(crate) index: malachite_nz::integer::Integer,
     }
     impl Sealed for f64 {}
     impl Sealed for num_complex::Complex64 {}

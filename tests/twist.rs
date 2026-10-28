@@ -32,9 +32,11 @@ fn twist_matches_r_symbol_formula_up_to_j5() {
 }
 
 #[cfg(feature = "lie-generated")]
-fn to_f64(d: num_bigint::BigInt) -> f64 {
-    use num_traits::ToPrimitive;
-    d.to_f64().unwrap()
+fn to_f64(d: malachite_nz::natural::Natural) -> f64 {
+    use malachite_base::{
+        num::conversion::traits::RoundingFrom, rounding_modes::RoundingMode::Nearest,
+    };
+    f64::rounding_from(&d, Nearest).0
 }
 
 #[cfg(feature = "lie-generated")]

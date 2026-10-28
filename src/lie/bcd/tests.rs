@@ -4,6 +4,7 @@
 //! read back from `fusion-symbols`'s own output.
 
 use super::*;
+use malachite_base::num::conversion::traits::ExactFrom;
 
 fn irr(series: Series, dynkin: &[i64]) -> Irrep {
     Irrep::from_dynkin(series, dynkin).unwrap()
@@ -165,35 +166,35 @@ fn dim_anchors_b2_so5() {
     // SO(5) = B_2. Known dims: 1, 5 (vector), 10 (adjoint), 14 (sym traceless),
     // 35, 16.
     let d = |a: &[i64]| irr(Series::B, a).dim();
-    assert_eq!(d(&[0, 0]), BigInt::from(1));
-    assert_eq!(d(&[1, 0]), BigInt::from(5)); // vector
-    assert_eq!(d(&[0, 2]), BigInt::from(10)); // adjoint (a_2 even)
-    assert_eq!(d(&[2, 0]), BigInt::from(14)); // sym traceless
-    assert_eq!(d(&[1, 2]), BigInt::from(35)); // partition (2,1)
-    assert_eq!(d(&[2, 2]), BigInt::from(81)); // partition (3,1)
+    assert_eq!(d(&[0, 0]), Natural::from(1u32));
+    assert_eq!(d(&[1, 0]), Natural::from(5u32)); // vector
+    assert_eq!(d(&[0, 2]), Natural::from(10u32)); // adjoint (a_2 even)
+    assert_eq!(d(&[2, 0]), Natural::from(14u32)); // sym traceless
+    assert_eq!(d(&[1, 2]), Natural::from(35u32)); // partition (2,1)
+    assert_eq!(d(&[2, 2]), Natural::from(81u32)); // partition (3,1)
 }
 
 #[test]
 fn dim_anchors_c2_sp4() {
     // Sp(4) = C_2. Known dims: 1, 4 (fundamental), 5, 10 (adjoint), 16.
     let d = |a: &[i64]| irr(Series::C, a).dim();
-    assert_eq!(d(&[0, 0]), BigInt::from(1));
-    assert_eq!(d(&[1, 0]), BigInt::from(4)); // fundamental
-    assert_eq!(d(&[0, 1]), BigInt::from(5));
-    assert_eq!(d(&[2, 0]), BigInt::from(10)); // adjoint
-    assert_eq!(d(&[1, 1]), BigInt::from(16));
+    assert_eq!(d(&[0, 0]), Natural::from(1u32));
+    assert_eq!(d(&[1, 0]), Natural::from(4u32)); // fundamental
+    assert_eq!(d(&[0, 1]), Natural::from(5u32));
+    assert_eq!(d(&[2, 0]), Natural::from(10u32)); // adjoint
+    assert_eq!(d(&[1, 1]), Natural::from(16u32));
 }
 
 #[test]
 fn dim_anchors_d_series() {
     // SO(8) = D_4 vector 8v dim 8; adjoint 28; sym traceless 35v.
-    assert_eq!(irr(Series::D, &[1, 0, 0, 0]).dim(), BigInt::from(8));
-    assert_eq!(irr(Series::D, &[0, 1, 0, 0]).dim(), BigInt::from(28)); // adjoint
-    assert_eq!(irr(Series::D, &[2, 0, 0, 0]).dim(), BigInt::from(35)); // 35v
-                                                                       // SO(6) = D_3 ≅ SU(4): vector 6, adjoint 15, 20'.
-    assert_eq!(irr(Series::D, &[1, 0, 0]).dim(), BigInt::from(6));
-    assert_eq!(irr(Series::D, &[0, 1, 1]).dim(), BigInt::from(15)); // adjoint
-    assert_eq!(irr(Series::D, &[2, 0, 0]).dim(), BigInt::from(20));
+    assert_eq!(irr(Series::D, &[1, 0, 0, 0]).dim(), Natural::from(8u32));
+    assert_eq!(irr(Series::D, &[0, 1, 0, 0]).dim(), Natural::from(28u32)); // adjoint
+    assert_eq!(irr(Series::D, &[2, 0, 0, 0]).dim(), Natural::from(35u32)); // 35v
+                                                                           // SO(6) = D_3 ≅ SU(4): vector 6, adjoint 15, 20'.
+    assert_eq!(irr(Series::D, &[1, 0, 0]).dim(), Natural::from(6u32));
+    assert_eq!(irr(Series::D, &[0, 1, 1]).dim(), Natural::from(15u32)); // adjoint
+    assert_eq!(irr(Series::D, &[2, 0, 0]).dim(), Natural::from(20u32));
 }
 
 // ---- dual --------------------------------------------------------------
@@ -292,7 +293,7 @@ fn weight_multiplicities_sum_to_dim() {
             .map(|(mu, &m)| m * weyl_orbit(series, mu).len() as u64)
             .sum();
         assert_eq!(
-            BigInt::from(total),
+            Natural::exact_from(total),
             s.dim(),
             "weight count {series:?} {d:?}"
         );
@@ -371,10 +372,10 @@ fn so6_vector_squared() {
 
 fn dim_sum_rule(a: &Irrep, b: &Irrep) {
     let lhs = a.dim() * b.dim();
-    let rhs: BigInt = directproduct(a, b)
+    let rhs: Natural = directproduct(a, b)
         .unwrap()
         .into_iter()
-        .map(|(c, n)| c.dim() * BigInt::from(n))
+        .map(|(c, n)| c.dim() * Natural::from(n))
         .sum();
     assert_eq!(lhs, rhs, "dim-sum rule {:?} ⊗ {:?}", a.dynkin(), b.dynkin());
 }
@@ -610,7 +611,7 @@ mod eps {
 }
 
 /// `Π_{α>0} ⟨λ+ρ, α⟩ / ⟨ρ, α⟩`.
-fn weyl_dimension(series: Series, dynkin: &[i64]) -> BigInt {
+fn weyl_dimension(series: Series, dynkin: &[i64]) -> Natural {
     let r = dynkin.len();
     let rho = eps::rho(series, r);
     let lr: Vec<i64> = eps::from_dynkin(series, dynkin)
@@ -618,12 +619,12 @@ fn weyl_dimension(series: Series, dynkin: &[i64]) -> BigInt {
         .zip(&rho)
         .map(|(l, p)| l + p)
         .collect();
-    let (mut num, mut den) = (BigInt::from(1), BigInt::from(1));
+    let (mut num, mut den) = (Natural::from(1u32), Natural::from(1u32));
     for alpha in eps::positive_roots(series, r) {
-        num *= eps::dot(&lr, &alpha);
-        den *= eps::dot(&rho, &alpha);
+        num *= Natural::exact_from(eps::dot(&lr, &alpha));
+        den *= Natural::exact_from(eps::dot(&rho, &alpha));
     }
-    assert_eq!(&num % &den, BigInt::from(0));
+    assert_eq!(&num % &den, Natural::from(0u32));
     num / den
 }
 
@@ -718,7 +719,7 @@ fn dimensions_are_the_weyl_dimension_formula() {
                 assert_eq!(irrep.dim(), weyl_dimension(series, &d), "{series:?} {d:?}");
                 let total: i64 = weight_multiplicities(series, &d).values().sum();
                 assert_eq!(
-                    BigInt::from(total),
+                    Natural::exact_from(total),
                     irrep.dim(),
                     "Freudenthal {series:?} {d:?}"
                 );
@@ -731,12 +732,12 @@ fn dimensions_are_the_weyl_dimension_formula() {
     for (series, d, want) in [(Series::B, [3, 2], 154), (Series::C, [3, 2], 140)] {
         assert_eq!(
             weyl_dimension(series, &d),
-            BigInt::from(want),
+            Natural::exact_from(want),
             "{series:?} {d:?}"
         );
         assert_eq!(
             irr(series, &d).dim(),
-            BigInt::from(want),
+            Natural::exact_from(want),
             "{series:?} {d:?}"
         );
     }
@@ -929,7 +930,7 @@ fn checked_dim_matches_ratio_path_on_small_labels() {
                 let exact = x.ratio_dim();
                 assert_eq!(exact, weyl_dimension(series, &d), "{series:?} {d:?}");
                 assert_eq!(
-                    x.checked_dim().map(BigInt::from),
+                    x.checked_dim().map(Natural::from),
                     Some(exact.clone()),
                     "{series:?} {d:?}"
                 );

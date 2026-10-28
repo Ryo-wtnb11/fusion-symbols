@@ -238,7 +238,7 @@ fn generate(
         });
     }
     let [d1, d2, d3] = [s1, s2, s3].map(|s| {
-        let d = super::super::checked_dimension(s.dim()).map_err(|_| SunError::LabelOverflow)?;
+        let d = super::super::checked_dimension(&s.dim()).map_err(|_| SunError::LabelOverflow)?;
         magnetic_index(d - 1)?;
         Ok(d)
     });

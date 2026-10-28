@@ -155,7 +155,7 @@ use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieError, LieGroup
 let su3 = LieGroup::new(GroupId::su(3)?)?;
 let three = su3.irrep(&[1, 0])?;
 assert_eq!(su3.dual(&three).dynkin(), vec![0, 1]); // 3-bar
-assert_eq!(three.dim_exact(), 3u32.into());
+assert_eq!(three.dim_exact(), 3u32);
 
 let u2 = LieGroup::new(GroupId::u(2)?)?;
 let det = u2.irrep_with_charges(&[0], &[2])?; // determinant: charge 2
