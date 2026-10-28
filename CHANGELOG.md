@@ -7,11 +7,21 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Dependencies
+
+- `lie-generated` enables optional `malachite-nz` and `malachite-q` 0.14
+  (LGPL-3.0-only) for exceptional exact arithmetic. Public exact types remain
+  num-based; the base dependency set is unchanged.
+
 ### Performance
 
 - B/C/D commutator verification keeps Cartans diagonal and uses sequential
   dense kernels for ladder products, preserving coefficient bits and
   fingerprints.
+- Exceptional modules, nullspaces, descent and radical formation use Malachite
+  rationals, converting only the final exact values to num. All exact data,
+  coefficient bits and fingerprints are unchanged. A sequential release E₈
+  `248⁴` F-unitarity smoke run improved from 6.176 s to 2.879 s (2.15×).
 - Exceptional module construction reuses exact residual inner products for
   Gram–Schmidt and lowering, storing only kept-candidate coordinates. CGC
   descent scans the smaller weight set and copies the unit-coefficient
@@ -25,10 +35,6 @@ value/gauge rule noted below.
   coefficient bit. Sequential release E₈ `248⁴` F-unitarity improved from
   13.026 s to 10.475 s (1.24×), with median peak RSS reduced from 2.65 to
   0.85 GiB; `248 ⊗ 27000/30380 → 248` queries improved by 1.28×.
-- Exceptional CGC radical formation uses checked `u128` products and one
-  exact reduction, with the original BigInt formation as fallback. Exact values,
-  entry order, fingerprints and final rounding are unchanged. Sequential release
-  E₈ `248⁴` F-unitarity improved from 15.90 s to 13.51 s (1.18×) after memo retention.
 - Exceptional per-group memos evict whole completed entries after queries
   within the existing 512-entry/256 MiB estimated-retention limits, keeping
   rounded channels and paired E₆ phases ahead of modules. Retained channel

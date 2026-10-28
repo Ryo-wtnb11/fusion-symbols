@@ -10,7 +10,6 @@ use crate::category::{
     FusionCategory, FusionStyle, RBlock, SymbolBlock,
 };
 use crate::frcore::{f_block_raw, r_block_raw};
-use num_traits::Signed;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -30,16 +29,16 @@ fn unit(rank: usize, i: usize) -> Vec<i64> {
 }
 
 fn q(n: i64, d: i64) -> Q {
-    Q::new(n.into(), d.into())
+    Q::from_integers(n.into(), d.into())
 }
 
 /// `x ↦ X x` with `X` from L2's stored `F` (a vector keyed by `(m_a, m_b)`).
 type Vector = BTreeMap<(usize, usize), Q>;
 
 fn add(v: &mut Vector, k: (usize, usize), x: Q) {
-    let e = v.entry(k).or_insert_with(Q::zero);
+    let e = v.entry(k).or_insert_with(|| Q::from(0));
     *e += x;
-    if e.is_zero() {
+    if e.numerator_ref() == &0 {
         v.remove(&k);
     }
 }
@@ -61,7 +60,7 @@ fn delta(op_a: &Op, op_b: &Op, v: &Vector) -> Vector {
 fn as_vector(ch: &Channel, c: &Ladders, mc: usize, mu: usize) -> Vector {
     let mut v = Vector::new();
     for (&pq, x) in ch.spaces[c.space[mc]].pairs.iter().zip(&ch.phi[mc][mu]) {
-        if !x.is_zero() {
+        if x.numerator_ref() != &0 {
             v.insert(pq, x.clone());
         }
     }
@@ -105,11 +104,11 @@ fn check_channel(fam: &mut GeneralFamily, a: &[i64], b: &[i64], c: &[i64], n: us
                         .filter_map(|(k, u)| {
                             y.get(k).map(|w| u * w * &ma.norm[k.0] * &mb.norm[k.1])
                         })
-                        .sum();
+                        .fold(Q::from(0), |acc, x| acc + x);
                     let want = if m == m2 && mu == nu {
                         &ch.seed_norms[mu] * &mc.norm[m]
                     } else {
-                        Q::zero()
+                        Q::from(0)
                     };
                     assert_eq!(got, want);
                 }
@@ -223,9 +222,9 @@ fn g2_27x27_to_27_pivot_rule() {
     let (ch, ..) = fam.channel(&G27, &G27, &G27).unwrap();
     assert_eq!(ch.pivots, [0, 1]);
     let psi = &ch.phi[0];
-    assert!(psi[0][0].is_positive() && psi[1][1].is_positive());
-    assert!(psi[0][1].is_zero());
-    assert!(!psi[1][0].is_zero());
+    assert!(psi[0][0] > 0 && psi[1][1] > 0);
+    assert!(psi[0][1].numerator_ref() == &0);
+    assert!(psi[1][0].numerator_ref() != &0);
 }
 
 /// §9.5 on every channel of E6 `27 ⊗ 27̄ = 1 + 78 + 650`.
@@ -353,6 +352,10 @@ fn g2_7x7_to_7_hand_entries_and_order() {
         (1, 3, 1, 0, q(1, 6)),
         (0, 4, 1, 0, q(-1, 3)),
     ];
+    let want: Vec<_> = want
+        .into_iter()
+        .map(|(a, b, c, m, x)| (a, b, c, m, super::super::rational::to_num(&x)))
+        .collect();
     assert_eq!(got, want);
 }
 
@@ -381,7 +384,10 @@ fn trivial_couplings_are_the_identity() {
             assert_eq!(got.len(), mc.dim());
             for (m, (p, r, mcx, mu, x)) in got.into_iter().enumerate() {
                 assert_eq!((p + r, mcx, mu), (m, m, 0));
-                assert_eq!(x.signed_square(), Q::one());
+                assert_eq!(
+                    x.signed_square(),
+                    super::super::rational::to_num(&Q::from(1))
+                );
             }
         }
     }
@@ -416,12 +422,14 @@ fn check_radical_formation(root: RootSystem, a: &[i64], b: &[i64], c: &[i64]) {
         for (m, per_mu) in ch.phi.iter().enumerate() {
             let scale = &ch.seed_norms[mu] * &mc.norm[m];
             for (&(pa, pb), x) in ch.spaces[mc.space[m]].pairs.iter().zip(&per_mu[mu]) {
-                if x.is_zero() {
+                if x.numerator_ref() == &0 {
                     continue;
                 }
                 let old = SignedSqrtRational::from_prefactor_radical(
-                    x.clone(),
-                    &ma.norm[pa] * &mb.norm[pb] / &scale,
+                    super::super::rational::to_num(x),
+                    super::super::rational::to_num(&ma.norm[pa])
+                        * super::super::rational::to_num(&mb.norm[pb])
+                        / super::super::rational::to_num(&scale),
                 );
                 let (ga, gb, gc, gm, value) = entries.next().unwrap();
                 assert_eq!((*ga, *gb, *gc, *gm), (pa, pb, m, mu));
@@ -479,9 +487,15 @@ fn g2_27x27_golden_counts() {
     }
     let max_numer = radicands.iter().max_by_key(|r| r.numer().clone()).unwrap();
     let max_denom = radicands.iter().max_by_key(|r| r.denom().clone()).unwrap();
-    assert!(radicands.contains(&q(33856, 446985)));
-    assert_eq!(*max_numer, q(33856, 268191));
-    assert_eq!(*max_denom, q(18769, 7051968));
+    assert!(radicands.contains(&super::super::rational::to_num(&q(33856, 446985))));
+    assert_eq!(
+        *max_numer,
+        super::super::rational::to_num(&q(33856, 268191))
+    );
+    assert_eq!(
+        *max_denom,
+        super::super::rational::to_num(&q(18769, 7051968))
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -815,22 +829,22 @@ fn dense_echelon_nullspace(mut m: Vec<Vec<Q>>, cols: usize) -> (Vec<usize>, Vec<
     let mut is_pivot = vec![false; cols];
     for col in (0..cols).rev() {
         let r0 = pivot_of_row.len();
-        let Some(r) = (r0..m.len()).find(|&r| !m[r][col].is_zero()) else {
+        let Some(r) = (r0..m.len()).find(|&r| m[r][col].numerator_ref() != &0) else {
             continue;
         };
         m.swap(r0, r);
-        let inv = m[r0][col].recip();
-        for x in m[r0].iter_mut().filter(|x| !x.is_zero()) {
+        let inv = Q::from(1) / &m[r0][col];
+        for x in m[r0].iter_mut().filter(|x| x.numerator_ref() != &0) {
             *x *= &inv;
         }
         let pivot = m[r0].clone();
         for (r, row) in m.iter_mut().enumerate() {
-            if r == r0 || row[col].is_zero() {
+            if r == r0 || row[col].numerator_ref() == &0 {
                 continue;
             }
             let scale = row[col].clone();
             for (x, y) in row.iter_mut().zip(&pivot) {
-                if !y.is_zero() {
+                if y.numerator_ref() != &0 {
                     *x -= &scale * y;
                 }
             }
@@ -842,10 +856,10 @@ fn dense_echelon_nullspace(mut m: Vec<Vec<Q>>, cols: usize) -> (Vec<usize>, Vec<
     let basis = free
         .iter()
         .map(|&f| {
-            let mut v = vec![Q::zero(); cols];
-            v[f] = Q::one();
+            let mut v = vec![Q::from(0); cols];
+            v[f] = Q::from(1);
             for (row, &pc) in m.iter().zip(&pivot_of_row) {
-                if !row[f].is_zero() {
+                if row[f].numerator_ref() != &0 {
                     v[pc] = -row[f].clone();
                 }
             }
@@ -865,7 +879,7 @@ fn compare_nullspace(data: &CartanData, a: &Ladders, b: &Ladders, top: &[i64], n
             continue;
         }
         let base = rows.len();
-        rows.resize(base + target.len(), vec![Q::zero(); p.len()]);
+        rows.resize(base + target.len(), vec![Q::from(0); p.len()]);
         for (col, &(pa, pb)) in p.pairs.iter().enumerate() {
             for (p2, y) in &a.raise[i][pa] {
                 rows[base + target.at((*p2, pb))][col] += y;
@@ -881,7 +895,7 @@ fn compare_nullspace(data: &CartanData, a: &Ladders, b: &Ladders, top: &[i64], n
         .map(|row| {
             row.iter()
                 .enumerate()
-                .filter(|(_, x)| !x.is_zero())
+                .filter(|(_, x)| x.numerator_ref() != &0)
                 .map(|(col, x)| (col, x.clone()))
                 .collect()
         })
@@ -960,7 +974,7 @@ fn sparse_nullspace_degenerate_matrices() {
                 .map(|row| {
                     row.iter()
                         .enumerate()
-                        .filter(|(_, x)| !x.is_zero())
+                        .filter(|(_, x)| x.numerator_ref() != &0)
                         .map(|(j, x)| (j, x.clone()))
                         .collect()
                 })
@@ -1041,13 +1055,13 @@ fn compare_old_descent(a: &Ladders, b: &Ladders, c: &Ladders, channel: &Channel)
         for coeffs in &space.gs {
             let per_mu = (0..channel.mult)
                 .map(|mu| {
-                    let mut v = vec![Q::zero(); to.len()];
+                    let mut v = vec![Q::from(0); to.len()];
                     for (r, cand) in coeffs.iter().zip(&lowered) {
-                        if r.is_zero() {
+                        if r.numerator_ref() == &0 {
                             continue;
                         }
                         for (x, y) in v.iter_mut().zip(&cand[mu]) {
-                            if !y.is_zero() {
+                            if y.numerator_ref() != &0 {
                                 *x += r * y;
                             }
                         }

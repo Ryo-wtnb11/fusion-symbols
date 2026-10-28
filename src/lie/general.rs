@@ -3,6 +3,7 @@
 
 pub(crate) mod cgc;
 pub(crate) mod module;
+mod rational;
 pub(crate) mod roots;
 
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -103,7 +104,7 @@ impl Engine {
     /// `u32::MAX`: its `κ_a` is generated in the module basis (§6.3), whose
     /// magnetic index is `u32`, and `frobenius_schur_phase` is infallible.
     pub(crate) fn irrep(&self, dynkin: &[i64]) -> Result<Irrep, LieError> {
-        let dim = self.data.weyl_dimension(dynkin)?;
+        let dim = rational::integer_to_num(&self.data.weyl_dimension(dynkin)?);
         let dual = self.data.dual(dynkin)?;
         if dual != dynkin && u32::try_from(&dim).is_err() {
             return Err(LieError::LabelOverflow);

@@ -43,7 +43,7 @@ fn lowering(m: &IrrepModule, j: usize) -> Op {
             let src = &m.weights[*src];
             for (a, row) in f.iter().enumerate() {
                 for (b, x) in row.iter().enumerate() {
-                    if !x.is_zero() {
+                    if x.numerator_ref() != &0 {
                         op[src.offset + b].push((s.offset + a, x.clone()));
                     }
                 }
@@ -61,7 +61,7 @@ fn raising_by_form(m: &IrrepModule, j: usize) -> Op {
             let src = &m.weights[*src];
             for (a, row) in f.iter().enumerate() {
                 for (b, x) in row.iter().enumerate() {
-                    if !x.is_zero() {
+                    if x.numerator_ref() != &0 {
                         let e = x * &s.norms[a] / &src.norms[b];
                         op[s.offset + a].push((src.offset + b, e));
                     }
@@ -84,13 +84,16 @@ fn raising_by_recursion(m: &IrrepModule, j: usize, lowers: &[Op]) -> Op {
                 let g = src.offset + q;
                 let mut e_c = apply(&lowers[jt], &to_vec(&op[g]));
                 if jt == j {
-                    add(&mut e_c, g, Q::from_integer(src.mu[j].into()));
+                    add(&mut e_c, g, Q::from(src.mu[j]));
                 }
                 for (i, x) in e_c {
                     add(&mut out, i, r * x);
                 }
             }
-            op[s.offset + a] = out.into_iter().filter(|(_, x)| !x.is_zero()).collect();
+            op[s.offset + a] = out
+                .into_iter()
+                .filter(|(_, x)| x.numerator_ref() != &0)
+                .collect();
         }
     }
     op
@@ -101,9 +104,9 @@ fn to_vec(col: &[(usize, Q)]) -> Vector {
 }
 
 fn add(v: &mut Vector, i: usize, x: Q) {
-    let e = v.entry(i).or_insert_with(Q::zero);
+    let e = v.entry(i).or_insert_with(|| Q::from(0));
     *e += x;
-    if e.is_zero() {
+    if e.numerator_ref() == &0 {
         v.remove(&i);
     }
 }
@@ -135,7 +138,7 @@ fn serre(x: &[Op], i: usize, j: usize, n: i64, v: &Vector) -> Vector {
         ops.extend(std::iter::repeat_n(&x[i], k as usize));
         let c = binomial(n, k) * if k % 2 == 0 { 1 } else { -1 };
         for (t, y) in word(&ops, v) {
-            add(&mut out, t, y * Q::from_integer(c.into()));
+            add(&mut out, t, y * Q::from(c));
         }
     }
     out
@@ -157,7 +160,7 @@ fn check_relations(root: RootSystem, lambda: &[i64]) {
     let own = owners(&m);
     for g in 0..m.dim {
         let mu = &m.weights[own[g].0].mu;
-        let v = Vector::from([(g, Q::from_integer(1.into()))]);
+        let v = Vector::from([(g, Q::from(1))]);
         for i in 0..r {
             // [h_i, e_j] = cartan(j, i) e_j: e_j raises the weight by α_j.
             for j in 0..r {
@@ -170,7 +173,7 @@ fn check_relations(root: RootSystem, lambda: &[i64]) {
                     add(&mut comm, t, -y);
                 }
                 let expected = if i == j && mu[i] != 0 {
-                    Vector::from([(g, Q::from_integer(mu[i].into()))])
+                    Vector::from([(g, Q::from(mu[i]))])
                 } else {
                     Vector::new()
                 };
@@ -254,7 +257,10 @@ fn g2_7_order_candidates_and_entries() {
         let x = m.f_entry(w + 1, j, 0, 0);
         assert_eq!(
             (x.sign(), x.radicand().clone()),
-            (1, Q::from_integer(q.into()))
+            (
+                1,
+                num_rational::Ratio::from_integer(num_bigint::BigInt::from(q))
+            )
         );
     }
 }
@@ -271,7 +277,10 @@ fn e6_minuscule_entries_are_zero_or_one() {
                     let x = m.f_entry(w, j, 0, 0);
                     assert_eq!(
                         (x.sign(), x.radicand().clone()),
-                        (1, Q::from_integer(1.into()))
+                        (
+                            1,
+                            num_rational::Ratio::from_integer(num_bigint::BigInt::from(1))
+                        )
                     );
                     ones += 1;
                 }
@@ -295,8 +304,8 @@ fn g2_27_zero_weight_keeps_every_candidate() {
     assert_eq!(s.kept, vec![(0, 0), (0, 1), (1, 0)]);
     // §4.3: b_k = c_k − (earlier b), so its own coefficient is 1 and later ones 0.
     for (k, row) in s.gs.iter().enumerate() {
-        assert_eq!(row[k], Q::from_integer(1.into()));
-        assert!(row[k + 1..].iter().all(Zero::is_zero));
+        assert_eq!(row[k], Q::from(1));
+        assert!(row[k + 1..].iter().all(|x| x.numerator_ref() == &0));
     }
 }
 
@@ -394,7 +403,22 @@ fn performance_modules() {
             let mut depths = BTreeMap::<i64, usize>::new();
             let mut max_mult = 0;
             for w in &m.weights {
-                (&w.mu, &w.k, w.offset, &w.norms, &w.kept, &w.gs, &w.lower).hash(&mut hash);
+                let conv = |v: &Vec<Q>| {
+                    v.iter()
+                        .map(super::super::rational::to_num)
+                        .collect::<Vec<_>>()
+                };
+                let norms = conv(&w.norms);
+                let gs: Vec<_> = w.gs.iter().map(conv).collect();
+                let lower: Vec<_> = w
+                    .lower
+                    .iter()
+                    .map(|x| {
+                        x.as_ref()
+                            .map(|(src, f)| (*src, f.iter().map(conv).collect::<Vec<_>>()))
+                    })
+                    .collect();
+                (&w.mu, &w.k, w.offset, &norms, &w.kept, &gs, &lower).hash(&mut hash);
                 *depths.entry(w.k.iter().sum()).or_default() += 1;
                 max_mult = max_mult.max(w.norms.len());
             }
@@ -419,7 +443,7 @@ fn performance_modules() {
 }
 
 fn q(n: i64, d: i64) -> Q {
-    Q::new(n.into(), d.into())
+    Q::from_integers(n.into(), d.into())
 }
 
 /// Golden values, cross-checked against an independent exact computation of
@@ -429,7 +453,11 @@ fn golden_values() {
     let (_, g27) = build(RootSystem::G2, &[2, 0]);
     for mu in [[2, -1], [1, -1]] {
         let x = g27.f_entry(g27.weight_index(&mu).unwrap(), 1, 1, 1);
-        assert_eq!((x.sign(), x.radicand().clone()), (-1, q(2, 3)), "{mu:?}");
+        assert_eq!(
+            (x.sign(), x.radicand().clone()),
+            (-1, super::super::rational::to_num(&q(2, 3))),
+            "{mu:?}"
+        );
     }
     let zero = &g27.weights[g27.weight_index(&[0, 0]).unwrap()];
     assert_eq!(zero.norms, vec![q(96, 1), q(16, 1), q(84, 1)]);
@@ -439,13 +467,16 @@ fn golden_values() {
     let zero = &f26.weights[w];
     assert_eq!(zero.kept, vec![(2, 0), (3, 0)]);
     assert_eq!(zero.norms, vec![q(2, 1), q(3, 2)]);
-    let radicands: BTreeSet<Q> = entries(&f26)
+    let radicands: BTreeSet<_> = entries(&f26)
         .into_iter()
         .filter(|x| x.sign() != 0)
         .map(|x| x.radicand().clone())
         .collect();
     let expected = [q(1, 1), q(1, 2), q(2, 1), q(3, 2)];
-    assert_eq!(radicands, BTreeSet::from(expected));
+    assert_eq!(
+        radicands,
+        BTreeSet::from(expected.map(|x| super::super::rational::to_num(&x)))
+    );
 
     let (_, g64) = build(RootSystem::G2, &[1, 1]);
     let all = entries(&g64);
@@ -497,26 +528,26 @@ fn old_build_space(
     // §4.4: ⟨f_j w, f_k w′⟩ = ⟨e_k w, e_j w′⟩ + δ_jk (μ+α_j)_j ⟨w, w′⟩, with
     // ⟨e_k b_q, e_j b_q′⟩ = Σ_p F_k[q][p] F_j[q′][p] n_q n_q′ / n_p by contravariance.
     let c = cands.len();
-    let mut gram = vec![vec![Q::zero(); c]; c];
+    let mut gram = vec![vec![Q::from(0); c]; c];
     for s in 0..c {
         let (j, v1, q) = cands[s];
         for t in s..c {
             let (kk, v2, q2) = cands[t];
             let (w1, w2) = (&weights[v1], &weights[v2]);
-            let mut g = Q::zero();
+            let mut g = Q::from(0);
             if let (Some((tau, f1)), Some((_, f2))) = (&w1.lower[kk], &w2.lower[j]) {
                 let n_tau = &weights[*tau].norms;
                 for (p, n_p) in n_tau.iter().enumerate() {
-                    if !f1[q][p].is_zero() && !f2[q2][p].is_zero() {
+                    if f1[q][p].numerator_ref() != &0 && f2[q2][p].numerator_ref() != &0 {
                         g += &f1[q][p] * &f2[q2][p] / n_p;
                     }
                 }
-                if !g.is_zero() {
+                if g.numerator_ref() != &0 {
                     g *= &w1.norms[q] * &w2.norms[q2];
                 }
             }
             if j == kk && q == q2 {
-                g += Q::from_integer(w1.mu[j].into()) * &w1.norms[q];
+                g += Q::from(w1.mu[j]) * &w1.norms[q];
             }
             gram[t][s] = g.clone();
             gram[s][t] = g;
@@ -529,31 +560,31 @@ fn old_build_space(
     let mut norms: Vec<Q> = Vec::new();
     let mut kept_idx: Vec<usize> = Vec::new();
     for t in 0..c {
-        let mut coeffs = vec![Q::zero(); c];
-        coeffs[t] = Q::from_integer(1.into());
+        let mut coeffs = vec![Q::from(0); c];
+        coeffs[t] = Q::from(1);
         let mut n = gram[t][t].clone();
         for (r, n_l) in full.iter().zip(&norms) {
             let proj: Q = r
                 .iter()
                 .zip(&gram[t])
-                .filter(|(x, g)| !x.is_zero() && !g.is_zero())
+                .filter(|(x, g)| x.numerator_ref() != &0 && g.numerator_ref() != &0)
                 .map(|(x, g)| x * g)
-                .sum();
-            if proj.is_zero() {
+                .fold(Q::from(0), |acc, x| acc + x);
+            if proj.numerator_ref() == &0 {
                 continue;
             }
             let scale = &proj / n_l;
             n -= &scale * &proj;
             for (x, y) in coeffs.iter_mut().zip(r) {
-                if !y.is_zero() {
+                if y.numerator_ref() != &0 {
                     *x -= &scale * y;
                 }
             }
         }
-        if n.is_negative() {
+        if n < 0 {
             return Err(ModuleError::IndefiniteForm { weight: mu }.into());
         }
-        if !n.is_zero() {
+        if n.numerator_ref() != &0 {
             full.push(coeffs);
             norms.push(n);
             kept_idx.push(t);
@@ -583,9 +614,11 @@ fn old_build_space(
                             let dot: Q = r
                                 .iter()
                                 .zip(&gram)
-                                .filter(|(x, row)| !x.is_zero() && !row[col].is_zero())
+                                .filter(|(x, row)| {
+                                    x.numerator_ref() != &0 && row[col].numerator_ref() != &0
+                                })
                                 .map(|(x, row)| x * &row[col])
-                                .sum();
+                                .fold(Q::from(0), |acc, x| acc + x);
                             dot / n_a
                         })
                         .collect()
@@ -617,7 +650,7 @@ fn compare_old_module(root: RootSystem, lambda: &[i64]) {
         mu: lambda.to_vec(),
         k: vec![0; lambda.len()],
         offset: 0,
-        norms: vec![Q::from_integer(1.into())],
+        norms: vec![Q::from(1)],
         kept: Vec::new(),
         gs: vec![Vec::new()],
         lower: vec![None; lambda.len()],

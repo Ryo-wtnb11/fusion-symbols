@@ -9,8 +9,6 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use num_traits::{One, Zero};
-
 use super::module::{labels_bytes, q_heap, qs_bytes, IrrepModule, Q};
 use super::roots::CartanData;
 use crate::exact::SignedSqrtRational;
@@ -96,7 +94,7 @@ impl Ladders {
                 let src = &module.weights[*src];
                 for (a, row) in f.iter().enumerate() {
                     for (b, x) in row.iter().enumerate() {
-                        if x.is_zero() {
+                        if x.numerator_ref() == &0 {
                             continue;
                         }
                         let (ma, mb) = (s.offset + a, src.offset + b);
@@ -144,15 +142,15 @@ impl Ladders {
     /// `sign ⟨low| L^h |high⟩` with `L = Σ_i f_i` (§6.3). Positive rescalings
     /// keep the sign, so the rational basis `b` gives it exactly.
     fn principal_sign(&self, lambda: &[i64]) -> Result<i8, LieError> {
-        let mut v = vec![Q::zero(); self.dim()];
-        v[0] = Q::one();
+        let mut v = vec![Q::from(0); self.dim()];
+        v[0] = Q::from(1);
         // The lowest weight is the last weight space, at depth h = ⟨λ, 2ρ∨⟩.
         let h: i64 = self.module.weights.last().map_or(0, |s| s.k.iter().sum());
         for _ in 0..h {
-            let mut next = vec![Q::zero(); self.dim()];
+            let mut next = vec![Q::from(0); self.dim()];
             for op in &self.lower {
                 for (m, x) in v.iter().enumerate() {
-                    if x.is_zero() {
+                    if x.numerator_ref() == &0 {
                         continue;
                     }
                     for (m2, y) in &op[m] {
@@ -163,8 +161,8 @@ impl Ladders {
             v = next;
         }
         match v.last() {
-            Some(x) if x > &Q::zero() => Ok(1),
-            Some(x) if x < &Q::zero() => Ok(-1),
+            Some(x) if x > &0 => Ok(1),
+            Some(x) if x < &0 => Ok(-1),
             _ => Err(CgcError::ZeroPrincipalLadder {
                 lambda: lambda.to_vec(),
             }
@@ -225,9 +223,9 @@ impl ProductSpace {
 
 /// `Δ(x) = x ⊗ 1 + 1 ⊗ x` applied to `v` on `from`, landing on `to`.
 fn coproduct(op_a: &Op, op_b: &Op, from: &ProductSpace, to: &ProductSpace, v: &[Q]) -> Vec<Q> {
-    let mut out = vec![Q::zero(); to.len()];
+    let mut out = vec![Q::from(0); to.len()];
     for (&(p, q), x) in from.pairs.iter().zip(v) {
-        if x.is_zero() {
+        if x.numerator_ref() == &0 {
             continue;
         }
         for (p2, y) in &op_a[p] {
@@ -289,9 +287,9 @@ impl Channel {
             x.iter()
                 .zip(y)
                 .zip(&metric)
-                .filter(|((u, v), _)| !u.is_zero() && !v.is_zero())
+                .filter(|((u, v), _)| u.numerator_ref() != &0 && v.numerator_ref() != &0)
                 .map(|((u, v), g)| u * v * g)
-                .sum()
+                .fold(Q::from(0), |acc, x| acc + x)
         };
         let mut seeds: Vec<Vec<Q>> = Vec::with_capacity(multiplicity);
         let mut seed_norms: Vec<Q> = Vec::with_capacity(multiplicity);
@@ -299,7 +297,7 @@ impl Channel {
             let mut v = e.clone();
             for (s, n) in seeds.iter().zip(&seed_norms) {
                 let scale = dot(&e, s) / n;
-                if scale.is_zero() {
+                if scale.numerator_ref() == &0 {
                     continue;
                 }
                 for (x, y) in v.iter_mut().zip(s) {
@@ -337,11 +335,11 @@ impl Channel {
                         // §4.3: own-candidate coefficient is 1; later ones are 0.
                         let mut v = lowered[k][mu].clone();
                         for (r, cand) in coeffs[..k].iter().zip(&lowered) {
-                            if r.is_zero() {
+                            if r.numerator_ref() == &0 {
                                 continue;
                             }
                             for (x, y) in v.iter_mut().zip(&cand[mu]) {
-                                if !y.is_zero() {
+                                if y.numerator_ref() != &0 {
                                     *x += r * y;
                                 }
                             }
@@ -377,7 +375,7 @@ impl Channel {
                 let space = &self.spaces[c.space[mc]];
                 let scale = &self.seed_norms[mu] * &c.norm[mc];
                 for (&(pa, pb), x) in space.pairs.iter().zip(&per_mu[mu]) {
-                    if x.is_zero() {
+                    if x.numerator_ref() == &0 {
                         continue;
                     }
                     out.push((
@@ -385,12 +383,7 @@ impl Channel {
                         pb,
                         mc,
                         mu,
-                        SignedSqrtRational::from_prefactor_radical_ratio(
-                            x,
-                            &a.norm[pa],
-                            &b.norm[pb],
-                            &scale,
-                        ),
+                        super::rational::radical(x, &a.norm[pa], &b.norm[pb], &scale),
                     ));
                 }
             }
@@ -420,17 +413,17 @@ fn raising_rows(
             for (p2, y) in &a.raise[i][pa] {
                 *rows[base + target.at((*p2, pb))]
                     .entry(col)
-                    .or_insert_with(Q::zero) += y;
+                    .or_insert_with(|| Q::from(0)) += y;
             }
             for (q2, y) in &b.raise[i][pb] {
                 *rows[base + target.at((pa, *q2))]
                     .entry(col)
-                    .or_insert_with(Q::zero) += y;
+                    .or_insert_with(|| Q::from(0)) += y;
             }
         }
     }
     for row in &mut rows {
-        row.retain(|_, x| !x.is_zero());
+        row.retain(|_, x| x.numerator_ref() != &0);
     }
     rows
 }
@@ -454,7 +447,7 @@ fn echelon_nullspace(mut m: Vec<BTreeMap<usize, Q>>, cols: usize) -> (Vec<usize>
             continue;
         };
         m.swap(r0, r);
-        let inv = m[r0][&col].recip();
+        let inv = Q::from(1) / &m[r0][&col];
         for x in m[r0].values_mut() {
             *x *= &inv;
         }
@@ -470,9 +463,9 @@ fn echelon_nullspace(mut m: Vec<BTreeMap<usize, Q>>, cols: usize) -> (Vec<usize>
                 if j == col {
                     continue;
                 }
-                let x = row.entry(j).or_insert_with(Q::zero);
+                let x = row.entry(j).or_insert_with(|| Q::from(0));
                 *x -= &scale * y;
-                if x.is_zero() {
+                if x.numerator_ref() == &0 {
                     row.remove(&j);
                 }
             }
@@ -484,8 +477,8 @@ fn echelon_nullspace(mut m: Vec<BTreeMap<usize, Q>>, cols: usize) -> (Vec<usize>
     let basis = free
         .iter()
         .map(|&f| {
-            let mut v = vec![Q::zero(); cols];
-            v[f] = Q::one();
+            let mut v = vec![Q::from(0); cols];
+            v[f] = Q::from(1);
             for (row, &pc) in m.iter().zip(&pivot_of_row) {
                 if let Some(x) = row.get(&f) {
                     v[pc] = -x.clone();

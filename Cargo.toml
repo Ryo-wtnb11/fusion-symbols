@@ -29,7 +29,7 @@ default = ["lie-generated"]
 anyonwiki-unitary = []
 # Runtime coefficient generation for SU(N)/SO(N)/Sp(2N).
 # Sequential dense factorization and contraction kernels; the caller owns parallelism.
-lie-generated = ["dep:t4a-faer"]
+lie-generated = ["dep:t4a-faer", "dep:malachite-nz", "dep:malachite-q"]
 
 [dependencies]
 # `sharded-lock` gives warm hits one of eight reader stripes instead of one shared
@@ -44,6 +44,10 @@ num-complex = "0.4"
 # crates.io semver range; std only (no rayon or global parallelism).
 # Only lie-generated pulls the dense backend; base builds stay dependency-light.
 t4a-faer = { version = "0.24.7", default-features = false, features = ["std"], optional = true }
+
+# Exact exceptional arithmetic; public exact types remain num-based.
+malachite-nz = { version = "0.14.0", optional = true }
+malachite-q = { version = "0.14.0", optional = true }
 
 [dev-dependencies]
 rand = "0.8"

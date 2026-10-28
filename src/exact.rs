@@ -59,7 +59,7 @@ impl SignedSqrtRational {
 
     /// Form `s * sqrt(a * b / scale)` with checked u128 products and one gcd;
     /// fall back to BigInt formation on any oversized operand or product.
-    #[cfg(feature = "lie-generated")]
+    #[cfg(all(test, feature = "lie-generated"))]
     pub(crate) fn from_prefactor_radical_ratio(
         s: &Ratio<BigInt>,
         a: &Ratio<BigInt>,
@@ -93,6 +93,21 @@ impl SignedSqrtRational {
                 radicand: Some(Arc::new(r)),
             },
             None => Self::from_prefactor_radical(s.clone(), a * b / scale),
+        }
+    }
+
+    /// Accept an already reduced nonnegative radicand at the exceptional boundary.
+    #[cfg(feature = "lie-generated")]
+    pub(crate) fn from_radicand(sign: i8, r: Ratio<BigInt>) -> Self {
+        if r.is_zero() {
+            Self::zero()
+        } else {
+            assert!(!r.is_negative());
+            assert!(sign == -1 || sign == 1);
+            Self {
+                sign,
+                radicand: Some(Arc::new(r)),
+            }
         }
     }
 
