@@ -41,7 +41,7 @@ num-traits = "0.2"
 num-complex = "0.4"
 # crates.io semver range; std only (no rayon or global parallelism).
 # Only lie-generated pulls the dense backend; base builds stay dependency-light.
-t4a-faer = { version = "0.24.7", default-features = false, features = ["std"], optional = true }
+t4a-faer = { version = "0.25", default-features = false, features = ["std"], optional = true }
 
 # One exact arithmetic family, including the public API.
 malachite-nz = "0.14"
