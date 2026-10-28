@@ -88,6 +88,11 @@ name = "bcd_fr"
 harness = false
 required-features = ["lie-generated"]
 
+[[bench]]
+name = "exceptional"
+harness = false
+required-features = ["lie-generated"]
+
 [profile.dev]
 debug = "line-tables-only"
 

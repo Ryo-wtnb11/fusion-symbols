@@ -163,22 +163,26 @@ The estimate counts stored data only; resident memory runs about twice it.
 Fusion outcomes and N use only root-system combinatorics and never wait for
 the memo; F, R and CGC queries on one exceptional group run one at a time.
 
-Module size grows quickly with the dimension. Measured in release on one core:
-E₇ `1539` builds in 0.12 s (≈ 6 MiB), E₈ `3875` in 0.33 s (≈ 15 MiB), E₈
-`27000` in 30 s (≈ 174 MiB) and E₈ `30380` in 40 s (≈ 220 MiB). A query
+Module size grows quickly with the dimension. Measured in release on one core, exact module construction takes
+about 0.018 s for E₇ `1539`, 0.048 s for E₈ `3875`, 1.23 s for E₈ `27000`
+and 1.77 s for E₈ `30380`. These timings exclude ladder flattening; estimated
+retained module-plus-ladder sizes are still about 6, 15, 174 and 220 MiB,
+respectively (`benches/exceptional.rs` reproduces these cases). A query
 touching both of the last two exceeds the byte bound on its own, so the next
-query starts cold; F-unitarity over four E₈ `248`s takes about 9 minutes and
-3 GiB resident.
+query starts cold. F-unitarity over four E₈ `248`s still rebuilds modules and
+channels repeatedly; a release run takes about 75 s. Transient
+memory can reach GiB even though the retained memo has a smaller bound.
 
 The Frobenius–Schur phase of a complex E₆ irrep is derived from the gauge, so
 its first `frobenius_schur_phase` call (or first A symbol) builds the exact
 modules of the irrep and its dual under the memo lock and memoizes the sign
 for both; later calls on either label are memo hits. Admission, the indicator
 (`0` for complex irreps) and self-dual phases build nothing. The first call on
-a large admitted complex label therefore costs the same as an F or R query on
-it: building its exact module. Measured in release on one core (irrep and dual):
-`27` 0.2 ms, `351` 18 ms, `1728` 0.6 s and `7371` 17 s; the
-second call on either label takes microseconds. `irrep` rejects complex E₆ labels above `u32::MAX` dimensions with
+a large admitted complex label therefore pays for both exact module builds
+and the principal-ladder computation. Measured with the same release configuration
+(irrep and dual), `1728` takes about 0.083 s and `7371` about 1.01 s; the
+later calls on either label reuse the memo. Cold/warm timing and allocation
+cases are in `benches/exceptional.rs`. `irrep` rejects complex E₆ labels above `u32::MAX` dimensions with
 `LieError::LabelOverflow`; below that bound the first phase query is unbounded
 in the same way as F or R.
 

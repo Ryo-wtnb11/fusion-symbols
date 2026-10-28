@@ -348,6 +348,76 @@ fn build_times() {
     }
 }
 
+/// Single-thread release measurements and exact-module drift checks. Filter a
+/// case with FS_PERF_CASE (e.g. E8-27000); repeat with FS_PERF_SAMPLES.
+#[test]
+#[ignore = "release performance report"]
+fn performance_modules() {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let samples: usize = std::env::var("FS_PERF_SAMPLES")
+        .unwrap_or_else(|_| "3".into())
+        .parse()
+        .unwrap();
+    for (name, root, lambda) in [
+        ("G2-27", RootSystem::G2, vec![2, 0]),
+        ("G2-64", RootSystem::G2, vec![1, 1]),
+        ("F4-273", RootSystem::F4, unit(4, 2)),
+        ("F4-324", RootSystem::F4, vec![0, 0, 0, 2]),
+        ("E7-912", RootSystem::E7, unit(7, 1)),
+        ("E7-1539", RootSystem::E7, unit(7, 5)),
+        ("E8-3875", RootSystem::E8, unit(8, 0)),
+        ("E8-27000", RootSystem::E8, vec![0, 0, 0, 0, 0, 0, 0, 2]),
+        ("E8-30380", RootSystem::E8, unit(8, 6)),
+        ("E6-7371", RootSystem::E6, vec![1, 0, 0, 0, 1, 0]),
+    ] {
+        if std::env::var("FS_PERF_CASE").is_ok_and(|filter| filter != name) {
+            continue;
+        }
+        let data = CartanData::new(root);
+        for sample in 0..samples {
+            let t = std::time::Instant::now();
+            let m = IrrepModule::new(&data, &lambda).unwrap();
+            let elapsed = t.elapsed();
+            let max_candidates = m
+                .weights
+                .iter()
+                .map(|w| {
+                    w.lower
+                        .iter()
+                        .flatten()
+                        .map(|(src, _)| m.weights[*src].norms.len())
+                        .sum::<usize>()
+                })
+                .max()
+                .unwrap();
+            let mut hash = DefaultHasher::new();
+            let mut depths = BTreeMap::<i64, usize>::new();
+            let mut max_mult = 0;
+            for w in &m.weights {
+                (&w.mu, &w.k, w.offset, &w.norms, &w.kept, &w.gs, &w.lower).hash(&mut hash);
+                *depths.entry(w.k.iter().sum()).or_default() += 1;
+                max_mult = max_mult.max(w.norms.len());
+            }
+            // Exact internal-state hashes pinned on 854d838e; drift detectors.
+            let expected = match name {
+                "G2-27" => 0x98dca8b5927fdde9,
+                "G2-64" => 0x9f32818cded4dda3,
+                "F4-273" => 0xb6c9b017f19398d7,
+                "F4-324" => 0x72f327c59a64ebaa,
+                "E7-912" => 0x293f5a027dd425e7,
+                "E7-1539" => 0xa74a83768eb11a82,
+                "E8-3875" => 0x76563c5ac7e240cc,
+                "E8-27000" => 0x7d4ed4abef86235f,
+                "E8-30380" => 0x46ebcf415bfd3db9,
+                "E6-7371" => 0xd6f8ec25d1d901d4,
+                _ => unreachable!(),
+            };
+            assert_eq!(hash.finish(), expected, "{name}");
+            println!("{name} sample={sample} seconds={:.9} dim={} spaces={} depths={} max_width={} max_mult={max_mult} max_candidates={max_candidates} bytes={} exact_hash={:016x}", elapsed.as_secs_f64(), m.dim, m.weights.len(), depths.len(), depths.values().max().unwrap(), m.bytes(), hash.finish());
+        }
+    }
+}
+
 fn q(n: i64, d: i64) -> Q {
     Q::new(n.into(), d.into())
 }

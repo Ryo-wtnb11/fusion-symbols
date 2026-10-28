@@ -17,6 +17,9 @@ use std::{
 
 fn measure<Q: Fn() + Send>(name: &str, setup: impl Fn(usize) -> Q) {
     for threads in [1, 2, 4, 8, 16] {
+        if threads > 1 && std::env::args().any(|arg| arg == "--single-thread") {
+            break;
+        }
         let mut rates = Vec::new();
         for _ in 0..5 {
             let queries: Vec<_> = (0..threads).map(&setup).collect();
