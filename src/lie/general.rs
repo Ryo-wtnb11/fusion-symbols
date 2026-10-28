@@ -32,15 +32,12 @@ pub(crate) fn fingerprint() -> &'static [u8] {
     b"fusion-symbols:lie-exceptional:ref=gauge-exceptional-spec:input=bourbaki-cartan:order=depth-rootlex-asc:basis=greedy-rank-gs-own-positive:kron=a-fast:mult=rcef-pivot-gs:descent=intertwiner-own-basis:sign=own-candidate-and-pivot-positive:round=once-correct:fs=gauge-derived:fr=frcore:twist=one:scalar=f64:epoch=1"
 }
 
-/// Memo entries (modules + products + channels + phases) a group retains before the
-/// next query starts from an empty memo. One query adds at most four
-/// channels, four products and six modules beyond this bound. A pentagon
-/// through the G2 vertex `27 ⊗ 27 → 27` fits; at 256 it ran twice as long.
+/// Memo entries (modules + products + channels + phases) retained after a query.
+/// A pentagon through the G2 vertex `27 ⊗ 27 → 27` fits; at 256 it ran twice as long.
 const MEMO_ENTRIES: usize = 512;
 
-/// Estimated retained memo bytes (see [`GeneralFamily::memo_bytes`]) past
-/// which the next query starts from an empty memo. Every exceptional group value and
-/// composite factor owns its own memo, so this is per factor. 256 MiB is the
+/// Estimated retained memo bytes (see [`GeneralFamily::memo_bytes`]).
+/// Every exceptional group value and composite factor owns its own memo, so this is per factor. 256 MiB is the
 /// default per-group B/C/D catalog budget, and it holds the whole working set
 /// of a pentagon through the G2 `N = 2` vertex `27 ⊗ 27 → 27` (about 150 MiB
 /// estimated); at 64 MiB that pentagon reset repeatedly and ran 3.5× longer.
@@ -68,20 +65,24 @@ impl Engine {
         }
     }
 
-    // ponytail: wholesale reset at the bound; an LRU only if F-heavy loops thrash it.
     fn family(&self) -> MutexGuard<'_, GeneralFamily> {
         // A panic mid-query can leave a memo without its partner entries;
         // starting over is always valid.
-        let mut fam = self.family.lock().unwrap_or_else(|poisoned| {
+        self.family.lock().unwrap_or_else(|poisoned| {
             self.family.clear_poison();
             let mut fam = poisoned.into_inner();
             *fam = GeneralFamily::new(self.root);
             fam
-        });
-        if fam.memo_len() >= MEMO_ENTRIES || fam.memo_bytes() >= MEMO_BYTES {
-            *fam = GeneralFamily::new(self.root);
-        }
-        fam
+        })
+    }
+
+    fn query<T>(&self, query: impl FnOnce(&mut GeneralFamily) -> T) -> T {
+        let mut fam = self.family();
+        let result = query(&mut fam);
+        fam.trim(MEMO_ENTRIES, MEMO_BYTES);
+        #[cfg(test)]
+        assert!(fam.memo_len() <= MEMO_ENTRIES && fam.memo_bytes() <= MEMO_BYTES);
+        result
     }
 
     /// `(entries, estimated bytes)` currently retained.
@@ -143,7 +144,7 @@ impl Engine {
         if a.is_self_dual() {
             return Ok(a.0.sign);
         }
-        self.family().frobenius_schur_phase(&a.0.dynkin)
+        self.query(|fam| fam.frobenius_schur_phase(&a.0.dynkin))
     }
 
     pub(crate) fn f_symbol(
@@ -151,7 +152,7 @@ impl Engine {
         [a, b, c, d, e, f]: [&Irrep; 6],
     ) -> Result<FBlock<f64>, LieError> {
         let [a, b, c, d, e, f] = [a, b, c, d, e, f].map(|x| &x.0.dynkin);
-        f_block_raw(&mut *self.family(), a, b, c, d, e, f)
+        self.query(|fam| f_block_raw(fam, a, b, c, d, e, f))
     }
 
     pub(crate) fn r_symbol(
@@ -160,7 +161,7 @@ impl Engine {
         b: &Irrep,
         c: &Irrep,
     ) -> Result<RBlock<f64>, LieError> {
-        r_block_raw(&mut *self.family(), &a.0.dynkin, &b.0.dynkin, &c.0.dynkin)
+        self.query(|fam| r_block_raw(fam, &a.0.dynkin, &b.0.dynkin, &c.0.dynkin))
     }
 
     /// The CGC as dims `[d_a, d_b, d_c, N]` and a dense row-major buffer
@@ -171,23 +172,24 @@ impl Engine {
         b: &Irrep,
         c: &Irrep,
     ) -> Result<([usize; 4], Vec<f64>), LieError> {
-        let mut fam = self.family();
-        let [da, db, dc] = [a, b, c].map(|x| checked_dimension(&x.0.dim));
-        let dims = [
-            da?,
-            db?,
-            dc?,
-            fam.mult(&a.0.dynkin, &b.0.dynkin, &c.0.dynkin)?,
-        ];
-        if dims[3] == 0 {
-            return Ok((dims, Vec::new()));
-        }
-        let mut data = vec![0.0; checked_size(dims)?];
-        for e in fam.cgc_entries(&a.0.dynkin, &b.0.dynkin, &c.0.dynkin)? {
-            let [m1, m2, m3, mu] = [e.m1, e.m2, e.m3, e.mu].map(|i| i as usize);
-            data[((m1 * dims[1] + m2) * dims[2] + m3) * dims[3] + mu] = e.value;
-        }
-        Ok((dims, data))
+        self.query(|fam| {
+            let [da, db, dc] = [a, b, c].map(|x| checked_dimension(&x.0.dim));
+            let dims = [
+                da?,
+                db?,
+                dc?,
+                fam.mult(&a.0.dynkin, &b.0.dynkin, &c.0.dynkin)?,
+            ];
+            if dims[3] == 0 {
+                return Ok((dims, Vec::new()));
+            }
+            let mut data = vec![0.0; checked_size(dims)?];
+            for e in fam.cgc_entries(&a.0.dynkin, &b.0.dynkin, &c.0.dynkin)? {
+                let [m1, m2, m3, mu] = [e.m1, e.m2, e.m3, e.mu].map(|i| i as usize);
+                data[((m1 * dims[1] + m2) * dims[2] + m3) * dims[3] + mu] = e.value;
+            }
+            Ok((dims, data))
+        })
     }
 }
 
@@ -265,5 +267,132 @@ impl Ord for Irrep {
 impl std::hash::Hash for Irrep {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.0.dynkin.hash(state);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::category::{f_unitarity_residual, FusionCategory};
+    use crate::lie::{GroupId, LieGroup};
+    use std::time::Instant;
+
+    /// A hot completed channel survives a product working set larger than the
+    /// public entry limit; eviction and reset never change coefficient bits.
+    #[test]
+    fn memo_pressure_retains_completed_channels() {
+        let engine = Engine::new(RootSystem::G2);
+        let a = engine.irrep(&[1, 0]).unwrap();
+        let b = engine.irrep(&[0, 1]).unwrap();
+        let one = engine.irrep(&[0, 0]).unwrap();
+        let bits = || {
+            engine
+                .cgc(&a, &a, &b)
+                .unwrap()
+                .1
+                .iter()
+                .map(|x| x.to_bits())
+                .collect::<Vec<_>>()
+        };
+        let expected = bits();
+        let builds = engine.family().builds;
+        assert_eq!(bits(), expected);
+        assert_eq!(
+            engine.family().builds,
+            builds,
+            "warm calls must not regenerate"
+        );
+        for _ in 0..3 {
+            for n in 1..=MEMO_ENTRIES + 16 {
+                let label = engine.irrep(&[n as i64, 0]).unwrap();
+                // Absent R channels fill products without building large modules.
+                assert!(engine
+                    .r_symbol(&one, &label, &one)
+                    .unwrap()
+                    .data()
+                    .is_empty());
+                let (entries, bytes) = engine.memo_stats();
+                assert!(entries <= MEMO_ENTRIES && bytes <= MEMO_BYTES);
+            }
+            assert_eq!(bits(), expected);
+            assert_eq!(
+                engine.family().builds,
+                builds,
+                "pressure must not rebuild a retained channel"
+            );
+        }
+        engine.family().trim(0, 0);
+        assert_eq!(engine.memo_stats(), (0, 0));
+        assert_eq!(bits(), expected);
+        assert_eq!(engine.family().builds, [2 * builds[0], 2 * builds[1]]);
+        engine.reset();
+        assert_eq!(engine.memo_stats(), (0, 0));
+        assert_eq!(bits(), expected);
+        let symbols = || {
+            let f = engine.f_symbol([&a, &a, &a, &a, &b, &b]).unwrap();
+            let r = engine.r_symbol(&a, &a, &b).unwrap();
+            f.data()
+                .iter()
+                .chain(r.data())
+                .map(|x| x.to_bits())
+                .collect::<Vec<_>>()
+        };
+        let expected = symbols();
+        engine.family().trim(0, 0);
+        assert_eq!(symbols(), expected);
+    }
+
+    #[test]
+    #[ignore = "release timing and generation-count report"]
+    fn e8_memo_workload_report() {
+        let g = LieGroup::new(GroupId::e8()).unwrap();
+        let a = g.irrep(&[0, 0, 0, 0, 0, 0, 0, 1]).unwrap();
+        let t = Instant::now();
+        let residual = f_unitarity_residual(&g, &a, &a, &a, &a).unwrap();
+        assert!(residual < 1e-12);
+        let fam = g.general.as_ref().unwrap().family.lock().unwrap();
+        eprintln!(
+            "E8: {:?}, residual {residual:e}, module/channel builds {:?}, retained ({}, {})",
+            t.elapsed(),
+            fam.builds,
+            fam.memo_len(),
+            fam.memo_bytes()
+        );
+    }
+
+    #[test]
+    #[ignore = "release cold/warm timing report"]
+    fn small_memo_workload_report() {
+        for (id, label) in [
+            (GroupId::g2(), vec![1, 0]),
+            (GroupId::f4(), vec![0, 0, 0, 1]),
+            (GroupId::e6(), vec![1, 0, 0, 0, 0, 0]),
+        ] {
+            for _ in 0..5 {
+                let g = LieGroup::new(id.clone()).unwrap();
+                let a = g.irrep(&label).unwrap();
+                let query = || {
+                    if label.len() == 6 {
+                        assert_eq!(g.frobenius_schur_phase(&a), 1.0);
+                    } else {
+                        std::hint::black_box(g.r_symbol(&a, &a, &g.unit()).unwrap());
+                    }
+                };
+                let t = Instant::now();
+                query();
+                let cold = t.elapsed();
+                let builds = g.general.as_ref().unwrap().family.lock().unwrap().builds;
+                let t = Instant::now();
+                for _ in 0..128 {
+                    query();
+                }
+                let warm = t.elapsed() / 128;
+                assert_eq!(
+                    g.general.as_ref().unwrap().family.lock().unwrap().builds,
+                    builds
+                );
+                eprintln!("{label:?}: cold {cold:?}, warm {warm:?}, builds {builds:?}");
+            }
+        }
     }
 }

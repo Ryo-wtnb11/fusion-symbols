@@ -7,6 +7,17 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Performance
+
+- Exceptional per-group memos evict whole completed entries after queries
+  within the existing 512-entry/256 MiB estimated-retention limits, keeping
+  rounded channels and paired E₆ phases ahead of modules. Retained channel
+  clones and policy metadata are charged. Sequential release E₈ `248⁴`
+  F-unitarity improved from 74.61 s to 15.80 s (4.72×), with module builds
+  reduced from 38 to 8 and channel builds from 64 to 13. Values, fingerprints,
+  `reset_catalog` and poison recovery are unchanged. See the resource guide for the
+  LRU comparison, peak RSS and small/warm timings.
+
 ## [0.10.0] - 2026-10-28
 
 ### Breaking
