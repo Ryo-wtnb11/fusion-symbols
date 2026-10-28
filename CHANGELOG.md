@@ -9,6 +9,9 @@ value/gauge rule noted below.
 
 ### Performance
 
+- B/C/D commutator verification keeps Cartans diagonal and uses sequential
+  dense kernels for ladder products, preserving coefficient bits and
+  fingerprints.
 - Exceptional module construction reuses exact residual inner products for
   Gram–Schmidt and lowering, storing only kept-candidate coordinates. CGC
   descent scans the smaller weight set and copies the unit-coefficient

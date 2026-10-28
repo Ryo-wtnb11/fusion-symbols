@@ -358,7 +358,8 @@ impl Generators {
     /// every stored set at `≤ EPS_SWEEP`, so a stored set's residual is bounded.
     #[cfg(test)]
     pub(crate) fn max_commutator_residual(&self) -> f64 {
-        commutator_residual(&self.sp, &self.sz, self.dim)
+        commutator_residual(&self.sp, &self.sz, self.dim, 0)
+            .expect("stored generators passed the commutator gate")
     }
 
     /// The carrier dimension `D`.
@@ -900,13 +901,7 @@ fn get_symmetry_states(g: &Generators) -> Result<Vec<Block>, SweepError> {
         }
 
         // rung 5 (gate): projected generators satisfy the commutator relations.
-        let residual = commutator_residual(&rsp_sorted, &rsz_sorted, d0);
-        if residual > EPS_SWEEP {
-            return Err(SweepError::CommutatorResidual {
-                block: bi,
-                residual,
-            });
-        }
+        commutator_residual(&rsp_sorted, &rsz_sorted, d0, bi)?;
 
         let gens = Generators {
             series: g.series,
@@ -1118,47 +1113,40 @@ fn assign_outer_multiplicity(blocks: &mut [Block]) {
 
 // ---- projected-generator commutator gate (f64 analogue of the seed check) ---
 
-/// Worst residual of the commutator relations the projected generators must
-/// satisfy: `[Sz_j, Sp_i] = d_{i,j} Sp_i` (root eigenvector) and
+/// Verify and return the worst residual of the projected generators' commutator
+/// relations: `[Sz_j, Sp_i] = d_{i,j} Sp_i` (root eigenvector) and
 /// `[Sp_i, Sp_i†] = Σ_k f_{i,k} Sz_k` (Cartan span). `f64` because the projected
 /// `Sp` are generally irrational; the exact seed `check_commutators` is the
 /// integer analogue for seeds.
-fn commutator_residual(sp: &[Dense], sz_diag: &[Vec<f64>], d0: usize) -> f64 {
-    let r = sp.len();
+fn commutator_residual(
+    sp: &[Dense],
+    sz_diag: &[Vec<f64>],
+    d0: usize,
+    block: usize,
+) -> Result<f64, SweepError> {
     let mut worst = 0.0f64;
-    // build dense Sz.
-    let szd: Vec<Dense> = sz_diag
-        .iter()
-        .map(|diag| {
-            let mut m = Dense::zeros(d0, d0);
-            for (a, &v) in diag.iter().enumerate() {
-                m.set(a, a, v);
-            }
-            m
-        })
-        .collect();
     // [Sz_j, Sp_i] proportional to Sp_i.
     for spi in sp.iter() {
-        for szj in szd.iter() {
-            let c = dense_commutator(szj, spi);
-            // eigenvalue d from the largest |Sp_i| entry.
-            let (mut br, mut bc, mut bv) = (0usize, 0usize, 0.0f64);
-            for a in 0..d0 {
-                for b in 0..d0 {
-                    if spi.at(a, b).abs() > bv.abs() {
-                        bv = spi.at(a, b);
-                        br = a;
-                        bc = b;
-                    }
+        // Preserve the row-first scan and first-largest tie rule.
+        let (mut br, mut bc, mut bv) = (0usize, 0usize, 0.0f64);
+        for a in 0..d0 {
+            for b in 0..d0 {
+                if spi.at(a, b).abs() > bv.abs() {
+                    bv = spi.at(a, b);
+                    br = a;
+                    bc = b;
                 }
             }
-            if bv.abs() < EPS_SWEEP {
-                continue;
-            }
-            let dz = c.at(br, bc) / bv;
+        }
+        if bv.abs() < EPS_SWEEP {
+            continue;
+        }
+        for szj in sz_diag {
+            let dz = szj[br] - szj[bc];
             for a in 0..d0 {
                 for b in 0..d0 {
-                    worst = worst.max((c.at(a, b) - dz * spi.at(a, b)).abs());
+                    let c = (szj[a] - szj[b]) * spi.at(a, b);
+                    worst = worst.max((c - dz * spi.at(a, b)).abs());
                 }
             }
         }
@@ -1166,50 +1154,39 @@ fn commutator_residual(sp: &[Dense], sz_diag: &[Vec<f64>], d0: usize) -> f64 {
     // [Sp_i, Sp_i†] ∈ span(Sz): project onto Sz basis, check residual.
     for spi in sp.iter() {
         let spt = spi.transpose();
-        let comm = dense_commutator(spi, &spt);
+        let mut comm = matmul(spi, &spt)?;
+        let reverse = matmul(&spt, spi)?;
+        for (c, reverse) in comm.data.iter_mut().zip(&reverse.data) {
+            *c -= reverse;
+        }
         // Frobenius-project the diagonal onto each Sz_j, then residual.
-        let mut recon = Dense::zeros(d0, d0);
-        for szj in szd.iter() {
+        let mut recon = vec![0.0; d0];
+        for szj in sz_diag {
             let mut num = 0.0;
             let mut den = 0.0;
-            for a in 0..d0 {
-                num += comm.at(a, a) * szj.at(a, a);
-                den += szj.at(a, a) * szj.at(a, a);
+            for (a, &z) in szj.iter().enumerate() {
+                num += comm.at(a, a) * z;
+                den += z * z;
             }
             let f = if den > EPS_SWEEP { num / den } else { 0.0 };
-            for a in 0..d0 {
-                let cur = recon.at(a, a);
-                recon.set(a, a, cur + f * szj.at(a, a));
+            for (value, &z) in recon.iter_mut().zip(szj) {
+                *value += f * z;
             }
         }
-        for a in 0..d0 {
+        for (a, &diagonal) in recon.iter().enumerate() {
             for b in 0..d0 {
-                worst = worst.max((comm.at(a, b) - recon.at(a, b)).abs());
+                let target = if a == b { diagonal } else { 0.0 };
+                worst = worst.max((comm.at(a, b) - target).abs());
             }
         }
     }
-    let _ = r;
-    worst
-}
-
-fn dense_commutator(a: &Dense, b: &Dense) -> Dense {
-    let d = a.rows;
-    let mut c = Dense::zeros(d, d);
-    for i in 0..d {
-        for k in 0..d {
-            let aik = a.at(i, k);
-            let bik = b.at(i, k);
-            if aik == 0.0 && bik == 0.0 {
-                continue;
-            }
-            for j in 0..d {
-                // AB - BA
-                let cur = c.at(i, j);
-                c.set(i, j, cur + aik * b.at(k, j) - bik * a.at(k, j));
-            }
-        }
+    if worst > EPS_SWEEP {
+        return Err(SweepError::CommutatorResidual {
+            block,
+            residual: worst,
+        });
     }
-    c
+    Ok(worst)
 }
 
 // ---- small dense/vector helpers (plain f64: the gauge algorithm itself) ----
