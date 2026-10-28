@@ -406,6 +406,61 @@ fn regeneration_is_byte_identical() {
     assert_eq!(bits(), bits());
 }
 
+/// Entry-level drift check against the pre-optimization exact formula (§5.4).
+fn check_radical_formation(root: RootSystem, a: &[i64], b: &[i64], c: &[i64]) {
+    let mut fam = GeneralFamily::new(root);
+    let (ch, ma, mb, mc) = fam.channel(a, b, c).unwrap();
+    let got = ch.exact_entries(ma, mb, mc);
+    let mut entries = got.iter();
+    for mu in 0..ch.mult {
+        for (m, per_mu) in ch.phi.iter().enumerate() {
+            let scale = &ch.seed_norms[mu] * &mc.norm[m];
+            for (&(pa, pb), x) in ch.spaces[mc.space[m]].pairs.iter().zip(&per_mu[mu]) {
+                if x.is_zero() {
+                    continue;
+                }
+                let old = SignedSqrtRational::from_prefactor_radical(
+                    x.clone(),
+                    &ma.norm[pa] * &mb.norm[pb] / &scale,
+                );
+                let (ga, gb, gc, gm, value) = entries.next().unwrap();
+                assert_eq!((*ga, *gb, *gc, *gm), (pa, pb, m, mu));
+                assert_eq!(*value, old);
+                assert_eq!(value.to_f64().to_bits(), old.to_f64().to_bits());
+            }
+        }
+    }
+    assert!(entries.next().is_none());
+    eprintln!(
+        "{root:?} {a:?}⊗{b:?}→{c:?}: {} exact entries agree",
+        got.len()
+    );
+}
+
+#[test]
+fn radical_formation_preserves_exact_entries() {
+    for c in [G27, G64] {
+        check_radical_formation(RootSystem::G2, &G27, &G27, &c);
+    }
+    for (root, a, c) in [
+        (RootSystem::F4, unit(4, 3), unit(4, 2)),
+        (RootSystem::E7, unit(7, 6), unit(7, 0)),
+        (RootSystem::E8, unit(8, 7), unit(8, 7)),
+    ] {
+        check_radical_formation(root, &a, &a, &c);
+    }
+    check_radical_formation(RootSystem::E6, &unit(6, 0), &unit(6, 5), &[0; 6]);
+}
+
+#[test]
+#[ignore = "large E8 channels; run in release"]
+fn radical_formation_preserves_large_e8_entries() {
+    let a = unit(8, 7);
+    for b in [vec![0, 0, 0, 0, 0, 0, 0, 2], unit(8, 6)] {
+        check_radical_formation(RootSystem::E8, &a, &b, &a);
+    }
+}
+
 /// §10 nonzero counts for the multiplicity-2 channels, from the exact Python
 /// prototype. §10 also bounds the radicands by 5-digit numerators and 7-digit
 /// denominators; the extremes over both channels are pinned: numerator 33856
@@ -744,7 +799,9 @@ fn memo_eviction_bounds_and_phase_pairs() {
     let bytes = fam.memo_bytes();
     assert_eq!(bytes, entry.bytes);
     fam.trim(1, bytes);
+    let builds = fam.builds;
     assert_eq!(bits(fam.cgc_entries(&a, &a, &b).unwrap()), expected);
+    assert_eq!(fam.builds, builds, "warm channel must not regenerate");
     fam.trim(1, bytes - 1);
     assert_eq!((fam.memo_len(), fam.memo_bytes()), (0, 0));
     assert_eq!(bits(fam.cgc_entries(&a, &a, &b).unwrap()), expected);

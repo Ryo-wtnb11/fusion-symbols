@@ -57,6 +57,45 @@ impl SignedSqrtRational {
         }
     }
 
+    /// Form `s * sqrt(a * b / scale)` with checked u128 products and one gcd;
+    /// fall back to BigInt formation on any oversized operand or product.
+    #[cfg(feature = "lie-generated")]
+    pub(crate) fn from_prefactor_radical_ratio(
+        s: &Ratio<BigInt>,
+        a: &Ratio<BigInt>,
+        b: &Ratio<BigInt>,
+        scale: &Ratio<BigInt>,
+    ) -> Self {
+        use num_traits::ToPrimitive;
+
+        let small = || {
+            let (mut n, mut d) = (1u128, 1u128);
+            for q in [s, s, a, b] {
+                n = n.checked_mul(q.numer().magnitude().to_u128()?)?;
+                d = d.checked_mul(q.denom().magnitude().to_u128()?)?;
+            }
+            n = n.checked_mul(scale.denom().magnitude().to_u128()?)?;
+            d = d.checked_mul(scale.numer().magnitude().to_u128()?)?;
+            if d == 0 {
+                return None;
+            }
+            let g = gcd(n, d);
+            // Positive denominator and division by gcd establish Ratio's invariant.
+            Some(Ratio::new_raw(
+                BigInt::from(div(n, g)),
+                BigInt::from(div(d, g)),
+            ))
+        };
+        match small() {
+            Some(r) if r.is_zero() => Self::zero(),
+            Some(r) => Self {
+                sign: if s.is_negative() { -1 } else { 1 },
+                radicand: Some(Arc::new(r)),
+            },
+            None => Self::from_prefactor_radical(s.clone(), a * b / scale),
+        }
+    }
+
     /// The sign: `-1`, `0`, or `+1`.
     pub fn sign(&self) -> i8 {
         self.sign
@@ -308,6 +347,38 @@ fn gcd(mut a: u128, mut b: u128) -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn radical_ratio_matches_bigint_formation() {
+        let q = |n: i64, d: i64| Ratio::new(BigInt::from(n), BigInt::from(d));
+        // Drift check against the original exact formula, including zero, signs,
+        // oversized operands and overflow in numerator/denominator products.
+        for s in [
+            q(0, 1),
+            q(-2, 3),
+            Ratio::new(BigInt::from(u128::MAX), BigInt::from(3)),
+            Ratio::new(BigInt::one(), BigInt::one() << 80),
+            Ratio::new(BigInt::one(), BigInt::one() << 129),
+        ] {
+            for a in [
+                q(5, 7),
+                Ratio::from(BigInt::one() << 80),
+                Ratio::new(BigInt::one(), BigInt::one() << 80),
+            ] {
+                for b in [q(11, 13), q(-17, 19)] {
+                    for scale in [q(23, 29), Ratio::new(BigInt::one() << 140, 31.into())] {
+                        let want =
+                            SignedSqrtRational::from_prefactor_radical(s.clone(), &a * &b / &scale);
+                        let got =
+                            SignedSqrtRational::from_prefactor_radical_ratio(&s, &a, &b, &scale);
+                        assert_eq!(got, want);
+                        assert_eq!(got.to_f64().to_bits(), want.to_f64().to_bits());
+                    }
+                }
+            }
+        }
+    }
 
     #[cfg(feature = "lie-generated")]
     #[test]

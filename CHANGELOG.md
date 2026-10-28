@@ -9,6 +9,10 @@ value/gauge rule noted below.
 
 ### Performance
 
+- Exceptional CGC radical formation uses checked `u128` products and one
+  exact reduction, with the original BigInt formation as fallback. Exact values,
+  entry order, fingerprints and final rounding are unchanged. Sequential release
+  E₈ `248⁴` F-unitarity improved from 15.90 s to 13.51 s (1.18×) after memo retention.
 - Exceptional per-group memos evict whole completed entries after queries
   within the existing 512-entry/256 MiB estimated-retention limits, keeping
   rounded channels and paired E₆ phases ahead of modules. Retained channel
