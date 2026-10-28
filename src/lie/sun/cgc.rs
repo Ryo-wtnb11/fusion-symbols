@@ -275,7 +275,7 @@ fn generate(
     purge(&mut data);
 
     let cgc = freeze(s1.clone(), s2.clone(), s3.clone(), [d1, d2, d3, n123], data);
-    check_orthonormal(&cgc)?;
+    check_orthonormal(&cgc, &ctx)?;
     check_ladder(&cgc, &ctx)?;
     Ok(cgc)
 }
@@ -750,7 +750,29 @@ fn freeze(
 /// isometry, `Σ_{m1,m2} C[..,m3,α] C[..,m3',β] = δ_{m3 m3'} δ_{αβ}`. Overlap is
 /// contracted over the coupling indices `(m1,m2)` only, per output column
 /// `(m3,α)` -- not summed over `m3`.
-fn check_orthonormal(cgc: &Cgc) -> Result<(), SunError> {
+fn check_orthonormal(cgc: &Cgc, ctx: &Ctx) -> Result<(), SunError> {
+    let [weights1, weights2, weights3] = [&ctx.map1, &ctx.map2, &ctx.map3].map(|map| {
+        let mut weights = vec![&[][..]; map.values().map(Vec::len).sum()];
+        for (weight, indices) in map {
+            for &m in indices {
+                weights[m] = weight.as_slice();
+            }
+        }
+        weights
+    });
+    // GT weights differ from additive SU(N) weights by the uniform coupling shift.
+    for e in cgc.entries() {
+        let w1 = weights1[usize::try_from(e.m1).map_err(|_| SunError::LabelOverflow)?];
+        let w2 = weights2[usize::try_from(e.m2).map_err(|_| SunError::LabelOverflow)?];
+        let w3 = weights3[usize::try_from(e.m3).map_err(|_| SunError::LabelOverflow)?];
+        for l in 0..ctx.n {
+            if add_weight(w1[l], w2[l])? != add_weight(w3[l], ctx.wshift)? {
+                return Err(SunError::NotOrthonormal {
+                    residual: f64::INFINITY,
+                });
+            }
+        }
+    }
     // Columns keyed by (m3, mu); each is a map (m1,m2) -> value.
     let mut columns: BTreeMap<(u32, u32), BTreeMap<(u32, u32), f64>> = BTreeMap::new();
     for e in cgc.entries() {
@@ -759,26 +781,33 @@ fn check_orthonormal(cgc: &Cgc) -> Result<(), SunError> {
             .or_default()
             .insert((e.m1, e.m2), e.value);
     }
-    let keys: Vec<(u32, u32)> = columns.keys().copied().collect();
+    // Validated support makes columns in different output weights disjoint.
+    let mut blocks: BTreeMap<&[i64], Vec<(u32, u32)>> = BTreeMap::new();
+    for &key in columns.keys() {
+        let weight = weights3[usize::try_from(key.0).map_err(|_| SunError::LabelOverflow)?];
+        blocks.entry(weight).or_default().push(key);
+    }
     let mut worst = 0.0f64;
-    for (ia, ka) in keys.iter().enumerate() {
-        let ca = &columns[ka];
-        for kb in keys.iter().skip(ia) {
-            let cb = &columns[kb];
-            // Dot over shared (m1,m2); iterate the smaller column.
-            let (small, big) = if ca.len() <= cb.len() {
-                (ca, cb)
-            } else {
-                (cb, ca)
-            };
-            let mut dot = 0.0;
-            for (idx, &v) in small {
-                if let Some(&w) = big.get(idx) {
-                    dot += v * w;
+    for keys in blocks.values() {
+        for (ia, ka) in keys.iter().enumerate() {
+            let ca = &columns[ka];
+            for kb in keys.iter().skip(ia) {
+                let cb = &columns[kb];
+                // Dot over shared (m1,m2); iterate the smaller column.
+                let (small, big) = if ca.len() <= cb.len() {
+                    (ca, cb)
+                } else {
+                    (cb, ca)
+                };
+                let mut dot = 0.0;
+                for (idx, &v) in small {
+                    if let Some(&w) = big.get(idx) {
+                        dot += v * w;
+                    }
                 }
+                let target = if ka == kb { 1.0 } else { 0.0 };
+                worst = worst.max((dot - target).abs());
             }
-            let target = if ka == kb { 1.0 } else { 0.0 };
-            worst = worst.max((dot - target).abs());
         }
     }
     if worst > TOL_ORTHO {
@@ -924,8 +953,14 @@ mod tests {
         assert_eq!(c.multiplicity(), 1);
         assert!(c.nnz() > 0);
         // Warm hit returns byte-identical values.
+        let generations = GENERATIONS.get();
         let c2 = cgc(&irr(&[1, 0]), &irr(&[0, 1]), &irr(&[1, 1])).unwrap();
         assert_eq!(c, c2);
+        assert_eq!(
+            GENERATIONS.get(),
+            generations,
+            "warm call must not generate"
+        );
     }
 
     #[test]
@@ -934,7 +969,62 @@ mod tests {
         // gauge-fixed together, and must come out orthonormal.
         let c = cgc(&irr(&[1, 1]), &irr(&[1, 1]), &irr(&[1, 1])).unwrap();
         assert_eq!(c.multiplicity(), 2);
-        check_orthonormal(&c).unwrap();
+        let ctx = Ctx::new(&irr(&[1, 1]), &irr(&[1, 1]), &irr(&[1, 1])).unwrap();
+        check_orthonormal(&c, &ctx).unwrap();
+    }
+
+    #[test]
+    fn orthonormal_gate_rejects_off_weight_support() {
+        let (a, b, c) = (irr(&[1, 0]), irr(&[0, 1]), irr(&[1, 1]));
+        let ctx = Ctx::new(&a, &b, &c).unwrap();
+        let mut cgc = generate(&a, &b, &c, None).unwrap();
+        let mut entry = cgc.entries()[0];
+        let other_weight = ctx
+            .map3
+            .values()
+            .find(|indices| !indices.contains(&usize::try_from(entry.m3).unwrap()))
+            .unwrap();
+        entry.m3 = magnetic_index(other_weight[0]).unwrap();
+        // Below the numerical gate tolerance: exact support must still reject it.
+        entry.value = TOL_ORTHO / 4.0;
+        std::sync::Arc::get_mut(&mut cgc.0)
+            .unwrap()
+            .entries
+            .push(entry);
+        assert_eq!(
+            check_orthonormal(&cgc, &ctx),
+            Err(SunError::NotOrthonormal {
+                residual: f64::INFINITY
+            })
+        );
+    }
+
+    #[test]
+    fn orthonormal_gate_rejects_parallel_within_weight_columns() {
+        let a = irr(&[1, 1]);
+        let ctx = Ctx::new(&a, &a, &a).unwrap();
+        let mut cgc = generate(&a, &a, &a, None).unwrap();
+        let indices = ctx.map3.values().find(|indices| indices.len() > 1).unwrap();
+        let source = magnetic_index(indices[0]).unwrap();
+        let target = magnetic_index(indices[1]).unwrap();
+        // Duplicate a column across two states of the same weight: both norms
+        // stay one, but their overlap becomes one.
+        let mut duplicate: Vec<_> = cgc
+            .entries()
+            .iter()
+            .filter(|e| e.m3 == source && e.mu == 0)
+            .copied()
+            .collect();
+        for e in &mut duplicate {
+            e.m3 = target;
+        }
+        let entries = &mut std::sync::Arc::get_mut(&mut cgc.0).unwrap().entries;
+        entries.retain(|e| e.m3 != target || e.mu != 0);
+        entries.extend(duplicate);
+        assert!(matches!(
+            check_orthonormal(&cgc, &ctx),
+            Err(SunError::NotOrthonormal { residual }) if residual > 0.9 && residual.is_finite()
+        ));
     }
 
     #[test]

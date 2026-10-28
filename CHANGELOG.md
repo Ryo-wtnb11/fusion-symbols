@@ -14,6 +14,9 @@ value/gauge rule noted below.
   descent scans the smaller weight set and copies the unit-coefficient
   candidate before adding corrections. Every rational, coefficient bit and
   fingerprint is unchanged.
+- SU(N) CGC orthonormality verification validates exact weight support once
+  and compares columns only within output-weight blocks, preserving every
+  coefficient bit, tolerance and authority fingerprint.
 - Exceptional highest-weight assembly and exact elimination retain only
   nonzero rational coordinates, preserving the canonical pivot basis and every
   coefficient bit. Sequential release E₈ `248⁴` F-unitarity improved from
