@@ -14,10 +14,20 @@ value/gauge rule noted below.
   ([`docs/gauge_exceptional.md`](docs/gauge_exceptional.md)). Every irrep is
   self-dual; the E₇ irreps with odd `a₂ + a₅ + a₇` (such as `56` and `912`)
   are pseudo-real, all others real. Each group owns a bounded memo like G₂.
-  E₆ still returns `LieError::Unsupported { requires: "E6 coefficient engine" }`.
   Without `lie-generated`, F₄, E₇ and E₈ now return
   `LieError::Unsupported { requires: "lie-generated" }` instead of
   `"<X> coefficient engine"`. No existing value or fingerprint changes.
+- E₆ coefficients through `LieGroup` (`lie-generated`), from the same engine
+  and fingerprint, so all five exceptional types are served. Duality swaps
+  `a₁ ↔ a₆` and `a₃ ↔ a₅`; self-dual E₆ irreps are real. A complex irrep's
+  Frobenius–Schur phase is derived from the gauge (§6.3 of the spec): its first
+  query builds the exact modules of the irrep and its dual and memoizes the
+  sign for both, at the cost class of an F or R query on that irrep; admission
+  builds nothing. `LieGroup::irrep` returns `LieError::LabelOverflow` for a
+  complex E₆ label (and its dual) whose dimension exceeds `u32::MAX`, since
+  that phase is generated in a basis with `u32` indices. E₆ no longer returns
+  `LieError::Unsupported { requires: "E6 coefficient engine" }`; without
+  `lie-generated` it returns `requires: "lie-generated"`.
 
 ## [0.9.1] - 2026-10-28
 

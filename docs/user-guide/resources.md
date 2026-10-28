@@ -151,9 +151,9 @@ warm CGC/F/R calls consult those caches before locking the catalog.
 
 ## Exceptional coefficient memo
 
-G₂, F₄, E₇ and E₈ coefficients bypass the global coefficient caches and their
+G₂, F₄, E₆, E₇ and E₈ coefficients bypass the global coefficient caches and their
 budgets. Each such `LieGroup` (and each such factor of a composite) owns a memo of exact
-modules, tensor products and CGC channels; clones share it. Once it holds 512
+modules, tensor products, CGC channels and E₆ Frobenius–Schur phases; clones share it. Once it holds 512
 entries or an estimated 256 MiB, the next query starts from an empty memo.
 The bounds are checked only between queries: one query adds at most 14
 entries, and its transient working set may exceed 256 MiB. A single entry for
@@ -169,6 +169,18 @@ E₇ `1539` builds in 0.12 s (≈ 6 MiB), E₈ `3875` in 0.33 s (≈ 15 MiB), E�
 touching both of the last two exceeds the byte bound on its own, so the next
 query starts cold; F-unitarity over four E₈ `248`s takes about 9 minutes and
 3 GiB resident.
+
+The Frobenius–Schur phase of a complex E₆ irrep is derived from the gauge, so
+its first `frobenius_schur_phase` call (or first A symbol) builds the exact
+modules of the irrep and its dual under the memo lock and memoizes the sign
+for both; later calls on either label are memo hits. Admission, the indicator
+(`0` for complex irreps) and self-dual phases build nothing. The first call on
+a large admitted complex label therefore costs the same as an F or R query on
+it: building its exact module. Measured in release on one core (irrep and dual):
+`27` 0.2 ms, `351` 18 ms, `1728` 0.6 s and `7371` 17 s; the
+second call on either label takes microseconds. `irrep` rejects complex E₆ labels above `u32::MAX` dimensions with
+`LieError::LabelOverflow`; below that bound the first phase query is unbounded
+in the same way as F or R.
 
 `reset_catalog()` drops the memo (on any clone, and on every exceptional factor of a
 composite); dropping the last clone frees it too. The memo does not appear in

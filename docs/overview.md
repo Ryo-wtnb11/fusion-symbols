@@ -67,11 +67,16 @@ Dynkin numbering follows Bourbaki. `GroupId::sp(2*r)` uses the defining
 dimension, not the rank. A1, B1 and C1 use the exact SU(2) implementation;
 SO(3) and PSU(2) admit only even doubled spins. D₂ expands into α₁ then α₂,
 each in the exact A₁ gauge: dimensions are `(a+1)(b+1)`, and SO(4) admits
-`a+b` even while PSO(4) requires both labels even. G₂, F₄, E₇ and E₈ use
-the exact engine of [gauge_exceptional.md](gauge_exceptional.md)
-(`lie-generated`); their irreps are all self-dual, and all are real except the
-E₇ irreps with odd `a₂ + a₅ + a₇`, which are pseudo-real. E₆ has no
-coefficient engine yet. `GroupId::{g2, f4, e6, e7, e8}` build the simply connected forms.
+`a+b` even while PSO(4) requires both labels even. G₂, F₄, E₆, E₇ and E₈
+use the exact engine of [gauge_exceptional.md](gauge_exceptional.md)
+(`lie-generated`). G₂, F₄, E₇ and E₈ irreps are all self-dual, and all are
+real except the E₇ irreps with odd `a₂ + a₅ + a₇`, which are pseudo-real.
+E₆ duality swaps `a₁ ↔ a₆` and `a₃ ↔ a₅`; its self-dual irreps are real, and
+a complex irrep's Frobenius–Schur phase is derived from the gauge (§6.3) and
+generated on first use. `irrep` rejects a complex E₆ label whose dimension
+exceeds `u32::MAX` with `LieError::LabelOverflow`, because that phase is
+generated in a basis with `u32` indices. `GroupId::{g2, f4, e6, e7, e8}` build
+the simply connected forms.
 
 A global form filters labels through `src/lie/group.rs::GroupId::admits`;
 it does not change coefficients on shared irreps. Spin(N) admits spinors that
@@ -100,8 +105,7 @@ coefficients or removing fusion outcomes: `ν−λ−μ ∈ Q ⊆ X` proves clos
 Composites delegate to `Product<Vec<LieGroup>>` of ordered simple covers then
 rank-one torus covers. A single non-D₂ factor uses that factor's own evaluator and gauge;
 standard U(1) stores its charge inline and delegates to the closed-form `U1` arithmetic.
-The trivial group executes as an empty Product. E₆ blocks return
-`LieError::Unsupported { requires: "E6 coefficient engine" }`.
+The trivial group executes as an empty Product.
 Generated factors require `lie-generated`. B/C/D seed totals are checked
 against the aggregate catalog budget before allocating generators (see
 [resources](user-guide/resources.md#bcd-generator-catalogs)).

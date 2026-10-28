@@ -18,7 +18,7 @@ Categories that are representation categories of groups also implement
 
 | You need | Use | Objects |
 |---|---|---|
-| A compact connected Lie group: SU(N), SO(N), Spin(N), Sp(2r), G₂, F₄, E₇, E₈, U(N), tori, products, quotients | `lie::LieGroup` built from a `lie::GroupId` | `LieIrrep` |
+| A compact connected Lie group: SU(N), SO(N), Spin(N), Sp(2r), G₂, F₄, E₆, E₇, E₈, U(N), tori, products, quotients | `lie::LieGroup` built from a `lie::GroupId` | `LieIrrep` |
 | Exact SU(2) 3j, 6j or CG values as rationals under a square root | `lie::su2::{wigner_3j, wigner_6j, clebsch_gordan}` | doubled spins `u32` |
 | U(1) with `Copy` labels and scalar symbols | `lie::U1` | `U1Irrep` |
 | CU(1) = O(2) | `lie::CU1` | `CU1Irrep` |
@@ -27,8 +27,7 @@ Categories that are representation categories of groups also implement
 | Fibonacci, Ising, or another unitary multiplicity-free category of rank ≤ 7 | `table::TableCategory` | `TableObject` |
 | Several symmetries at once | `product::Product` | tuples or vectors of factor objects |
 
-Not provided: the exceptional group E₆ (it is classified
-by `GroupId`, but `LieGroup::new` returns `LieError::Unsupported`), disconnected groups other
+Not provided: disconnected groups other
 than CU(1), noncompact groups, finite non-abelian groups Rep(G), and
 categories with multiplicity that are not Lie groups.
 
@@ -72,7 +71,8 @@ arguments are the defining matrix dimension, not the rank.
 By root data, for products and arbitrary global forms:
 
 ```rust
-use fusion_symbols::lie::{GroupId, LieError, LieGroup, RootSystem};
+use fusion_symbols::category::FusionCategory;
+use fusion_symbols::lie::{GroupId, LieGroup, RootSystem};
 
 // SU(2) × SU(3) × U(1): the full weight and charge lattice.
 let cover = GroupId::cover(&[RootSystem::A(1), RootSystem::A(2)], 1)?;
@@ -84,14 +84,14 @@ assert_eq!(g.group_id().semisimple_rank(), 3);
 let u2 = GroupId::new(&[RootSystem::A(1)], 1, &[vec![1, 1], vec![0, 2]])?;
 assert_eq!(u2, GroupId::u(2)?);
 
-// G₂, F₄, E₇ and E₈ have exact coefficients (with `lie-generated`); E₆ is
-// classified but has no coefficients yet.
+// G₂, F₄, E₆, E₇ and E₈ have exact coefficients (with `lie-generated`).
+// E₆'s 27 and 27̄ (Bourbaki labels) are each other's duals.
 let e8 = LieGroup::new(GroupId::e8())?;
 assert_eq!(e8.group_id(), &GroupId::cover(&[RootSystem::E8], 0)?);
-assert_eq!(
-    LieGroup::new(GroupId::e6()),
-    Err(LieError::Unsupported { requires: "E6 coefficient engine" })
-);
+let e6 = LieGroup::new(GroupId::e6())?;
+let v = e6.irrep(&[1, 0, 0, 0, 0, 0], &[])?;
+assert_eq!(e6.dual(&v).dynkin(), [0, 0, 0, 0, 0, 1]);
+assert_eq!(e6.frobenius_schur_indicator(&v), 0.0);
 ```
 
 `GroupId::new(roots, torus_rank, generators)` takes square integer row
@@ -344,10 +344,11 @@ Each category has one error type: `LieError`, `U1Error`, `CU1Error`,
 | Wrong label lengths or negative Dynkin label | `LieError::InvalidLabel` |
 | Label excluded by the global form | `LieError::NotAdmissible` |
 | Label, weight or multiplicity beyond its integer type | `LieError::LabelOverflow` (and `U1Error`/`CU1Error::LabelOverflow`) |
+| E₆ irrep that is not self-dual, with dimension above `u32::MAX` (its Frobenius–Schur phase is generated in a basis with `u32` indices) | `LieError::LabelOverflow` from `irrep`, and from `fusion` when an outcome is such a label |
 | Z_N modulus zero, or `ZNIrrep::from_canonical` charge outside `0..N` | `ZNError::ZeroModulus`, `ZNError::NonCanonicalCharge` |
 | Invalid CU(1) label `(twice_charge, s)` | `CU1Error::InvalidLabel` |
 | Cache budgets configured after a cache operation or a second time | `CacheBudgetError::AlreadyInitialized` |
-| Group needs `lie-generated`, or has an E₆ factor | `LieError::Unsupported { requires }` |
+| Group needs `lie-generated` | `LieError::Unsupported { requires }` |
 | Numerical generation failed its checks | `LieError::Generation` with an error source |
 | Invalid rank or lattice | `GroupError::UnsupportedRank`, `InvalidLattice`, `NotACenterSubgroup`, `SizeOverflow` |
 | R on a fusion-only table or product factor | `TableError::NoBraiding`, `ProductError::NoBraiding { factor }` |

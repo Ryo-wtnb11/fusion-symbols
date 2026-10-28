@@ -1,7 +1,6 @@
-//! G2, F4, E7 and E8 through the public `LieGroup` API
-//! (`docs/gauge_exceptional.md`), and the explicit E6 boundary.
-//! Expected values are literals: Weyl dimensions, §9.3 decompositions and
-//! the §6.2 indicators.
+//! G2, F4, E6, E7 and E8 through the public `LieGroup` API
+//! (`docs/gauge_exceptional.md`). Expected values are literals: Weyl
+//! dimensions, §9.3 decompositions, the §6.2 indicators and the §6.3 phases.
 
 use fusion_symbols::lie::{GroupId, LieError, LieGroup, RootSystem};
 
@@ -19,22 +18,17 @@ fn exceptional_constructors_are_the_simply_connected_covers() {
     }
 }
 
-/// E6 has no coefficients yet; the served exceptional types need
-/// `lie-generated` and have no B/C/D catalog.
+/// The exceptional types need `lie-generated` and have no B/C/D catalog.
 #[test]
 fn unsupported_boundaries() {
-    for id in [
+    let served = [
+        GroupId::g2(),
+        GroupId::f4(),
         GroupId::e6(),
+        GroupId::e7(),
+        GroupId::e8(),
         GroupId::cover(&[RootSystem::E6, RootSystem::A(1)], 1).unwrap(),
-    ] {
-        assert_eq!(
-            LieGroup::new(id),
-            Err(LieError::Unsupported {
-                requires: "E6 coefficient engine"
-            })
-        );
-    }
-    let served = [GroupId::g2(), GroupId::f4(), GroupId::e7(), GroupId::e8()];
+    ];
     #[cfg(feature = "lie-generated")]
     for id in served.into_iter().chain([
         GroupId::cover(&[RootSystem::G2, RootSystem::A(1)], 1).unwrap(),
@@ -527,6 +521,275 @@ mod self_dual {
                     .sum();
                 assert!((s - f64::from(u8::from(m == n))).abs() <= 1e-13);
             }
+        }
+    }
+}
+
+/// E6: the only exceptional type with complex irreps. `−w₀` swaps Bourbaki
+/// `a₁ ↔ a₆` and `a₃ ↔ a₅` (§6.1), and a complex irrep's `κ_a` is the
+/// gauge-derived `σ_a σ_ā` (§6.3).
+#[cfg(feature = "lie-generated")]
+mod e6 {
+    use fusion_symbols::category::{
+        f_unitarity_residual, hexagon_residual, FusionCategory, SymbolBlock,
+    };
+    use fusion_symbols::lie::{GroupId, LieError, LieGroup, LieIrrep, RootSystem};
+    use fusion_symbols::product::Product;
+    use num_bigint::BigInt;
+    use std::time::Instant;
+
+    /// Bourbaki labels; dimensions from an independent Weyl-formula script
+    /// over the Bourbaki Plate V diagram (chain 1–3–4–5–6, node 2 on node 4).
+    const ONE: [i64; 6] = [0; 6];
+    const V27: [i64; 6] = [1, 0, 0, 0, 0, 0];
+    const V27B: [i64; 6] = [0, 0, 0, 0, 0, 1];
+    const ADJ: [i64; 6] = [0, 1, 0, 0, 0, 0];
+    const V351: [i64; 6] = [0, 0, 1, 0, 0, 0];
+    const V351B: [i64; 6] = [0, 0, 0, 0, 1, 0];
+    const V351P: [i64; 6] = [2, 0, 0, 0, 0, 0];
+    const V351PB: [i64; 6] = [0, 0, 0, 0, 0, 2];
+    const V650: [i64; 6] = [1, 0, 0, 0, 0, 1];
+    const V1728: [i64; 6] = [1, 1, 0, 0, 0, 0];
+    const V1728B: [i64; 6] = [0, 1, 0, 0, 0, 1];
+    const V2430: [i64; 6] = [0, 2, 0, 0, 0, 0];
+    const V2925: [i64; 6] = [0, 0, 0, 1, 0, 0];
+    const V7371: [i64; 6] = [1, 0, 0, 0, 1, 0];
+    const V7371B: [i64; 6] = [0, 0, 1, 0, 0, 1];
+
+    /// `(label, dim, dual)`.
+    const TABLE: [([i64; 6], u32, [i64; 6]); 15] = [
+        (ONE, 1, ONE),
+        (V27, 27, V27B),
+        (V27B, 27, V27),
+        (ADJ, 78, ADJ),
+        (V351, 351, V351B),
+        (V351B, 351, V351),
+        (V351P, 351, V351PB),
+        (V351PB, 351, V351P),
+        (V650, 650, V650),
+        (V1728, 1728, V1728B),
+        (V1728B, 1728, V1728),
+        (V2430, 2430, V2430),
+        (V2925, 2925, V2925),
+        (V7371, 7371, V7371B),
+        (V7371B, 7371, V7371),
+    ];
+
+    fn e6() -> LieGroup {
+        LieGroup::new(GroupId::e6()).unwrap()
+    }
+
+    fn l(g: &LieGroup, label: [i64; 6]) -> LieIrrep {
+        g.irrep(&label, &[]).unwrap()
+    }
+
+    /// `(label, N)` of every channel of `a ⊗ b`, in fusion order.
+    fn channels(g: &LieGroup, a: [i64; 6], b: [i64; 6]) -> Vec<(Vec<i64>, u32)> {
+        let (a, b) = (l(g, a), l(g, b));
+        g.fusion(&a, &b)
+            .unwrap()
+            .map(|c| (c.dynkin(), g.nsymbol(&a, &b, &c)))
+            .collect()
+    }
+
+    fn bits<const R: usize>(x: impl SymbolBlock<R, Scalar = f64>) -> ([usize; R], Vec<u64>) {
+        (x.dims(), x.as_slice().iter().map(|v| v.to_bits()).collect())
+    }
+
+    /// Weyl dimensions and duals without generating a module.
+    #[test]
+    fn dimensions_and_duals() {
+        let g = e6();
+        for (label, dim, dual) in TABLE {
+            let a = l(&g, label);
+            assert_eq!(a.dim_exact(), BigInt::from(dim), "{label:?}");
+            assert_eq!(g.dim(&a), f64::from(dim));
+            assert_eq!(g.dual(&a), l(&g, dual), "{label:?}");
+            assert_eq!(g.twist(&a), 1.0);
+        }
+        assert_eq!(g.unit(), l(&g, ONE));
+    }
+
+    /// §9.3 literals through fusion and N:
+    /// `27⊗27 = 27̄ + 351 + 351′`, `27⊗27̄ = 1 + 78 + 650`,
+    /// `27⊗78 = 27 + 351 + 1728`, and `27̄⊗27̄` is the conjugate of `27⊗27`.
+    #[test]
+    fn decompositions_match_the_spec() {
+        let g = e6();
+        let sorted = |mut x: Vec<(Vec<i64>, u32)>| {
+            x.sort();
+            x
+        };
+        let want = |labels: &[[i64; 6]]| sorted(labels.iter().map(|c| (c.to_vec(), 1)).collect());
+        assert_eq!(sorted(channels(&g, V27, V27)), want(&[V27B, V351, V351P]));
+        assert_eq!(
+            sorted(channels(&g, V27B, V27B)),
+            want(&[V27, V351B, V351PB])
+        );
+        assert_eq!(sorted(channels(&g, V27, V27B)), want(&[ONE, ADJ, V650]));
+        assert_eq!(sorted(channels(&g, V27, ADJ)), want(&[V27, V351B, V1728]));
+        let (v, w) = (l(&g, V27), l(&g, V27B));
+        assert_eq!(g.nsymbol(&v, &v, &w), 1);
+        assert_eq!(g.nsymbol(&v, &v, &v), 0);
+        assert_eq!(g.nsymbol(&v, &w, &g.unit()), 1);
+    }
+
+    /// §6.2–§6.3: the indicator is 0 on complex irreps and `+1` on self-dual
+    /// ones; the phase is `+1` for every listed irrep up to 2925, including
+    /// 1728/1728̄ (the §6.3 prototype records `σ = +1` for the complex ones,
+    /// and `⟨λ, 2ρ∨⟩` is even), and for 7371 in `first_phase_query_report`.
+    #[test]
+    fn frobenius_schur_literals() {
+        let g = e6();
+        for (label, dim, dual) in TABLE {
+            let a = l(&g, label);
+            let indicator = if label == dual { 1.0 } else { 0.0 };
+            assert_eq!(g.frobenius_schur_indicator(&a), indicator, "{label:?}");
+            // 7371's first phase query is `first_phase_query_report`'s (17 s release).
+            if dim != 7371 {
+                assert_eq!(g.frobenius_schur_phase(&a), 1.0, "{label:?}");
+            }
+        }
+    }
+
+    /// `κ_a = sign(d_a F^{a ā a}_a[𝟙, 𝟙])` (§9.7), independent of the σ path.
+    #[test]
+    fn phase_matches_the_f_sign() {
+        let g = e6();
+        let one = g.unit();
+        for label in [V27, V27B, V351, V351B] {
+            let a = l(&g, label);
+            let dual = g.dual(&a);
+            let f = g.f_symbol(&a, &dual, &a, &a, &one, &one).unwrap();
+            let x = f.as_slice()[0] * g.dim(&a);
+            assert!((x.abs() - 1.0).abs() <= 1e-12, "{label:?}: |d F| = {x}");
+            assert_eq!(x.signum(), g.frobenius_schur_phase(&a), "{label:?}");
+        }
+    }
+
+    /// A complex irrep's phase is generated in the module basis, whose
+    /// magnetic index is `u32`: a complex label beyond it (and its dual) is
+    /// rejected at admission. Self-dual labels keep their admission.
+    #[test]
+    fn complex_labels_beyond_u32_are_rejected() {
+        let g = e6();
+        for label in [[0, 0, 0, 0, 0, 15], [15, 0, 0, 0, 0, 0]] {
+            assert_eq!(g.irrep(&label, &[]), Err(LieError::LabelOverflow));
+        }
+        // dim 2 096 092 350 ≤ u32::MAX, and the dual of the rejected pair.
+        let below = l(&g, [0, 0, 0, 0, 0, 14]);
+        assert_eq!(below.dim_exact(), BigInt::from(2_096_092_350u32));
+        // Its product with 27̄ reaches (0, …, 0, 15).
+        assert!(matches!(
+            g.fusion(&below, &l(&g, V27B)),
+            Err(LieError::LabelOverflow)
+        ));
+        let big = l(&g, [15, 0, 0, 0, 0, 15]);
+        assert_eq!(big.dim_exact(), BigInt::from(212_360_413_913_278_488u64));
+        assert_eq!(g.frobenius_schur_phase(&big), 1.0);
+    }
+
+    fn timed(gate: &str, run: impl FnOnce() -> f64) -> f64 {
+        let t = Instant::now();
+        let r = run();
+        eprintln!("{gate} residual {r:e} in {:?}", t.elapsed());
+        r
+    }
+
+    const TOL: f64 = 1e-12;
+
+    /// F-unitarity over samples that mix 27 and 27̄.
+    #[test]
+    fn f_unitarity_mixing_27_and_its_dual() {
+        let g = e6();
+        let (v, w) = (l(&g, V27), l(&g, V27B));
+        assert!(timed("F", || f_unitarity_residual(&g, &v, &v, &w, &v).unwrap()) <= TOL);
+    }
+
+    #[test]
+    #[ignore = "release 18 s, debug 97 s"]
+    fn hexagon_on_27_27_27bar() {
+        let g = e6();
+        let (v, w) = (l(&g, V27), l(&g, V27B));
+        assert!(timed("H", || hexagon_residual(&g, &v, &v, &w).unwrap()) <= TOL);
+    }
+
+    /// A and B on the complex vertex `27 ⊗ 27 → 27̄`: with `κ = +1`,
+    /// `A^{ab}_c = √(d_a d_b / d_c) F^{ā a b}_b[𝟙, c]`, and both are
+    /// unitary 1×1 blocks.
+    #[test]
+    fn a_and_b_on_a_complex_vertex() {
+        let g = e6();
+        let (v, w) = (l(&g, V27), l(&g, V27B));
+        let a = g.a_symbol(&v, &v, &w).unwrap();
+        let f = g.f_symbol(&w, &v, &v, &v, &g.unit(), &w).unwrap();
+        let want = (27.0f64 * 27.0 / 27.0).sqrt() * f.as_slice()[0];
+        assert_eq!(a.dims(), [1, 1]);
+        assert!((a.as_slice()[0] - want).abs() <= 1e-14);
+        assert!((a.as_slice()[0].abs() - 1.0).abs() <= 1e-12);
+        let b = g.b_symbol(&v, &v, &w).unwrap();
+        assert_eq!(b.dims(), [1, 1]);
+        assert!((b.as_slice()[0].abs() - 1.0).abs() <= 1e-12);
+    }
+
+    /// E6 × U(1) equals the ordered Product of its factor groups.
+    #[test]
+    fn composite_matches_the_factor_product() {
+        let cat = LieGroup::new(GroupId::cover(&[RootSystem::E6], 1).unwrap()).unwrap();
+        let factors = [e6(), LieGroup::new(GroupId::torus(1).unwrap()).unwrap()];
+        let product = Product::new(factors.to_vec());
+        let split = |dynkin: [i64; 6], q: i64| {
+            (
+                cat.irrep(&dynkin, &[q]).unwrap(),
+                vec![
+                    factors[0].irrep(&dynkin, &[]).unwrap(),
+                    factors[1].irrep(&[], &[q]).unwrap(),
+                ],
+            )
+        };
+        let (a, pa) = split(V27, 1);
+        let (b, pb) = split(V27B, -1);
+        let got: Vec<(Vec<i64>, Vec<i64>)> = cat
+            .fusion(&a, &b)
+            .unwrap()
+            .map(|c| (c.dynkin(), c.charges().collect()))
+            .collect();
+        let want: Vec<(Vec<i64>, Vec<i64>)> = product
+            .fusion(&pa, &pb)
+            .unwrap()
+            .map(|c| (c[0].dynkin(), c[1].charges().collect()))
+            .collect();
+        assert_eq!(got, want);
+        assert_eq!(got.len(), 3);
+        let (e, pe) = split(ADJ, 0);
+        assert_eq!(
+            bits(cat.f_symbol(&a, &b, &a, &a, &e, &e).unwrap()),
+            bits(product.f_symbol(&pa, &pb, &pa, &pa, &pe, &pe).unwrap())
+        );
+        assert_eq!(
+            cat.frobenius_schur_phase(&a),
+            product.frobenius_schur_phase(&pa)
+        );
+    }
+
+    /// Cost of the first and second phase query on a fresh group per irrep.
+    #[test]
+    #[ignore = "timing report; run in release with --nocapture"]
+    fn first_phase_query_report() {
+        for label in [V27, V351, V1728, V7371] {
+            let g = e6();
+            let a = l(&g, label);
+            let t = Instant::now();
+            let kappa = g.frobenius_schur_phase(&a);
+            let first = t.elapsed();
+            let t = Instant::now();
+            assert_eq!(g.frobenius_schur_phase(&g.dual(&a)), kappa);
+            assert_eq!(kappa, 1.0);
+            println!(
+                "E6 {}: κ = {kappa}, first query {first:?}, dual query {:?}",
+                g.dim(&a),
+                t.elapsed()
+            );
         }
     }
 }

@@ -457,13 +457,16 @@ type Decomposition = BTreeMap<Vec<i64>, u32>;
 /// The exceptional engine as a [`Family`]: exact CGC (§5) and `κ_a` (§6.3),
 /// with F and R from the generic `frcore` contractions (§7).
 ///
-/// Modules, tensor products and channels are memoized for the lifetime of the
-/// value only; `bytes` is the estimated retained size of all three.
+/// Modules, tensor products, channels and complex-irrep phases are memoized
+/// for the lifetime of the value only; `bytes` is the estimated retained size
+/// of all four.
 pub(crate) struct GeneralFamily {
     data: CartanData,
     modules: HashMap<Vec<i64>, Ladders>,
     products: HashMap<(Vec<i64>, Vec<i64>), Decomposition>,
     channels: HashMap<[Vec<i64>; 3], Vec<MEntry>>,
+    /// `κ_a` of non-self-dual labels, stored for `a` and `ā` together.
+    phases: HashMap<Vec<i64>, i8>,
     bytes: usize,
 }
 
@@ -474,6 +477,7 @@ impl GeneralFamily {
             modules: HashMap::new(),
             products: HashMap::new(),
             channels: HashMap::new(),
+            phases: HashMap::new(),
             bytes: 0,
         }
     }
@@ -483,9 +487,9 @@ impl GeneralFamily {
         &self.data
     }
 
-    /// Retained memo entries over modules, products and channels.
+    /// Retained memo entries over modules, products, channels and phases.
     pub(super) fn memo_len(&self) -> usize {
-        self.modules.len() + self.products.len() + self.channels.len()
+        self.modules.len() + self.products.len() + self.channels.len() + self.phases.len()
     }
 
     /// Estimated retained bytes of the memo (capacity-based, saturating).
@@ -544,9 +548,19 @@ impl GeneralFamily {
         if dual == a {
             return Ok(closed);
         }
+        if let Some(&hit) = self.phases.get(a) {
+            return Ok(hit);
+        }
         let sigma_a = self.module(a)?.principal_sign(a)?;
         let sigma_dual = self.module(&dual)?.principal_sign(&dual)?;
-        Ok(closed * sigma_a * sigma_dual)
+        // κ_ā = κ_a (§6.3), so one generation answers both labels.
+        let kappa = closed * sigma_a * sigma_dual;
+        self.bytes = self
+            .bytes
+            .saturating_add(labels_bytes(a) + labels_bytes(&dual) + 2 * std::mem::size_of::<i8>());
+        self.phases.insert(a.to_vec(), kappa);
+        self.phases.insert(dual, kappa);
+        Ok(kappa)
     }
 }
 

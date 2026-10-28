@@ -206,8 +206,7 @@ pub enum LieError {
     /// A label, weight, dimension or multiplicity exceeds the integer range.
     LabelOverflow,
     /// The named capability is unavailable, for example a feature
-    /// (`"lie-generated"`), a B/C/D catalog (`"B/C/D catalog"`), or the
-    /// coefficients of an E6 factor (`"E6 coefficient engine"`).
+    /// (`"lie-generated"`) or a B/C/D catalog (`"B/C/D catalog"`).
     Unsupported {
         /// Missing capability.
         requires: &'static str,
@@ -334,11 +333,6 @@ fn checked_projection(value: i64) -> Result<i32, LieError> {
 }
 
 fn coefficient_roots(group: &GroupId) -> Result<(), LieError> {
-    if group.root_systems().contains(&RootSystem::E6) {
-        return Err(LieError::Unsupported {
-            requires: "E6 coefficient engine",
-        });
-    }
     #[cfg(not(feature = "lie-generated"))]
     if group.root_systems().iter().any(|root| {
         !matches!(
@@ -350,6 +344,8 @@ fn coefficient_roots(group: &GroupId) -> Result<(), LieError> {
             requires: "lie-generated",
         });
     }
+    // With `lie-generated` every root system has coefficients.
+    let _ = group;
     Ok(())
 }
 
@@ -397,8 +393,7 @@ impl LieGroup {
     /// D(2) expands into α₁ then α₂, each in the exact A(1) gauge.
     /// Tori, U(N), semisimple×torus quotients, and the trivial group are supported.
     /// U(2) needs no feature; U(N) for N ≥ 3 requires `lie-generated`.
-    /// G2, F4, E7 and E8 require `lie-generated`. E6 returns
-    /// [`LieError::Unsupported`] with `requires: "E6 coefficient engine"`.
+    /// G2, F4, E6, E7 and E8 require `lie-generated`.
     /// Single factors retain their evaluator and gauge. Composites use ordered
     /// [`Product`] cover symbols and only restrict objects at admission.
     /// B/C/D seed charges exceeding the default aggregate catalog budget return
@@ -448,7 +443,7 @@ impl LieGroup {
                 requires: "lie-generated",
             });
         }
-        // `coefficient_roots` rejected E6, and every exceptional root without
+        // `coefficient_roots` rejected every exceptional root without
         // `lie-generated`.
         #[cfg(feature = "lie-generated")]
         if general::serves(root) {
@@ -674,6 +669,10 @@ impl LieGroup {
     /// Validate label lengths and nonnegative Dynkin labels, then lattice
     /// admission, then engine representability. Torus charges lie in
     /// `-i32::MAX..=i32::MAX`; out-of-range charges return [`LieError::LabelOverflow`].
+    /// An E6 irrep that is not self-dual, with dimension above `u32::MAX`,
+    /// returns [`LieError::LabelOverflow`] (so does its dual), here and from
+    /// `fusion` when an outcome is such a label: its Frobenius–Schur phase is
+    /// generated in the module basis, whose magnetic index is `u32`.
     pub fn irrep(&self, dynkin: &[i64], charges: &[i64]) -> Result<LieIrrep, LieError> {
         if dynkin.len() != self.group.semisimple_rank()
             || charges.len() != self.group.torus_rank()
@@ -1168,14 +1167,15 @@ impl FusionCategory for LieGroup {
         }
         #[cfg(feature = "lie-generated")]
         if let Some(x) = a.exceptional() {
-            // Unreachable failure: every served root system has `−w₀ = 1`, so
-            // the engine returns the stored closed form without generating;
-            // only E6 (rejected by `coefficient_roots`) has complex irreps.
-            return f64::from(
-                self.engine()
-                    .frobenius_schur_phase(x)
-                    .expect("exceptional Frobenius–Schur phase generation failed"),
-            );
+            // Self-dual labels return the stored closed form. An E6 complex
+            // label generates σ_a σ_ā (§6.3); admission bounds its dimension
+            // (and its dual's) by `u32::MAX`, so building both modules cannot
+            // overflow, and §6.3 proves the principal ladder nonzero. What is
+            // left is an internal-invariant `Generation` failure.
+            return f64::from(self.engine().frobenius_schur_phase(x).expect(
+                "E6 complex-irrep κ_a: admission bounds the dimension by u32::MAX and \
+                 §6.3 proves ⟨low|L^h|high⟩ ≠ 0; only an internal invariant can fail",
+            ));
         }
         su2::fs_phase(a.dj())
     }
@@ -2250,6 +2250,27 @@ mod tests {
         assert!(factor.general.as_ref().unwrap().memo_stats().0 > 0);
         composite.reset_catalog().unwrap();
         assert_eq!(factor.general.as_ref().unwrap().memo_stats(), (0, 0));
+    }
+
+    /// Admitting a large complex E6 label builds nothing; its indicator needs
+    /// no module. The first phase query builds `27` and `27̄` and memoizes
+    /// `κ` for both; later queries on either label are memo hits.
+    #[test]
+    fn e6_complex_phase_is_generated_once_on_first_use() {
+        let g = LieGroup::new(GroupId::e6()).unwrap();
+        let engine = g.general.as_ref().unwrap();
+        let big = g.irrep(&[1, 0, 0, 0, 1, 0], &[]).unwrap(); // 7371
+        assert_eq!(big.dim_exact(), 7371.into());
+        assert_eq!(g.frobenius_schur_indicator(&big), 0.0);
+        assert_eq!(engine.memo_stats(), (0, 0));
+        let v = g.irrep(&[1, 0, 0, 0, 0, 0], &[]).unwrap();
+        assert_eq!(g.frobenius_schur_phase(&v), 1.0);
+        let after = engine.memo_stats();
+        assert_eq!(after.0, 4, "modules 27 and 27̄, phases of both");
+        assert!(after.1 > 0);
+        assert_eq!(g.frobenius_schur_phase(&v), 1.0);
+        assert_eq!(g.frobenius_schur_phase(&g.dual(&v)), 1.0);
+        assert_eq!(engine.memo_stats(), after);
     }
 
     #[test]

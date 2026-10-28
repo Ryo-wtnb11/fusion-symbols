@@ -250,10 +250,13 @@ fn exceptional_classification_uses_bourbaki_roots() {
         }
     }
     for g in [cover, adjoint] {
+        #[cfg(feature = "lie-generated")]
+        assert!(LieGroup::new(g).is_ok());
+        #[cfg(not(feature = "lie-generated"))]
         assert_eq!(
             LieGroup::new(g),
             Err(LieError::Unsupported {
-                requires: "E6 coefficient engine"
+                requires: "lie-generated"
             })
         );
     }

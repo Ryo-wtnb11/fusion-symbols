@@ -15,13 +15,13 @@ use crate::category::{FBlock, RBlock};
 use crate::frcore::{f_block_raw, r_block_raw, Family};
 use crate::lie::{checked_dimension, checked_size, weyl_dim_f64, LieError, RootSystem};
 
-/// The exceptional root systems whose coefficients this engine serves: those
-/// with `−w₀ = 1`, where every irrep is self-dual and `κ_a` is the §6.3 closed
-/// form. E6 is excluded until its gauge-derived complex-irrep phase is served.
+/// The exceptional root systems whose coefficients this engine serves: all
+/// five. E6 is the only one with complex irreps, whose `κ_a` is generated
+/// (§6.3).
 pub(crate) fn serves(root: RootSystem) -> bool {
     matches!(
         root,
-        RootSystem::G2 | RootSystem::F4 | RootSystem::E7 | RootSystem::E8
+        RootSystem::G2 | RootSystem::F4 | RootSystem::E6 | RootSystem::E7 | RootSystem::E8
     )
 }
 
@@ -32,7 +32,7 @@ pub(crate) fn fingerprint() -> &'static [u8] {
     b"fusion-symbols:lie-exceptional:ref=gauge-exceptional-spec:input=bourbaki-cartan:order=depth-rootlex-asc:basis=greedy-rank-gs-own-positive:kron=a-fast:mult=rcef-pivot-gs:descent=intertwiner-own-basis:sign=own-candidate-and-pivot-positive:round=once-correct:fs=gauge-derived:fr=frcore:twist=one:scalar=f64:epoch=1"
 }
 
-/// Memo entries (modules + products + channels) a group retains before the
+/// Memo entries (modules + products + channels + phases) a group retains before the
 /// next query starts from an empty memo. One query adds at most four
 /// channels, four products and six modules beyond this bound. A pentagon
 /// through the G2 vertex `27 ⊗ 27 → 27` fits; at 256 it ran twice as long.
@@ -49,7 +49,7 @@ const MEMO_ENTRIES: usize = 512;
 const MEMO_BYTES: usize = 256 << 20;
 
 /// One exceptional simple factor: its root data and the memo of exact
-/// modules, products and channels, owned by the group value and bounded by
+/// modules, products, channels and complex-irrep phases, owned by the group value and bounded by
 /// [`MEMO_ENTRIES`] and [`MEMO_BYTES`]. Values are exact, so the memo state
 /// never changes a bit. Fusion and N use only the root data and never take
 /// the memo lock.
@@ -91,16 +91,22 @@ impl Engine {
         (fam.memo_len(), fam.memo_bytes())
     }
 
-    /// Drop every memoized module, product and channel.
+    /// Drop every memoized module, product, channel and phase.
     pub(crate) fn reset(&self) {
         // Poison recovery already starts over; only the healthy case needs it.
         *self.family() = GeneralFamily::new(self.root);
     }
 
     /// A validated label: nonnegative, of this rank, with an exact dimension.
+    /// A complex irrep (and so its dual) must have dimension at most
+    /// `u32::MAX`: its `κ_a` is generated in the module basis (§6.3), whose
+    /// magnetic index is `u32`, and `frobenius_schur_phase` is infallible.
     pub(crate) fn irrep(&self, dynkin: &[i64]) -> Result<Irrep, LieError> {
         let dim = self.data.weyl_dimension(dynkin)?;
         let dual = self.data.dual(dynkin)?;
+        if dual != dynkin && u32::try_from(&dim).is_err() {
+            return Err(LieError::LabelOverflow);
+        }
         let sign = self.data.two_rho_vee_sign(dynkin)?;
         let dim_f64 = weyl_dim_f64(u128::try_from(&dim).ok(), || dim.clone());
         Ok(Irrep(Arc::new(Data {
@@ -131,7 +137,8 @@ impl Engine {
     }
 
     /// `κ_a` (§6.3): the stored closed form for a self-dual irrep, otherwise
-    /// the gauge-derived `σ_a σ_ā`.
+    /// the gauge-derived `σ_a σ_ā`, generated on first use under the memo
+    /// lock and then memoized for `a` and `ā`.
     pub(crate) fn frobenius_schur_phase(&self, a: &Irrep) -> Result<i8, LieError> {
         if a.is_self_dual() {
             return Ok(a.0.sign);

@@ -61,7 +61,8 @@ fn guide_building_lie_groups_1() -> Result<(), Box<dyn std::error::Error>> {
 /// `docs/user-guide/README.md#building-lie-groups`.
 #[test]
 fn guide_building_lie_groups_2() -> Result<(), Box<dyn std::error::Error>> {
-    use fusion_symbols::lie::{GroupId, LieError, LieGroup, RootSystem};
+    use fusion_symbols::category::FusionCategory;
+    use fusion_symbols::lie::{GroupId, LieGroup, RootSystem};
 
     // SU(2) × SU(3) × U(1): the full weight and charge lattice.
     let cover = GroupId::cover(&[RootSystem::A(1), RootSystem::A(2)], 1)?;
@@ -73,16 +74,14 @@ fn guide_building_lie_groups_2() -> Result<(), Box<dyn std::error::Error>> {
     let u2 = GroupId::new(&[RootSystem::A(1)], 1, &[vec![1, 1], vec![0, 2]])?;
     assert_eq!(u2, GroupId::u(2)?);
 
-    // G₂, F₄, E₇ and E₈ have exact coefficients (with `lie-generated`); E₆ is
-    // classified but has no coefficients yet.
+    // G₂, F₄, E₆, E₇ and E₈ have exact coefficients (with `lie-generated`).
+    // E₆'s 27 and 27̄ (Bourbaki labels) are each other's duals.
     let e8 = LieGroup::new(GroupId::e8())?;
     assert_eq!(e8.group_id(), &GroupId::cover(&[RootSystem::E8], 0)?);
-    assert_eq!(
-        LieGroup::new(GroupId::e6()),
-        Err(LieError::Unsupported {
-            requires: "E6 coefficient engine"
-        })
-    );
+    let e6 = LieGroup::new(GroupId::e6())?;
+    let v = e6.irrep(&[1, 0, 0, 0, 0, 0], &[])?;
+    assert_eq!(e6.dual(&v).dynkin(), [0, 0, 0, 0, 0, 1]);
+    assert_eq!(e6.frobenius_schur_indicator(&v), 0.0);
     Ok(())
 }
 

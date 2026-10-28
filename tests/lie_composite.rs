@@ -433,11 +433,13 @@ fn checked_composite_n_overflow_and_zero_wins() {
     assert_eq!(cat.try_nsymbol(&a, &a, &absent), Ok(0));
 }
 
+/// The feature boundary precedes any B/C/D catalog seed charge.
+#[cfg(not(feature = "lie-generated"))]
 #[test]
 fn unsupported_composite_precedence() {
     for (roots, torus, requires) in [
-        (vec![B(1 << 20), E6], 0, "E6 coefficient engine"),
-        (vec![E6, A(1)], 1, "E6 coefficient engine"),
+        (vec![B(1 << 20), E6], 0, "lie-generated"),
+        (vec![E6, A(1)], 1, "lie-generated"),
     ] {
         let group = GroupId::cover(&roots, torus).unwrap();
         assert_eq!(
