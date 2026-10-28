@@ -73,14 +73,14 @@ fn guide_building_lie_groups_2() -> Result<(), Box<dyn std::error::Error>> {
     let u2 = GroupId::new(&[RootSystem::A(1)], 1, &[vec![1, 1], vec![0, 2]])?;
     assert_eq!(u2, GroupId::u(2)?);
 
-    // G₂ has exact coefficients (with `lie-generated`); F₄, E₆, E₇ and E₈ are
-    // classified but have no coefficients yet.
-    let g2 = LieGroup::new(GroupId::g2())?;
-    assert_eq!(g2.group_id(), &GroupId::cover(&[RootSystem::G2], 0)?);
+    // G₂, F₄, E₇ and E₈ have exact coefficients (with `lie-generated`); E₆ is
+    // classified but has no coefficients yet.
+    let e8 = LieGroup::new(GroupId::e8())?;
+    assert_eq!(e8.group_id(), &GroupId::cover(&[RootSystem::E8], 0)?);
     assert_eq!(
-        LieGroup::new(GroupId::e8()),
+        LieGroup::new(GroupId::e6()),
         Err(LieError::Unsupported {
-            requires: "E8 coefficient engine"
+            requires: "E6 coefficient engine"
         })
     );
     Ok(())

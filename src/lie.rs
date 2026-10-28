@@ -30,9 +30,9 @@ use std::sync::Arc;
 /// A Lie group with its global form. A(1), B(1), and C(1) share the exact
 /// SU(2) gauge and fingerprint; their single Dynkin label is doubled spin.
 /// With `lie-generated`, higher A-series groups use the GT gauge, B/C/D groups
-/// use the canonical generator bootstrap, and G2 uses the exact exceptional
-/// engine (`docs/gauge_exceptional.md`). Clones share retained generators and
-/// the G2 memo.
+/// use the canonical generator bootstrap, and G2, F4, E7 and E8 use the exact
+/// exceptional engine (`docs/gauge_exceptional.md`). Clones share retained
+/// generators and the exceptional memo.
 /// Admissibility uses the caller's global form.
 /// Objects retain the full `GroupId` tag, including for isomorphic groups.
 ///
@@ -50,7 +50,8 @@ use std::sync::Arc;
 /// - the trivial group: one empty label at index zero;
 /// - composite covers: the Product's Manhattan order over ordered simple
 ///   factors then torus coordinates (D(2) expands to A(1), A(1)); every factor must be enumerable;
-/// - every composite quotient, other higher A-series global forms, G2, and
+/// - every composite quotient, other higher A-series global forms, G2, F4,
+///   E7, E8, and
 ///   B/C/D simple factors of rank at least two: [`EnumerationError::NotEnumerable`].
 ///
 /// # Panics
@@ -206,7 +207,7 @@ pub enum LieError {
     LabelOverflow,
     /// The named capability is unavailable, for example a feature
     /// (`"lie-generated"`), a B/C/D catalog (`"B/C/D catalog"`), or the
-    /// coefficients of an F4, E6, E7 or E8 factor (`"F4 coefficient engine"`).
+    /// coefficients of an E6 factor (`"E6 coefficient engine"`).
     Unsupported {
         /// Missing capability.
         requires: &'static str,
@@ -333,15 +334,10 @@ fn checked_projection(value: i64) -> Result<i32, LieError> {
 }
 
 fn coefficient_roots(group: &GroupId) -> Result<(), LieError> {
-    for root in group.root_systems() {
-        let requires = match root {
-            RootSystem::E6 => "E6 coefficient engine",
-            RootSystem::E7 => "E7 coefficient engine",
-            RootSystem::E8 => "E8 coefficient engine",
-            RootSystem::F4 => "F4 coefficient engine",
-            _ => continue,
-        };
-        return Err(LieError::Unsupported { requires });
+    if group.root_systems().contains(&RootSystem::E6) {
+        return Err(LieError::Unsupported {
+            requires: "E6 coefficient engine",
+        });
     }
     #[cfg(not(feature = "lie-generated"))]
     if group.root_systems().iter().any(|root| {
@@ -401,8 +397,8 @@ impl LieGroup {
     /// D(2) expands into α₁ then α₂, each in the exact A(1) gauge.
     /// Tori, U(N), semisimple×torus quotients, and the trivial group are supported.
     /// U(2) needs no feature; U(N) for N ≥ 3 requires `lie-generated`.
-    /// G2 requires `lie-generated`. F4, E6, E7 and E8 blocks return
-    /// [`LieError::Unsupported`] with `requires: "<X> coefficient engine"`.
+    /// G2, F4, E7 and E8 require `lie-generated`. E6 returns
+    /// [`LieError::Unsupported`] with `requires: "E6 coefficient engine"`.
     /// Single factors retain their evaluator and gauge. Composites use ordered
     /// [`Product`] cover symbols and only restrict objects at admission.
     /// B/C/D seed charges exceeding the default aggregate catalog budget return
@@ -452,8 +448,8 @@ impl LieGroup {
                 requires: "lie-generated",
             });
         }
-        // `coefficient_roots` rejected every other exceptional root, and every
-        // exceptional root without `lie-generated`.
+        // `coefficient_roots` rejected E6, and every exceptional root without
+        // `lie-generated`.
         #[cfg(feature = "lie-generated")]
         if general::serves(root) {
             return Ok(Self {
@@ -656,8 +652,8 @@ impl LieGroup {
         }
         Ok(CatalogStats::default())
     }
-    /// Reset retained generators to the base seeds and drop the retained G2
-    /// coefficient memo; no-op for other groups. Shared by every clone.
+    /// Reset retained generators to the base seeds and drop the retained
+    /// exceptional coefficient memo; no-op for other groups. Shared by every clone.
     pub fn reset_catalog(&self) -> Result<(), LieError> {
         if let Some(product) = &self.composite {
             for factor in product.factors() {
@@ -963,7 +959,7 @@ impl LieIrrep {
 /// A1 magnetic index zero is the lowest weight, followed by raising in steps
 /// of two; higher A-series magnetic indices follow the frozen GT basis order.
 /// B/C/D indices follow the canonical bootstrap gauge in `docs/gauge_soN.md`;
-/// G2 indices follow the basis order of `docs/gauge_exceptional.md` §3–§4.
+/// G2, F4, E7 and E8 indices follow the basis order of `docs/gauge_exceptional.md` §3–§4.
 /// Composite CGCs use Product's last-factor-fastest decoding on every axis;
 /// D(2) factors are α₁ then α₂ in the exact A(1) gauge.
 /// A1 materialization uses the cached exact CG evaluator. Projection labels larger
@@ -1172,6 +1168,9 @@ impl FusionCategory for LieGroup {
         }
         #[cfg(feature = "lie-generated")]
         if let Some(x) = a.exceptional() {
+            // Unreachable failure: every served root system has `−w₀ = 1`, so
+            // the engine returns the stored closed form without generating;
+            // only E6 (rejected by `coefficient_roots`) has complex irreps.
             return f64::from(
                 self.engine()
                     .frobenius_schur_phase(x)

@@ -540,8 +540,7 @@ impl GroupId {
         Self::named(&[RootSystem::G2], 0, Vec::new())
     }
     /// F₄, the simply connected (and adjoint) form: the center is trivial.
-    /// Classified only: [`super::LieGroup::new`] returns
-    /// [`super::LieError::Unsupported`] for it.
+    /// Coefficients require `lie-generated`.
     pub fn f4() -> Self {
         Self::named(&[RootSystem::F4], 0, Vec::new())
     }
@@ -552,14 +551,12 @@ impl GroupId {
         Self::named(&[RootSystem::E6], 0, Vec::new())
     }
     /// Simply connected E₇ (center `Z2`); quotients come from [`Self::new`].
-    /// Classified only: [`super::LieGroup::new`] returns
-    /// [`super::LieError::Unsupported`] for it.
+    /// Coefficients require `lie-generated`.
     pub fn e7() -> Self {
         Self::named(&[RootSystem::E7], 0, Vec::new())
     }
     /// E₈, the simply connected (and adjoint) form: the center is trivial.
-    /// Classified only: [`super::LieGroup::new`] returns
-    /// [`super::LieError::Unsupported`] for it.
+    /// Coefficients require `lie-generated`.
     pub fn e8() -> Self {
         Self::named(&[RootSystem::E8], 0, Vec::new())
     }

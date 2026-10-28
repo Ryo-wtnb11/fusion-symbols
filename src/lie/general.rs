@@ -15,9 +15,14 @@ use crate::category::{FBlock, RBlock};
 use crate::frcore::{f_block_raw, r_block_raw, Family};
 use crate::lie::{checked_dimension, checked_size, weyl_dim_f64, LieError, RootSystem};
 
-/// The exceptional root systems whose coefficients this engine serves.
+/// The exceptional root systems whose coefficients this engine serves: those
+/// with `−w₀ = 1`, where every irrep is self-dual and `κ_a` is the §6.3 closed
+/// form. E6 is excluded until its gauge-derived complex-irrep phase is served.
 pub(crate) fn serves(root: RootSystem) -> bool {
-    matches!(root, RootSystem::G2)
+    matches!(
+        root,
+        RootSystem::G2 | RootSystem::F4 | RootSystem::E7 | RootSystem::E8
+    )
 }
 
 /// `docs/gauge_exceptional.md` §8. Bump the trailing `epoch=N` (and the
@@ -34,7 +39,7 @@ pub(crate) fn fingerprint() -> &'static [u8] {
 const MEMO_ENTRIES: usize = 512;
 
 /// Estimated retained memo bytes (see [`GeneralFamily::memo_bytes`]) past
-/// which the next query starts from an empty memo. Every G2 group value and
+/// which the next query starts from an empty memo. Every exceptional group value and
 /// composite factor owns its own memo, so this is per factor. 256 MiB is the
 /// default per-group B/C/D catalog budget, and it holds the whole working set
 /// of a pentagon through the G2 `N = 2` vertex `27 ⊗ 27 → 27` (about 150 MiB

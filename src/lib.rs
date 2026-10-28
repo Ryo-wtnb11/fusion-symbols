@@ -3,13 +3,14 @@
 //! symbols and Clebsch–Gordan coefficients (CGC).
 //!
 //! Families: compact connected Lie groups through [`lie::LieGroup`] — SU(N),
-//! SO(N), Spin(N), Sp(2r), G₂, U(N), tori, their products and central quotients —
-//! plus exact SU(2) evaluators in [`lie::su2`]; closed-form [`lie::U1`] and
-//! CU(1) = O(2) ([`lie::CU1`]); cyclic groups [`finite::ZN`]; fermion parity
+//! SO(N), Spin(N), Sp(2r), G₂, F₄, E₇, E₈, U(N), tori, their products and
+//! central quotients — plus exact SU(2) evaluators in [`lie::su2`];
+//! closed-form [`lie::U1`] and CU(1) = O(2) ([`lie::CU1`]); cyclic groups
+//! [`finite::ZN`]; fermion parity
 //! [`fermion::FermionParity`]; tabulated unitary multiplicity-free categories
 //! ([`table`]); and ordered Deligne products of all of these ([`mod@product`]).
 //!
-//! Not provided: the exceptional groups F₄, E₆, E₇ and E₈ (classified by
+//! Not provided: the exceptional group E₆ (classified by
 //! [`lie::GroupId`], but [`lie::LieGroup::new`] returns
 //! [`lie::LieError::Unsupported`]), disconnected
 //! groups other than CU(1), and finite non-abelian Rep(G).
