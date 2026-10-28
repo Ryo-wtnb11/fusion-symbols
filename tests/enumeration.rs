@@ -92,7 +92,7 @@ fn rank_one_lie_groups_enumerate_admitted_doubled_spins() {
         assert_eq!(g.object_count(), Ok(None));
         assert_eq!(dj(&g, 4), [0, 1, 2, 3]);
         assert_eq!(
-            g.object_index(&g.irrep(&[u32::MAX.into()], &[]).unwrap()),
+            g.object_index(&g.irrep(&[u32::MAX.into()]).unwrap()),
             Ok(4_294_967_295)
         );
         assert_eq!(g.object_at(4_294_967_296), Err(Overflow));
@@ -102,10 +102,10 @@ fn rank_one_lie_groups_enumerate_admitted_doubled_spins() {
         let g = lie(group);
         assert_eq!(g.object_count(), Ok(None));
         assert_eq!(dj(&g, 3), [0, 2, 4]);
-        assert_eq!(g.object_index(&g.irrep(&[4], &[]).unwrap()), Ok(2));
+        assert_eq!(g.object_index(&g.irrep(&[4]).unwrap()), Ok(2));
         assert_eq!(
             g.object_at(2_147_483_647),
-            g.irrep(&[4_294_967_294], &[]).map_err(|_| Overflow)
+            g.irrep(&[4_294_967_294]).map_err(|_| Overflow)
         );
         assert_eq!(g.object_at(2_147_483_648), Err(Overflow));
         round_trip(&g, 50);
@@ -122,7 +122,7 @@ fn su_n_uses_total_grade_then_lexicographic_dynkin_order() {
         labels,
         [[0, 0], [0, 1], [1, 0], [0, 2], [1, 1], [2, 0]].map(Vec::from)
     );
-    let far = su3.irrep(&[0, 1_000_000], &[]).unwrap();
+    let far = su3.irrep(&[0, 1_000_000]).unwrap();
     assert_eq!(su3.object_index(&far), Ok(500_000_500_000));
     assert_eq!(su3.object_at(500_000_500_000), Ok(far));
     round_trip(&su3, 60);
@@ -339,7 +339,7 @@ fn derived_dimensions_multiply_factorwise() {
     let su2 = lie(GroupId::su(2).unwrap());
     let fib = TableCategory::fibonacci();
     let p = Product::new((su2.clone(), fib.clone()));
-    let a = (su2.irrep(&[1], &[]).unwrap(), fib.object(2).unwrap());
+    let a = (su2.irrep(&[1]).unwrap(), fib.object(2).unwrap());
     assert_eq!(p.sqrt_dim(&a), 1.7989074399478675);
     assert_eq!(p.inv_sqrt_dim(&a), 0.5558929702514211);
     assert_eq!(p.inv_dim(&a), 0.30901699437494745);

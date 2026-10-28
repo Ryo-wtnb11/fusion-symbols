@@ -19,14 +19,14 @@
 //!
 //! # Quick start
 //!
-//! Build a group from a [`lie::GroupId`], create irreps from Dynkin labels and
-//! torus charges, and query symbols through [`category::FusionCategory`]:
+//! Build a group from a [`lie::GroupId`], create irreps from Dynkin labels (and
+//! torus charges, or an SU(2) spin), and query symbols through [`category::FusionCategory`]:
 //!
 //! ```
-//! use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieGroup}};
+//! use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
 //!
 //! let su2 = LieGroup::new(GroupId::su(2)?)?;
-//! let half = su2.irrep(&[1], &[])?; // doubled spin: 1 means spin 1/2
+//! let half = su2.irrep_spin(HalfInt::half(1))?;
 //! let unit = su2.unit();
 //! assert_eq!(su2.nsymbol(&half, &half, &unit), 1);
 //! let f = su2.f_symbol(&half, &half, &half, &half, &unit, &unit)?;
@@ -36,7 +36,7 @@
 //!
 //! // U(2): an SU(2) label followed by a U(1) charge of the same parity.
 //! let u2 = LieGroup::new(GroupId::u(2)?)?;
-//! let fundamental = u2.irrep(&[1], &[1])?;
+//! let fundamental = u2.irrep_with_charges(&[1], &[1])?;
 //! assert_eq!(u2.dim(&fundamental), 2.0);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```

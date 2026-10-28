@@ -68,7 +68,7 @@ mod g2 {
     }
 
     fn l(g: &LieGroup, a: i64, b: i64) -> LieIrrep {
-        g.irrep(&[a, b], &[]).unwrap()
+        g.irrep(&[a, b]).unwrap()
     }
 
     /// `(dim, N)` of every channel of `a ⊗ b`, sorted.
@@ -98,7 +98,7 @@ mod g2 {
             ([0, 2], 77),
             ([3, 0], 77),
         ] {
-            let a = g.irrep(&label, &[]).unwrap();
+            let a = g.irrep(&label).unwrap();
             assert_eq!(a.dim_exact(), BigInt::from(dim), "{label:?}");
             assert_eq!(g.dim(&a), f64::from(dim));
             assert_eq!(a.dynkin(), label);
@@ -257,11 +257,11 @@ mod g2 {
         let product = Product::new(factors.to_vec());
         let split = |dynkin: [i64; 3], q: i64| {
             (
-                cat.irrep(&dynkin, &[q]).unwrap(),
+                cat.irrep_with_charges(&dynkin, &[q]).unwrap(),
                 vec![
-                    factors[0].irrep(&dynkin[..2], &[]).unwrap(),
-                    factors[1].irrep(&dynkin[2..], &[]).unwrap(),
-                    factors[2].irrep(&[], &[q]).unwrap(),
+                    factors[0].irrep(&dynkin[..2]).unwrap(),
+                    factors[1].irrep(&dynkin[2..]).unwrap(),
+                    factors[2].irrep_with_charges(&[], &[q]).unwrap(),
                 ],
             )
         };
@@ -372,7 +372,7 @@ mod self_dual {
     /// `56` and `912` are pseudo-real; F4 and E8 are all real.
     fn check(g: &LieGroup, labels: &[(&[i64], u32, f64)]) {
         for &(label, dim, fs) in labels {
-            let a = g.irrep(label, &[]).unwrap();
+            let a = g.irrep(label).unwrap();
             assert_eq!(a.dim_exact(), BigInt::from(dim), "{label:?}");
             assert_eq!(g.dim(&a), f64::from(dim));
             assert_eq!(g.dual(&a), a);
@@ -409,16 +409,16 @@ mod self_dual {
     #[test]
     fn decompositions_match_the_spec() {
         let g = group(GroupId::f4());
-        let a = g.irrep(&F4[1].0, &[]).unwrap();
+        let a = g.irrep(&F4[1].0).unwrap();
         assert_eq!(
             square(&g, &a),
             [(1, 1), (26, 1), (52, 1), (273, 1), (324, 1)]
         );
         let g = group(GroupId::e7());
-        let a = g.irrep(&E7[1].0, &[]).unwrap();
+        let a = g.irrep(&E7[1].0).unwrap();
         assert_eq!(square(&g, &a), [(1, 1), (133, 1), (1463, 1), (1539, 1)]);
         let g = group(GroupId::e8());
-        let a = g.irrep(&E8[1].0, &[]).unwrap();
+        let a = g.irrep(&E8[1].0).unwrap();
         assert_eq!(
             square(&g, &a),
             [(1, 1), (248, 1), (3875, 1), (27000, 1), (30380, 1)]
@@ -436,7 +436,7 @@ mod self_dual {
 
     fn irrep<const R: usize>(id: GroupId, label: [i64; R]) -> (LieGroup, LieIrrep) {
         let g = group(id);
-        let a = g.irrep(&label, &[]).unwrap();
+        let a = g.irrep(&label).unwrap();
         (g, a)
     }
 
@@ -474,10 +474,10 @@ mod self_dual {
         let product = Product::new(factors.to_vec());
         let split = |dynkin: [i64; 4], q: i64| {
             (
-                cat.irrep(&dynkin, &[q]).unwrap(),
+                cat.irrep_with_charges(&dynkin, &[q]).unwrap(),
                 vec![
-                    factors[0].irrep(&dynkin, &[]).unwrap(),
-                    factors[1].irrep(&[], &[q]).unwrap(),
+                    factors[0].irrep(&dynkin).unwrap(),
+                    factors[1].irrep_with_charges(&[], &[q]).unwrap(),
                 ],
             )
         };
@@ -507,10 +507,7 @@ mod self_dual {
     fn f4_cgc_is_an_isometry() {
         use fusion_symbols::category::CgcBlock;
         let g = group(GroupId::f4());
-        let (v, adj) = (
-            g.irrep(&F4[1].0, &[]).unwrap(),
-            g.irrep(&F4[2].0, &[]).unwrap(),
-        );
+        let (v, adj) = (g.irrep(&F4[1].0).unwrap(), g.irrep(&F4[2].0).unwrap());
         let c = g.cgc(&v, &v, &adj).unwrap();
         assert_eq!(c.dims(), [26, 26, 52, 1]);
         for m in 0..52 {
@@ -580,7 +577,7 @@ mod e6 {
     }
 
     fn l(g: &LieGroup, label: [i64; 6]) -> LieIrrep {
-        g.irrep(&label, &[]).unwrap()
+        g.irrep(&label).unwrap()
     }
 
     /// `(label, N)` of every channel of `a ⊗ b`, in fusion order.
@@ -674,7 +671,7 @@ mod e6 {
     fn complex_labels_beyond_u32_are_rejected() {
         let g = e6();
         for label in [[0, 0, 0, 0, 0, 15], [15, 0, 0, 0, 0, 0]] {
-            assert_eq!(g.irrep(&label, &[]), Err(LieError::LabelOverflow));
+            assert_eq!(g.irrep(&label), Err(LieError::LabelOverflow));
         }
         // dim 2 096 092 350 ≤ u32::MAX, and the dual of the rejected pair.
         let below = l(&g, [0, 0, 0, 0, 0, 14]);
@@ -740,10 +737,10 @@ mod e6 {
         let product = Product::new(factors.to_vec());
         let split = |dynkin: [i64; 6], q: i64| {
             (
-                cat.irrep(&dynkin, &[q]).unwrap(),
+                cat.irrep_with_charges(&dynkin, &[q]).unwrap(),
                 vec![
-                    factors[0].irrep(&dynkin, &[]).unwrap(),
-                    factors[1].irrep(&[], &[q]).unwrap(),
+                    factors[0].irrep(&dynkin).unwrap(),
+                    factors[1].irrep_with_charges(&[], &[q]).unwrap(),
                 ],
             )
         };

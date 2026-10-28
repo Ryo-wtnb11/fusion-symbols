@@ -37,8 +37,8 @@ fn warm_generated_fusion_yields_labels_without_allocation() {
         ),
     ] {
         let cat = LieGroup::new(id.clone()).unwrap();
-        let a = cat.irrep(&a, &[]).unwrap();
-        let b = cat.irrep(&b, &[]).unwrap();
+        let a = cat.irrep(&a).unwrap();
+        let b = cat.irrep(&b).unwrap();
         let mut cold: Vec<Vec<i64>> = cat.fusion(&a, &b).unwrap().map(|c| c.dynkin()).collect();
         cold.sort();
         assert_eq!(cold, expected, "{id:?}");
@@ -73,7 +73,7 @@ fn warm_generated_dim_and_sqrt_dim_do_not_allocate() {
         (GroupId::sp(6).unwrap(), vec![1, 0, 1], 70.0),
     ] {
         let cat = LieGroup::new(id.clone()).unwrap();
-        let a = cat.irrep(&label, &[]).unwrap();
+        let a = cat.irrep(&label).unwrap();
         cat.dim(&a);
         let (calls, _, _, (d, s)) = counting_alloc::measure(|| (cat.dim(&a), cat.sqrt_dim(&a)));
         assert_eq!(calls, 0, "{id:?}");

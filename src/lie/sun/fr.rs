@@ -185,7 +185,7 @@ mod tests {
         d: &Irrep,
     ) -> Result<(), crate::lie::LieError> {
         let cat = crate::lie::LieGroup::new(crate::lie::GroupId::su(a.rank()).unwrap())?;
-        let [a, b, c, d] = [a, b, c, d].map(|x| cat.irrep(&x.dynkin(), &[]).unwrap());
+        let [a, b, c, d] = [a, b, c, d].map(|x| cat.irrep(&x.dynkin()).unwrap());
         assert!(crate::category::f_unitarity_residual(&cat, &a, &b, &c, &d)? < 1e-9);
         Ok(())
     }
@@ -196,13 +196,13 @@ mod tests {
         d: &Irrep,
     ) -> Result<(), crate::lie::LieError> {
         let cat = crate::lie::LieGroup::new(crate::lie::GroupId::su(a.rank()).unwrap())?;
-        let [a, b, c, d] = [a, b, c, d].map(|x| cat.irrep(&x.dynkin(), &[]).unwrap());
+        let [a, b, c, d] = [a, b, c, d].map(|x| cat.irrep(&x.dynkin()).unwrap());
         assert!(crate::category::pentagon_residual(&cat, &a, &b, &c, &d)? < 1e-8);
         Ok(())
     }
     fn check_hexagon(a: &Irrep, b: &Irrep, c: &Irrep) -> Result<(), crate::lie::LieError> {
         let cat = crate::lie::LieGroup::new(crate::lie::GroupId::su(a.rank()).unwrap())?;
-        let [a, b, c] = [a, b, c].map(|x| cat.irrep(&x.dynkin(), &[]).unwrap());
+        let [a, b, c] = [a, b, c].map(|x| cat.irrep(&x.dynkin()).unwrap());
         assert!(crate::category::hexagon_residual(&cat, &a, &b, &c)? < 1e-8);
         Ok(())
     }
@@ -406,7 +406,7 @@ mod residual_tests {
             [[1, 0], [0, 1], [1, 0], [0, 1]],
             [[1, 1]; 4],
         ] {
-            let [a, b, c, d] = labels.map(|x| cat.irrep(&x, &[]).unwrap());
+            let [a, b, c, d] = labels.map(|x| cat.irrep(&x).unwrap());
             assert!(category::f_unitarity_residual(&cat, &a, &b, &c, &d).unwrap() < 1e-10);
             assert!(category::pentagon_residual(&cat, &a, &b, &c, &d).unwrap() < 1e-10);
             assert!(category::hexagon_residual(&cat, &a, &b, &c).unwrap() < 1e-10);

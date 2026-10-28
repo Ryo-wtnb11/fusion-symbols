@@ -105,15 +105,15 @@ fn check<C: FusionCategory<Scalar = f64>>(
 fn warm_ab_allocate_only_leaf_blocks_and_one_buffer_per_product_level() {
     let _serial = crate::common::counting_alloc::serial();
     let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
-    let oct = su3.irrep(&[1, 1], &[]).unwrap();
+    let oct = su3.irrep(&[1, 1]).unwrap();
     let n = check("SU3", &su3, &oct, &oct, &oct, &[]);
     let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    let half = su2.irrep(&[1], &[]).unwrap();
-    let one = su2.irrep(&[2], &[]).unwrap();
+    let half = su2.irrep(&[1]).unwrap();
+    let one = su2.irrep(&[2]).unwrap();
     check("SU2", &su2, &half, &one, &half, &[]);
     let sp4 = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
-    let v = sp4.irrep(&[1, 0], &[]).unwrap();
-    let adj = sp4.irrep(&[2, 0], &[]).unwrap();
+    let v = sp4.irrep(&[1, 0]).unwrap();
+    let adj = sp4.irrep(&[2, 0]).unwrap();
     check("Sp4", &sp4, &v, &adj, &v, &[]);
 
     let p = Product::new((su3.clone(), su3.clone()));
@@ -134,7 +134,7 @@ fn warm_ab_allocate_only_leaf_blocks_and_one_buffer_per_product_level() {
         (GroupId::so(6).unwrap(), &[0, 2, 0][..]),
     ] {
         let cat = LieGroup::new(id).unwrap();
-        let a = cat.irrep(labels, &[]).unwrap();
+        let a = cat.irrep(labels).unwrap();
         let dual = cat.dual(&a);
         cat.dim(&a);
         cat.frobenius_schur_phase(&a);
@@ -150,7 +150,7 @@ fn warm_ab_allocate_only_leaf_blocks_and_one_buffer_per_product_level() {
 
     // Dual labels belong to the shared tier, so its lifecycle releases them.
     let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
-    let a = cat.irrep(&[1, 0], &[]).unwrap();
+    let a = cat.irrep(&[1, 0]).unwrap();
     let dual = cat.dual(&a);
     let trimmed = cache::trim_to(cache::CoefficientCacheTier::SunProduct, 0);
     assert!(trimmed.removed_entries > 0);

@@ -18,6 +18,7 @@ mod generated_backend_identity;
 mod global_form;
 mod group_totality;
 mod groupmath_oracle;
+mod irrep_constructors;
 mod isomorphism;
 mod lie_composite;
 mod lie_exceptional;

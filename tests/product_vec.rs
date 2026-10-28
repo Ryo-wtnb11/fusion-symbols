@@ -169,8 +169,8 @@ fn compare_cgc(a: &impl CgcBlock, b: &impl CgcBlock) {
 #[test]
 fn runtime_matches_tuples() {
     let s = su(2);
-    let h = s.irrep(&[1], &[]).unwrap();
-    let one = s.irrep(&[2], &[]).unwrap();
+    let h = s.irrep(&[1]).unwrap();
+    let one = s.irrep(&[2]).unwrap();
     let u = s.unit();
     let two = Product::new((s.clone(), s.clone()));
     compare(
@@ -187,7 +187,7 @@ fn runtime_matches_tuples() {
         ],
     );
     let so3 = LieGroup::new(GroupId::so(3).unwrap()).unwrap();
-    let vector = so3.irrep(&[2], &[]).unwrap();
+    let vector = so3.irrep(&[2]).unwrap();
     let a = (one.clone(), vector, one.clone());
     compare(
         &Product::new(vec![s.clone(), so3.clone(), s.clone()]),
@@ -246,7 +246,7 @@ fn runtime_matches_tuples() {
             .as_slice(),
         &[-0.5]
     );
-    let a = vec![s.irrep(&[1], &[]).unwrap(), one.clone()];
+    let a = vec![s.irrep(&[1]).unwrap(), one.clone()];
     let c = vec![one, s.unit()];
     let cgc = runtime.cgc(&a, &a, &c).unwrap();
     // Last-fastest [3,2,1,0] decodes as [1,0,1,0] x [0,2,0,0].
@@ -259,7 +259,7 @@ fn runtime_matches_tuples() {
 fn runtime_generated_multiplicity_matches_tuple() {
     let s = su(3);
     let t = su(2);
-    let a = (s.irrep(&[1, 1], &[]).unwrap(), t.irrep(&[2], &[]).unwrap());
+    let a = (s.irrep(&[1, 1]).unwrap(), t.irrep(&[2]).unwrap());
     let runtime = Product::new(vec![s.clone(), t.clone()]);
     let va = vec![a.0.clone(), a.1.clone()];
     assert_eq!(runtime.nsymbol(&va, &va, &va), 2);
@@ -316,7 +316,7 @@ fn empty_and_singleton() {
     assert_eq!(cgc.at([0; 4]), 1.0);
     assert!(std::panic::catch_unwind(|| cgc.at([1, 0, 0, 0])).is_err());
     let s = su(2);
-    let a = s.irrep(&[1], &[]).unwrap();
+    let a = s.irrep(&[1]).unwrap();
     let u = s.unit();
     compare(
         &Product::new(vec![s.clone()]),
@@ -325,10 +325,10 @@ fn empty_and_singleton() {
         [
             a.clone(),
             a.clone(),
-            s.irrep(&[2], &[]).unwrap(),
+            s.irrep(&[2]).unwrap(),
             a,
             u,
-            s.irrep(&[2], &[]).unwrap(),
+            s.irrep(&[2]).unwrap(),
         ],
     );
 }
@@ -337,7 +337,7 @@ fn empty_and_singleton() {
 fn fusion_indices_and_factor_errors() {
     let s = su(2);
     let cat = Product::new(vec![s.clone(); 3]);
-    let a = [1, 2, 3].map(|n| s.irrep(&[n], &[]).unwrap()).to_vec();
+    let a = [1, 2, 3].map(|n| s.irrep(&[n]).unwrap()).to_vec();
     let iter = cat.fusion(&a, &a).unwrap();
     let forward: Vec<_> = iter.clone().collect();
     assert_eq!(iter.len(), 24);
@@ -375,7 +375,7 @@ fn fusion_indices_and_factor_errors() {
     assert_eq!(mixed.nth_back(2), Some(forward[20].clone()));
     assert_eq!(mixed.len(), 15);
     assert_eq!(mixed.collect::<Vec<_>>(), forward[5..20]);
-    let huge = s.irrep(&[i64::from(u32::MAX)], &[]).unwrap();
+    let huge = s.irrep(&[i64::from(u32::MAX)]).unwrap();
     for index in 0..3 {
         let mut a = cat.unit();
         a[index] = huge.clone();

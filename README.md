@@ -60,15 +60,15 @@ use fusion_symbols::category::{CgcBlock, FusionCategory, GroupRepresentations};
 use fusion_symbols::lie::{GroupId, LieGroup};
 
 let su3 = LieGroup::new(GroupId::su(3)?)?;
-let eight = su3.irrep(&[1, 1], &[])?; // adjoint, Dynkin labels (1,1)
+let eight = su3.irrep(&[1, 1])?; // adjoint, Dynkin labels (1,1)
 assert_eq!(su3.nsymbol(&eight, &eight, &eight), 2);
 let cgc = su3.cgc(&eight, &eight, &eight)?;
 assert_eq!(cgc.dims(), [8, 8, 8, 2]); // [dim a, dim b, dim c, N]
 
 let u2 = LieGroup::new(GroupId::u(2)?)?;
-let fundamental = u2.irrep(&[1], &[1])?; // SU(2) label 1, U(1) charge 1
+let fundamental = u2.irrep_with_charges(&[1], &[1])?; // SU(2) label 1, U(1) charge 1
 assert_eq!(u2.dim(&fundamental), 2.0);
-assert!(u2.irrep(&[1], &[0]).is_err()); // charge must match the SU(2) label mod 2
+assert!(u2.irrep_with_charges(&[1], &[0]).is_err()); // charge must match the SU(2) label mod 2
 ```
 
 Exact SU(2) recoupling, available without default features. Spins are

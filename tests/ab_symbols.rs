@@ -76,7 +76,7 @@ fn assert_unitary<C: FusionCategory>(cat: &C, objects: &[C::Object]) {
 #[test]
 fn su2_matches_tensorkitsectors_including_negative_frobenius_schur() {
     let cat = su2();
-    let j = |twice: i64| cat.irrep(&[twice], &[]).unwrap();
+    let j = |twice: i64| cat.irrep(&[twice]).unwrap();
     assert_eq!(cat.frobenius_schur_phase(&j(1)), -1.0);
     // (2a, 2b, 2c, A, B).
     for (a, b, c, want_a, want_b) in [
@@ -213,7 +213,7 @@ fn fibonacci_times_su2_promotes_to_complex() {
     let (fib, su2) = (TableCategory::fibonacci(), su2());
     let cat = Product::new((fib.clone(), su2.clone()));
     let tau = fib.object(2).unwrap();
-    let (half, one) = (su2.irrep(&[1], &[]).unwrap(), su2.irrep(&[2], &[]).unwrap());
+    let (half, one) = (su2.irrep(&[1]).unwrap(), su2.irrep(&[2]).unwrap());
     let (x, y) = ((tau, half.clone()), (tau, one));
     let a = cat.a_symbol(&x, &x, &y).unwrap();
     let b = cat.b_symbol(&x, &x, &y).unwrap();
@@ -227,7 +227,7 @@ fn absent_channels_and_foreign_objects() {
     let (fib, su2) = (TableCategory::fibonacci(), su2());
     let cat = Product::new((fib.clone(), su2.clone()));
     let (one, tau) = (fib.object(1).unwrap(), fib.object(2).unwrap());
-    let half = su2.irrep(&[1], &[]).unwrap();
+    let half = su2.irrep(&[1]).unwrap();
     let x = (tau, half.clone());
     let absent = (one, half.clone());
     assert_eq!(cat.a_symbol(&x, &x, &absent).unwrap().dim(), 0);
@@ -301,7 +301,7 @@ mod su3 {
             Self(su3())
         }
         fn rotated(&self, x: &LieIrrep, y: &LieIrrep, z: &LieIrrep) -> bool {
-            let irr = |d: &[i64]| self.0.irrep(d, &[]).unwrap();
+            let irr = |d: &[i64]| self.0.irrep(d).unwrap();
             (x, y, z) == (&irr(&[2, 1]), &irr(&[1, 2]), &irr(&[2, 2]))
         }
     }
@@ -395,7 +395,7 @@ mod su3 {
     #[test]
     fn default_derivation_serves_a_custom_block_type_in_a_rotated_gauge() {
         let cat = Rotated::new();
-        let irr = |d: &[i64]| cat.0.irrep(d, &[]).unwrap();
+        let irr = |d: &[i64]| cat.0.irrep(d).unwrap();
         let (f15, f15b, s27) = (irr(&[2, 1]), irr(&[1, 2]), irr(&[2, 2]));
         let a = cat.a_symbol(&f15, &f15b, &s27).unwrap();
         assert_eq!(a.dim(), 2);
@@ -413,7 +413,7 @@ mod su3 {
         // Absent channel (15 ∉ 15 ⊗ 15̄): the empty block, without F.
         assert_eq!(cat.a_symbol(&f15, &f15b, &f15).unwrap().dim(), 0);
         assert!(cat.b_symbol(&f15, &f15b, &f15).unwrap().data().is_empty());
-        let foreign = super::su2().irrep(&[1], &[]).unwrap();
+        let foreign = super::su2().irrep(&[1]).unwrap();
         assert!(std::panic::catch_unwind(|| cat.a_symbol(&foreign, &f15b, &s27)).is_err());
     }
 
@@ -443,7 +443,7 @@ mod su3 {
     #[test]
     fn multiplicity_blocks_match_sunrepresentations() {
         let cat = su3();
-        let irr = |d: &[i64]| cat.irrep(d, &[]).unwrap();
+        let irr = |d: &[i64]| cat.irrep(d).unwrap();
         let (three, bar, oct) = (irr(&[1, 0]), irr(&[0, 1]), irr(&[1, 1]));
         let (f15, f15b, s27) = (irr(&[2, 1]), irr(&[1, 2]), irr(&[2, 2]));
         for (a, b, c, want_a, want_b) in [
@@ -475,7 +475,7 @@ mod su3 {
     #[test]
     fn product_blocks_are_last_factor_fastest_kronecker() {
         let cat = su3();
-        let irr = |d: &[i64]| cat.irrep(d, &[]).unwrap();
+        let irr = |d: &[i64]| cat.irrep(d).unwrap();
         let (oct, f15, f15b, s27) = (irr(&[1, 1]), irr(&[2, 1]), irr(&[1, 2]), irr(&[2, 2]));
         let p = Product::new((cat.clone(), cat.clone()));
         // TensorKitSectors `SU3Irrep ⊠ SU3Irrep` B at (15,8) ⊗ (15̄,8) → (27,8):

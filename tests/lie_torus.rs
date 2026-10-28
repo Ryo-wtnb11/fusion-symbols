@@ -11,7 +11,7 @@ fn group(id: GroupId) -> LieGroup {
     LieGroup::new(id).unwrap()
 }
 fn charge(g: &LieGroup, q: i64) -> LieIrrep {
-    g.irrep(&[], &[q]).unwrap()
+    g.irrep_with_charges(&[], &[q]).unwrap()
 }
 
 #[test]
@@ -85,7 +85,10 @@ fn u1_values_bounds_and_fingerprint() {
         i64::MIN,
         i64::MAX,
     ] {
-        assert_eq!(g.irrep(&[], &[n]), Err(LieError::LabelOverflow));
+        assert_eq!(
+            g.irrep_with_charges(&[], &[n]),
+            Err(LieError::LabelOverflow)
+        );
     }
     for (a, b) in [(i64::from(i32::MAX), 1), (-i64::from(i32::MAX), -1)] {
         let (a, b) = (q(a), q(b));
@@ -260,13 +263,16 @@ fn typed_u1_matches_liegroup_bitwise() {
 #[test]
 fn u2_highest_weights_and_charge_conservation() {
     let g = group(GroupId::u(2).unwrap());
-    let a = g.irrep(&[1], &[1]).unwrap();
-    let shifted = g.irrep(&[1], &[3]).unwrap();
-    let det = g.irrep(&[0], &[2]).unwrap();
+    let a = g.irrep_with_charges(&[1], &[1]).unwrap();
+    let shifted = g.irrep_with_charges(&[1], &[3]).unwrap();
+    let det = g.irrep_with_charges(&[0], &[2]).unwrap();
     assert_ne!(a, shifted); // highest weights (1,0) and (2,1)
     assert_eq!((g.dim(&a), g.dim(&shifted), g.dim(&det)), (2.0, 2.0, 1.0));
-    assert_eq!(g.dual(&det), g.irrep(&[0], &[-2]).unwrap());
-    assert_eq!(g.irrep(&[1], &[0]), Err(LieError::NotAdmissible));
+    assert_eq!(g.dual(&det), g.irrep_with_charges(&[0], &[-2]).unwrap());
+    assert_eq!(
+        g.irrep_with_charges(&[1], &[0]),
+        Err(LieError::NotAdmissible)
+    );
     // Fundamental weights are ±1 in doubled-spin coordinates, both at charge +1.
     assert_eq!(
         a.weight_multiplicities(),
@@ -274,7 +280,7 @@ fn u2_highest_weights_and_charge_conservation() {
     );
     assert_eq!(
         g.fusion(&a, &a).unwrap().collect::<Vec<_>>(),
-        [det.clone(), g.irrep(&[2], &[2]).unwrap()]
+        [det.clone(), g.irrep_with_charges(&[2], &[2]).unwrap()]
     );
     for x in [&a, &shifted, &det] {
         assert_eq!(g.frobenius_schur_indicator(x), 0.0);
@@ -322,13 +328,13 @@ fn torus_composites_equal_product() {
         let g = group(id);
         let split = |x: &LieIrrep| {
             vec![
-                product.factors()[0].irrep(&x.dynkin(), &[]).unwrap(),
+                product.factors()[0].irrep(&x.dynkin()).unwrap(),
                 charge(&product.factors()[1], x.charges().next().unwrap()),
             ]
         };
         let labels: Vec<_> = [(0, 0), (1, 1), (0, 2), (1, -1), (2, 0)]
             .into_iter()
-            .map(|(a, q)| g.irrep(&[a], &[q]).unwrap())
+            .map(|(a, q)| g.irrep_with_charges(&[a], &[q]).unwrap())
             .collect();
         assert_eq!(g.authority_fingerprint(), product.authority_fingerprint());
         for a in &labels {
@@ -412,7 +418,10 @@ fn tori_quotients_and_trivial_group() {
         assert_eq!(t.object_index(&x), Ok(i));
     }
     let even = group(GroupId::new(&[], 1, &[vec![2]]).unwrap());
-    assert_eq!(even.irrep(&[], &[1]), Err(LieError::NotAdmissible));
+    assert_eq!(
+        even.irrep_with_charges(&[], &[1]),
+        Err(LieError::NotAdmissible)
+    );
     let q = charge(&even, 2);
     assert_eq!(even.dual(&q), charge(&even, -2));
     assert_eq!(even.fusion(&q, &q).unwrap().next(), Some(charge(&even, 4)));
@@ -455,16 +464,16 @@ fn tori_quotients_and_trivial_group() {
 fn u3_fundamental_antifundamental_and_leaf_symbols() {
     let g = group(GroupId::u(3).unwrap());
     let su = group(GroupId::su(3).unwrap());
-    let a = g.irrep(&[1, 0], &[1]).unwrap();
-    let b = g.irrep(&[0, 1], &[-1]).unwrap();
+    let a = g.irrep_with_charges(&[1, 0], &[1]).unwrap();
+    let b = g.irrep_with_charges(&[0, 1], &[-1]).unwrap();
     assert_eq!(g.dual(&a), b);
-    let octet = g.irrep(&[1, 1], &[0]).unwrap();
+    let octet = g.irrep_with_charges(&[1, 1], &[0]).unwrap();
     let channels = g.fusion(&a, &b).unwrap().collect::<Vec<_>>();
     assert_eq!(channels.len(), 2);
     assert!(channels.contains(&g.unit()) && channels.contains(&octet));
     assert_eq!(g.dim(&a) * g.dim(&b), 9.0);
     assert_eq!((g.dim(&octet), g.dim(&g.unit())), (8.0, 1.0));
-    let sa = su.irrep(&[1, 0], &[]).unwrap();
+    let sa = su.irrep(&[1, 0]).unwrap();
     let sb = su.dual(&sa);
     for e in &channels {
         for f in &channels {
@@ -475,14 +484,14 @@ fn u3_fundamental_antifundamental_and_leaf_symbols() {
                     &sb,
                     &sa,
                     &sa,
-                    &su.irrep(&e.dynkin(), &[]).unwrap(),
-                    &su.irrep(&f.dynkin(), &[]).unwrap(),
+                    &su.irrep(&e.dynkin()).unwrap(),
+                    &su.irrep(&f.dynkin()).unwrap(),
                 )
                 .unwrap(),
             );
             same_block(
                 g.r_symbol(&a, &b, e).unwrap(),
-                su.r_symbol(&sa, &sb, &su.irrep(&e.dynkin(), &[]).unwrap())
+                su.r_symbol(&sa, &sb, &su.irrep(&e.dynkin()).unwrap())
                     .unwrap(),
             );
         }

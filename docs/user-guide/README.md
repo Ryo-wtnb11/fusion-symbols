@@ -89,7 +89,7 @@ assert_eq!(u2, GroupId::u(2)?);
 let e8 = LieGroup::new(GroupId::e8())?;
 assert_eq!(e8.group_id(), &GroupId::cover(&[RootSystem::E8], 0)?);
 let e6 = LieGroup::new(GroupId::e6())?;
-let v = e6.irrep(&[1, 0, 0, 0, 0, 0], &[])?;
+let v = e6.irrep(&[1, 0, 0, 0, 0, 0])?;
 assert_eq!(e6.dual(&v).dynkin(), [0, 0, 0, 0, 0, 1]);
 assert_eq!(e6.frobenius_schur_indicator(&v), 0.0);
 ```
@@ -106,28 +106,29 @@ work in the base build. Without the feature, `LieGroup::new` returns
 
 ## Labels
 
-`LieGroup::irrep(dynkin, charges)` takes the highest weight as nonnegative
-Dynkin labels (Bourbaki numbering, factors in order) followed by integer
-torus charges. Pass `&[]` for an empty part. Rank-one labels are doubled
-spins: `irrep(&[1], &[])` of SU(2) is spin ½.
+`LieGroup::irrep(dynkin)` takes the highest weight as nonnegative Dynkin
+labels (Bourbaki numbering, factors in order); groups with a torus, such as
+U(N), take integer torus charges through `irrep_with_charges(dynkin, charges)`.
+SU(2) and SO(3), in any rank-one presentation, also take a spin, `irrep_spin(HalfInt::half(1))` for spin ½,
+whose Dynkin label is `2j`.
 
 ```rust
 use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieError, LieGroup}};
 
 let su3 = LieGroup::new(GroupId::su(3)?)?;
-let three = su3.irrep(&[1, 0], &[])?;
+let three = su3.irrep(&[1, 0])?;
 assert_eq!(su3.dual(&three).dynkin(), vec![0, 1]); // 3-bar
 assert_eq!(three.dim_exact(), 3u32.into());
 
 let u2 = LieGroup::new(GroupId::u(2)?)?;
-let det = u2.irrep(&[0], &[2])?; // determinant: charge 2
+let det = u2.irrep_with_charges(&[0], &[2])?; // determinant: charge 2
 assert_eq!(det.charges().collect::<Vec<_>>(), vec![2]);
-assert_eq!(u2.irrep(&[1], &[0]), Err(LieError::NotAdmissible));
+assert_eq!(u2.irrep_with_charges(&[1], &[0]), Err(LieError::NotAdmissible));
 
 // The global form decides which labels exist: Spin(5) has the spinor, SO(5) not.
 let spinor = [0, 1];
-assert!(LieGroup::new(GroupId::spin(5)?)?.irrep(&spinor, &[]).is_ok());
-assert!(LieGroup::new(GroupId::so(5)?)?.irrep(&spinor, &[]).is_err());
+assert!(LieGroup::new(GroupId::spin(5)?)?.irrep(&spinor).is_ok());
+assert!(LieGroup::new(GroupId::so(5)?)?.irrep(&spinor).is_err());
 ```
 
 Read labels back with `dynkin_labels()` (allocation-free) or `dynkin()`, and
@@ -138,10 +139,10 @@ Gelfand–Tsetlin basis of A-series groups of rank ≥ 2.
 ## Fusion and symbols
 
 ```rust
-use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieGroup}};
+use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
 
 let su2 = LieGroup::new(GroupId::su(2)?)?;
-let half = su2.irrep(&[1], &[])?;
+let half = su2.irrep_spin(HalfInt::half(1))?;
 let unit = su2.unit();
 let channels: Vec<i64> = su2.fusion(&half, &half)?.map(|c| c.dynkin()[0]).collect();
 assert_eq!(channels, vec![0, 2]); // spin 0 and spin 1
@@ -185,7 +186,7 @@ axes can have length 2:
 use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieGroup}};
 
 let su3 = LieGroup::new(GroupId::su(3)?)?;
-let eight = su3.irrep(&[1, 1], &[])?;
+let eight = su3.irrep(&[1, 1])?;
 let f = su3.f_symbol(&eight, &eight, &eight, &eight, &eight, &eight)?;
 assert_eq!(f.dims(), [2, 2, 2, 2]);
 let r = su3.r_symbol(&eight, &eight, &eight)?;
@@ -208,7 +209,7 @@ Import `GroupRepresentations` for `cgc` and `CgcBlock` to read the result:
 use fusion_symbols::{category::{CgcBlock, GroupRepresentations}, lie::{GroupId, LieGroup}};
 
 let su3 = LieGroup::new(GroupId::su(3)?)?;
-let eight = su3.irrep(&[1, 1], &[])?;
+let eight = su3.irrep(&[1, 1])?;
 let c = su3.cgc(&eight, &eight, &eight)?;
 assert_eq!(c.dims(), [8, 8, 8, 2]); // [dim a, dim b, dim c, N(a,b,c)]
 assert!(c.at([0, 2, 0, 1]) < 0.0);
@@ -302,7 +303,7 @@ of categories of one type. Objects are tuples or vectors of factor objects.
 ```rust
 use fusion_symbols::{category::{CgcBlock, FusionCategory, GroupRepresentations},
     fermion::{FermionParity, FermionParityIrrep},
-    lie::{GroupId, LieGroup, U1Irrep, U1},
+    lie::{GroupId, HalfInt, LieGroup, U1Irrep, U1},
     product::Product};
 
 let cat = Product::new((U1, FermionParity));
@@ -311,8 +312,8 @@ assert_eq!(cat.twist(&odd), -1.0);
 
 let su2 = LieGroup::new(GroupId::su(2)?)?;
 let spin_charge = Product::new((su2.clone(), U1));
-let x = (su2.irrep(&[1], &[])?, U1Irrep::new(1)?);
-let y = (su2.irrep(&[2], &[])?, U1Irrep::new(2)?);
+let x = (su2.irrep_spin(HalfInt::half(1))?, U1Irrep::new(1)?);
+let y = (su2.irrep_spin(HalfInt::half(2))?, U1Irrep::new(2)?);
 let c = spin_charge.cgc(&x, &x, &y)?;
 assert_eq!(c.dims(), [2, 2, 3, 1]);
 
@@ -341,7 +342,7 @@ Each category has one error type: `LieError`, `U1Error`, `CU1Error`,
 |---|---|
 | Vertex not allowed by fusion | `nsymbol` is 0; F/R/A/B/CGC return zero blocks |
 | Object from another category value | panic (check first with `contains`) |
-| Wrong label lengths or negative Dynkin label | `LieError::InvalidLabel` |
+| Wrong label lengths (including `irrep` on a group with a torus), negative Dynkin label, or `irrep_spin` outside SU(2) and SO(3) | `LieError::InvalidLabel` |
 | Label excluded by the global form | `LieError::NotAdmissible` |
 | Label, weight or multiplicity beyond its integer type | `LieError::LabelOverflow` (and `U1Error`/`CU1Error::LabelOverflow`) |
 | E₆ irrep that is not self-dual, with dimension above `u32::MAX` (its Frobenius–Schur phase is generated in a basis with `u32` indices) | `LieError::LabelOverflow` from `irrep`, and from `fusion` when an outcome is such a label |

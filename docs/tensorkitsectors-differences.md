@@ -28,7 +28,7 @@ even to absent channels. See [validation](overview.md#validation-and-errors).
 
 | Family | Encoding difference |
 |---|---|
-| Rank-one Lie | `u32` doubled spin `dj = 2j`, not `HalfInt`; projections doubled too |
+| Rank-one Lie | The label is the `u32` Dynkin label `dj = 2j`; `HalfInt` spins only through `LieGroup::irrep_spin` and `LieIrrep::spin` on SU(2) and SO(3) (any rank-one presentation); projections doubled too |
 | Z_N | Runtime modulus in category and label, rather than a type parameter; `new` reduces charges, `from_canonical` validates |
 | U(1) | Integer `i32` charges, excluding `i32::MIN`; half-integer charges cannot be represented |
 | CU(1) | `twice_charge: u32` and validated `s`; full `u32` range, separate category provider |
@@ -116,7 +116,7 @@ oracles are in `tests/product.rs`; structural identities use
 
 ## Composite Lie restriction: guard inventory
 
-`src/lie.rs::{coefficient_roots,LieGroup::irrep,LieGroup::factor_labels}`
+`src/lie.rs::{coefficient_roots,LieGroup::irrep_with_charges,LieGroup::factor_labels}`
 validate engine availability and outward group identity before Product queries.
 `src/lie.rs::LieGroup::composite_label` reattaches the complete datum; quotient
 fusion closure follows from `ν−λ−μ ∈ Q ⊆ X`, rather than filtering channels.
@@ -142,7 +142,7 @@ needs no epoch bump; equal fingerprints do not equate outward group identities.
 ### Connected torus integration guards
 
 The arithmetic authority is `src/lie/u1.rs::{U1Irrep::from_exact,U1::fusion,U1::dual}`.
-The adapters `src/lie.rs::{LieGroup::irrep,LieGroup::fusion}` map invalid
+The adapters `src/lie.rs::{LieGroup::irrep_with_charges,LieGroup::fusion}` map invalid
 charges and unrepresentable fusion outcomes to typed `LieError::LabelOverflow`.
 `src/lie/u1.rs::U1Irrep::new` rejects `i32::MIN` with `U1Error`, proving dual
 negation safe. `src/lie/u1.rs::U1::nsymbol` decides the vertex condition exactly

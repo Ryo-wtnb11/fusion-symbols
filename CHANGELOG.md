@@ -7,6 +7,24 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Breaking
+
+- `LieGroup::irrep` takes only Dynkin labels and serves groups without a
+  torus; a group with torus rank above zero returns `LieError::InvalidLabel`.
+  The former two-argument form is `LieGroup::irrep_with_charges`, valid for
+  every group. Migration: `irrep(d, &[])` → `irrep(d)`, and `irrep(d, c)` →
+  `irrep_with_charges(d, c)`. No value or fingerprint changes.
+
+### Added
+
+- `lie::HalfInt`, a non-negative half-integer stored as `2j`
+  (`half`, `integer`, `doubled`, `Display`). `HalfInt::integer` returns
+  `None` when `2n` exceeds `u32::MAX`.
+- `LieGroup::irrep_spin(j)` for SU(2) and SO(3), in any rank-one
+  presentation (root systems `[A(1)]`, `[B(1)]` or `[C(1)]`, no torus), equal to `irrep(&[2j])`; other groups return
+  `LieError::InvalidLabel`. `LieIrrep::spin` reads `j` back on those groups
+  and is `None` elsewhere.
+
 ## [0.9.2] - 2026-10-28
 
 ### Added

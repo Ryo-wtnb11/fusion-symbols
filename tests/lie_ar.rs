@@ -12,14 +12,14 @@ use fusion_symbols::{
 fn labels_zero_channels_and_warm_generation() {
     let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
     assert_eq!(cat.fusion_style(), FusionStyle::Generic);
-    assert_eq!(cat.irrep(&[1], &[]), Err(LieError::InvalidLabel));
-    assert_eq!(cat.irrep(&[-1, 0], &[]), Err(LieError::InvalidLabel));
-    assert_eq!(cat.irrep(&[i64::MAX, 1], &[]), Err(LieError::LabelOverflow));
+    assert_eq!(cat.irrep(&[1]), Err(LieError::InvalidLabel));
+    assert_eq!(cat.irrep(&[-1, 0]), Err(LieError::InvalidLabel));
+    assert_eq!(cat.irrep(&[i64::MAX, 1]), Err(LieError::LabelOverflow));
     let quotient = LieGroup::new(GroupId::psu(3).unwrap()).unwrap();
-    assert_eq!(quotient.irrep(&[1, 0], &[]), Err(LieError::NotAdmissible));
-    assert_eq!(quotient.irrep(&[1, 1], &[]).unwrap().dim_exact(), 8.into());
-    let three = cat.irrep(&[1, 0], &[]).unwrap();
-    let eight = cat.irrep(&[1, 1], &[]).unwrap();
+    assert_eq!(quotient.irrep(&[1, 0]), Err(LieError::NotAdmissible));
+    assert_eq!(quotient.irrep(&[1, 1]).unwrap().dim_exact(), 8.into());
+    let three = cat.irrep(&[1, 0]).unwrap();
+    let eight = cat.irrep(&[1, 1]).unwrap();
     let unit = cat.unit();
     assert_eq!(three.gt_patterns().unwrap().len(), 3);
     let a1 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
@@ -49,7 +49,7 @@ fn labels_zero_channels_and_warm_generation() {
     assert_eq!(cat.cgc(&eight, &eight, &eight).unwrap(), cgc);
     assert_eq!(cache::tier_stats(Tier::SunCgc).misses, misses);
     let product = fusion_symbols::product::Product::new((cat.clone(), a1.clone()));
-    let channel = (eight.clone(), a1.irrep(&[2], &[]).unwrap());
+    let channel = (eight.clone(), a1.irrep(&[2]).unwrap());
     let first = product.cgc(&channel, &channel, &channel).unwrap();
     let tiers = [Tier::SunCgc, Tier::SunProduct, Tier::ThreeJ];
     let [cgc_stats, product_stats, three_j] = tiers.map(cache::tier_stats);

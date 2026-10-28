@@ -428,9 +428,9 @@ fn spin3_su2_is_a_form_aware_low_rank_redirect() {
     let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
     let so3 = LieGroup::new(GroupId::so(3).unwrap()).unwrap();
     assert_eq!(
-        spin3.irrep(&[1], &[]).unwrap().dim_exact(),
-        su2.irrep(&[1], &[]).unwrap().dim_exact()
+        spin3.irrep(&[1]).unwrap().dim_exact(),
+        su2.irrep(&[1]).unwrap().dim_exact()
     );
     assert_eq!(spin3.authority_fingerprint(), su2.authority_fingerprint());
-    assert_eq!(so3.irrep(&[1], &[]), Err(LieError::NotAdmissible));
+    assert_eq!(so3.irrep(&[1]), Err(LieError::NotAdmissible));
 }
