@@ -440,8 +440,7 @@ fn coherence_residual_detects_degenerate_rotation() {
     let canonical = Generators {
         series: Series::D,
         rank: 1,
-        dim: 2,
-        sp: vec![raising([[0.0, 1.0], [0.0, 0.0]])],
+        sp: Raising::Dense(vec![raising([[0.0, 1.0], [0.0, 0.0]])]),
         sz: vec![vec![0.0, 0.0]], // degenerate weight: rotation is a real gauge freedom
         weight_denom: 1,
     };
@@ -450,8 +449,7 @@ fn coherence_residual_detects_degenerate_rotation() {
     let rotated = Generators {
         series: Series::D,
         rank: 1,
-        dim: 2,
-        sp: vec![raising([[-c * c, c * c], [-c * c, c * c]])],
+        sp: Raising::Dense(vec![raising([[-c * c, c * c], [-c * c, c * c]])]),
         sz: vec![vec![0.0, 0.0]],
         weight_denom: 1,
     };
@@ -715,8 +713,8 @@ fn commutator_residual_matches_scalar_reference() {
         let irrep = Irrep::from_dynkin_in(&group, &label).unwrap();
         let mut catalog = CanonicalCatalog::new(series, label.len()).unwrap();
         let g = catalog.generators(&irrep).unwrap();
-        let (root, cartan) = scalar_commutator_residuals(&g.sp, &g.sz, g.dim);
-        let residual = commutator_residual(&g.sp, &g.sz, g.dim, 7).unwrap();
+        let (root, cartan) = scalar_commutator_residuals(g.sp.dense(), &g.sz, g.dim());
+        let residual = commutator_residual(g.sp.dense(), &g.sz, g.dim(), 7).unwrap();
         assert_residual_close(residual, root.max(cartan));
     }
 }
@@ -738,10 +736,28 @@ fn assert_residual_close(actual: f64, expected: f64) {
 fn corrupted_commutator_residual_matches_scalar_failure() {
     // Seed setup does not call the verifier, so the sign-error negative control
     // reaches the corrupted residual comparison rather than failing in setup.
-    let g = Generators::from_seed(&defining_seed(Series::B, 2).unwrap());
+    let mut g = Generators::from_seed(&defining_seed(Series::B, 2).unwrap());
+    // Only this dense verifier reference needs to materialize the raw seed.
+    g.sp = Raising::Dense(
+        g.sp.adjacency()
+            .iter()
+            .map(|ladder| {
+                let mut m = Dense::zeros(g.dim(), g.dim());
+                for (i, row) in ladder.rows.iter().enumerate() {
+                    for &(k, v) in row {
+                        m.set(i, k, v);
+                    }
+                }
+                m
+            })
+            .collect(),
+    );
     for root_corruption in [true, false] {
         let mut bad = g.clone();
-        let s = &mut bad.sp[0];
+        let Raising::Dense(sp) = &mut bad.sp else {
+            unreachable!()
+        };
+        let s = &mut sp[0];
         if root_corruption {
             // A diagonal root entry has zero Cartan shift, unlike this root.
             s.set(0, 0, 1e-4);
@@ -751,19 +767,183 @@ fn corrupted_commutator_residual_matches_scalar_failure() {
             let entry = s.data.iter_mut().find(|v| v.abs() > EPS_SWEEP).unwrap();
             *entry += 1e-4;
         }
-        let (root, cartan) = scalar_commutator_residuals(&bad.sp, &bad.sz, bad.dim);
+        let (root, cartan) = scalar_commutator_residuals(bad.sp.dense(), &bad.sz, bad.dim());
         if root_corruption {
             assert!(root > EPS_SWEEP);
         } else {
             assert!(root < EPS_SWEEP);
             assert!(cartan > EPS_SWEEP);
         }
-        match commutator_residual(&bad.sp, &bad.sz, bad.dim, 7) {
+        match commutator_residual(bad.sp.dense(), &bad.sz, bad.dim(), 7) {
             Err(SweepError::CommutatorResidual { block: 7, residual }) => {
                 assert!(residual > EPS_SWEEP);
                 assert_residual_close(residual, root.max(cartan));
             }
             result => panic!("expected the scalar reference's CommutatorResidual, got {result:?}"),
+        }
+    }
+}
+
+// The pre-adjacency product and scalar application loops are independent drift
+// references here: no reconstruction from the adjacency under test.
+fn dense_product_ladder(a: &Generators, b: &Generators, root: usize) -> Dense {
+    let (da, db) = (a.dim(), b.dim());
+    let mut m = Dense::zeros(da * db, da * db);
+    for c in 0..da {
+        for rr in 0..da {
+            let v = a.sp.dense()[root].at(rr, c);
+            if v != 0.0 {
+                for mb in 0..db {
+                    let (row, col) = (rr + da * mb, c + da * mb);
+                    let cur = m.at(row, col);
+                    m.set(row, col, cur + v);
+                }
+            }
+        }
+    }
+    for c in 0..db {
+        for rr in 0..db {
+            let v = b.sp.dense()[root].at(rr, c);
+            if v != 0.0 {
+                for ma in 0..da {
+                    let (row, col) = (ma + da * rr, ma + da * c);
+                    let cur = m.at(row, col);
+                    m.set(row, col, cur + v);
+                }
+            }
+        }
+    }
+    m
+}
+
+fn dense_apply_reference(sp: &Dense, x: &Dense, dagger: bool) -> Dense {
+    let d = sp.rows;
+    let mut out = Dense::zeros(d, x.cols);
+    for outer in 0..d {
+        for inner in 0..d {
+            // Old raise: i then k. Old lower: k then i.
+            let (i, k) = if dagger {
+                (inner, outer)
+            } else {
+                (outer, inner)
+            };
+            let v = if dagger { sp.at(k, i) } else { sp.at(i, k) };
+            if v == 0.0 {
+                continue;
+            }
+            for c in 0..x.cols {
+                let cur = out.at(i, c);
+                out.set(i, c, cur + v * x.at(k, c));
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn ordered_product_ladders_match_dense_bits() {
+    use crate::lie::{bcd::catalog::CanonicalCatalog, GroupId};
+    use rand::{Rng, SeedableRng};
+
+    #[cfg(target_pointer_width = "64")]
+    assert!(std::mem::size_of::<Generators>() <= 72, "base shell");
+    let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(0x01ad_de25);
+    for (series, group, label) in [
+        (Series::C, GroupId::sp(4).unwrap(), vec![2, 1]),
+        (Series::B, GroupId::so(5).unwrap(), vec![2, 0]),
+        (Series::D, GroupId::spin(8).unwrap(), vec![0, 0, 0, 1]),
+    ] {
+        let irrep = Irrep::from_dynkin_in(&group, &label).unwrap();
+        let mut catalog = CanonicalCatalog::new(series, label.len()).unwrap();
+        let a = catalog.generators(&irrep).unwrap();
+        let product = Generators::product(a, a).unwrap();
+        assert!(
+            matches!(a.sp, Raising::Dense(_)),
+            "catalog stays dense-only"
+        );
+        let Raising::Adjacency(ladders) = &product.sp else {
+            panic!("product must not retain dense ladders");
+        };
+        let mut x = Dense::zeros(product.dim(), 7);
+        for v in &mut x.data {
+            *v = rng.gen_range(-1.0..1.0);
+        }
+        for (root, ladder) in ladders.iter().enumerate() {
+            let dense = dense_product_ladder(a, a, root);
+            // Pin stored values and both orientations, including exact support.
+            for (i, row) in ladder.rows.iter().enumerate() {
+                for &(k, v) in row {
+                    assert_eq!(v.to_bits(), dense.at(i, k).to_bits());
+                }
+            }
+            for (actual, expected, direction) in [
+                (
+                    apply(ladder, &x).unwrap(),
+                    dense_apply_reference(&dense, &x, false),
+                    "raising",
+                ),
+                (
+                    apply_dagger(ladder, &x).unwrap(),
+                    dense_apply_reference(&dense, &x, true),
+                    "lowering",
+                ),
+            ] {
+                for (entry, (actual, expected)) in
+                    actual.data.iter().zip(&expected.data).enumerate()
+                {
+                    assert_eq!(
+                        actual.to_bits(),
+                        expected.to_bits(),
+                        "{series:?} {label:?} root {root} {direction} entry {entry}"
+                    );
+                }
+            }
+            assert_eq!(ladder, &Ladder::from_dense(&dense));
+        }
+        #[cfg(target_pointer_width = "64")]
+        if series == Series::C {
+            // Base a81073c: the same five canonical entries, dense buffers + shell.
+            assert_eq!(catalog.bytes(), 23_112);
+        }
+    }
+}
+
+#[test]
+fn product_ladder_merges_collisions_in_dense_order() {
+    // Real raising operators normally have no diagonal overlap, but product
+    // must retain A-then-B addition, exact cancellation and ±0 handling too.
+    let matrix = |values: [f64; 4]| Dense {
+        rows: 2,
+        cols: 2,
+        data: values.to_vec(),
+    };
+    let a = matrix([-0.0, 1e-200, 2.0, -3.0]);
+    let b = matrix([0.0, -2.0, 1e-300, 3.0]);
+    let mut ga = Generators::trivial(Series::C, 1);
+    ga.sz = vec![vec![0.0; 2]];
+    ga.sp = Raising::Dense(vec![a]);
+    let mut gb = ga.clone();
+    gb.sp = Raising::Dense(vec![b]);
+    let dense = dense_product_ladder(&ga, &gb, 0);
+    let product = Generators::product(&ga, &gb).unwrap();
+    let ladders = product.sp.adjacency();
+    let sparse = &ladders[0];
+    // Internal composition accepts products as factors and borrows their adjacency.
+    assert!(matches!(product.sp.adjacency(), Cow::Borrowed(_)));
+    let nested = Generators::product(&product, &product).unwrap();
+    let dense_product = Generators {
+        sp: Raising::Dense(vec![dense.clone()]),
+        ..product.clone()
+    };
+    assert_eq!(
+        nested.sp.adjacency()[0],
+        Ladder::from_dense(&dense_product_ladder(&dense_product, &dense_product, 0))
+    );
+    for i in 0..4 {
+        let mut entries = sparse.rows[i].iter().peekable();
+        for k in 0..4 {
+            let v = entries.next_if(|&&(j, _)| j == k).map_or(0.0, |&(_, v)| v);
+            assert_eq!(v.to_bits(), dense.at(i, k).to_bits());
         }
     }
 }
