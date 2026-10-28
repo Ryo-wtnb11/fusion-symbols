@@ -11,7 +11,7 @@ use faer::{
         qr::no_pivoting::factor,
         svd::{self, ComputeSvdVectors},
     },
-    Conj, Mat as FaerMat, MatRef, Par,
+    Conj, Mat as FaerMat, MatRef, Par, ParShape,
 };
 
 /// A column-major dense `rows × cols` matrix of `f64` — the plain buffer the
@@ -115,7 +115,7 @@ fn qr(a: MatRef<'_, f64>) -> (FaerMat<f64>, FaerMat<f64>) {
         m,
         n,
         block,
-        Par::Seq,
+        ParShape::Seq,
         Default::default(),
     ));
     factor::qr_in_place(
@@ -219,7 +219,7 @@ pub(crate) fn svd(a: &Dense) -> Result<(Dense, Vec<f64>, Dense), SweepError> {
         a.cols,
         ComputeSvdVectors::Thin,
         ComputeSvdVectors::Thin,
-        Par::Seq,
+        ParShape::Seq,
         Default::default(),
     ));
     svd::svd(

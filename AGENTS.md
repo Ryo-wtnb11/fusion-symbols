@@ -69,9 +69,9 @@ constraints, and unreachable-by-construction assumptions). Every port PR must:
 
 ## t4a-faer dependency (lie-generated)
 
-The `lie-generated` feature uses the crates.io semver range `t4a-faer = "0.24.7"`,
-with default features disabled and only `std` enabled. The minimum excludes
-the threaded-SVD defect in 0.24.6 (tensor4all/faer#25). No `rayon`: dense
+The `lie-generated` feature uses the crates.io semver range `t4a-faer = "0.25"`,
+with default features disabled and only `std` enabled. Scratch queries use
+`ParShape::Seq`. No `rayon`: dense
 operations are sequential, and the caller owns parallelism. Use explicit
 `Par::Seq` for APIs taking `Par`; never set or rely on global parallelism.
 Backend updates are ordinary reviewed changes and must satisfy the gauge

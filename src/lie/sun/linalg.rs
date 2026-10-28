@@ -12,7 +12,7 @@ use faer::{
         qr::no_pivoting::{factor, solve},
         svd::{self, ComputeSvdVectors},
     },
-    Conj, Mat as FaerMat, MatRef, Par,
+    Conj, Mat as FaerMat, MatRef, Par, ParShape,
 };
 
 /// Unpivoted QR, explicitly sequential. The packed lower triangle stores Q's reflectors.
@@ -25,7 +25,7 @@ fn qr(a: MatRef<'_, f64>) -> (FaerMat<f64>, FaerMat<f64>) {
         m,
         n,
         block,
-        Par::Seq,
+        ParShape::Seq,
         Default::default(),
     ));
     factor::qr_in_place(
@@ -133,7 +133,7 @@ pub(crate) fn nullspace(a: &Mat, atol: f64) -> Result<Mat, SunError> {
         n,
         ComputeSvdVectors::Full,
         ComputeSvdVectors::Full,
-        Par::Seq,
+        ParShape::Seq,
         Default::default(),
     ));
     svd::svd(
@@ -228,7 +228,7 @@ pub(crate) fn lstsq(a: &Mat, b: &Mat) -> Result<Mat, SunError> {
         a.cols,
         coeff.nrows(),
         b.cols,
-        Par::Seq,
+        ParShape::Seq,
     ));
     solve::solve_lstsq_in_place(
         packed.as_ref(),

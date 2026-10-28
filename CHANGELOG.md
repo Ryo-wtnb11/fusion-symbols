@@ -15,6 +15,7 @@ value/gauge rule noted below.
 
 ### Dependencies
 
+- Require t4a-faer 0.25 for sequential dense kernels, using `ParShape::Seq` for scratch queries.
 - Malachite 0.14 (`malachite-base`, `malachite-nz`, `malachite-q`) is required
   for all exact arithmetic, including base builds (LGPL-3.0-only).
   Remove `num-bigint` and `num-rational`; the crate remains MIT OR Apache-2.0.
