@@ -239,6 +239,31 @@ fn e6_27x27bar_is_exact() {
     check_product(RootSystem::E6, &a, &b);
 }
 
+/// §9.5 on every channel of E6 `27 ⊗ 27 = 27̄ + 351 + 351′`.
+#[test]
+fn e6_27x27_is_exact() {
+    let v = unit(6, 0);
+    assert_eq!(
+        decomposition(RootSystem::E6, &v, &v),
+        [(27, 1), (351, 1), (351, 1)]
+    );
+    check_product(RootSystem::E6, &v, &v);
+}
+
+/// §9.5 on E6 `27 ⊗ 78 → 27`.
+#[test]
+fn e6_27x78_to_27_is_exact() {
+    let mut fam = GeneralFamily::new(RootSystem::E6);
+    check_channel(&mut fam, &unit(6, 0), &unit(6, 1), &unit(6, 0), 1);
+}
+
+/// §9.5 on the non-square F4 channel `26 ⊗ 52 → 26`.
+#[test]
+fn f4_26x52_to_26_is_exact() {
+    let mut fam = GeneralFamily::new(RootSystem::F4);
+    check_channel(&mut fam, &unit(4, 3), &unit(4, 0), &unit(4, 3), 1);
+}
+
 /// §9.5 on every channel of F4 `26 ⊗ 26 = 1 + 26 + 52 + 273 + 324`.
 #[test]
 fn f4_26x26_is_exact() {

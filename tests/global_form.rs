@@ -625,11 +625,7 @@ mod sun_forms {
 
     /// The constructor's own guards, distinct from a form violation.
     #[test]
-    fn constructor_rejects_an_unsupported_root_system_and_a_wrong_length_label() {
-        assert!(matches!(
-            lie_test::irrep_in(&GroupId::e6(), &[1, 0, 0, 0, 0, 0]),
-            Err(LieError::Unsupported { .. })
-        ));
+    fn constructor_rejects_a_wrong_length_or_negative_label() {
         assert!(matches!(
             lie_test::irrep_in(&GroupId::su(3).unwrap(), &[1, 0, 0]),
             Err(LieError::InvalidLabel)

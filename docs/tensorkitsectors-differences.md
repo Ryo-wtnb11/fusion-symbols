@@ -10,7 +10,7 @@ API and convention differences, not a claim of complete feature parity.
 | Area | fusion-symbols contract and reason |
 |---|---|
 | Boundary | Standalone mathematical category values, no `Sector` interface or tensor engine; consumers own tensor operations |
-| Lie coefficients | Built-in runtime SU(N)/SO(N)/Spin(N)/Sp(2r)/G₂/F₄/E₇/E₈ generation (TKS has no exceptional groups) with public CGC and frozen gauge specifications |
+| Lie coefficients | Built-in runtime SU(N)/SO(N)/Spin(N)/Sp(2r)/G₂/F₄/E₆/E₇/E₈ generation (TKS has no exceptional groups) with public CGC and frozen gauge specifications |
 | Errors | Constructors validate objects; foreign objects panic; N = 0 is a value; absent vertices give zero symbols; numerical failures are typed errors |
 | A/B symbols | Always `category::RBlock`, including scalar families, so the default can construct a result for every category |
 | Scalars | One associated `Scalar` (`f64` or `Complex64`), rather than separate fusion/braiding scalar types; abelian/parity symbols use `f64` rather than TKS `Int` |
