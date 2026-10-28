@@ -480,9 +480,18 @@ impl Irrep {
         self.try_creation()
             .expect("test fixture has representable GT ladder weights")
     }
+    #[cfg(test)]
     fn try_creation(&self) -> Result<Vec<Vec<LadderEntry>>, SunError> {
+        self.try_creation_with_patterns(&self.patterns())
+    }
+
+    fn try_creation_with_patterns(
+        &self,
+        pats: &[GtPattern],
+    ) -> Result<Vec<Vec<LadderEntry>>, SunError> {
+        #[cfg(test)]
+        cgc::LADDER_BUILDS.with(|n| n.set(n.get() + 1));
         let n = self.rank();
-        let pats = self.patterns();
         // Basis index of each pattern (the reference `table`).
         let table: HashMap<&GtPattern, usize> =
             pats.iter().enumerate().map(|(i, m)| (m, i)).collect();
@@ -571,6 +580,7 @@ impl Irrep {
         self.try_annihilation()
             .expect("test fixture has representable GT ladder weights")
     }
+    #[cfg(test)]
     fn try_annihilation(&self) -> Result<Vec<Vec<LadderEntry>>, SunError> {
         Ok(self
             .try_creation()?
