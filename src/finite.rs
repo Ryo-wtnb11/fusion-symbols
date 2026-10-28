@@ -110,6 +110,19 @@ const ZN_FINGERPRINT: &[u8] = b"fusion-symbols:abelian-zn:labels=u32-runtime-mod
 /// # Panics
 /// Every object-taking method except `contains` panics if any object's modulus differs from
 /// this category's modulus, even when another vertex has `N = 0`.
+///
+/// # Examples
+///
+/// ```
+/// use fusion_symbols::{category::FusionCategory, finite::{ZNError, ZNIrrep, ZN}};
+///
+/// let z3 = ZN::new(3)?;
+/// let two = ZNIrrep::new(2, 3)?;
+/// assert_eq!(z3.fusion(&two, &two)?.next(), Some(ZNIrrep::new(1, 3)?)); // 2 + 2 = 1 mod 3
+/// assert_eq!(z3.dual(&two), ZNIrrep::new(1, 3)?);
+/// assert_eq!(ZN::new(0), Err(ZNError::ZeroModulus));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ZN {
     modulus: NonZeroU32,

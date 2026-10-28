@@ -87,6 +87,8 @@ assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
 
 ## Documentation
 
+- [Getting started](docs/user-guide/getting-started.md): from install to
+  your first fusion rule, F symbol and CGC, with checks against textbook values.
 - [User guide](docs/user-guide/README.md): choosing a category, building
   groups, labels, symbols, CGC, products, tables, errors and caches.
 - [Dynkin labels](docs/user-guide/labels.md): numbering, common irreps,

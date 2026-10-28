@@ -2,6 +2,7 @@
 
 | Topic | Document |
 |---|---|
+| First steps: features, irreps, fusion, F/R, a 6j and a CGC check, products, errors | [Getting started](user-guide/getting-started.md) |
 | How to build groups, labels, symbols, CGC, products, tables; errors; caches | [User guide](user-guide/README.md) |
 | What Dynkin labels mean: numbering, common irreps, dimensions, duals, U(N) charges | [Dynkin labels](user-guide/labels.md) |
 | Capability boundaries, labels, validation, numerical and product contracts | [Design and contracts](overview.md) |

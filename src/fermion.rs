@@ -6,6 +6,17 @@ use std::convert::Infallible;
 /// Fermion-parity category; all validated parity labels belong to it.
 ///
 /// Enumeration (frozen): `EVEN, ODD`, indices `0, 1`.
+///
+/// # Examples
+///
+/// ```
+/// use fusion_symbols::{category::FusionCategory, fermion::{FermionParity, FermionParityIrrep}};
+///
+/// let (even, odd) = (FermionParityIrrep::EVEN, FermionParityIrrep::ODD);
+/// assert_eq!(FermionParity.fusion(&odd, &odd)?.next(), Some(even));
+/// assert_eq!(FermionParity.r_symbol(&odd, &odd, &even)?, -1.0); // exchange sign
+/// # Ok::<(), std::convert::Infallible>(())
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FermionParity;
 

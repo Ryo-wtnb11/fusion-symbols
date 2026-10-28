@@ -387,6 +387,17 @@ impl From<ProductError<LieError>> for LieError {
 
 impl LieGroup {
     /// The complete validated classification datum.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::{GroupId, LieGroup};
+    ///
+    /// let u2 = LieGroup::new(GroupId::u(2)?)?;
+    /// assert_eq!(u2.group_id(), &GroupId::u(2)?);
+    /// assert_eq!((u2.group_id().semisimple_rank(), u2.group_id().torus_rank()), (1, 1));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn group_id(&self) -> &GroupId {
         &self.group
     }
@@ -401,6 +412,25 @@ impl LieGroup {
     /// [`Product`] cover symbols and only restrict objects at admission.
     /// B/C/D seed charges exceeding the default aggregate catalog budget return
     /// [`LieError::Generation`]. No zero-weight label is allocated at setup.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieGroup}};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?; // no feature needed
+    /// assert_eq!(su2.dim(&su2.irrep(&[1])?), 2.0);
+    ///
+    /// let su3 = LieGroup::new(GroupId::su(3)?);
+    /// #[cfg(feature = "lie-generated")]
+    /// assert!(su3.is_ok());
+    /// #[cfg(not(feature = "lie-generated"))]
+    /// assert!(matches!(
+    ///     su3,
+    ///     Err(fusion_symbols::lie::LieError::Unsupported { requires: "lie-generated" })
+    /// ));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn new(group: GroupId) -> Result<Self, LieError> {
         coefficient_roots(&group)?;
         if group.root_systems().is_empty() && group.torus_rank() == 1 && group.is_cover() {
@@ -499,6 +529,21 @@ impl LieGroup {
     /// split the remaining bytes equally among catalogs in factor order,
     /// giving the remainder to earlier factors. Each cap is its seed plus its
     /// share. Without any catalog this returns [`LieError::Unsupported`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::{GroupId, LieError, LieGroup};
+    ///
+    /// # #[cfg(feature = "lie-generated")] {
+    /// let so5 = LieGroup::with_catalog_budget(GroupId::so(5)?, 64 << 20)?;
+    /// assert_eq!(so5.catalog_stats()?.budget, 64 << 20);
+    /// # }
+    /// // SU(2) has no B/C/D catalog to budget.
+    /// let su2 = LieGroup::with_catalog_budget(GroupId::su(2)?, 64 << 20);
+    /// assert!(matches!(su2, Err(LieError::Unsupported { .. })));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn with_catalog_budget(group: GroupId, max_bytes: usize) -> Result<Self, LieError> {
         coefficient_roots(&group)?;
         if group.torus_rank() != 0
@@ -625,6 +670,21 @@ impl LieGroup {
         a.factors().expect("composite object has factor labels")
     }
     /// Retained generator catalog statistics; all zero without a catalog.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::{CatalogStats, GroupId, LieGroup};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// assert_eq!(su2.catalog_stats()?, CatalogStats::default()); // no catalog
+    /// # #[cfg(feature = "lie-generated")] {
+    /// let so5 = LieGroup::new(GroupId::so(5)?)?;
+    /// let stats = so5.catalog_stats()?;
+    /// assert!(stats.bytes <= stats.budget);
+    /// # }
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn catalog_stats(&self) -> Result<CatalogStats, LieError> {
         if let Some(product) = &self.composite {
             return product
@@ -652,6 +712,22 @@ impl LieGroup {
     }
     /// Reset retained generators to the base seeds and drop the retained
     /// exceptional coefficient memo; no-op for other groups. Shared by every clone.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "lie-generated")] {
+    /// use fusion_symbols::{category::GroupRepresentations, lie::{GroupId, LieGroup}};
+    ///
+    /// let so5 = LieGroup::new(GroupId::so(5)?)?;
+    /// let seeded = so5.catalog_stats()?;
+    /// let v = so5.irrep(&[1, 0])?;
+    /// so5.cgc(&v, &v, &so5.irrep(&[2, 0])?)?;
+    /// so5.reset_catalog()?;
+    /// assert_eq!(so5.catalog_stats()?, seeded);
+    /// # }
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn reset_catalog(&self) -> Result<(), LieError> {
         if let Some(product) = &self.composite {
             for factor in product.factors() {
@@ -678,6 +754,19 @@ impl LieGroup {
     /// A group with torus rank above zero returns [`LieError::InvalidLabel`];
     /// use [`Self::irrep_with_charges`] there. Otherwise identical to
     /// `irrep_with_charges(dynkin, &[])`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieError, LieGroup}};
+    ///
+    /// let spin4 = LieGroup::new(GroupId::spin(4)?)?; // SU(2) × SU(2): two labels
+    /// assert_eq!(spin4.dim(&spin4.irrep(&[1, 1])?), 4.0);
+    /// assert_eq!(spin4.irrep(&[1]), Err(LieError::InvalidLabel));
+    /// let u2 = LieGroup::new(GroupId::u(2)?)?;
+    /// assert_eq!(u2.irrep(&[1]), Err(LieError::InvalidLabel)); // needs a charge
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn irrep(&self, dynkin: &[i64]) -> Result<LieIrrep, LieError> {
         if self.group.torus_rank() != 0 {
             return Err(LieError::InvalidLabel);
@@ -689,6 +778,20 @@ impl LieGroup {
     /// single Dynkin label is `2j`. Equal to `irrep(&[2j])`, so SO(3) rejects
     /// half-integer `j` as [`LieError::NotAdmissible`]. Every other group
     /// returns [`LieError::InvalidLabel`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::{GroupId, HalfInt, LieError, LieGroup};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// assert_eq!(su2.irrep_spin(HalfInt::half(2))?, su2.irrep(&[2])?); // spin 1
+    /// let so3 = LieGroup::new(GroupId::so(3)?)?;
+    /// assert_eq!(so3.irrep_spin(HalfInt::half(1)), Err(LieError::NotAdmissible));
+    /// let u2 = LieGroup::new(GroupId::u(2)?)?;
+    /// assert_eq!(u2.irrep_spin(HalfInt::half(1)), Err(LieError::InvalidLabel));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn irrep_spin(&self, j: HalfInt) -> Result<LieIrrep, LieError> {
         if !is_spin_group(&self.group) {
             return Err(LieError::InvalidLabel);
@@ -706,6 +809,19 @@ impl LieGroup {
     /// returns [`LieError::LabelOverflow`] (so does its dual), here and from
     /// `fusion` when an outcome is such a label: its Frobenius–Schur phase is
     /// generated in the module basis, whose magnetic index is `u32`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieError, LieGroup}};
+    ///
+    /// let u2 = LieGroup::new(GroupId::u(2)?)?;
+    /// let fundamental = u2.irrep_with_charges(&[1], &[1])?;
+    /// let det = u2.irrep_with_charges(&[0], &[2])?;
+    /// assert_eq!(u2.nsymbol(&fundamental, &fundamental, &det), 1); // Λ²(2) = det
+    /// assert_eq!(u2.irrep_with_charges(&[1], &[0]), Err(LieError::NotAdmissible));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn irrep_with_charges(
         &self,
         dynkin: &[i64],
@@ -869,6 +985,18 @@ impl LieIrrep {
     /// The spin `j` of an irrep of SU(2) or SO(3), in any rank-one
     /// presentation (as for [`LieGroup::irrep_spin`]); `None` for every other group.
     /// The label is `u32`, checked when the irrep was admitted.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// assert_eq!(su2.irrep(&[3])?.spin(), Some(HalfInt::half(3))); // spin 3/2
+    /// let u1 = LieGroup::new(GroupId::u(1)?)?;
+    /// assert_eq!(u1.irrep_with_charges(&[], &[1])?.spin(), None);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn spin(&self) -> Option<HalfInt> {
         match self.payload {
             LiePayload::RankOne(dj) if is_spin_group(&self.group) => Some(HalfInt::half(dj)),
@@ -876,6 +1004,17 @@ impl LieIrrep {
         }
     }
     /// Integer torus charges, in the datum's charge-coordinate order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::{GroupId, LieGroup};
+    ///
+    /// let t2 = LieGroup::new(GroupId::torus(2)?)?;
+    /// let q = t2.irrep_with_charges(&[], &[3, -1])?;
+    /// assert_eq!(q.charges().collect::<Vec<_>>(), [3, -1]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn charges(&self) -> impl ExactSizeIterator<Item = i64> + '_ {
         (0..self.group.torus_rank()).map(|i| {
             self.factors().map_or(i64::from(self.charge()), |factors| {
@@ -884,6 +1023,21 @@ impl LieIrrep {
         })
     }
     /// GT basis in the frozen gauge order; absent for rank-one, B/C/D, and composite groups.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::{GroupId, LieGroup};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// assert_eq!(su2.irrep(&[1])?.gt_patterns(), None);
+    /// # #[cfg(feature = "lie-generated")] {
+    /// let su3 = LieGroup::new(GroupId::su(3)?)?;
+    /// let patterns = su3.irrep(&[1, 1])?.gt_patterns().unwrap();
+    /// assert_eq!(patterns.len(), 8); // one pattern per basis vector of the 8
+    /// # }
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn gt_patterns(&self) -> Option<Vec<GtPattern>> {
         #[cfg(feature = "lie-generated")]
         if let Some(a) = self.generated() {
@@ -894,6 +1048,17 @@ impl LieIrrep {
 
     /// Highest weight in Dynkin coordinates, materialized in an owned allocation.
     /// Use [`Self::dynkin_labels`] for allocation-free label reading on hot paths.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::{GroupId, LieGroup};
+    ///
+    /// let u2 = LieGroup::new(GroupId::u(2)?)?;
+    /// let x = u2.irrep_with_charges(&[2], &[4])?;
+    /// assert_eq!(x.dynkin(), [2]); // charges are separate
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn dynkin(&self) -> Vec<i64> {
         if self.factors().is_some() {
             return self.dynkin_labels().collect();
@@ -917,6 +1082,18 @@ impl LieIrrep {
     /// in the same order as [`Self::dynkin`]. Construction and consumption
     /// allocate nothing; composite coordinates follow factor order. `len()` reports
     /// the number of remaining coordinates.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::{GroupId, LieGroup};
+    ///
+    /// let spin4 = LieGroup::new(GroupId::spin(4)?)?;
+    /// let x = spin4.irrep(&[2, 0])?;
+    /// assert_eq!(x.dynkin_labels().len(), 2);
+    /// assert!(x.dynkin_labels().eq([2, 0]));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn dynkin_labels(&self) -> impl ExactSizeIterator<Item = i64> + '_ {
         DynkinLabels {
             irrep: self,
@@ -925,6 +1102,18 @@ impl LieIrrep {
     }
 
     /// Exact dimension.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::{GroupId, LieGroup};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// assert_eq!(su2.irrep(&[3])?.dim_exact(), 4u32.into()); // 2j + 1
+    /// let spin4 = LieGroup::new(GroupId::spin(4)?)?;
+    /// assert_eq!(spin4.irrep(&[1, 2])?.dim_exact(), 6u32.into()); // 2 · 3
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn dim_exact(&self) -> BigInt {
         if let Some(factors) = self.factors() {
             return factors.iter().map(Self::dim_exact).product();
@@ -945,6 +1134,20 @@ impl LieIrrep {
     }
     /// Weight multiplicities in Dynkin-then-charge coordinates, in ascending order.
     /// Panics if an intermediate weight or multiplicity is unrepresentable.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::lie::{GroupId, LieGroup};
+    /// use std::collections::BTreeMap;
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// let spin_one = su2.irrep(&[2])?;
+    /// // Weights 2m for m = -1, 0, 1, each once.
+    /// let expected = BTreeMap::from([(vec![-2], 1), (vec![0], 1), (vec![2], 1)]);
+    /// assert_eq!(spin_one.weight_multiplicities(), expected);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn weight_multiplicities(&self) -> BTreeMap<Vec<i64>, u64> {
         if let Some(factors) = self.factors() {
             let mut weights = BTreeMap::from([(Vec::new(), 1u64)]);
