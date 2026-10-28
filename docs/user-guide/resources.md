@@ -191,8 +191,8 @@ Fusion outcomes and N use only root-system combinatorics and never wait for
 the memo; F, R and CGC queries on one exceptional group run one at a time.
 
 Module size grows quickly with the dimension. Measured in release on one core, exact module construction takes
-about 0.018 s for E₇ `1539`, 0.048 s for E₈ `3875`, 1.23 s for E₈ `27000`
-and 1.77 s for E₈ `30380`. These timings exclude ladder flattening; estimated
+about 0.012 s for E₇ `1539`, 0.031 s for E₈ `3875`, 0.53 s for E₈ `27000`
+and 0.67 s for E₈ `30380`. These timings exclude ladder flattening; estimated
 retained module-plus-ladder sizes are still about 6, 15, 174 and 220 MiB,
 respectively (`benches/exceptional.rs` reproduces these cases). A query
 touching both of the last two exceeds the byte bound on its own; completed
@@ -200,8 +200,8 @@ channels can still stay warm after those modules are evicted.
 
 Measured in release on one core, the E₈ `248⁴` F-unitarity check (the ignored
 `tests/lie_exceptional.rs::self_dual::e8_f_unitarity_on_the_adjoint`) takes
-about 10.5 s with a process peak RSS of about 0.85 GiB, and a single
-`248 ⊗ 27000 → 248` or `248 ⊗ 30380 → 248` channel about 1.8 s or 2.4 s from
+about 6.1 s with a process peak RSS of about 0.84 GiB, and a single
+`248 ⊗ 27000 → 248` or `248 ⊗ 30380 → 248` channel about 0.98 s or 1.17 s from
 a fresh group. Exact module construction and CGC descent account for most of
 that time. Peak RSS includes transient query allocations and is not bounded by
 the retained-memo limits above. `benches/exceptional.rs` reproduces the module

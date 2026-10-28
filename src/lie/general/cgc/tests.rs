@@ -994,3 +994,101 @@ fn performance_large_e8_channels() {
         }
     }
 }
+
+// The c236d39 product-space scan and descent are exact drift references.
+fn old_product_space(a: &Ladders, b: &Ladders, nu: &[i64]) -> ProductSpace {
+    let mut pairs = Vec::new();
+    for wb in &b.module.weights {
+        let mu_a: Vec<i64> = nu.iter().zip(&wb.mu).map(|(x, y)| x - y).collect();
+        let Some(wa) = a.module.weight_index(&mu_a) else {
+            continue;
+        };
+        let wa = &a.module.weights[wa];
+        for q in wb.offset..wb.offset + wb.norms.len() {
+            pairs.extend((wa.offset..wa.offset + wa.norms.len()).map(|p| (p, q)));
+        }
+    }
+    let index = pairs.iter().enumerate().map(|(t, &pq)| (pq, t)).collect();
+    ProductSpace { pairs, index }
+}
+
+fn compare_old_descent(a: &Ladders, b: &Ladders, c: &Ladders, channel: &Channel) {
+    for (space, product) in c.module.weights.iter().zip(&channel.spaces) {
+        let old = old_product_space(a, b, &space.mu);
+        assert_eq!(product.pairs, old.pairs);
+        assert_eq!(product.index, old.index);
+    }
+    let mut spaces: Vec<ProductSpace> = vec![old_product_space(a, b, &c.module.weights[0].mu)];
+    let mut phi: Vec<Vec<Vec<Q>>> = Vec::with_capacity(c.dim());
+    phi.push(channel.phi[0].clone());
+    for space in &c.module.weights[1..] {
+        let to = old_product_space(a, b, &space.mu);
+        let lowered: Vec<Vec<Vec<Q>>> = space
+            .kept
+            .iter()
+            .map(|&(j, q)| {
+                let (src, _) = space.lower[j]
+                    .as_ref()
+                    .expect("a kept candidate's source weight space exists (§4.1)");
+                let from = &spaces[*src];
+                let m = c.module.weights[*src].offset + q;
+                phi[m]
+                    .iter()
+                    .map(|v| coproduct(&a.lower[j], &b.lower[j], from, &to, v))
+                    .collect()
+            })
+            .collect();
+        for coeffs in &space.gs {
+            let per_mu = (0..channel.mult)
+                .map(|mu| {
+                    let mut v = vec![Q::zero(); to.len()];
+                    for (r, cand) in coeffs.iter().zip(&lowered) {
+                        if r.is_zero() {
+                            continue;
+                        }
+                        for (x, y) in v.iter_mut().zip(&cand[mu]) {
+                            if !y.is_zero() {
+                                *x += r * y;
+                            }
+                        }
+                    }
+                    v
+                })
+                .collect();
+            phi.push(per_mu);
+        }
+        spaces.push(to);
+    }
+    assert_eq!(channel.phi, phi);
+}
+
+#[test]
+fn descent_matches_old_path() {
+    let data = CartanData::new(RootSystem::G2);
+    let a = Ladders::new(&data, &G7).unwrap();
+    let b = Ladders::new(&data, &G27).unwrap();
+    let channel = Channel::new(&data, &b, &b, &b, 2).unwrap();
+    compare_old_descent(&b, &b, &b, &channel);
+    for (a, b) in [(&a, &b), (&b, &a), (&b, &b)] {
+        for w in &b.module.weights {
+            let new = ProductSpace::new(a, b, &w.mu);
+            let old = old_product_space(a, b, &w.mu);
+            assert_eq!(new.pairs, old.pairs);
+            assert_eq!(new.index, old.index);
+        }
+    }
+}
+
+#[test]
+#[ignore = "large E8 exact descent comparisons; run in release"]
+fn large_descent_matches_old_path() {
+    let data = CartanData::new(RootSystem::E8);
+    let adjoint = Ladders::new(&data, &unit(8, 7)).unwrap();
+    for label in [vec![0, 0, 0, 0, 0, 0, 0, 2], unit(8, 6)] {
+        let large = Ladders::new(&data, &label).unwrap();
+        for (a, b) in [(&adjoint, &large), (&large, &adjoint)] {
+            let channel = Channel::new(&data, a, b, &adjoint, 1).unwrap();
+            compare_old_descent(a, b, &adjoint, &channel);
+        }
+    }
+}

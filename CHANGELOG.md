@@ -9,6 +9,11 @@ value/gauge rule noted below.
 
 ### Performance
 
+- Exceptional module construction reuses exact residual inner products for
+  Gram–Schmidt and lowering, storing only kept-candidate coordinates. CGC
+  descent scans the smaller weight set and copies the unit-coefficient
+  candidate before adding corrections. Every rational, coefficient bit and
+  fingerprint is unchanged.
 - Exceptional highest-weight assembly and exact elimination retain only
   nonzero rational coordinates, preserving the canonical pivot basis and every
   coefficient bit. Sequential release E₈ `248⁴` F-unitarity improved from
