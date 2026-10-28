@@ -149,7 +149,10 @@ arithmetic before any rank-sized allocation; an insufficient budget or byte-coun
 overflow returns `LieError::Generation` (including a zero-byte budget).
 Materialization stages a whole canonical-parent chain before committing it;
 budget failure leaves committed entries unchanged. Temporary generation memory
-is not bounded by the retained-byte budget. See `src/lie/bcd/catalog.rs::ensure`.
+is not bounded by the retained-byte budget. Catalog and block ladders remain
+dense-only. Product ladders and raw seeds store ordered row and column adjacency
+of exact nonzeros, with no dense product matrices. Product construction scans
+dense factors once and reuses adjacency factors directly. See `src/lie/bcd/catalog.rs::ensure`.
 
 For a composite Lie group, the same 256 MiB default (or explicit budget) is
 an aggregate over its B/C/D catalogs. Construction preflights all seed charges;

@@ -33,6 +33,7 @@
 //! the gauge algorithm itself and, like `sun::cgc`'s `cref`, is carried in
 //! plain `f64`. No hand-rolled factorization kernels.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use std::collections::HashMap;
@@ -268,9 +269,118 @@ impl std::error::Error for SweepError {}
 
 // ---- generator sets & Kronecker product composition ------------------------
 
+/// Exact nonzeros, with source indices ascending in every row/column.
+#[derive(Clone, Debug, PartialEq)]
+struct Ladder {
+    rows: Vec<Vec<(usize, f64)>>,
+    cols: Vec<Vec<(usize, f64)>>,
+}
+
+impl Ladder {
+    fn from_dense(m: &Dense) -> Self {
+        let rows = (0..m.rows)
+            .map(|i| {
+                (0..m.cols)
+                    .filter_map(|k| {
+                        let v = m.at(i, k);
+                        (v != 0.0).then_some((k, v))
+                    })
+                    .collect()
+            })
+            .collect();
+        Self::from_rows(rows)
+    }
+
+    fn from_rows(mut rows: Vec<Vec<(usize, f64)>>) -> Self {
+        for row in &mut rows {
+            row.shrink_to_fit();
+        }
+        let mut cols = vec![Vec::new(); rows.len()];
+        for (i, row) in rows.iter().enumerate() {
+            for &(k, v) in row {
+                cols[k].push((i, v));
+            }
+        }
+        for col in &mut cols {
+            col.shrink_to_fit();
+        }
+        Self { rows, cols }
+    }
+
+    fn product(a: &Self, b: &Self) -> Self {
+        let da = a.rows.len();
+        let mut rows = Vec::with_capacity(da * b.rows.len());
+        for (mb, br) in b.rows.iter().enumerate() {
+            for (ma, ar) in a.rows.iter().enumerate() {
+                let mut ar = ar.iter().map(|&(k, v)| (k + da * mb, v)).peekable();
+                let mut br = br.iter().map(|&(k, v)| (ma + da * k, v)).peekable();
+                let mut row = Vec::with_capacity(ar.len() + br.len());
+                while ar.peek().is_some() || br.peek().is_some() {
+                    let (k, v) = match (ar.peek(), br.peek()) {
+                        (Some(&(ka, _)), Some(&(kb, _))) if ka == kb => {
+                            let (_, va) = ar.next().unwrap();
+                            let (_, vb) = br.next().unwrap();
+                            // Dense product starts at +0 and adds A before B.
+                            (ka, (0.0 + va) + vb)
+                        }
+                        (Some(&(ka, _)), Some(&(kb, _))) if ka < kb => {
+                            let (k, v) = ar.next().unwrap();
+                            (k, 0.0 + v)
+                        }
+                        (Some(_), None) => {
+                            let (k, v) = ar.next().unwrap();
+                            (k, 0.0 + v)
+                        }
+                        _ => {
+                            let (k, v) = br.next().unwrap();
+                            (k, 0.0 + v)
+                        }
+                    };
+                    if v != 0.0 {
+                        row.push((k, v));
+                    }
+                }
+                rows.push(row);
+            }
+        }
+        Self::from_rows(rows)
+    }
+}
+
+/// Catalog/block operators stay dense; raw seeds and products retain only adjacency.
+#[derive(Clone, Debug, PartialEq)]
+enum Raising {
+    Dense(Vec<Dense>),
+    Adjacency(Vec<Ladder>),
+}
+
+impl Raising {
+    fn len(&self) -> usize {
+        match self {
+            Self::Dense(sp) => sp.len(),
+            Self::Adjacency(sp) => sp.len(),
+        }
+    }
+
+    fn dense(&self) -> &[Dense] {
+        match self {
+            Self::Dense(sp) => sp,
+            // Only projected blocks/catalog entries reach dense verification/alignment.
+            Self::Adjacency(_) => panic!("dense generators required for verification/alignment"),
+        }
+    }
+
+    fn adjacency(&self) -> Cow<'_, [Ladder]> {
+        match self {
+            Self::Dense(sp) => Cow::Owned(sp.iter().map(Ladder::from_dense).collect()),
+            Self::Adjacency(sp) => Cow::Borrowed(sp),
+        }
+    }
+}
+
 /// A generator set of one B/C/D irrep on its carrier space: the `r` raising
-/// operators `Sp[i]` (dense `D×D`) and the `r` Cartan diagonals `Sz[i]` (length
-/// `D`), all `f64`. The sweep's input.
+/// operators `Sp[i]` (dense for catalog/blocks, adjacency for raw seeds/products)
+/// and the `r` Cartan diagonals `Sz[i]` (length `D`), all `f64`. The sweep's input.
 ///
 /// The defining-rep set comes from a [`Seed`] via [`Generators::from_seed`];
 /// products of two sets via [`Generators::product`]. Higher-irrep generator sets
@@ -280,9 +390,7 @@ impl std::error::Error for SweepError {}
 pub struct Generators {
     series: Series,
     rank: usize,
-    dim: usize,
-    /// `sp[i]` = the `i`-th raising operator, dense column-major `D×D`.
-    sp: Vec<Dense>,
+    sp: Raising,
     /// `sz[i]` = the `i`-th Cartan diagonal, length `D`.
     sz: Vec<Vec<f64>>,
     /// Denominator of the grid the Cartan eigenvalues live on: `1` for a
@@ -317,7 +425,7 @@ impl Generators {
     /// `intertwiner_tests` to check the generators and CGC as Lie-algebra data.
     #[cfg(test)]
     pub(crate) fn raising(&self, i: usize) -> &Dense {
-        &self.sp[i]
+        &self.sp.dense()[i]
     }
 
     /// Worst element-wise difference between this generator set and `other`'s —
@@ -336,14 +444,14 @@ impl Generators {
     /// Returns `f64::INFINITY` on a dimension mismatch (never expected: same
     /// irrep ⇒ same `dim`).
     pub(crate) fn coherence_residual(&self, other: &Generators) -> f64 {
-        if self.dim != other.dim || self.rank != other.rank {
+        if self.dim() != other.dim() || self.rank != other.rank {
             return f64::INFINITY;
         }
         let mut worst = 0.0f64;
         for i in 0..self.rank {
-            let (a, b) = (&self.sp[i], &other.sp[i]);
-            for r in 0..self.dim {
-                for c in 0..self.dim {
+            let (a, b) = (&self.sp.dense()[i], &other.sp.dense()[i]);
+            for r in 0..self.dim() {
+                for c in 0..self.dim() {
                     worst = worst.max((a.at(r, c) - b.at(r, c)).abs());
                 }
                 worst = worst.max((self.sz[i][r] - other.sz[i][r]).abs());
@@ -360,16 +468,17 @@ impl Generators {
     /// every stored set at `≤ EPS_SWEEP`, so a stored set's residual is bounded.
     #[cfg(test)]
     pub(crate) fn max_commutator_residual(&self) -> f64 {
-        commutator_residual(&self.sp, &self.sz, self.dim, 0)
+        commutator_residual(self.sp.dense(), &self.sz, self.dim(), 0)
             .expect("stored generators passed the commutator gate")
     }
 
     /// The carrier dimension `D`.
     pub fn dim(&self) -> usize {
-        self.dim
+        // Deriving D keeps the dense/adjacency tag within the original fixed shell.
+        self.sz.first().map_or(1, Vec::len)
     }
 
-    /// The generator set for `seed` (dense `f64` from the exact [`Seed`]) —
+    /// The generator set for `seed` (`f64` from the exact [`Seed`]) —
     /// the defining rep, or one of the spinor base cases.
     ///
     /// The seed's exact scales are applied here: the Cartan records are
@@ -403,8 +512,7 @@ impl Generators {
         Generators {
             series: seed.series(),
             rank: seed.rank(),
-            dim: d,
-            sp,
+            sp: Raising::Adjacency(sp.iter().map(Ladder::from_dense).collect()),
             sz,
             weight_denom: u32::try_from(s.denominator_ref())
                 .expect("seed Cartan denominators are exactly 1 or 2"),
@@ -418,8 +526,7 @@ impl Generators {
         Generators {
             series,
             rank: r,
-            dim: 1,
-            sp: (0..r).map(|_| Dense::zeros(1, 1)).collect(),
+            sp: Raising::Dense((0..r).map(|_| Dense::zeros(1, 1)).collect()),
             sz: (0..r).map(|_| vec![0.0]).collect(),
             weight_denom: 1,
         }
@@ -443,41 +550,14 @@ impl Generators {
             return Err(SweepError::GeneratorMismatch);
         }
         let r = a.rank;
-        let (da, db) = (a.dim, b.dim);
+        let (da, db) = (a.dim(), b.dim());
         let d = product_dimension(da, db)?;
         crate::lie::checked_size([d, d]).map_err(|_| SweepError::LabelOverflow)?;
         // combined(m_a, m_b) = m_a + d_a * m_b   (factor a fast).
         let comb = |ma: usize, mb: usize| ma + da * mb;
 
-        let mut sp = Vec::with_capacity(r);
-        for i in 0..r {
-            let mut m = Dense::zeros(d, d);
-            // Sp_a[i] ⊗ 1_b : acts on the fast index, spectator mb.
-            for c in 0..da {
-                for rr in 0..da {
-                    let v = a.sp[i].at(rr, c);
-                    if v != 0.0 {
-                        for mb in 0..db {
-                            let cur = m.at(comb(rr, mb), comb(c, mb));
-                            m.set(comb(rr, mb), comb(c, mb), cur + v);
-                        }
-                    }
-                }
-            }
-            // 1_a ⊗ Sp_b[i] : acts on the slow index, spectator ma.
-            for c in 0..db {
-                for rr in 0..db {
-                    let v = b.sp[i].at(rr, c);
-                    if v != 0.0 {
-                        for ma in 0..da {
-                            let cur = m.at(comb(ma, rr), comb(ma, c));
-                            m.set(comb(ma, rr), comb(ma, c), cur + v);
-                        }
-                    }
-                }
-            }
-            sp.push(m);
-        }
+        let (asp, bsp) = (a.sp.adjacency(), b.sp.adjacency());
+        let ladders = (0..r).map(|i| Ladder::product(&asp[i], &bsp[i])).collect();
 
         let mut sz = Vec::with_capacity(r);
         for i in 0..r {
@@ -493,8 +573,7 @@ impl Generators {
         Ok(Generators {
             series: a.series,
             rank: r,
-            dim: d,
-            sp,
+            sp: Raising::Adjacency(ladders),
             sz,
             weight_denom: a.weight_denom.max(b.weight_denom),
         })
@@ -666,7 +745,8 @@ pub fn decompose(
 /// exact-multiplicity gate.
 fn get_symmetry_states(g: &Generators) -> Result<Vec<Block>, SweepError> {
     g.check_counts()?;
-    let d = g.dim;
+    let d = g.dim();
+    let ladders = g.sp.adjacency();
     let r = g.rank;
     let nz = g.sz.len();
 
@@ -730,7 +810,7 @@ fn get_symmetry_states(g: &Generators) -> Result<Vec<Block>, SweepError> {
         let mut found = true;
         while found {
             found = false;
-            for spi in &g.sp {
+            for spi in ladders.iter() {
                 let mut vi = apply(spi, &v0)?;
                 let x = vi.norm();
                 if x > EPS_SWEEP {
@@ -747,7 +827,7 @@ fn get_symmetry_states(g: &Generators) -> Result<Vec<Block>, SweepError> {
         loop {
             let mut level = Dense::zeros(d, 0); // Vi: new vectors this level
             let mut any = false;
-            for spi in &g.sp {
+            for spi in ladders.iter() {
                 // lowering = Sp† applied to the frontier block
                 let mut vi = apply_dagger(spi, &frontier)?;
                 // skip if the whole block is tiny
@@ -836,7 +916,7 @@ fn get_symmetry_states(g: &Generators) -> Result<Vec<Block>, SweepError> {
 
         // rung 5: project generators. R.Sp[j] = V†(Sp V); R.Sz[j] = V†(Sz V).
         let mut rsp: Vec<Dense> = Vec::with_capacity(r);
-        for spi in &g.sp {
+        for spi in ladders.iter() {
             let spv = apply(spi, &v)?;
             rsp.push(tmatmul(&v, &spv)?);
         }
@@ -904,8 +984,7 @@ fn get_symmetry_states(g: &Generators) -> Result<Vec<Block>, SweepError> {
         let gens = Generators {
             series: g.series,
             rank: r,
-            dim: d0,
-            sp: rsp_sorted,
+            sp: Raising::Dense(rsp_sorted),
             sz: rsz_sorted,
             weight_denom: g.weight_denom,
         };
@@ -1189,36 +1268,22 @@ fn commutator_residual(
 
 // ---- small dense/vector helpers (plain f64: the gauge algorithm itself) ----
 
-/// Apply the raising operator `sp` (dense) to the block `x`: `sp · x`.
-fn apply(sp: &Dense, x: &Dense) -> Result<Dense, SweepError> {
-    // plain sparse-ish dense matmul; sp is small (D×D), x is D×k.
-    let d = sp.rows;
-    let mut out = Dense::zeros(d, x.cols);
-    for i in 0..d {
-        for k in 0..d {
-            let v = sp.at(i, k);
-            if v == 0.0 {
-                continue;
-            }
-            for c in 0..x.cols {
-                let cur = out.at(i, c);
-                out.set(i, c, cur + v * x.at(k, c));
-            }
-        }
-    }
-    Ok(out)
+/// Apply the raising operator `sp` to the block `x`: `sp · x`.
+fn apply(sp: &Ladder, x: &Dense) -> Result<Dense, SweepError> {
+    apply_adjacency(&sp.rows, x)
 }
 
 /// Apply the lowering operator `sp†` (transpose of a real raising op) to `x`.
-fn apply_dagger(sp: &Dense, x: &Dense) -> Result<Dense, SweepError> {
-    let d = sp.rows;
-    let mut out = Dense::zeros(d, x.cols);
-    for k in 0..d {
-        for i in 0..d {
-            let v = sp.at(k, i); // (sp†)[i,k] = sp[k,i]
-            if v == 0.0 {
-                continue;
-            }
+fn apply_dagger(sp: &Ladder, x: &Dense) -> Result<Dense, SweepError> {
+    apply_adjacency(&sp.cols, x)
+}
+
+fn apply_adjacency(adj: &[Vec<(usize, f64)>], x: &Dense) -> Result<Dense, SweepError> {
+    let mut out = Dense::zeros(adj.len(), x.cols);
+    // For each (i,c), both old scalar loops add in ascending k. Grouping by i
+    // keeps that sequence, including every exact nonzero (±0 were skipped).
+    for (i, entries) in adj.iter().enumerate() {
+        for &(k, v) in entries {
             for c in 0..x.cols {
                 let cur = out.at(i, c);
                 out.set(i, c, cur + v * x.at(k, c));
@@ -1425,15 +1490,14 @@ pub(crate) fn align_block(
 fn conjugate_generators(g: &Generators, w: &Dense) -> Result<Generators, SweepError> {
     let wt = w.transpose();
     let mut sp = Vec::with_capacity(g.rank);
-    for spi in &g.sp {
+    for spi in g.sp.dense() {
         let ws = matmul(w, spi)?;
         sp.push(matmul(&ws, &wt)?);
     }
     Ok(Generators {
         series: g.series,
         rank: g.rank,
-        dim: g.dim,
-        sp,
+        sp: Raising::Dense(sp),
         sz: g.sz.clone(),
         weight_denom: g.weight_denom,
     })
@@ -1464,11 +1528,11 @@ fn conjugate_generators(g: &Generators, w: &Dense) -> Result<Generators, SweepEr
 /// two sets cannot share a weight partition (different `dim`/`rank`, or a weight
 /// mismatch) — that is a genuinely different frame, not a within-space rotation.
 fn intertwiner(block: &Generators, canonical: &Generators) -> Result<Dense, SweepError> {
-    let d = canonical.dim;
+    let d = canonical.dim();
     let r = canonical.rank;
     let nz = canonical.sz.len();
     let w = identity(d);
-    if block.dim != d || block.rank != r || nz == 0 {
+    if block.dim() != d || block.rank != r || nz == 0 {
         return Ok(w);
     }
     let weight = |g: &Generators, s: usize| -> Result<Vec<i64>, SweepError> {
@@ -1517,7 +1581,7 @@ fn intertwiner(block: &Generators, canonical: &Generators) -> Result<Dense, Swee
                 // `s` indexes the raising matrix row and the state→space map.
                 #[allow(clippy::needless_range_loop)]
                 for s in 0..d {
-                    if canonical.sp[i].at(s, t).abs() > ALIGN_COUPLING_TOL {
+                    if canonical.sp.dense()[i].at(s, t).abs() > ALIGN_COUPLING_TOL {
                         src = Some(state_space[s]);
                         break 'find;
                     }
@@ -1531,13 +1595,13 @@ fn intertwiner(block: &Generators, canonical: &Generators) -> Result<Dense, Swee
             };
             let source = &spaces[si];
             let n_s = source.len();
-            // A[tl,sl] = R_can[i]ᵀ = canonical.sp[i].at(source, target); B from block.
+            // A[tl,sl] = R_can[i]ᵀ at (source, target); B from block.
             let mut a = Dense::zeros(n_t, n_s);
             let mut bmat = Dense::zeros(n_t, n_s);
             for (tl, &t) in target.iter().enumerate() {
                 for (sl, &s) in source.iter().enumerate() {
-                    a.set(tl, sl, canonical.sp[i].at(s, t));
-                    bmat.set(tl, sl, block.sp[i].at(s, t));
+                    a.set(tl, sl, canonical.sp.dense()[i].at(s, t));
+                    bmat.set(tl, sl, block.sp.dense()[i].at(s, t));
                 }
             }
             let c = matmul(&a, &ws)?;
