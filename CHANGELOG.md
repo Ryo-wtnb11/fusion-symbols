@@ -7,6 +7,8 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-28
+
 ### Breaking
 
 - `LieGroup::irrep` takes only Dynkin labels and serves groups without a
@@ -24,6 +26,14 @@ value/gauge rule noted below.
   presentation (root systems `[A(1)]`, `[B(1)]` or `[C(1)]`, no torus), equal to `irrep(&[2j])`; other groups return
   `LieError::InvalidLabel`. `LieIrrep::spin` reads `j` back on those groups
   and is `None` elsewhere.
+
+### Performance
+
+- Exact exceptional modules skip rational products with a zero factor, and the
+  family-neutral F contraction drops magnetic groups that cannot reach the
+  output slice. Values and fingerprints are bit-identical; E₈ `27000`/`30380`
+  modules build in about 1.2/1.8 s instead of 24/38 s, and the first E₆ `7371`
+  Frobenius–Schur phase takes about 1 s instead of 17 s (release, one core).
 
 ## [0.9.2] - 2026-10-28
 
@@ -996,7 +1006,8 @@ SU(2) provider this rule is mechanized by `su2_authority_fingerprint()`: its
 epoch is bumped only on such a value-affecting release, so a fingerprint change
 and a breaking release are one reviewable event.
 
-[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.8.1...v0.9.0
