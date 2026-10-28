@@ -222,6 +222,29 @@ calls per group. Median cold/warm times (base → chosen) were G₂ `7` singlet 
 the E₆ warm difference is 4 ns. These microsecond measurements are descriptive,
 not performance assertions.
 
+At base `3d48cf6` (after memo retention), checked `u128` radical formation
+replaces intermediate BigInt rational reductions with integer products and one
+gcd. Oversized operands or products fall back to the original exact formula;
+the canonical signed square root and correctly rounded conversion are unchanged.
+On macOS arm64 with Rust 1.99.1, three alternating sequential release runs of
+the public E₈ F-unitarity test had median query time **15.904 → 13.515 s**
+(1.18×); every residual was `4.8405723873656825e-14`.
+No CPU affinity was imposed; each test used one worker and sequential kernels.
+
+| Cold workload | Exact radical formation, before → after | Formation share, before → after |
+|---|---:|---:|
+| E₈ `248⁴` F-unitarity | 2.840 → 0.127 s | 17.51% → 0.96% |
+| `248 ⊗ 27000 → 248` | 0.450 → 0.017 s | 16.09% → 0.71% |
+| `248 ⊗ 30380 → 248` | 0.427 → 0.017 s | 11.71% → 0.53% |
+
+These stage timings use temporary instrumentation: one full F-unitarity profile
+and the median-query sample of three fresh-family channel profiles per revision.
+The channel median query times, including module construction, were
+2.793 → 2.349 s and 3.643 → 3.145 s, respectively. The full profile built eight
+modules and thirteen channels in both revisions. Formation includes exact-value
+allocation; conversion includes mapping and dropping the temporary exact entries.
+The rounding implementation was not changed. Timing instrumentation is not shipped.
+
 The Frobenius–Schur phase of a complex E₆ irrep is derived from the gauge, so
 its first `frobenius_schur_phase` call (or first A symbol) builds the exact
 modules of the irrep and its dual under the memo lock and memoizes the sign

@@ -383,13 +383,17 @@ impl Channel {
                     if x.is_zero() {
                         continue;
                     }
-                    let radicand = &a.norm[pa] * &b.norm[pb] / &scale;
                     out.push((
                         pa,
                         pb,
                         mc,
                         mu,
-                        SignedSqrtRational::from_prefactor_radical(x.clone(), radicand),
+                        SignedSqrtRational::from_prefactor_radical_ratio(
+                            x,
+                            &a.norm[pa],
+                            &b.norm[pb],
+                            &scale,
+                        ),
                     ));
                 }
             }
