@@ -45,7 +45,7 @@ use malachite_q::Rational;
 
 #[cfg(test)]
 use super::directproduct;
-use super::linalg::{matmul, qr_positive_q, svd, tmatmul, Dense};
+use super::linalg::{matmul, qr_positive_q, svd, Dense, ProjectionBasis};
 use super::seeds::Seed;
 use super::{Irrep, Series};
 
@@ -751,9 +751,9 @@ fn get_symmetry_states(g: &Generators) -> Result<Vec<Block>, SweepError> {
     let nz = g.sz.len();
 
     // U = accumulated orthonormal basis of the whole space, D × (covered).
-    let mut u = Dense::zeros(d, 0);
+    let mut u = ProjectionBasis::new(Dense::zeros(d, 0));
     // Per-multiplet CGC isometries, in discovery order.
-    let mut multiplets: Vec<Dense> = Vec::new();
+    let mut multiplets: Vec<ProjectionBasis> = Vec::new();
     // Seed index, PERSISTENT across multiplets (lowest uncovered basis index).
     let mut i0: usize = 0;
     let mut it: usize = 0;
@@ -770,7 +770,7 @@ fn get_symmetry_states(g: &Generators) -> Result<Vec<Block>, SweepError> {
                 break;
             }
             // x = |U† e_{i0}|; == 1 iff e_{i0} ∈ span(U) (U orthonormal).
-            let proj = tmatmul(&u, &seed)?;
+            let proj = u.tmatmul(&seed)?;
             if (proj.norm() - 1.0).abs() < EPS_SWEEP {
                 i0 += 1;
                 continue;
@@ -822,10 +822,10 @@ fn get_symmetry_states(g: &Generators) -> Result<Vec<Block>, SweepError> {
         }
 
         // ---- rung 3: sweep down (lowering + GS2 + QR twice) ----------------
-        let mut vblock = v0.clone(); // V: the whole multiplet (this pass)
+        let mut vblock = ProjectionBasis::new(v0.clone()); // V: the whole multiplet (this pass)
         let mut frontier = v0; // current lowering frontier
         loop {
-            let mut level = Dense::zeros(d, 0); // Vi: new vectors this level
+            let mut level = ProjectionBasis::new(Dense::zeros(d, 0)); // Vi: new vectors this level
             let mut any = false;
             for spi in ladders.iter() {
                 // lowering = Sp† applied to the frontier block
@@ -836,16 +836,12 @@ fn get_symmetry_states(g: &Generators) -> Result<Vec<Block>, SweepError> {
                 }
                 // GS pass 1: self (Vi) → pass (V) → global (U)
                 project_out(&level, &mut vi)?;
-                let ov = overlap(&vblock, &vi)?;
-                if ov > EPS_SWEEP {
-                    return Err(SweepError::OverlapWithVspace { residual: ov });
-                }
-                project_out(&vblock, &mut vi)?;
-                let ou = overlap(&u, &vi)?;
-                if ou > EPS_SWEEP {
-                    return Err(SweepError::OverlapWithUspace { residual: ou });
-                }
-                project_out(&u, &mut vi)?;
+                guarded_project_out(&vblock, &mut vi, |residual| SweepError::OverlapWithVspace {
+                    residual,
+                })?;
+                guarded_project_out(&u, &mut vi, |residual| SweepError::OverlapWithUspace {
+                    residual,
+                })?;
                 // drop tiny columns, then QR (positive-diagonal)
                 vi = skip_tiny_cols(&vi, EPS_SWEEP);
                 if vi.cols == 0 {
@@ -858,45 +854,45 @@ fn get_symmetry_states(g: &Generators) -> Result<Vec<Block>, SweepError> {
                 project_out(&level, &mut vi)?;
                 vi = qr_positive_q(&vi, CG_EPS1)?;
                 level.try_cat_cols(&vi)?;
-                if level.cols > d {
+                if level.q().cols > d {
                     return Err(SweepError::SpaceOutOfBounds);
                 }
                 any = true;
             }
             if any {
-                vblock.try_cat_cols(&level)?;
-                if vblock.cols > d {
+                vblock.try_cat_cols(level.q())?;
+                if vblock.q().cols > d {
                     return Err(SweepError::SpaceOutOfBounds);
                 }
-                frontier = level;
+                frontier = level.into_inner();
             } else {
                 break;
             }
         }
 
         // ---- accumulate: U ← [U, V] ---------------------------------------
-        u.try_cat_cols(&vblock)?;
-        if u.cols > d {
+        u.try_cat_cols(vblock.q())?;
+        if u.q().cols > d {
             return Err(SweepError::SpaceOutOfBounds);
         }
         multiplets.push(vblock);
         it += 1;
-        if u.cols == d {
+        if u.q().cols == d {
             break;
         }
     }
 
     let nt = multiplets.len();
-    if u.cols != d || nt == 0 {
+    if u.q().cols != d || nt == 0 {
         return Err(SweepError::IncompleteDecomposition {
             dim: d,
-            covered: u.cols,
+            covered: u.q().cols,
         });
     }
 
     // ---- rung 4: global orthogonality U†U == I ----------------------------
     {
-        let utu = tmatmul(&u, &u)?;
+        let utu = u.tmatmul(u.q())?;
         let mut worst = 0.0f64;
         for i in 0..utu.rows {
             for j in 0..utu.cols {
@@ -909,24 +905,26 @@ fn get_symmetry_states(g: &Generators) -> Result<Vec<Block>, SweepError> {
         }
     }
 
+    drop(u);
+
     // ---- rungs 5-8: project generators, labels, sort, sign, OM ------------
     let mut blocks: Vec<Block> = Vec::with_capacity(nt);
     for (bi, v) in multiplets.into_iter().enumerate() {
-        let d0 = v.cols;
+        let d0 = v.q().cols;
 
         // rung 5: project generators. R.Sp[j] = V†(Sp V); R.Sz[j] = V†(Sz V).
         let mut rsp: Vec<Dense> = Vec::with_capacity(r);
         for spi in ladders.iter() {
-            let spv = apply(spi, &v)?;
-            rsp.push(tmatmul(&v, &spv)?);
+            let spv = apply(spi, v.q())?;
+            rsp.push(v.tmatmul(&spv)?);
         }
         let mut rsz_diag: Vec<Vec<f64>> = Vec::with_capacity(nz);
         let mut zmat = Dense::try_zeros(d0, nz)?;
         for (j, szj) in g.sz.iter().enumerate() {
-            let mut szv = v.clone();
+            let mut szv = v.q().clone();
             apply_diag(szj, &mut szv);
-            let rszj = tmatmul(&v, &szv)?; // d0 × d0
-                                           // diagonality gate
+            let rszj = v.tmatmul(&szv)?; // d0 × d0
+                                         // diagonality gate
             let mut worst = 0.0f64;
             for a in 0..d0 {
                 for b in 0..d0 {
@@ -960,7 +958,7 @@ fn get_symmetry_states(g: &Generators) -> Result<Vec<Block>, SweepError> {
         let (irrep, perm) = find_max_weight(g.series, r, &zmat, bi)?;
 
         // apply the sort permutation to V columns, Z rows, R.Sp, R.Sz.
-        let v_sorted = permute_cols(&v, &perm);
+        let v_sorted = permute_cols(v.q(), &perm);
         let z_sorted = permute_rows(&zmat, &perm);
         let rsp_sorted: Vec<Dense> = rsp.iter().map(|m| permute_both(m, &perm)).collect();
         let rsz_sorted: Vec<Vec<f64>> = rsz_diag
@@ -1304,26 +1302,50 @@ fn apply_diag(diag: &[f64], x: &mut Dense) {
 }
 
 /// `x -= Q (Qᵀ x)` for orthonormal `Q` (project columns of `x` out of span(Q)).
-fn project_out(q: &Dense, x: &mut Dense) -> Result<(), SweepError> {
-    if q.cols == 0 {
+fn project_out(q: &ProjectionBasis, x: &mut Dense) -> Result<(), SweepError> {
+    #[cfg(test)]
+    if super::linalg::OLD_PROJECTIONS.get() {
+        return tests::old_project_out(q, x);
+    }
+    if q.q().cols == 0 {
         return Ok(());
     }
-    let qtx = tmatmul(q, x)?; // n × k
-    let qqtx = matmul(q, &qtx)?; // D × k
+    let qtx = q.tmatmul(x)?;
+    subtract_projection(q.q(), x, &qtx)
+}
+
+/// Check the overlap before subtracting, reusing the same Qᵀx product.
+fn guarded_project_out(
+    q: &ProjectionBasis,
+    x: &mut Dense,
+    error: fn(f64) -> SweepError,
+) -> Result<(), SweepError> {
+    #[cfg(test)]
+    if q.q().cols != 0 {
+        let (products, transposes, pairs, versions) = super::linalg::PROJECTION_WORK.get();
+        super::linalg::PROJECTION_WORK.set((products, transposes, pairs + 1, versions));
+    }
+    #[cfg(test)]
+    if super::linalg::OLD_PROJECTIONS.get() {
+        return tests::old_guarded_project_out(q, x, error);
+    }
+    if q.q().cols == 0 {
+        return Ok(());
+    }
+    let qtx = q.tmatmul(x)?;
+    let residual = qtx.data.iter().fold(0.0f64, |m, &v| m.max(v.abs()));
+    if residual > EPS_SWEEP {
+        return Err(error(residual));
+    }
+    subtract_projection(q.q(), x, &qtx)
+}
+
+fn subtract_projection(q: &Dense, x: &mut Dense, qtx: &Dense) -> Result<(), SweepError> {
+    let qqtx = matmul(q, qtx)?;
     for i in 0..x.data.len() {
         x.data[i] -= qqtx.data[i];
     }
     Ok(())
-}
-
-/// Worst-column overlap magnitude `|Qᵀ x|_∞` (max abs entry), for the guard
-/// checks (QSpace `x1.aMax()` / `sqrt(norm2/vi2)`).
-fn overlap(q: &Dense, x: &Dense) -> Result<f64, SweepError> {
-    if q.cols == 0 {
-        return Ok(0.0);
-    }
-    let qtx = tmatmul(q, x)?;
-    Ok(qtx.data.iter().fold(0.0f64, |m, &v| m.max(v.abs())))
 }
 
 /// Normalize a single-column vector in place.
