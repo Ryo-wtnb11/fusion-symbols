@@ -260,7 +260,7 @@ fn exceptional_classification_uses_bourbaki_roots() {
 }
 
 #[test]
-fn tori_trivial_data_and_exceptional_engine_boundary() {
+fn tori_and_trivial_data() {
     let empty = GroupId::new(&[], 0, &[]).unwrap();
     assert!(empty.admits(&[], &[]));
     assert!(empty.character_lattice().is_empty());
@@ -281,15 +281,6 @@ fn tori_trivial_data_and_exceptional_engine_boundary() {
     let coupled = GroupId::new(&[A(1), A(1)], 0, &[vec![1, 1], vec![0, 2]]).unwrap();
     assert!(coupled.admits(&[1, 1], &[]));
     assert!(!coupled.admits(&[1, 0], &[]));
-    for (g, requires) in [
-        (GroupId::cover(&[F4], 0).unwrap(), "F4 coefficient engine"),
-        (GroupId::cover(&[E7], 0).unwrap(), "E7 coefficient engine"),
-        (GroupId::cover(&[E8], 0).unwrap(), "E8 coefficient engine"),
-    ] {
-        let expected = LieError::Unsupported { requires };
-        assert_eq!(LieGroup::new(g.clone()), Err(expected.clone()));
-        assert_eq!(LieGroup::with_catalog_budget(g, 0), Err(expected));
-    }
 }
 
 #[test]

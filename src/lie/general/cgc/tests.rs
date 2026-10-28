@@ -250,6 +250,35 @@ fn f4_26x26_is_exact() {
     check_product(RootSystem::F4, &v, &v);
 }
 
+/// §9.5 on every channel of E7 `56 ⊗ 56 = 1 + 133 + 1463 + 1539`.
+#[test]
+fn e7_56x56_is_exact() {
+    let v = unit(7, 6);
+    assert_eq!(
+        decomposition(RootSystem::E7, &v, &v),
+        [(1, 1), (133, 1), (1463, 1), (1539, 1)]
+    );
+    check_product(RootSystem::E7, &v, &v);
+}
+
+/// §9.5 on the cheap channels of E8 `248 ⊗ 248`: `→ 1` and `→ 248`.
+#[test]
+fn e8_248x248_to_1_and_248_is_exact() {
+    let v = unit(8, 7);
+    let mut fam = GeneralFamily::new(RootSystem::E8);
+    check_channel(&mut fam, &v, &v, &[0; 8], 1);
+    check_channel(&mut fam, &v, &v, &v, 1);
+}
+
+/// §9.5 on E8 `248 ⊗ 248 → 3875`.
+#[test]
+#[ignore = "release 1.2 s, debug 9.2 s"]
+fn e8_248x248_to_3875_is_exact() {
+    let v = unit(8, 7);
+    let mut fam = GeneralFamily::new(RootSystem::E8);
+    check_channel(&mut fam, &v, &v, &unit(8, 0), 1);
+}
+
 #[test]
 fn nullity_gate_rejects_a_wrong_multiplicity() {
     let data = CartanData::new(RootSystem::G2);

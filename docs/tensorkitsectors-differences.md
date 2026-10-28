@@ -10,7 +10,7 @@ API and convention differences, not a claim of complete feature parity.
 | Area | fusion-symbols contract and reason |
 |---|---|
 | Boundary | Standalone mathematical category values, no `Sector` interface or tensor engine; consumers own tensor operations |
-| Lie coefficients | Built-in runtime SU(N)/SO(N)/Spin(N)/Sp(2r)/G₂ generation (TKS has no G₂) with public CGC and frozen gauge specifications |
+| Lie coefficients | Built-in runtime SU(N)/SO(N)/Spin(N)/Sp(2r)/G₂/F₄/E₇/E₈ generation (TKS has no exceptional groups) with public CGC and frozen gauge specifications |
 | Errors | Constructors validate objects; foreign objects panic; N = 0 is a value; absent vertices give zero symbols; numerical failures are typed errors |
 | A/B symbols | Always `category::RBlock`, including scalar families, so the default can construct a result for every category |
 | Scalars | One associated `Scalar` (`f64` or `Complex64`), rather than separate fusion/braiding scalar types; abelian/parity symbols use `f64` rather than TKS `Int` |
@@ -56,7 +56,7 @@ Indices are `u64`, not Julia's one-based indices. Infinite categories return
 `Ok(None)` despite machine-limited labels; unrepresentable labels/indices are
 `EnumerationError::Overflow`. Finite counts above `u64::MAX` can overflow
 without preventing individual queries. SU(N) quotients (N ≥ 3, nontrivial
-quotient), higher-rank simple B/C/D, G₂, and every composite Lie quotient return
+quotient), higher-rank simple B/C/D, G₂, F₄, E₇, E₈, and every composite Lie quotient return
 `NotEnumerable`. Composite covers also require every factor to enumerate.
 
 A product is enumerable only if every factor is; `NotEnumerable` takes

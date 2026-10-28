@@ -7,6 +7,18 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Added
+
+- F₄, E₇ and E₈ coefficients through `LieGroup` (`lie-generated`), from the
+  same exact engine and authority fingerprint as G₂
+  ([`docs/gauge_exceptional.md`](docs/gauge_exceptional.md)). Every irrep is
+  self-dual; the E₇ irreps with odd `a₂ + a₅ + a₇` (such as `56` and `912`)
+  are pseudo-real, all others real. Each group owns a bounded memo like G₂.
+  E₆ still returns `LieError::Unsupported { requires: "E6 coefficient engine" }`.
+  Without `lie-generated`, F₄, E₇ and E₈ now return
+  `LieError::Unsupported { requires: "lie-generated" }` instead of
+  `"<X> coefficient engine"`. No existing value or fingerprint changes.
+
 ## [0.9.1] - 2026-10-28
 
 ### Added

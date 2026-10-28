@@ -436,8 +436,8 @@ fn checked_composite_n_overflow_and_zero_wins() {
 #[test]
 fn unsupported_composite_precedence() {
     for (roots, torus, requires) in [
-        (vec![B(1 << 20), F4], 0, "F4 coefficient engine"),
-        (vec![F4, A(1)], 1, "F4 coefficient engine"),
+        (vec![B(1 << 20), E6], 0, "E6 coefficient engine"),
+        (vec![E6, A(1)], 1, "E6 coefficient engine"),
     ] {
         let group = GroupId::cover(&roots, torus).unwrap();
         assert_eq!(
