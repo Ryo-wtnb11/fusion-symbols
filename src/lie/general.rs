@@ -2,6 +2,8 @@
 //! Cartan-matrix machinery and its binding to `LieGroup`. Crate-private.
 
 pub(crate) mod cgc;
+#[cfg(test)]
+mod gt;
 pub(crate) mod module;
 mod rational;
 pub(crate) mod roots;

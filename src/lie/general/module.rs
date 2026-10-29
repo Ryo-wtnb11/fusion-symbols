@@ -3,13 +3,15 @@
 //! form and the Cartan matrix alone.
 //!
 //! The module is kept in the unnormalized orthogonal basis `b_k` of §4.3: the
-//! norms `n_k = ⟨b_k, b_k⟩`, the Gram–Schmidt coefficients over the kept
-//! candidates, and the rational lowering matrices `F` of §4.5. Every ladder
-//! entry of the orthonormal basis `u_k = b_k / √n_k` is then the single signed
-//! square root `F[a, b] · √(n_a / n_b)`, returned as a [`SignedSqrtRational`](crate::exact::SignedSqrtRational);
-//! no two square roots are ever added.
+//! norms `n_k = ⟨b_k, b_k⟩`, a rational lowering recipe over the kept
+//! candidates (here the Gram–Schmidt coefficients), and the rational lowering
+//! matrices `F` of §4.5. Every ladder entry of the orthonormal basis
+//! `u_k = b_k / √n_k` is then the single signed square root
+//! `F[a, b] · √(n_a / n_b)`, returned as a
+//! [`SignedSqrtRational`](crate::exact::SignedSqrtRational); no two square
+//! roots are ever added.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::roots::CartanData;
 use crate::lie::{GenerationError, LieError};
@@ -56,8 +58,10 @@ pub(super) struct WeightSpace {
     pub(super) norms: Vec<Q>,
     /// The kept candidates `c_t = f_j b_q^{μ+α_j}` as `(j, q)`, in §4.2 order.
     pub(super) kept: Vec<(usize, usize)>,
-    /// `b_k = Σ_{t ≤ k} gs[k][t] c_t`, with `gs[k][k] = 1` (§4.3).
-    pub(super) gs: Vec<Vec<Q>>,
+    /// The lowering recipe `b_k = Σ_t recipe[k][t] c_t` over the kept
+    /// candidates. The Gram–Schmidt basis of §4.3 has a unit lower-triangular
+    /// recipe; another basis may have any invertible one.
+    pub(super) recipe: Vec<Vec<Q>>,
     /// Per `j`: the index of `μ + α_j` and `F` with `f_j b_b = Σ_a F[a][b] b_a`.
     pub(super) lower: Vec<Option<(usize, Vec<Vec<Q>>)>>,
 }
@@ -73,8 +77,12 @@ pub(super) enum ModuleError {
     },
     /// The built dimension differs from the Weyl dimension.
     DimensionMismatch { built: usize, weyl: usize },
-    /// A Gram–Schmidt residual has negative norm, so the form is not positive definite.
+    /// A basis vector has nonpositive norm, so the form is not positive definite.
     IndefiniteForm { weight: Vec<i64> },
+    /// A closed-form ladder coefficient is undefined (zero denominator) or
+    /// leaves its weight.
+    #[cfg(test)]
+    InvalidLadder { weight: Vec<i64> },
 }
 
 impl std::fmt::Display for ModuleError {
@@ -96,6 +104,13 @@ impl std::fmt::Display for ModuleError {
             }
             Self::IndefiniteForm { weight } => {
                 write!(f, "weight {weight:?}: contravariant form is not positive")
+            }
+            #[cfg(test)]
+            Self::InvalidLadder { weight } => {
+                write!(
+                    f,
+                    "weight {weight:?}: closed-form ladder coefficient is invalid"
+                )
             }
         }
     }
@@ -128,7 +143,7 @@ impl IrrepModule {
                     + labels_bytes(&s.k)
                     + qs_bytes(&s.norms)
                     + s.kept.capacity() * std::mem::size_of::<(usize, usize)>()
-                    + qrows_bytes(&s.gs)
+                    + qrows_bytes(&s.recipe)
                     + lower
             })
             .sum();
@@ -140,43 +155,16 @@ impl IrrepModule {
         self.weights.capacity() * std::mem::size_of::<WeightSpace>() + spaces + index
     }
 
-    /// Builds `L(λ)` for a dominant `λ`. Dimensions beyond `u32`, the
-    /// magnetic-index type handed to `frcore`, are [`LieError::LabelOverflow`].
+    /// Builds `L(λ)` for a dominant `λ` in the Gram–Schmidt basis of §4.
+    /// Dimensions beyond `u32`, the magnetic-index type handed to `frcore`,
+    /// are [`LieError::LabelOverflow`].
     pub(super) fn new(data: &CartanData, lambda: &[i64]) -> Result<Self, LieError> {
-        let weyl = u32::try_from(&data.weyl_dimension(lambda)?)
-            .map_err(|_| LieError::LabelOverflow)? as usize;
-        let mult = data.weight_multiplicities(lambda)?;
+        let mut order = depth_order(data, lambda)?;
         let rank = lambda.len();
-
-        // Every weight lies on an unbroken root string through a higher one,
-        // so lowering by simple roots from λ reaches them all.
-        let mut order = vec![(vec![0i64; rank], lambda.to_vec())];
-        let mut seen: HashSet<Vec<i64>> = HashSet::from([lambda.to_vec()]);
-        let mut next = 0;
-        while next < order.len() {
-            let (k, mu) = order[next].clone();
-            next += 1;
-            for i in 0..rank {
-                // Every coordinate is bounded by the weights Freudenthal already
-                // enumerated with checked arithmetic, so this cannot overflow.
-                let nu: Vec<i64> = (0..rank).map(|j| mu[j] - data.c(i, j)).collect();
-                if mult.contains_key(&nu) && seen.insert(nu.clone()) {
-                    let mut k = k.clone();
-                    k[i] += 1;
-                    order.push((k, nu));
-                }
-            }
-        }
-        order.sort_by_cached_key(|(k, _)| (k.iter().sum::<i64>(), k.clone()));
-        let index: HashMap<Vec<i64>, usize> = order
-            .iter()
-            .enumerate()
-            .map(|(w, (_, mu))| (mu.clone(), w))
-            .collect();
-
-        let mut weights: Vec<WeightSpace> = Vec::with_capacity(order.len());
+        let spaces = std::mem::take(&mut order.spaces);
+        let mut weights: Vec<WeightSpace> = Vec::with_capacity(spaces.len());
         let mut offset = 0;
-        for (k, mu) in order {
+        for (k, mu) in spaces {
             let space = if weights.is_empty() {
                 WeightSpace {
                     lower: vec![None; rank],
@@ -185,26 +173,37 @@ impl IrrepModule {
                     offset,
                     norms: vec![Q::from(1)],
                     kept: Vec::new(),
-                    gs: vec![Vec::new()],
+                    recipe: vec![Vec::new()],
                 }
             } else {
-                let multiplicity = mult.get(&mu).copied().unwrap_or(0);
-                build_space(data, &weights, &index, mu, k, offset, multiplicity)?
+                let multiplicity = order.mult.get(&mu).copied().unwrap_or(0);
+                build_space(data, &weights, &order.index, mu, k, offset, multiplicity)?
             };
             offset += space.norms.len();
             weights.push(space);
         }
-        if offset != weyl {
+        Self::from_spaces(weights, order)
+    }
+
+    /// Assembles built weight spaces in the §3 order of `order` (whose
+    /// `spaces` may already have been consumed), with the final dimension
+    /// gate against the Weyl dimension.
+    pub(super) fn from_spaces(
+        weights: Vec<WeightSpace>,
+        order: DepthOrder,
+    ) -> Result<Self, LieError> {
+        let dim = weights.iter().map(|s| s.norms.len()).sum();
+        if dim != order.weyl {
             return Err(ModuleError::DimensionMismatch {
-                built: offset,
-                weyl,
+                built: dim,
+                weyl: order.weyl,
             }
             .into());
         }
         Ok(Self {
             weights,
-            index,
-            dim: offset,
+            index: order.index,
+            dim,
         })
     }
 
@@ -233,6 +232,80 @@ impl IrrepModule {
             &Q::from(1),
             &self.weights[*src].norms[b],
         )
+    }
+}
+
+/// The weights of `L(λ)` in the §3 order, with their multiplicities and the
+/// Weyl dimension: the layout every basis of the module shares.
+pub(super) struct DepthOrder {
+    /// `(k, μ)` with `λ − μ = Σ_i k_i α_i`, in §3 order.
+    pub(super) spaces: Vec<(Vec<i64>, Vec<i64>)>,
+    /// Position of each weight in `spaces`.
+    pub(super) index: HashMap<Vec<i64>, usize>,
+    /// Weight multiplicities.
+    pub(super) mult: BTreeMap<Vec<i64>, u64>,
+    /// The Weyl dimension, at most `u32::MAX`.
+    pub(super) weyl: usize,
+}
+
+/// The Weyl dimension of `L(λ)`, which must fit the `u32` magnetic index
+/// handed to `frcore`; checked before any weight or pattern is enumerated.
+pub(super) fn checked_weyl(data: &CartanData, lambda: &[i64]) -> Result<usize, LieError> {
+    Ok(u32::try_from(&data.weyl_dimension(lambda)?).map_err(|_| LieError::LabelOverflow)? as usize)
+}
+
+/// The §3 weight order of `L(λ)`. Dimensions beyond `u32` are
+/// [`LieError::LabelOverflow`].
+pub(super) fn depth_order(data: &CartanData, lambda: &[i64]) -> Result<DepthOrder, LieError> {
+    let weyl = checked_weyl(data, lambda)?;
+    Ok(DepthOrder::new(
+        data,
+        lambda,
+        data.weight_multiplicities(lambda)?,
+        weyl,
+    ))
+}
+
+impl DepthOrder {
+    /// The §3 order of the weights `mult` of `L(λ)`, of dimension `weyl`.
+    pub(super) fn new(
+        data: &CartanData,
+        lambda: &[i64],
+        mult: BTreeMap<Vec<i64>, u64>,
+        weyl: usize,
+    ) -> Self {
+        let rank = lambda.len();
+        // Every weight lies on an unbroken root string through a higher one,
+        // so lowering by simple roots from λ reaches them all.
+        let mut spaces = vec![(vec![0i64; rank], lambda.to_vec())];
+        let mut seen: HashSet<Vec<i64>> = HashSet::from([lambda.to_vec()]);
+        let mut next = 0;
+        while next < spaces.len() {
+            let (k, mu) = spaces[next].clone();
+            next += 1;
+            for i in 0..rank {
+                // Every coordinate is bounded by the weights already enumerated
+                // with checked arithmetic, so this cannot overflow.
+                let nu: Vec<i64> = (0..rank).map(|j| mu[j] - data.c(i, j)).collect();
+                if mult.contains_key(&nu) && seen.insert(nu.clone()) {
+                    let mut k = k.clone();
+                    k[i] += 1;
+                    spaces.push((k, nu));
+                }
+            }
+        }
+        spaces.sort_by_cached_key(|(k, _)| (k.iter().sum::<i64>(), k.clone()));
+        let index = spaces
+            .iter()
+            .enumerate()
+            .map(|(w, (_, mu))| (mu.clone(), w))
+            .collect();
+        Self {
+            spaces,
+            index,
+            mult,
+            weyl,
+        }
     }
 }
 
@@ -380,10 +453,10 @@ fn build_space(
         offset,
         norms,
         kept,
-        gs,
+        recipe: gs,
         lower,
     })
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
