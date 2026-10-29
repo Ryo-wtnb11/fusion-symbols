@@ -60,7 +60,7 @@ fn generated_cache_resource_contract() {
     let (s1, s2, s3) = (sun_irr(&[1, 0]), sun_irr(&[0, 1]), sun_irr(&[1, 1])); // 3⊗3̄→8
     let first = lie_test::cgc(&s1, &s2, &s3).unwrap();
     assert!(
-        tier_stats(Tier::SunProduct).misses >= 1 && tier_stats(Tier::SunProduct).entries >= 1,
+        tier_stats(Tier::Product).misses >= 1 && tier_stats(Tier::Product).entries >= 1,
         "CGC multiplicity lookup populates the SU(N) product tier"
     );
     assert!(
@@ -137,7 +137,7 @@ fn generated_cache_resource_contract() {
         runtime.cgc(&a, &a, &a).unwrap();
     };
     query();
-    let sun = [Tier::SunProduct, Tier::SunCgc, Tier::SunF, Tier::SunR];
+    let sun = [Tier::Product, Tier::SunCgc, Tier::SunF, Tier::SunR];
     let cold = sun.map(tier_stats);
     query();
     let warm = sun.map(tier_stats);
@@ -154,7 +154,7 @@ fn generated_cache_resource_contract() {
     let total = common::stats_sum(common::generated_tiers());
     // Each tier's conservative charged-entry cap and the aggregate corollary.
     assert!(
-        tier_stats(Tier::SunProduct).bytes <= (128 << 10),
+        tier_stats(Tier::Product).bytes <= (128 << 10),
         "the product tier is over its 128 KiB retained-charge backstop"
     );
     assert!(

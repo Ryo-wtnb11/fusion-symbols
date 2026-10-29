@@ -33,7 +33,7 @@ fn trim_routes_to_each_populated_generated_tier() {
     let _ = lie_test::r_symbol(&e8, &e8, &e8).unwrap();
     let _ = bcd_test::r_symbol(&cat, &v, &v, &adj).unwrap();
     let tiers = [
-        CoefficientCacheTier::SunProduct,
+        CoefficientCacheTier::Product,
         CoefficientCacheTier::SunCgc,
         CoefficientCacheTier::SunF,
         CoefficientCacheTier::SunR,
@@ -47,7 +47,7 @@ fn trim_routes_to_each_populated_generated_tier() {
         let report = cache::trim_to(tier, 0);
         assert_eq!(report.removed_entries, selected.entries);
         assert_eq!(cache::tier_stats(tier).entries, 0);
-        if tier == CoefficientCacheTier::SunProduct {
+        if tier == CoefficientCacheTier::Product {
             assert_eq!(
                 external_product.clone().count(),
                 2,

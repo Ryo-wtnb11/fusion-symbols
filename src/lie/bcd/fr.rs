@@ -52,12 +52,14 @@ impl Family for BcdFamily<'_> {
     }
 }
 pub(crate) fn mult(a: &Irrep, b: &Irrep, c: &Irrep) -> Result<usize, LieError> {
-    super::super::checked_dimension(
-        super::shared_directproduct(a, b)?
-            .iter()
-            .find(|(x, _)| x == c)
-            .map_or(0, |(_, n)| *n),
-    )
+    if a.0.root() != b.0.root() {
+        return Err(super::BcdError::GroupMismatch {
+            a: (a.series(), a.rank()),
+            b: (b.series(), b.rank()),
+        }
+        .into());
+    }
+    super::super::checked_dimension(a.0.roots().multiplicity(&a.0, &b.0, &c.0)?)
 }
 pub(crate) fn cached_cgc(
     cat: &Mutex<CanonicalCatalog>,

@@ -40,6 +40,17 @@ fn workload() {
         let b = Irrep::from_dynkin(b).unwrap();
         black_box(directproduct(&a, &b).unwrap());
     }
+    use crate::category::FusionCategory;
+    use crate::lie::{GroupId, LieGroup};
+    for (id, label) in [
+        (GroupId::sp(4).unwrap(), vec![1, 0]),
+        (GroupId::e6(), vec![1, 0, 0, 0, 0, 0]),
+    ] {
+        let g = LieGroup::new(id).unwrap();
+        let a = g.irrep(&label).unwrap();
+        let b = g.dual(&a);
+        black_box(g.fusion(&a, &b).unwrap().count());
+    }
 }
 
 fn run(mode: &str, budgets: CoefficientCacheBudgets, require_eviction: bool, partial: bool) {
@@ -58,8 +69,8 @@ fn run(mode: &str, budgets: CoefficientCacheBudgets, require_eviction: bool, par
         CoefficientCacheTier::DerivedF,
     ]
     .map(cache::tier_stats);
-    let [sun_product, sun_cgc, sun_f, sun_r, bcd_cgc, bcd_f, bcd_r] = [
-        CoefficientCacheTier::SunProduct,
+    let [product, sun_cgc, sun_f, sun_r, bcd_cgc, bcd_f, bcd_r] = [
+        CoefficientCacheTier::Product,
         CoefficientCacheTier::SunCgc,
         CoefficientCacheTier::SunF,
         CoefficientCacheTier::SunR,
@@ -73,12 +84,12 @@ fn run(mode: &str, budgets: CoefficientCacheBudgets, require_eviction: bool, par
         .map(|&tier| cache::tier_stats(tier).evictions)
         .sum();
     assert_eq!(evictions > 0, require_eviction);
-    let active = [three_j, six_j, sun_product];
+    let active = [three_j, six_j, product];
     if partial {
         for (stats, tier) in active.into_iter().zip([
             CoefficientCacheTier::ThreeJ,
             CoefficientCacheTier::SixJ,
-            CoefficientCacheTier::SunProduct,
+            CoefficientCacheTier::Product,
         ]) {
             assert!(stats.bytes > 0 && stats.bytes <= budgets.limit(tier));
             assert!(stats.evictions > 0);
@@ -87,12 +98,12 @@ fn run(mode: &str, budgets: CoefficientCacheBudgets, require_eviction: bool, par
     let sample = std::env::var("COEFFICIENT_CACHE_BUDGET_SAMPLE").unwrap_or_else(|_| "0".into());
     let revision = option_env!("RACAH_BUDGET_REVISION").unwrap_or("not-embedded");
     eprintln!(
-        "COEFFICIENT_CACHE_BUDGET_PRESSURE {{\"schema\":1,\"revision\":\"{revision}\",\"mode\":\"{mode}\",\"sample\":{sample},\"budgets\":{{\"three_j\":{},\"six_j\":{},\"derived_f\":{},\"sun_product\":{},\"sun_cgc\":{},\"sun_f\":{},\"bcd_cgc\":{},\"bcd_f\":{},\"sun_r\":{},\"bcd_r\":{}}},\"elapsed_ns\":{elapsed_ns},\"base\":[[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}]],\"generated\":[[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}]],\"requested_live_start_bytes\":{start_live},\"requested_live_end_bytes\":{end_live},\"requested_live_peak_bytes\":{peak_live},\"rss_bytes\":{} }}",
-        budgets.limit(CoefficientCacheTier::ThreeJ), budgets.limit(CoefficientCacheTier::SixJ), budgets.limit(CoefficientCacheTier::DerivedF), budgets.limit(CoefficientCacheTier::SunProduct), budgets.limit(CoefficientCacheTier::SunCgc), budgets.limit(CoefficientCacheTier::SunF), budgets.limit(CoefficientCacheTier::BcdCgc), budgets.limit(CoefficientCacheTier::BcdF), budgets.limit(CoefficientCacheTier::SunR), budgets.limit(CoefficientCacheTier::BcdR),
+        "COEFFICIENT_CACHE_BUDGET_PRESSURE {{\"schema\":1,\"revision\":\"{revision}\",\"mode\":\"{mode}\",\"sample\":{sample},\"budgets\":{{\"three_j\":{},\"six_j\":{},\"derived_f\":{},\"product\":{},\"sun_cgc\":{},\"sun_f\":{},\"bcd_cgc\":{},\"bcd_f\":{},\"sun_r\":{},\"bcd_r\":{}}},\"elapsed_ns\":{elapsed_ns},\"base\":[[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}]],\"generated\":[[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}]],\"requested_live_start_bytes\":{start_live},\"requested_live_end_bytes\":{end_live},\"requested_live_peak_bytes\":{peak_live},\"rss_bytes\":{} }}",
+        budgets.limit(CoefficientCacheTier::ThreeJ), budgets.limit(CoefficientCacheTier::SixJ), budgets.limit(CoefficientCacheTier::DerivedF), budgets.limit(CoefficientCacheTier::Product), budgets.limit(CoefficientCacheTier::SunCgc), budgets.limit(CoefficientCacheTier::SunF), budgets.limit(CoefficientCacheTier::BcdCgc), budgets.limit(CoefficientCacheTier::BcdF), budgets.limit(CoefficientCacheTier::SunR), budgets.limit(CoefficientCacheTier::BcdR),
         three_j.entries, three_j.bytes, three_j.hits, three_j.misses, three_j.evictions,
         six_j.entries, six_j.bytes, six_j.hits, six_j.misses, six_j.evictions,
         derived_f.entries, derived_f.bytes, derived_f.hits, derived_f.misses, derived_f.evictions,
-        sun_product.entries, sun_product.bytes, sun_product.hits, sun_product.misses, sun_product.evictions,
+        product.entries, product.bytes, product.hits, product.misses, product.evictions,
         sun_cgc.entries, sun_cgc.bytes, sun_cgc.hits, sun_cgc.misses, sun_cgc.evictions,
         sun_f.entries, sun_f.bytes, sun_f.hits, sun_f.misses, sun_f.evictions,
         bcd_cgc.entries, bcd_cgc.bytes, bcd_cgc.hits, bcd_cgc.misses, bcd_cgc.evictions,
@@ -115,7 +126,7 @@ fn coefficient_cache_budget_pressure_constrained() {
     let budgets = CoefficientCacheBudgets::default()
         .with_limit(CoefficientCacheTier::ThreeJ, 400)
         .with_limit(CoefficientCacheTier::SixJ, 400)
-        .with_limit(CoefficientCacheTier::SunProduct, 400);
+        .with_limit(CoefficientCacheTier::Product, 2048);
     run("constrained", budgets, true, true);
 }
 

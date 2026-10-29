@@ -9,16 +9,29 @@ least-recently-used replacement. Default retained-entry charge caps are:
 | Tiers | Aggregate cap |
 |---|---|
 | SU(2) 3j, 6j, derived F | `BASE_CACHE_MAX_BYTES`: 192 MiB (3 × 64 MiB) |
-| SU(N) product / CGC / F / R, B/C/D product+CGC / F / R (`lie-generated`) | `GENERATED_CACHE_MAX_BYTES`: 768 MiB + 128 KiB |
+| Product, SU(N) CGC / F / R, B/C/D CGC / F / R (`lie-generated`) | `GENERATED_CACHE_MAX_BYTES`: 768 MiB + 128 KiB |
 
-B/C/D exact products, duals, raw ordered-product decompositions and completed
-CGC channels share the 256 MiB `CoefficientCacheTier::BcdCgc` cap. A raw
+B/C/D raw ordered-product decompositions and completed CGC channels share the 256 MiB `CoefficientCacheTier::BcdCgc` cap. A raw
 entry owns every discovered CGC copy, projected dense generator and Cartan/weight
 table in discovery order, before alignment. Its charge includes allocation
 capacities, nested matrix/vector shells, deep labels, the key, value and shared
 ownership bookkeeping. Scratch and product adjacency are not retained.
 Completed channels own separate coefficient buffers and retain no raw entry.
 Either can be evicted independently; externally held values remain valid.
+
+All materialized simple-Lie tensor products use `CoefficientCacheTier::Product`
+(Display `"product"`), with a 128 KiB retained-charge cap and 256-entry ceiling.
+Its borrowed key is the root-system presentation, an unordered pair of exact
+Dynkin labels, and the stored projection (multiplicities or fusion labels). Global forms sharing a weight share the entry; A₅/D₅ and B₂/C₂
+remain distinct. SU(N), B/C/D, exceptional N/fusion and exceptional coefficient
+multiplicity checks share one exact channel producer. N reads a dimension-free
+channel list; fusion builds a separate immutable label projection from that list.
+Each projection occupies one entry in the same tier and is fully charged at
+publication. Fusion payloads include exact dimensions and both conjugate
+coordinate views. Neither projection grows after publication.
+Rank-one A₁/B₁/C₁ fusion stays an allocation-free arithmetic range, without retention.
+Product eviction/reset/zero budgets can require exact recomputation; they never
+invalidate a caller's shared handle. `reset_catalog()` does not clear Product.
 
 Canonical recursion and requested channels reuse a raw decomposition only for
 the same ordered pair of canonical input frames. One sweep serves that pair
@@ -69,9 +82,9 @@ tier. Hits use borrowed `Equivalent` queries and a read lock, without
 constructing owned keys or copying coefficient buffers.
 Exact SU(2) values share their immutable rational payload; generated F and R blocks
 are stored directly, sharing their coefficient storage. Concurrent
-misses on a key, including `LieGroup` dual lookups, share one successful
-computation; waiters count as hits. Errors are not retained. B/C/D F/R misses
-may also publish coherent siblings, and a dual lookup records the reverse dual.
+misses on a key share one successful computation; waiters count as hits. Errors are not retained. B/C/D F/R misses
+may also publish coherent siblings. Product loaders use only exact root mathematics
+and never acquire a catalog or exceptional-family mutex.
 
 Each entry's real charge is one owned key (including label backing), its value
 and one cached charge word. For a tier with
@@ -144,18 +157,27 @@ than repeating the query.
 
 ## Retained group data and allocation
 
-Besides the caches above, B/C/D groups retain immutable root data for the
-process lifetime: one entry per constructed (series, rank), O(rank³)
-integers, independent of the number of irreps or queries. `reset()` and
-`reset_catalog()` do not release it. Exact SU(N) and B/C/D Weyl dimensions
-are computed in checked `u128` arithmetic and fall back to allocating
-big-integer arithmetic only when a dimension or an intermediate overflows.
-Warm `LieGroup` dual lookups reuse shared labels retained in the
-`SunProduct` and `BcdCgc` tiers, charged to their budgets. U(1) through
-`LieGroup` allocates nothing for label construction, clones, fusion
+Generated groups own immutable shared root-system context for repeated label
+construction; clones share it. A-series context initializes on the first label
+or product query, keeping large-rank group construction free of root-table
+allocations. B/C/D seed-budget preflight runs before this
+rank-sized allocation. There is no process-global root-data map. Cache reset and
+catalog reset leave group-owned structural context intact; dropping its owners
+releases it. Labels hold weak context references, so calls reuse a live context
+without cache entries retaining its root tables. A standalone label whose group
+is gone reconstructs temporary context when a weight or product query needs it.
+The cache charge includes the allocation shell retained by each weak reference.
+
+Generated labels own exact dimension, rounded `f64` dimension, principal sign and
+both coordinate views for a complex conjugate pair. `dim()` reads stored data
+without a global, catalog or family lock. `dim_exact()` clones the stored Natural
+and can allocate for large values. Construction evaluates one exact Weyl quotient
+in checked `u128`, with an unbounded rational fallback. `dual()` clones the shared
+payload and changes its orientation without a cache lookup or allocation. The
+complex E₆ public phase still uses its existing gauge-derived coefficient memo.
+U(1) through `LieGroup` allocates nothing for label construction, clones, fusion
 iteration and symbol/CGC queries. Composite weight multiplicities multiply
-factor multiplicities in checked `u64`; the infallible query panics on
-overflow.
+factor multiplicities in checked `u64`; the infallible query panics on overflow.
 
 ## B/C/D generator catalogs
 
@@ -190,12 +212,12 @@ warm CGC/F/R calls consult those caches before locking the catalog.
 
 ## Exceptional coefficient memo
 
-G₂, F₄, E₆, E₇ and E₈ coefficients bypass the global coefficient caches and their
-budgets. Each such `LieGroup` (and each such factor of a composite) owns a memo of exact
-modules, tensor products, CGC channels and E₆ Frobenius–Schur phases; clones share it.
+G₂, F₄, E₆, E₇ and E₈ coefficient buffers use a group-owned memo. Their exact
+tensor products use the global Product tier and its budget. Each such `LieGroup` (and each such factor of a composite) owns a memo of exact
+modules, CGC channels and E₆ Frobenius–Schur phases; clones share it.
 After each coefficient or complex-phase query, under the same mutex, whole completed
 entries are evicted until at most 512 entries and an estimated 256 MiB remain.
-The eviction order is modules, tensor products, rounded channels, then phase pairs,
+The eviction order is modules, rounded channels, then phase pairs,
 least recently used within each class. Rounded channels own their data and survive
 module eviction. A complex phase is stored once under the smaller of its dual labels;
 it serves both labels and counts as two entries, so eviction cannot split the pair.
@@ -208,8 +230,7 @@ and recency metadata; a channel is charged for the stored clone's capacity.
 Hash-table/B-tree node overhead, unused map capacity, allocator metadata, returned
 buffers and query scratch are excluded; the bound is not a peak-RSS limit.
 A single module-plus-ladders entry can be tens or hundreds of MiB.
-Fusion outcomes and N use only root-system combinatorics and never wait for
-the memo; F, R and CGC queries on one exceptional group run one at a time.
+Fusion outcomes and N use Product and never wait for the family memo; F, R and CGC queries on one exceptional group run one at a time.
 
 Module size grows quickly with the dimension. Measured in release on one core, exact module construction takes
 about 0.012 s for E₇ `1539`, 0.031 s for E₈ `3875`, 0.53 s for E₈ `27000`

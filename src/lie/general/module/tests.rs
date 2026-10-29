@@ -19,7 +19,7 @@ fn unit(rank: usize, i: usize) -> Vec<i64> {
     l
 }
 
-fn build(root: RootSystem, lambda: &[i64]) -> (CartanData, IrrepModule) {
+fn build(root: RootSystem, lambda: &[i64]) -> (std::sync::Arc<CartanData>, IrrepModule) {
     let data = CartanData::new(root);
     let m = IrrepModule::new(&data, lambda).unwrap();
     (data, m)

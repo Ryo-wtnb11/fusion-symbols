@@ -9,6 +9,10 @@ value/gauge rule noted below.
 
 ### Breaking
 
+- Rename `CoefficientCacheTier::SunProduct` to `Product` (Display `"sun_product"`
+  to `"product"`), without an alias. It now owns all materialized simple-Lie
+  products; `BcdCgc` retains only raw/CGC coefficients, and duals are label-owned.
+
 - Public exact types now use Malachite: dimensions return `Natural` and
   `SignedSqrtRational` exposes `Rational`. Users name the types through
   `malachite_nz` / `malachite_q` directly; there are no re-exports.
@@ -21,6 +25,10 @@ value/gauge rule noted below.
   Remove `num-bigint` and `num-rational`; the crate remains MIT OR Apache-2.0.
 
 ### Performance
+
+- Unify exact root mathematics and label-owned dimensions/duals. Exceptional
+  N, fusion and coefficient multiplicity checks share the bounded Product tier;
+  warm dimensions read stored values. Values, label order and gauges are unchanged.
 
 - Reuse SU(N) descent QR per active target weight and omit unused SVD U,
   preserving coefficient bits and full right-nullspace vectors.

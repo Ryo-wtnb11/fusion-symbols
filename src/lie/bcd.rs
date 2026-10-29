@@ -100,13 +100,11 @@
 //! with `a` trivial it is the `1×1×1×1` identity (value 1):
 //!
 
-use malachite_base::num::basic::traits::One;
+use super::general::roots::{CartanData, RootIrrep};
 use std::collections::BTreeMap;
 use std::fmt;
-use std::sync::Arc;
 
 use malachite_nz::natural::Natural;
-use malachite_q::Rational;
 
 use crate::lie::{GroupId, RootSystem};
 
@@ -357,26 +355,12 @@ impl std::error::Error for BcdError {}
 /// `Ord`/`Hash` are on `(series, weight)`, so two `Irrep`s are equal iff they
 /// denote the same irrep; the order is deterministic (used as a map key).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Irrep {
-    series: Series,
-    /// **Doubled** highest weight `2λ` in the ε-basis, length `r`.
-    ///
-    /// The stored quantity is `2λ`, not `λ`: spinor highest weights are
-    /// half-integers, and the doubled encoding is the crate's own precedent
-    /// (`dj = 2j` in the base SU(2) layer, `src/lib.rs`). Doubling is a
-    /// strictly monotone relabelling, so `Ord`/`Hash` — and every order derived
-    /// from them — are unchanged for the tensor irreps.
-    two_weight: Arc<[i64]>,
-}
-
+pub struct Irrep(pub(crate) RootIrrep);
 impl crate::cache::CacheKeyCharge for Irrep {
     fn key_bytes(&self) -> usize {
-        std::mem::size_of::<Self>()
-            .saturating_add(crate::cache::ARC_COUNTS_BYTES)
-            .saturating_add(std::mem::size_of_val(self.two_weight.as_ref()))
+        self.0.key_bytes()
     }
 }
-
 impl Irrep {
     /// Construct from the `r` integer Dynkin labels of `series` (`r =
     /// dynkin.len()`).
@@ -451,10 +435,10 @@ impl Irrep {
                 dynkin: dynkin.to_vec(),
             });
         }
-        Ok(Irrep {
-            series,
-            two_weight: dynkin_to_two_partition(series, dynkin)?.into(),
-        })
+        CartanData::new(series.root_system(r))
+            .irrep(dynkin)
+            .map(Self)
+            .map_err(|_| BcdError::LabelOverflow)
     }
 
     /// The trivial (vacuum) irrep of `series` at rank `r` — the zero weight.
@@ -467,28 +451,39 @@ impl Irrep {
     /// irrep enumeration (`bcd::catalog`), which only ever produces valid
     /// integer dominant weights of this family; not a public constructor
     /// (the public path is [`Irrep::from_dynkin`](crate::lie::bcd::Irrep::from_dynkin), which validates).
+    #[cfg(test)]
     pub(crate) fn from_two_weight(series: Series, two_weight: Vec<i64>) -> Irrep {
-        Irrep {
-            series,
-            two_weight: two_weight.into(),
-        }
+        let data = CartanData::new(series.root_system(two_weight.len()));
+        Self(
+            data.irrep(
+                &data
+                    .dynkin(&two_weight)
+                    .expect("catalog coordinates fit Dynkin labels"),
+            )
+            .expect("catalog emits dominant representable weights"),
+        )
     }
 
     /// The series (`B`, `C` or `D`).
     pub fn series(&self) -> Series {
-        self.series
+        match self.0.root() {
+            RootSystem::B(_) => Series::B,
+            RootSystem::C(_) => Series::C,
+            RootSystem::D(_) => Series::D,
+            _ => unreachable!("BCD adapter root"),
+        }
     }
 
     /// The rank `r`.
     pub fn rank(&self) -> usize {
-        self.two_weight.len()
+        self.two_partition().len()
     }
 
     /// The **doubled** highest weight `2λ` in the ε-basis — the always-exact
     /// form of the highest weight, integral for tensor *and* spinor irreps
     /// (the `dj = 2j` convention of the base SU(2) layer).
     pub fn two_partition(&self) -> &[i64] {
-        &self.two_weight
+        self.0.classical()
     }
 
     /// The highest weight `λ` as an integer partition in the ε-basis, or
@@ -496,22 +491,22 @@ impl Irrep {
     /// [`two_partition`](Self::two_partition)).
     #[cfg(test)]
     pub fn partition(&self) -> Option<Vec<i64>> {
-        if self.two_weight.iter().any(|x| x % 2 != 0) {
+        if self.two_partition().iter().any(|x| x % 2 != 0) {
             return None;
         }
-        Some(self.two_weight.iter().map(|x| x / 2).collect())
+        Some(self.two_partition().iter().map(|x| x / 2).collect())
     }
 
     /// Whether this is a spinor irrep (half-integral ε-basis highest weight) —
     /// a representation of `Spin(N)` that is not one of `SO(N)`. Always `false`
     /// for the `C` series.
     pub fn is_spinor(&self) -> bool {
-        self.two_weight.iter().any(|x| x % 2 != 0)
+        self.two_partition().iter().any(|x| x % 2 != 0)
     }
 
     /// The `r` integer Dynkin labels.
     pub fn dynkin(&self) -> Vec<i64> {
-        two_partition_to_dynkin(self.series, &self.two_weight)
+        self.0.dynkin().to_vec()
     }
 
     /// The exact Weyl dimension.
@@ -522,41 +517,18 @@ impl Irrep {
     /// and, only when that overflows, as a `Rational`. This reproduces
     /// the QSpace values `wdim_B/C/D` (`clebsch_aux.cc:458–559`).
     pub fn dim(&self) -> Natural {
-        self.checked_dim()
-            .map_or_else(|| self.ratio_dim(), Natural::from)
+        self.0.dim().clone()
     }
-
-    /// [`Self::dim`] when it and its reduced intermediates fit `u128`.
+    pub(crate) fn dim_f64(&self) -> f64 {
+        self.0.dim_f64()
+    }
+    #[cfg(test)]
     pub(crate) fn checked_dim(&self) -> Option<u128> {
-        let roots = root_data(self.series, self.rank());
-        crate::exact::checked_integral_quotient(self.weyl_factors(&roots))
+        u128::try_from(self.0.dim()).ok()
     }
-
-    /// [`Self::dim`] in unbounded exact arithmetic.
+    #[cfg(test)]
     pub(crate) fn ratio_dim(&self) -> Natural {
-        let roots = root_data(self.series, self.rank());
-        self.weyl_factors(&roots)
-            .fold(Rational::ONE, |acc, (n, d)| {
-                acc * Rational::from_unsigneds(n, d)
-            })
-            .into_numerator()
-    }
-
-    /// The Weyl factors `(⟨2λ+2ρ,α⟩, ⟨2ρ,α⟩)` over the positive roots, both
-    /// positive for a dominant `λ`.
-    fn weyl_factors<'a>(&'a self, roots: &'a RootData) -> impl Iterator<Item = (u128, u128)> + 'a {
-        roots.positive_roots.iter().map(move |alpha| {
-            // `2⟨λ,α⟩ = ⟨2λ,α⟩` is read straight off the stored weight.
-            // A positive root has at most two nonzero entries, each at most 2.
-            let two_lam =
-                checked_dot(&self.two_weight, alpha).expect("a root-weight dot product fits i128");
-            let two_rho_a =
-                checked_dot(&roots.two_rho, alpha).expect("a root-rho dot product fits i128");
-            let numerator = two_lam
-                .checked_add(two_rho_a)
-                .expect("two root dot products, each bounded by 4*i64::MAX, fit i128");
-            (numerator.unsigned_abs(), two_rho_a.unsigned_abs())
-        })
+        self.dim()
     }
 
     /// The dual (complex-conjugate) irrep.
@@ -573,16 +545,7 @@ impl Irrep {
     ///   flip: `so(6) = D_3` has `dual((0,2,0)) = (0,0,2)` (a tensor chiral
     ///   pair) and the vector `(1,0,0)` self-dual.
     pub fn dual(&self) -> Irrep {
-        if self.series != Series::D || self.rank().is_multiple_of(2) {
-            return self.clone();
-        }
-        let last = self.rank() - 1;
-        Irrep {
-            series: self.series,
-            two_weight: (self.two_weight.iter().enumerate())
-                .map(|(i, &x)| if i == last { -x } else { x })
-                .collect(),
-        }
+        Self(self.0.dual())
     }
 
     /// The Frobenius–Schur indicator: `+1` (real/orthogonal), `-1`
@@ -591,8 +554,8 @@ impl Irrep {
     /// Derivation: a self-dual irrep of a compact simple group has indicator
     /// `(-1)^{⟨λ, 2ρ^∨⟩}`, where `2ρ^∨` is the sum of the positive **coroots**
     /// (Bourbaki VIII §7; equivalently the value of the principal central
-    /// element `exp(2πi ρ^∨)` on `λ`). Evaluated in the ε-basis by
-    /// `two_rho_vee` (the ε-basis sum of the positive coroots, this module).
+    /// element `exp(2πi ρ^∨)` on `λ`). Stored by `general::roots::CartanData::two_rho_vee_sign` in Dynkin
+    /// coordinates, using the sum of positive coroots.
     /// Consequences per family:
     ///
     /// - **`B_r`, `D_r` (`SO(N)` tensor irreps)**: `2ρ^∨` has all-even ε-basis
@@ -608,20 +571,10 @@ impl Irrep {
     ///   quaternionic (`-1`) while `Spin(7)`'s `8` and `Spin(8)`'s `8_s` are
     ///   real (`+1`).
     pub fn frobenius_schur(&self) -> i32 {
-        if *self != self.dual() {
-            return 0;
-        }
-        // ⟨2λ, 2ρ^∨⟩ = 2⟨λ, 2ρ^∨⟩; the exponent is the half of it (an integer
-        // for every self-dual λ, tensor or spinor).
-        let twice = dot_mod_four(
-            &self.two_weight,
-            &root_data(self.series, self.rank()).two_rho_vee,
-        );
-        debug_assert_eq!(twice % 2, 0, "⟨λ,2ρ^∨⟩ must be an integer");
-        if twice == 0 {
-            1
+        if self.0.is_self_dual() {
+            i32::from(self.0.sign())
         } else {
-            -1
+            0
         }
     }
 
@@ -649,35 +602,31 @@ impl Irrep {
     /// Keys are **doubled** dominant weights `2μ` (ε-basis) with `μ ≤ λ`;
     /// values are their multiplicities `m_λ(μ) ≥ 1`. Every weight of the irrep
     /// is a Weyl-image of exactly one key, with the same multiplicity.
+    #[cfg(test)]
     pub fn two_weight_multiplicities(&self) -> BTreeMap<Vec<i64>, u64> {
         self.try_two_weight_multiplicities()
             .unwrap_or_else(|e| panic!("infallible weight_multiplicities failed: {e}"))
     }
 
+    #[cfg(test)]
     fn try_two_weight_multiplicities(&self) -> Result<BTreeMap<Vec<i64>, u64>, BcdError> {
-        freudenthal(self.series, &self.two_weight)
-    }
-
-    pub(crate) fn dynkin_weight_multiplicities(&self) -> BTreeMap<Vec<i64>, u64> {
-        self.two_weight_multiplicities()
-            .into_iter()
-            .flat_map(|(w, n)| {
-                weyl_orbit(self.series, &w)
+        let data = self.0.roots();
+        data.dominant_multiplicities(self.0.dynkin())
+            .and_then(|weights| {
+                weights
                     .into_iter()
-                    .map(move |w| (two_partition_to_dynkin(self.series, &w), n))
+                    .map(|(w, n)| Ok((data.classical(&w)?, n)))
+                    .collect()
             })
-            .collect()
+            .map_err(|_| BcdError::LabelOverflow)
+    }
+    pub(crate) fn dynkin_weight_multiplicities(&self) -> BTreeMap<Vec<i64>, u64> {
+        self.0
+            .weight_multiplicities(&self.0.roots())
+            .expect("infallible weight multiplicities")
     }
     pub(crate) fn frobenius_schur_phase(&self) -> f64 {
-        let twice = dot_mod_four(
-            &self.two_weight,
-            &root_data(self.series, self.rank()).two_rho_vee,
-        );
-        if twice == 0 {
-            1.0
-        } else {
-            -1.0
-        }
+        f64::from(self.0.sign())
     }
 
     /// [`two_weight_multiplicities`](Self::two_weight_multiplicities) with the
@@ -697,680 +646,27 @@ impl Irrep {
     }
 }
 
-// ---- label ↔ partition maps ----------------------------------------------
+pub(super) use super::general::roots::half_sum;
 
-/// Doubled partition (ε-basis) `2λ` from Dynkin labels `a`.
-///
-/// Doubling is what makes these maps exact for **every** admissible label of
-/// the cover: the spinor labels (`B_r`: `a_r` odd; `D_r`: `a_{r-1}+a_r` odd)
-/// have half-integer `λ`, which the doubled encoding represents exactly.
-fn dynkin_to_two_partition(series: Series, a: &[i64]) -> Result<Vec<i64>, BcdError> {
-    let r = a.len();
-    let mut lam = vec![0i64; r];
-    match series {
-        Series::B => {
-            // 2λ_r = a_r, 2λ_i = 2λ_{i+1} + 2a_i.
-            lam[r - 1] = a[r - 1];
-            for i in (0..r - 1).rev() {
-                lam[i] = a[i]
-                    .checked_mul(2)
-                    .and_then(|x| lam[i + 1].checked_add(x))
-                    .ok_or(BcdError::LabelOverflow)?;
-            }
-        }
-        Series::C => {
-            // 2λ_r = 2a_r, 2λ_i = 2λ_{i+1} + 2a_i.
-            lam[r - 1] = a[r - 1].checked_mul(2).ok_or(BcdError::LabelOverflow)?;
-            for i in (0..r - 1).rev() {
-                lam[i] = a[i]
-                    .checked_mul(2)
-                    .and_then(|x| lam[i + 1].checked_add(x))
-                    .ok_or(BcdError::LabelOverflow)?;
-            }
-        }
-        Series::D => {
-            // 2λ_{r-1} = a_{r-1}+a_r, 2λ_r = a_r-a_{r-1}, 2λ_i = 2λ_{i+1}+2a_i.
-            lam[r - 1] = a[r - 1] - a[r - 2];
-            lam[r - 2] = a[r - 1]
-                .checked_add(a[r - 2])
-                .ok_or(BcdError::LabelOverflow)?;
-            for i in (0..r - 2).rev() {
-                lam[i] = a[i]
-                    .checked_mul(2)
-                    .and_then(|x| lam[i + 1].checked_add(x))
-                    .ok_or(BcdError::LabelOverflow)?;
-            }
-        }
-    }
-    Ok(lam)
-}
-
-/// Dynkin labels `a` from a doubled partition `2λ` (inverse of
-/// [`dynkin_to_two_partition`]).
-fn two_partition_to_dynkin(series: Series, two_lam: &[i64]) -> Vec<i64> {
-    let r = two_lam.len();
-    let mut a = vec![0i64; r];
-    for i in 0..r - 1 {
-        a[i] = half_sum(two_lam[i], -two_lam[i + 1]);
-    }
-    match series {
-        Series::B => a[r - 1] = two_lam[r - 1],
-        Series::C => a[r - 1] = two_lam[r - 1] / 2,
-        Series::D => {
-            a[r - 2] = half_sum(two_lam[r - 2], -two_lam[r - 1]);
-            a[r - 1] = half_sum(two_lam[r - 2], two_lam[r - 1]);
-        }
-    }
-    a
-}
-
-// ---- root system in the ε-basis ------------------------------------------
-
-pub(super) fn half_sum(a: i64, b: i64) -> i64 {
-    i64::try_from((i128::from(a) + i128::from(b)) / 2)
-        .expect("the average of two i64 coordinates fits i64")
-}
-/// Euclidean inner product of two ε-basis integer vectors (roots/weights are
-/// carried as their ε-coefficient vectors, e.g. `2e_i` as a `2` in slot `i`).
-fn checked_dot(u: &[i64], v: &[i64]) -> Result<i128, BcdError> {
-    u.iter().zip(v).try_fold(0i128, |sum, (&a, &b)| {
-        sum.checked_add(i128::from(a) * i128::from(b))
-            .ok_or(BcdError::LabelOverflow)
-    })
-}
-fn dot_mod_four(u: &[i64], v: &[i64]) -> i64 {
-    u.iter().zip(v).fold(0, |sum, (&a, &b)| {
-        (sum + a.rem_euclid(4) * b.rem_euclid(4)) % 4
-    })
-}
-fn add_weight(a: i64, b: i64) -> Result<i64, BcdError> {
-    a.checked_add(b).ok_or(BcdError::LabelOverflow)
-}
-fn add_signed_multiplicity(a: i64, b: i64) -> Result<i64, BcdError> {
-    a.checked_add(b).ok_or(BcdError::LabelOverflow)
-}
-fn multiplicity(value: impl TryInto<u32>) -> Result<u32, BcdError> {
-    value.try_into().map_err(|_| BcdError::LabelOverflow)
-}
-fn weight_multiplicity(value: i128) -> Result<u64, BcdError> {
-    u64::try_from(value).map_err(|_| BcdError::LabelOverflow)
-}
-fn signed_multiplicity(value: u64) -> Result<i64, BcdError> {
-    i64::try_from(value).map_err(|_| BcdError::LabelOverflow)
-}
-fn rho_coordinate(series: Series, remaining: usize) -> Result<i64, BcdError> {
-    let tail = match series {
-        Series::B => 1,
-        Series::C => 2,
-        Series::D => 0,
-    };
-    i64::try_from(remaining)
-        .ok()
-        .and_then(|v| v.checked_mul(2))
-        .and_then(|v| v.checked_add(tail))
-        .ok_or(BcdError::LabelOverflow)
-}
-
-struct RootData {
-    two_rho: Vec<i64>,
-    positive_roots: Vec<Vec<i64>>,
-    two_rho_vee: Vec<i64>,
-}
-
-fn root_data(series: Series, rank: usize) -> Arc<RootData> {
-    use std::sync::{LazyLock, Mutex};
-    // Immutable group data: at most one entry per constructed (series, rank),
-    // O(rank^3) integers each, independent of the number of irreps or queries.
-    type RootSystems = BTreeMap<(Series, usize), Arc<RootData>>;
-    static ROOTS: LazyLock<Mutex<RootSystems>> = LazyLock::new(|| Mutex::new(BTreeMap::new()));
-    // An unwind cannot leave a partially initialized immutable RootData entry.
-    ROOTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .entry((series, rank))
-        .or_insert_with(|| {
-            Arc::new(RootData {
-                two_rho: two_rho(series, rank),
-                positive_roots: positive_roots(series, rank),
-                two_rho_vee: two_rho_vee(series, rank),
-            })
-        })
-        .clone()
-}
-
-/// `2ρ` (twice the Weyl vector, integer-valued) in the ε-basis:
-/// `B: 2r-2i+1`, `C: 2r-2i+2`, `D: 2r-2i` (`i = 1..r`).
-fn two_rho(series: Series, r: usize) -> Vec<i64> {
-    (0..r)
-        .map(|i| {
-            rho_coordinate(series, r - i - 1)
-                .expect("rank comes from an allocated i64 weight, so 2*rank+2 fits i64")
-        })
-        .collect()
-}
-
-/// `2ρ^∨` (the sum of the positive **coroots**) in the ε-basis:
-/// `B: 2(r-i+1)`, `C: 2(r-i)+1`, `D: 2(r-i)` (`i = 1..r`).
-///
-/// Each pair `i<j` contributes `(e_i−e_j)^∨ + (e_i+e_j)^∨ = 2e_i` (those roots
-/// have length² 2, so coroot = root); on top of that `B`'s short root `e_i`
-/// contributes `2e_i` and `C`'s long root `2e_i` contributes `e_i`. Used by
-/// [`Irrep::frobenius_schur`].
-fn two_rho_vee(series: Series, r: usize) -> Vec<i64> {
-    let series = match series {
-        Series::B => Series::C,
-        Series::C => Series::B,
-        Series::D => Series::D,
-    };
-    two_rho(series, r)
-}
-
-/// The positive roots of the series in the ε-basis, as integer coefficient
-/// vectors (Fulton–Harris §18). Common to all: `e_i − e_j`, `e_i + e_j`
-/// (`i<j`); plus `e_i` for `B`, `2e_i` for `C`, none for `D`.
-fn positive_roots(series: Series, r: usize) -> Vec<Vec<i64>> {
-    let mut roots = Vec::new();
-    for i in 0..r {
-        for j in i + 1..r {
-            let mut minus = vec![0i64; r];
-            minus[i] = 1;
-            minus[j] = -1;
-            roots.push(minus);
-            let mut plus = vec![0i64; r];
-            plus[i] = 1;
-            plus[j] = 1;
-            roots.push(plus);
-        }
-    }
-    match series {
-        Series::B => {
-            for i in 0..r {
-                let mut e = vec![0i64; r];
-                e[i] = 1;
-                roots.push(e);
-            }
-        }
-        Series::C => {
-            for i in 0..r {
-                let mut e = vec![0i64; r];
-                e[i] = 2;
-                roots.push(e);
-            }
-        }
-        Series::D => {}
-    }
-    roots
-}
-
-// ---- Weyl-group dominant conjugation -------------------------------------
-
-/// Sort a vector descending, returning the sorted vector and the sign of the
-/// sorting permutation (`+1`/`-1`). For distinct entries this is `sgn(perm)`;
-/// callers that need the sign guarantee distinctness first.
-fn sort_desc_with_parity(v: &[i64]) -> (Vec<i64>, i32) {
-    let n = v.len();
-    let mut odd = false;
-    for i in 0..n {
-        for j in i + 1..n {
-            if v[i] < v[j] {
-                odd = !odd;
-            }
-        }
-    }
-    let mut out = v.to_vec();
-    out.sort_unstable_by(|a, b| b.cmp(a));
-    (out, if odd { -1 } else { 1 })
-}
-
-/// The dominant Weyl-orbit representative of a weight `v` (ε-basis), ignoring
-/// singularity (weights may lie on walls; the dominant representative is still
-/// well defined). Used for Freudenthal multiplicity lookups.
-///
-/// - `B`/`C`: `|v|` sorted descending (Weyl group = all signed permutations).
-/// - `D`: `|v|` sorted descending, last entry negated iff an odd number of
-///   components were negative **and** the smallest `|v|` is non-zero (Weyl
-///   group = *even* sign changes; a zero component frees the parity).
-fn weyl_dominant(series: Series, v: &[i64]) -> Vec<i64> {
-    let negcount = v.iter().filter(|&&x| x < 0).count();
-    let absv: Vec<i64> = v.iter().map(|x| x.abs()).collect();
-    let (mut sorted, _) = sort_desc_with_parity(&absv);
-    if series == Series::D && !negcount.is_multiple_of(2) {
-        let last = sorted.len() - 1;
-        if sorted[last] != 0 {
-            sorted[last] = -sorted[last];
-        }
-    }
-    sorted
-}
-
-/// The dominant conjugate of a **ρ-shifted** vector `two_v = 2(a+ρ+μ)`
-/// (carried at twice scale so `B`'s half-integer `ρ` stays integral),
-/// together with `det(w) = ±1`, or `None` if `two_v` is Weyl-singular (lies on
-/// a reflection wall — contributes `0` to the Racah–Speiser sum).
-///
-/// Singular ⇔ two components equal in absolute value (wall `e_i ± e_j`), or,
-/// for `B`/`C`, a zero component (wall `e_i` resp. `2e_i`).
-fn dominant_conjugate_signed(series: Series, two_v: &[i64]) -> Option<(Vec<i64>, i32)> {
-    let negcount = two_v.iter().filter(|&&x| x < 0).count();
-    let absv: Vec<i64> = two_v.iter().map(|x| x.abs()).collect();
-    // Wall e_i±e_j: two equal absolute values.
-    for i in 0..absv.len() {
-        for j in i + 1..absv.len() {
-            if absv[i] == absv[j] {
-                return None;
-            }
-        }
-    }
-    let (mut sorted, perm_sign) = sort_desc_with_parity(&absv);
-    match series {
-        Series::B | Series::C => {
-            // Wall e_i (B) / 2e_i (C): a zero component.
-            if absv.contains(&0) {
-                return None;
-            }
-            // det(w) = sgn(perm) · (-1)^{#flips}, #flips = #negatives.
-            let sign = perm_sign * if negcount.is_multiple_of(2) { 1 } else { -1 };
-            Some((sorted, sign))
-        }
-        Series::D => {
-            // det(w) = sgn(perm) (even sign changes have det +1). Choose the
-            // last sign to match the even-flip parity of the orbit: negative
-            // iff #negatives is odd and the smallest |·| is non-zero.
-            let last = sorted.len() - 1;
-            if !negcount.is_multiple_of(2) && sorted[last] != 0 {
-                sorted[last] = -sorted[last];
-            }
-            Some((sorted, perm_sign))
-        }
-    }
-}
-
-// ---- Freudenthal weight multiplicities -----------------------------------
-
-/// Exact dominant-weight multiplicities of the irrep with **doubled** highest
-/// weight `2λ`, by Freudenthal's recursion (Humphreys §13.4), in integer
-/// arithmetic. Keys are the doubled dominant weights `2μ`.
-///
-/// Everything is carried at the doubled scale — weights `2μ`, roots `2α`, and
-/// `2·(2ρ)`. Both the Freudenthal numerator and its denominator are quadratic
-/// in that scale, so they pick up the same factor `4` and the multiplicities
-/// are exactly the ones the undoubled recursion returns.
-fn freudenthal(series: Series, lambda: &[i64]) -> Result<BTreeMap<Vec<i64>, u64>, BcdError> {
-    let r = lambda.len();
-    let two_rho = two_rho(series, r)
-        .into_iter()
-        .map(|x| x.checked_mul(2).ok_or(BcdError::LabelOverflow))
-        .collect::<Result<Vec<_>, _>>()?;
-    let roots: Vec<Vec<i64>> = positive_roots(series, r)
-        .into_iter()
-        .map(|a| a.into_iter().map(|x| 2 * x).collect())
-        .collect();
-
-    // Dominant weights μ ≤ λ (same root lattice), with their depth = height of
-    // λ-μ in simple roots. Enumerate a box of dominant weights and keep those
-    // with λ-μ a non-negative *integer* combination of simple roots.
-    let mut doms: Vec<(i64, Vec<i64>)> = enumerate_dominant_below(series, lambda)?
-        .into_iter()
-        .map(|mu| Ok((depth(series, lambda, &mu)?, mu)))
-        .collect::<Result<_, BcdError>>()?;
-    doms.sort();
-
-    // ⟨λ+ρ,λ+ρ⟩ contribution that survives the difference: ⟨λ,λ⟩ + ⟨λ,2ρ⟩.
-    let casimir = |w: &[i64]| {
-        checked_dot(w, w)?
-            .checked_add(checked_dot(w, &two_rho)?)
-            .ok_or(BcdError::LabelOverflow)
-    };
-    let cas_lambda = casimir(lambda)?;
-
-    let mut mult: BTreeMap<Vec<i64>, u64> = BTreeMap::new();
-    for (_, mu) in &doms {
-        if mu == lambda {
-            mult.insert(mu.clone(), 1);
-            continue;
-        }
-        let denom = cas_lambda
-            .checked_sub(casimir(mu)?)
-            .ok_or(BcdError::LabelOverflow)?;
-        debug_assert!(denom > 0, "Freudenthal denominator must be positive");
-        let mut num = 0i128;
-        for alpha in &roots {
-            let aa = checked_dot(alpha, alpha)?;
-            let mu_a = checked_dot(mu, alpha)?;
-            let mut k = 1i128;
-            loop {
-                // μ + kα
-                let shifted: Vec<i64> = mu
-                    .iter()
-                    .zip(alpha)
-                    .map(|(&m, &al)| {
-                        add_weight(
-                            m,
-                            i64::try_from(k)
-                                .ok()
-                                .and_then(|k| k.checked_mul(al))
-                                .ok_or(BcdError::LabelOverflow)?,
-                        )
-                    })
-                    .collect::<Result<_, _>>()?;
-                for &x in &shifted {
-                    x.checked_abs().ok_or(BcdError::LabelOverflow)?;
-                }
-                let dom = weyl_dominant(series, &shifted);
-                match mult.get(&dom) {
-                    Some(&m) if m > 0 => {
-                        num = freudenthal_sum(num, mu_a, k, aa, m)?;
-                        k = k.checked_add(1).ok_or(BcdError::LabelOverflow)?;
-                    }
-                    _ => break,
-                }
-            }
-        }
-        debug_assert_eq!(
-            num.checked_rem(denom).ok_or(BcdError::LabelOverflow)?,
-            0,
-            "Freudenthal must divide exactly"
-        );
-        let m = num.checked_div(denom).ok_or(BcdError::LabelOverflow)?;
-        if m > 0 {
-            mult.insert(mu.clone(), weight_multiplicity(m)?);
-        }
-    }
-    Ok(mult)
-}
-
-fn freudenthal_sum(num: i128, mu_a: i128, k: i128, aa: i128, m: u64) -> Result<i128, BcdError> {
-    k.checked_mul(aa)
-        .and_then(|v| mu_a.checked_add(v))
-        .and_then(|v| v.checked_mul(2))
-        .and_then(|v| v.checked_mul(i128::from(m)))
-        .and_then(|v| num.checked_add(v))
-        .ok_or(BcdError::LabelOverflow)
-}
-
-/// Height of `λ − μ` in the simple-root basis (its coefficient sum), assuming
-/// `μ ≤ λ` so all coefficients are non-negative integers.
-fn depth(series: Series, lambda: &[i64], mu: &[i64]) -> Result<i64, BcdError> {
-    let d = sub(lambda, mu)?;
-    match simple_root_coeffs(series, &d)? {
-        Some(c) => c.iter().try_fold(0i64, |sum, &x| add_weight(sum, x)),
-        None => Ok(-1),
-    }
-}
-
-/// Coefficients `c` with `d = Σ cᵢ αᵢ` (simple roots, ε-basis) from the
-/// **doubled** difference `dd = 2d`, or `None` if `d` is not a non-negative
-/// integer combination — which now also rejects the half-integer `d` of a
-/// tensor/spinor weight pair (they lie in different classes of `P/Q`, so
-/// neither is a weight of the other's irrep). Closed forms from the simple-root
-/// structure (Fulton–Harris §18):
-/// - `B`/`C`/`D` share `cⱼ = Σ_{i≤j} dᵢ` for the `e_i − e_{i+1}` part;
-///   the short/spin root closes the last one(s).
-fn simple_root_coeffs(series: Series, dd: &[i64]) -> Result<Option<Vec<i64>>, BcdError> {
-    let r = dd.len();
-    // Prefix sums = coefficients of the e_i - e_{i+1} chain. Each must be an
-    // integer: at the doubled scale that is "each prefix of `dd` is even",
-    // which holds iff every dᵢ is an integer.
-    let mut c = vec![0i64; r];
-    let mut acc = 0i64;
-    for i in 0..r {
-        acc = add_weight(acc, dd[i])?;
-        if acc % 2 != 0 {
-            return Ok(None);
-        }
-        c[i] = acc / 2; // provisional; last one(s) fixed per series below
-    }
-    let total = acc; // = 2·Σ dᵢ
-    match series {
-        Series::B => {
-            // α_r = e_r, c_r = Σ d_i = total/2 (already c[r-1]).
-        }
-        Series::C => {
-            // α_r = 2e_r, c_r = (Σ d_i)/2 = total/4.
-            if total % 4 != 0 {
-                return Ok(None);
-            }
-            c[r - 1] = total / 4;
-        }
-        Series::D => {
-            // α_r = e_{r-1}+e_r: c_r = (Σ d_i)/2, c_{r-1} = c_r - d_r.
-            if total % 4 != 0 {
-                return Ok(None);
-            }
-            c[r - 1] = total / 4;
-            c[r - 2] = (total / 4)
-                .checked_sub(dd[r - 1] / 2)
-                .ok_or(BcdError::LabelOverflow)?;
-        }
-    }
-    if c.iter().all(|&x| x >= 0) {
-        Ok(Some(c))
-    } else {
-        Ok(None)
-    }
-}
-
-/// All dominant weights `2μ` with `μ ≤ λ` (dominance) and `λ − μ` in the root
-/// lattice, by enumerating a bounded box of dominant weights and filtering
-/// with [`simple_root_coeffs`]. Doubled throughout; the enumeration steps by
-/// `2`, so it stays inside `λ`'s class of `P/Q` (integer or half-integer
-/// coordinates, never a mix).
-fn enumerate_dominant_below(series: Series, lambda: &[i64]) -> Result<Vec<Vec<i64>>, BcdError> {
-    let r = lambda.len();
-    let hi = lambda[0]; // μ ≤ λ ⇒ μ₁ ≤ λ₁; all |μ_i| ≤ λ₁.
-    let mut out = Vec::new();
-    let mut cur = vec![0i64; r];
-    enum_dom_rec(series, lambda, hi, 0, &mut cur, &mut out)?;
-    Ok(out)
-}
-
-fn enum_dom_rec(
-    series: Series,
-    lambda: &[i64],
-    hi: i64,
-    pos: usize,
-    cur: &mut Vec<i64>,
-    out: &mut Vec<Vec<i64>>,
-) -> Result<(), BcdError> {
-    let r = cur.len();
-    if pos == r {
-        if simple_root_coeffs(series, &sub(lambda, cur)?)?.is_some() {
-            out.push(cur.clone());
-        }
-        return Ok(());
-    }
-    // Dominant: μ_pos ≤ μ_{pos-1} (and ≤ hi). For D the last slot also allows
-    // negatives down to -μ_{r-2} (chirality); for B/C the floor is 0. Values
-    // step by 2 (doubled scale), keeping μ in λ's class — for a spinor λ the
-    // floor 0 is therefore never reached, the smallest value is 1.
-    let upper = if pos == 0 { hi } else { cur[pos - 1] };
-    let lower = if series == Series::D && pos == r - 1 {
-        -cur[pos - 1]
-    } else {
-        0
-    };
-    let mut v = upper;
-    while v >= lower {
-        cur[pos] = v;
-        enum_dom_rec(series, lambda, hi, pos + 1, cur, out)?;
-        let Some(next) = v.checked_sub(2) else {
-            break;
-        };
-        v = next;
-    }
-    cur[pos] = 0;
-    Ok(())
-}
-
-fn sub(a: &[i64], b: &[i64]) -> Result<Vec<i64>, BcdError> {
-    a.iter()
-        .zip(b)
-        .map(|(&x, &y)| x.checked_sub(y).ok_or(BcdError::LabelOverflow))
-        .collect()
-}
-
-// ---- Weyl orbit ----------------------------------------------------------
-
-/// All distinct Weyl-group images of a dominant weight `mu` (ε-basis):
-/// signed permutations for `B`/`C`, even-signed permutations for `D`.
-fn weyl_orbit(series: Series, mu: &[i64]) -> Vec<Vec<i64>> {
-    try_weyl_orbit(series, mu).unwrap_or_else(|e| panic!("infallible weight orbit failed: {e}"))
-}
-fn weyl_sign_count(rank: usize) -> Result<u32, BcdError> {
-    u32::try_from(rank)
-        .ok()
-        .and_then(|r| 1u32.checked_shl(r))
-        .ok_or(BcdError::LabelOverflow)
-}
-fn try_weyl_orbit(series: Series, mu: &[i64]) -> Result<Vec<Vec<i64>>, BcdError> {
-    weyl_sign_count(mu.len())?;
-    let nonzero = mu.iter().filter(|&&x| x != 0).count();
-    // A zero frees D parity; otherwise absolute values must retain chirality.
-    let constrained = series == Series::D && nonzero == mu.len() && nonzero != 0;
-    let sign_count = weyl_sign_count(nonzero - usize::from(constrained))?;
-    let negative_count = mu.iter().filter(|&&x| x < 0).count() as u32;
-    let mut permutation = mu
-        .iter()
-        .map(|x| x.checked_abs().ok_or(BcdError::LabelOverflow))
-        .collect::<Result<Vec<_>, _>>()?;
-    permutation.sort_unstable();
-    let mut orbit = Vec::new();
-    loop {
-        for mut signs in 0..sign_count {
-            if constrained {
-                // Force the last sign instead of generating and discarding half.
-                signs |= ((signs.count_ones() + negative_count) % 2) << (nonzero - 1);
-            }
-            let mut signed = permutation.clone();
-            for x in signed.iter_mut().filter(|x| **x != 0) {
-                if signs & 1 != 0 {
-                    *x = -*x;
-                }
-                signs >>= 1;
-            }
-            orbit.push(signed);
-        }
-        // Next lexicographic multiset permutation: repeated entries never branch.
-        let Some(i) = permutation.windows(2).rposition(|w| w[0] < w[1]) else {
-            break;
-        };
-        let j = permutation
-            .iter()
-            .rposition(|&x| x > permutation[i])
-            .expect("the increasing pair supplies a successor");
-        permutation.swap(i, j);
-        permutation[i + 1..].reverse();
-    }
-    Ok(orbit)
-}
-
-// ---- Brauer–Klimyk / Racah–Speiser product decomposition -----------------
-
-/// Exact tensor-product decomposition: the fusion multiplicities `N^c_ab` of
-/// `a ⊗ b`, keyed by the resulting irrep `c`.
-///
-/// Requires `a` and `b` to label the same group (same series and rank); a
-/// mismatch is an ill-posed input across distinct groups and returns
-/// [`BcdError::GroupMismatch`].
-///
-/// Algorithm (Racah–Speiser / Brauer–Klimyk, Humphreys §24): for every weight
-/// # Returns
-///
-/// Every irrep `c` with `N^c_ab > 0`, mapped to that multiplicity. Channels
-/// with `N^c_ab = 0` are **absent**, not present with value `0`. Iteration
-/// order is the deterministic `Ord` order of [`Irrep`]. No
-/// [`CanonicalCatalog`] is needed — this is pure exact combinatorics, so you
-/// can explore fusion channels without generating any coefficient.
-///
-///
-/// Algorithm (Racah–Speiser / Brauer–Klimyk, Humphreys §24): for every weight
-/// `μ` of the smaller-dimensional factor `b` (swapping inputs, with the first
-/// input expanded on a dimension tie), use its Freudenthal multiplicity `m_b(μ)` and
-/// Weyl orbit to form `ξ = a + μ + ρ`. If `ξ` is Weyl-singular it contributes `0`;
-/// otherwise let `w` be the Weyl element making `ξ` dominant, and add
-/// `det(w)·m_b(μ)` to the coefficient of the irrep with highest weight
-/// `w(ξ) − ρ`. All arithmetic is exact integer; `ρ`-shifts are carried at
-/// twice scale to keep `B`'s half-integer `ρ` integral.
-pub(crate) fn shared_directproduct(a: &Irrep, b: &Irrep) -> Result<Arc<[(Irrep, u32)]>, BcdError> {
-    if a.series != b.series || a.rank() != b.rank() {
+#[cfg(test)]
+pub(crate) fn shared_directproduct(
+    a: &Irrep,
+    b: &Irrep,
+) -> Result<super::general::roots::Product, BcdError> {
+    if a.0.root() != b.0.root() {
         return Err(BcdError::GroupMismatch {
-            a: (a.series, a.rank()),
-            b: (b.series, b.rank()),
+            a: (a.series(), a.rank()),
+            b: (b.series(), b.rank()),
         });
     }
-    let (left, right) = if a <= b { (a, b) } else { (b, a) };
-    crate::cache::bcd_product(left, right, || {
-        directproduct_uncached(left, right).map(|product| product.into_iter().collect())
-    })
+    super::general::roots::shared_product(&a.0, &b.0).map_err(|_| BcdError::LabelOverflow)
 }
-
+#[cfg(test)]
 pub fn directproduct(a: &Irrep, b: &Irrep) -> Result<BTreeMap<Irrep, u32>, BcdError> {
-    Ok(shared_directproduct(a, b)?.iter().cloned().collect())
-}
-fn directproduct_uncached(a: &Irrep, b: &Irrep) -> Result<BTreeMap<Irrep, u32>, BcdError> {
-    let series = a.series;
-    let r = a.rank();
-    let two_rho = two_rho(series, r);
-    // Preserve the original overflow preflight before choosing an expansion route.
-    for ((&av, &bv), &rho) in a.two_weight.iter().zip(b.two_weight.iter()).zip(&two_rho) {
-        add_weight(add_weight(av, rho)?, bv)?;
-    }
-    if a.two_weight.iter().all(|&x| x == 0) {
-        return Ok(BTreeMap::from([(b.clone(), 1)]));
-    }
-    if b.two_weight.iter().all(|&x| x == 0) {
-        return Ok(BTreeMap::from([(a.clone(), 1)]));
-    }
-    // Like SU(N), expand the first input on a dimension tie.
-    let (a, b) = if a.dim() <= b.dim() { (b, a) } else { (a, b) };
-    // 2(a + ρ), constant across the μ loop (the stored weight is already 2a).
-    let two_a_rho: Vec<i64> = a
-        .two_weight
+    Ok(shared_directproduct(a, b)?
         .iter()
-        .zip(&two_rho)
-        .map(|(&av, &tr)| add_weight(av, tr))
-        .collect::<Result<_, _>>()?;
-
-    let mut acc: BTreeMap<Vec<i64>, i64> = BTreeMap::new();
-    for (mu, &m) in &b.try_two_weight_multiplicities()? {
-        let m = signed_multiplicity(m)?;
-        for omega in try_weyl_orbit(series, mu)? {
-            // 2ξ = 2(a+ρ) + 2μ (the orbit is already at the doubled scale).
-            let two_xi: Vec<i64> = two_a_rho
-                .iter()
-                .zip(&omega)
-                .map(|(&ar, &w)| add_weight(ar, w))
-                .collect::<Result<_, _>>()?;
-            for &x in &two_xi {
-                x.checked_abs().ok_or(BcdError::LabelOverflow)?;
-            }
-            if let Some((dom, sign)) = dominant_conjugate_signed(series, &two_xi) {
-                // 2c = dom - 2ρ.
-                let c = sub(&dom, &two_rho)?;
-                let count = acc.entry(c).or_insert(0);
-                *count = add_signed_multiplicity(
-                    *count,
-                    // det(w) is ±1; checked narrowing made m nonnegative and <= i64::MAX.
-                    if sign < 0 { -m } else { m },
-                )?;
-            }
-        }
-    }
-
-    let mut result: BTreeMap<Irrep, u32> = BTreeMap::new();
-    for (c, n) in acc {
-        debug_assert!(n >= 0, "Racah–Speiser multiplicity must be non-negative");
-        if n > 0 {
-            result.insert(
-                Irrep {
-                    series,
-                    two_weight: c.into(),
-                },
-                multiplicity(n)?,
-            );
-        }
-    }
-    Ok(result)
+        .map(|(c, n)| (Irrep(c.clone()), *n))
+        .collect())
 }
 
 mod seeds;
@@ -1519,78 +815,4 @@ mod intertwiner_tests;
 #[cfg(test)]
 mod spin_tests;
 
-#[cfg(test)]
-mod arithmetic_tests {
-    use super::*;
-
-    #[test]
-    fn weight_and_multiplicity_bounds() {
-        assert_eq!(add_weight(i64::MAX, 1), Err(BcdError::LabelOverflow));
-        assert_eq!(add_weight(i64::MIN, -1), Err(BcdError::LabelOverflow));
-        assert_eq!(
-            add_signed_multiplicity(i64::MAX, 1),
-            Err(BcdError::LabelOverflow)
-        );
-        assert_eq!(
-            add_signed_multiplicity(i64::MIN, -1),
-            Err(BcdError::LabelOverflow)
-        );
-        assert_eq!(
-            multiplicity(u64::from(u32::MAX) + 1),
-            Err(BcdError::LabelOverflow)
-        );
-        assert_eq!(
-            signed_multiplicity(i64::MAX as u64 + 1),
-            Err(BcdError::LabelOverflow)
-        );
-        assert_eq!(
-            weight_multiplicity(i128::from(u64::MAX) + 1),
-            Err(BcdError::LabelOverflow)
-        );
-        assert_eq!(sub(&[i64::MAX], &[-1]), Err(BcdError::LabelOverflow));
-        assert_eq!(
-            simple_root_coeffs(Series::B, &[i64::MAX - 1, 2]),
-            Err(BcdError::LabelOverflow)
-        );
-        assert_eq!(
-            depth(Series::B, &[i64::MAX - 1, 0, 0], &[0; 3]),
-            Err(BcdError::LabelOverflow)
-        );
-        assert_eq!(
-            weyl_sign_count(u32::BITS as usize),
-            Err(BcdError::LabelOverflow)
-        );
-        assert_eq!(half_sum(i64::MAX, i64::MAX), i64::MAX);
-        assert_eq!(half_sum(i64::MIN, i64::MIN), i64::MIN);
-        assert_eq!(
-            checked_dot(&[i64::MAX; 2], &[2; 2]),
-            Ok(i128::from(i64::MAX) * 4)
-        );
-        assert_eq!(
-            checked_dot(&[i64::MAX; 3], &[i64::MAX; 3]),
-            Err(BcdError::LabelOverflow)
-        );
-        assert_eq!(
-            freudenthal_sum(0, 0, i128::MAX, 2, 1),
-            Err(BcdError::LabelOverflow)
-        );
-        assert_eq!(
-            freudenthal_sum(i128::MAX, 0, 1, 1, 1),
-            Err(BcdError::LabelOverflow)
-        );
-        assert_eq!(
-            freudenthal_sum(0, 0, 1, i128::MAX / 2, u64::MAX),
-            Err(BcdError::LabelOverflow)
-        );
-        assert_eq!(freudenthal_sum(4, -2, 3, 2, 5), Ok(44));
-        assert_eq!(
-            dot_mod_four(&[i64::MIN, i64::MAX], &[i64::MAX, i64::MAX]),
-            1
-        );
-        #[cfg(target_pointer_width = "64")]
-        assert_eq!(
-            rho_coordinate(Series::C, i64::MAX as usize / 2),
-            Err(BcdError::LabelOverflow)
-        );
-    }
-}
+pub(super) use super::general::roots::two_partition_to_dynkin;

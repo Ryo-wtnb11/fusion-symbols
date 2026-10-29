@@ -1120,7 +1120,7 @@ fn projection_reuse_matches_old_bits_and_counts() {
 
 #[test]
 fn raw_storage_charges_all_capacities_and_deep_labels() {
-    use crate::cache::{CacheKeyCharge, ARC_COUNTS_BYTES};
+    use crate::cache::CacheKeyCharge;
     use std::mem::size_of;
     let mut block = so5_adjoint_block();
     block.cgc.data.reserve_exact(13);
@@ -1141,7 +1141,7 @@ fn raw_storage_charges_all_capacities_and_deep_labels() {
         + block.gens.sz.capacity() * size_of::<Vec<f64>>();
     assert_eq!(
         block.irrep.key_bytes() - size_of::<Irrep>(),
-        ARC_COUNTS_BYTES + 16
+        block.irrep.0.heap_bytes()
     );
     let mut blocks = Vec::with_capacity(5);
     blocks.push(block);

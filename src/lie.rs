@@ -9,7 +9,7 @@ pub use u1::{U1Error, U1Irrep, U1};
 #[cfg(feature = "lie-generated")]
 pub(crate) mod bcd;
 #[cfg(feature = "lie-generated")]
-mod general;
+pub(crate) mod general;
 mod gt;
 #[cfg(feature = "lie-generated")]
 pub(crate) mod sun;
@@ -75,6 +75,8 @@ pub struct LieGroup {
     // The exceptional engine and its bounded memo; shared by clones.
     #[cfg(feature = "lie-generated")]
     general: Option<Arc<general::Engine>>,
+    #[cfg(feature = "lie-generated")]
+    roots: Option<Arc<std::sync::OnceLock<Arc<general::roots::CartanData>>>>,
 }
 
 /// Snapshot of a [`LieGroup`]'s retained B/C/D generator catalogs, summed over
@@ -113,7 +115,7 @@ impl std::hash::Hash for LieGroup {
 
 /// A validated representation, including its group's identity. Rank-one
 /// labels are stored inline, without allocation. Higher-rank clones share their
-/// weight buffer; warm duals reuse a budgeted group-side lookup.
+/// exact payload, including dimension and conjugate coordinates; duals need no cache.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LieIrrep {
     group: GroupId,
@@ -438,6 +440,8 @@ impl LieGroup {
         coefficient_roots(&group)?;
         if group.root_systems().is_empty() && group.torus_rank() == 1 && group.is_cover() {
             return Ok(Self {
+                #[cfg(feature = "lie-generated")]
+                roots: None,
                 group,
                 composite: None,
                 #[cfg(feature = "lie-generated")]
@@ -464,14 +468,14 @@ impl LieGroup {
             {
                 let series = bcd_series(root)
                     .expect("the enclosing match restricts the root system to B/C/D");
+                let catalog = bcd::CanonicalCatalog::new(series, root.rank())?;
                 return Ok(Self {
+                    roots: Some(Arc::new(std::sync::OnceLock::from(catalog.roots.clone()))),
                     group,
                     composite: None,
                     unit: std::sync::OnceLock::new(),
                     general: None,
-                    catalog: Some(std::sync::Arc::new(std::sync::Mutex::new(
-                        bcd::CanonicalCatalog::new(series, root.rank())?,
-                    ))),
+                    catalog: Some(Arc::new(std::sync::Mutex::new(catalog))),
                 });
             }
             #[cfg(not(feature = "lie-generated"))]
@@ -484,6 +488,8 @@ impl LieGroup {
         #[cfg(feature = "lie-generated")]
         if general::serves(root) {
             return Ok(Self {
+                #[cfg(feature = "lie-generated")]
+                roots: None,
                 group,
                 composite: None,
                 unit: std::sync::OnceLock::new(),
@@ -499,6 +505,7 @@ impl LieGroup {
                     return Err(LieError::LabelOverflow);
                 }
                 return Ok(Self {
+                    roots: Some(Arc::new(std::sync::OnceLock::new())),
                     group,
                     composite: None,
                     unit: std::sync::OnceLock::new(),
@@ -517,6 +524,8 @@ impl LieGroup {
             });
         }
         Ok(Self {
+            #[cfg(feature = "lie-generated")]
+            roots: None,
             group,
             composite: None,
             #[cfg(feature = "lie-generated")]
@@ -565,14 +574,14 @@ impl LieGroup {
         #[cfg(feature = "lie-generated")]
         if let Some(series) = bcd_series(root) {
             if root != RootSystem::D(2) && root.rank() >= 2 {
+                let catalog = bcd::CanonicalCatalog::with_budget(series, root.rank(), max_bytes)?;
                 return Ok(Self {
+                    roots: Some(Arc::new(std::sync::OnceLock::from(catalog.roots.clone()))),
                     group,
                     composite: None,
                     unit: std::sync::OnceLock::new(),
                     general: None,
-                    catalog: Some(std::sync::Arc::new(std::sync::Mutex::new(
-                        bcd::CanonicalCatalog::with_budget(series, root.rank(), max_bytes)?,
-                    ))),
+                    catalog: Some(Arc::new(std::sync::Mutex::new(catalog))),
                 });
             }
         }
@@ -650,6 +659,8 @@ impl LieGroup {
             )?);
         }
         Ok(Self {
+            #[cfg(feature = "lie-generated")]
+            roots: None,
             group,
             composite: Some(Product::new(factors)),
             #[cfg(feature = "lie-generated")]
@@ -874,7 +885,7 @@ impl LieGroup {
         if matches!(self.group.root_systems()[0], RootSystem::A(r) if r >= 2) {
             return Ok(LieIrrep {
                 group: self.group.clone(),
-                payload: LiePayload::Generated(sun::Irrep::from_dynkin(dynkin)?),
+                payload: LiePayload::Generated(sun::Irrep(self.roots().irrep(dynkin)?)),
             });
         }
         #[cfg(feature = "lie-generated")]
@@ -888,7 +899,7 @@ impl LieGroup {
         if self.catalog.is_some() {
             return Ok(LieIrrep {
                 group: self.group.clone(),
-                payload: LiePayload::Bcd(bcd::Irrep::from_dynkin_in(&self.group, dynkin)?),
+                payload: LiePayload::Bcd(bcd::Irrep(self.roots().irrep(dynkin)?)),
             });
         }
         let [dj] = dynkin else {
@@ -899,6 +910,14 @@ impl LieGroup {
             group: self.group.clone(),
             payload: LiePayload::RankOne(dj),
         })
+    }
+    #[cfg(feature = "lie-generated")]
+    fn roots(&self) -> &Arc<general::roots::CartanData> {
+        // Large A-series group identities stay cheap until a label needs exact root mathematics.
+        self.roots
+            .as_ref()
+            .expect("generated root context")
+            .get_or_init(|| general::roots::CartanData::new(self.group.root_systems()[0]))
     }
     #[cfg(feature = "lie-generated")]
     fn engine(&self) -> &general::Engine {
@@ -1180,25 +1199,17 @@ impl LieIrrep {
         #[cfg(feature = "lie-generated")]
         if let Some(a) = self.exceptional() {
             return a
-                .weight_multiplicities(self.group.root_systems()[0])
+                .weight_multiplicities(&a.roots())
                 .expect("infallible weight_multiplicities failed: a weight exceeds i64");
         }
         #[cfg(feature = "lie-generated")]
         if let Some(a) = self.generated() {
-            let mut weights = BTreeMap::new();
-            for p in a.patterns() {
-                let w = sun::cgc::pattern_weight(&p, p.rank()).expect(
-                    "infallible weight_multiplicities failed: GT row sum or weight exceeds i64",
-                );
-                let count = weights
-                    .entry(w.windows(2).map(|x| x[0] - x[1]).collect())
-                    .or_insert(0u64);
-                *count = count
-                    .checked_add(1)
-                    .expect("weight counts are bounded by the allocated GT pattern count");
-            }
-            return weights;
+            return a
+                .0
+                .weight_multiplicities(&a.0.roots())
+                .expect("infallible weight multiplicities exceed range");
         }
+
         if self.group.semisimple_rank() == 0 {
             return BTreeMap::from([(vec![i64::from(self.charge())], 1)]);
         }
@@ -1347,14 +1358,14 @@ impl FusionCategory for LieGroup {
         if let Some(x) = a.bcd() {
             return LieIrrep {
                 group: self.group.clone(),
-                payload: LiePayload::Bcd(crate::cache::bcd_dual(x, || x.dual())),
+                payload: LiePayload::Bcd(x.dual()),
             };
         }
         #[cfg(feature = "lie-generated")]
         if let Some(x) = a.generated() {
             return LieIrrep {
                 group: self.group.clone(),
-                payload: LiePayload::Generated(crate::cache::sun_dual(x, || x.dual())),
+                payload: LiePayload::Generated(x.dual()),
             };
         }
         #[cfg(feature = "lie-generated")]
@@ -1378,9 +1389,9 @@ impl FusionCategory for LieGroup {
                 .expect("composite object has a product")
                 .dim(factors),
             #[cfg(feature = "lie-generated")]
-            LiePayload::Bcd(x) => weyl_dim_f64(x.checked_dim(), || x.ratio_dim()),
+            LiePayload::Bcd(x) => x.dim_f64(),
             #[cfg(feature = "lie-generated")]
-            LiePayload::Generated(x) => weyl_dim_f64(x.checked_dim(), || x.ratio_dim()),
+            LiePayload::Generated(x) => x.dim_f64(),
             #[cfg(feature = "lie-generated")]
             LiePayload::Exceptional(x) => x.dim_f64(),
         }
@@ -1493,8 +1504,8 @@ impl FusionCategory for LieGroup {
         }
         #[cfg(feature = "lie-generated")]
         if let (Some(a), Some(b)) = (a.generated(), b.generated()) {
-            let product = sun::shared_directproduct(a, b)?;
-            let back = product.iter().count();
+            let product = sun::Product(self.roots().product(&a.0, &b.0)?);
+            let back = product.0.len();
             return Ok(LieFusion {
                 group: Some(self.group.clone()),
                 inner: FusionInner::Generated {
@@ -1506,7 +1517,7 @@ impl FusionCategory for LieGroup {
         }
         #[cfg(feature = "lie-generated")]
         if let (Some(a), Some(b)) = (a.bcd(), b.bcd()) {
-            let product = bcd::shared_directproduct(a, b)?;
+            let product = self.roots().product(&a.0, &b.0)?;
             let back = product.len();
             return Ok(LieFusion {
                 group: Some(self.group.clone()),
@@ -1585,14 +1596,11 @@ impl FusionCategory for LieGroup {
         }
         #[cfg(feature = "lie-generated")]
         if let (Some(a), Some(b), Some(c)) = (a.generated(), b.generated(), c.generated()) {
-            return Ok(sun::shared_directproduct(a, b)?.multiplicity(c));
+            return self.roots().multiplicity(&a.0, &b.0, &c.0);
         }
         #[cfg(feature = "lie-generated")]
         if let (Some(a), Some(b), Some(c)) = (a.bcd(), b.bcd(), c.bcd()) {
-            return Ok(bcd::shared_directproduct(a, b)?
-                .iter()
-                .find(|(x, _)| x == c)
-                .map_or(0, |(_, n)| *n));
+            return self.roots().multiplicity(&a.0, &b.0, &c.0);
         }
         #[cfg(feature = "lie-generated")]
         if let (Some(a), Some(b), Some(c)) = (a.exceptional(), b.exceptional(), c.exceptional()) {
@@ -2045,20 +2053,20 @@ enum FusionInner {
     Composite(CompositeFusion),
     #[cfg(feature = "lie-generated")]
     Bcd {
-        product: std::sync::Arc<[(bcd::Irrep, u32)]>,
+        product: general::roots::Product,
         front: usize,
         back: usize,
     },
     A1(su2::A1Fusion),
     #[cfg(feature = "lie-generated")]
     Generated {
-        product: sun::SunProduct,
+        product: sun::Product,
         front: usize,
         back: usize,
     },
     #[cfg(feature = "lie-generated")]
     Exceptional {
-        product: std::sync::Arc<[(general::Irrep, u32)]>,
+        product: general::roots::Product,
         front: usize,
         back: usize,
     },
@@ -2123,7 +2131,7 @@ impl LieFusion {
                 };
                 Some(LieIrrep {
                     group: group.expect("fusion retains its group").clone(),
-                    payload: LiePayload::Bcd(product[i].0.clone()),
+                    payload: LiePayload::Bcd(bcd::Irrep(product[i].0.clone())),
                 })
             }
             FusionInner::A1(inner) => (if reverse {
@@ -2154,7 +2162,7 @@ impl LieFusion {
                 };
                 Some(LieIrrep {
                     group: group.expect("fusion retains its group").clone(),
-                    payload: LiePayload::Generated(product.channel(index).clone()),
+                    payload: LiePayload::Generated(product.channel(index)),
                 })
             }
         }
@@ -2681,6 +2689,76 @@ mod arithmetic_tests {
                 bcd::sweep::SweepError::LabelOverflow
             )),
             LieError::LabelOverflow
+        );
+    }
+}
+
+#[cfg(all(test, feature = "lie-generated"))]
+mod root_payload_tests {
+    use super::*;
+    #[test]
+    fn dim_is_label_owned_and_takes_no_global_lock() {
+        use std::{sync::mpsc, time::Duration};
+        let _serial = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
+        let groups = [
+            GroupId::su(6).unwrap(),
+            GroupId::spin(9).unwrap(),
+            GroupId::sp(8).unwrap(),
+            GroupId::spin(10).unwrap(),
+            GroupId::g2(),
+            GroupId::e6(),
+        ]
+        .map(|id| LieGroup::new(id).unwrap());
+        let mut cases = Vec::new();
+        for g in &groups {
+            let r = g.group.semisimple_rank();
+            for label in [vec![1; r], vec![1000; r]] {
+                // Complex E6 retains its existing public coefficient-index bound.
+                let a = g.irrep(&label).unwrap();
+                cases.push((g.clone(), a));
+            }
+        }
+        let expected = cases
+            .iter()
+            .map(|(g, a)| g.dim(a).to_bits())
+            .collect::<Vec<_>>();
+        crate::cache::reset();
+        general::roots::EVALUATIONS.with(|n| n.set((0, 0)));
+        for _ in 0..32 {
+            for ((g, a), bits) in cases.iter().zip(&expected) {
+                assert_eq!(g.dim(a).to_bits(), *bits);
+            }
+        }
+        general::roots::EVALUATIONS.with(|n| assert_eq!(n.get(), (0, 0)));
+        let catalog_locks = groups
+            .iter()
+            .filter_map(|g| g.catalog.as_ref())
+            .map(|c| c.lock().unwrap())
+            .collect::<Vec<_>>();
+        let family_locks = groups
+            .iter()
+            .filter_map(|g| g.general.as_ref())
+            .map(|e| e.family())
+            .collect::<Vec<_>>();
+        let (tx, rx) = mpsc::channel();
+        let (worker, result) = crate::cache::with_publication_locks(|| {
+            let worker = std::thread::spawn(move || {
+                let bits = cases
+                    .iter()
+                    .map(|(g, a)| g.dim(a).to_bits())
+                    .collect::<Vec<_>>();
+                tx.send(bits).unwrap();
+            });
+            let result = rx.recv_timeout(Duration::from_secs(5));
+            (worker, result)
+        });
+        drop(family_locks);
+        drop(catalog_locks);
+        worker.join().unwrap();
+        assert_eq!(
+            result.unwrap(),
+            expected,
+            "dim must finish before any global/family/catalog lock is released"
         );
     }
 }

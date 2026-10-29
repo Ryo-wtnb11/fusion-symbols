@@ -38,12 +38,12 @@ fn labels_zero_channels_and_warm_generation() {
 
     cache::reset();
     let cold: Vec<_> = cat.fusion(&eight, &eight).unwrap().collect();
-    let misses = cache::tier_stats(Tier::SunProduct).misses;
+    let misses = cache::tier_stats(Tier::Product).misses;
     assert_eq!(
         cat.fusion(&eight, &eight).unwrap().collect::<Vec<_>>(),
         cold
     );
-    assert_eq!(cache::tier_stats(Tier::SunProduct).misses, misses);
+    assert_eq!(cache::tier_stats(Tier::Product).misses, misses);
     let cgc = cat.cgc(&eight, &eight, &eight).unwrap();
     let misses = cache::tier_stats(Tier::SunCgc).misses;
     assert_eq!(cat.cgc(&eight, &eight, &eight).unwrap(), cgc);
@@ -51,7 +51,7 @@ fn labels_zero_channels_and_warm_generation() {
     let product = fusion_symbols::product::Product::new((cat.clone(), a1.clone()));
     let channel = (eight.clone(), a1.irrep(&[2]).unwrap());
     let first = product.cgc(&channel, &channel, &channel).unwrap();
-    let tiers = [Tier::SunCgc, Tier::SunProduct, Tier::ThreeJ];
+    let tiers = [Tier::SunCgc, Tier::Product, Tier::ThreeJ];
     let [cgc_stats, product_stats, three_j] = tiers.map(cache::tier_stats);
     assert_eq!(product.cgc(&channel, &channel, &channel).unwrap(), first);
     let [cgc_warm, product_warm, three_j_warm] = tiers.map(cache::tier_stats);
@@ -60,7 +60,7 @@ fn labels_zero_channels_and_warm_generation() {
     assert!(cgc_warm.hits > cgc_stats.hits);
     assert_eq!(three_j_warm.misses, three_j.misses);
     let r = cat.r_symbol(&eight, &eight, &eight).unwrap();
-    let tiers = [Tier::SunCgc, Tier::SunProduct];
+    let tiers = [Tier::SunCgc, Tier::Product];
     let misses = tiers.map(|tier| cache::tier_stats(tier).misses);
     assert_eq!(cat.r_symbol(&eight, &eight, &eight).unwrap(), r);
     assert_eq!(tiers.map(|tier| cache::tier_stats(tier).misses), misses);

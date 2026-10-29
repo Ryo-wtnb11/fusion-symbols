@@ -153,7 +153,7 @@ fn collect_working_set() {
             }
         }
     }
-    let cold = cache::tier_stats(cache::CoefficientCacheTier::SunProduct);
+    let cold = cache::tier_stats(cache::CoefficientCacheTier::Product);
 
     for (_, labels) in &families {
         for i in 0..labels.len() {
@@ -162,7 +162,7 @@ fn collect_working_set() {
             }
         }
     }
-    let warm = cache::tier_stats(cache::CoefficientCacheTier::SunProduct);
+    let warm = cache::tier_stats(cache::CoefficientCacheTier::Product);
 
     let octet = irr(&[1, 1]);
     let _ = directproduct(&octet, &octet).unwrap();
@@ -190,7 +190,7 @@ fn collect_working_set() {
 
     cache::reset();
     run_racah_generation_workload();
-    let generated = cache::tier_stats(cache::CoefficientCacheTier::SunProduct);
+    let generated = cache::tier_stats(cache::CoefficientCacheTier::Product);
     let lookups = generated.hits + generated.misses;
     let hit_rate = if lookups == 0 {
         0.0

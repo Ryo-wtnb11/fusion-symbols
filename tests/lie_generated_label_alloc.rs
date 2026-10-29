@@ -61,8 +61,7 @@ fn warm_generated_fusion_yields_labels_without_allocation() {
     }
 }
 
-// Warm means the label and the group's root data exist; `dim` and `sqrt_dim`
-// then evaluate the Weyl product in machine integers.
+// Generated labels own their dimensions; warm `dim` and `sqrt_dim` read stored data.
 #[test]
 fn warm_generated_dim_and_sqrt_dim_do_not_allocate() {
     let _serial = crate::common::counting_alloc::serial();

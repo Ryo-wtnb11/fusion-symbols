@@ -1,10 +1,8 @@
 //! Independent oracles: closed forms, literal tables from
 //! `docs/gauge_exceptional.md` §6.2 and §9 (Bourbaki Plates V–IX), and the
-//! existing SU(N) and B/C/D implementations as a differential check.
+//! literal classical products and chirality orbits.
 
 use super::*;
-use crate::lie::bcd::{self, Series};
-use crate::lie::sun;
 use std::collections::BTreeSet;
 
 /// Every label of length `rank` with entries summing to at most `total`.
@@ -177,114 +175,6 @@ fn two_rho_and_two_rho_vee() {
         CartanData::new(RootSystem::A(4)).two_rho_vee(),
         [4, 6, 6, 4]
     );
-}
-
-// ---- differential against SU(N) and B/C/D -----------------------------------
-
-fn sun_irrep(l: &[i64]) -> sun::Irrep {
-    sun::Irrep::from_dynkin(l).unwrap()
-}
-
-fn bcd_irrep(series: Series, l: &[i64]) -> bcd::Irrep {
-    bcd::Irrep::from_dynkin_in(&series.cover_group(l.len()), l).unwrap()
-}
-
-/// SU(N) weights from GT patterns: `w_l = σ_l − σ_{l−1}` with `σ_l` the row sum
-/// of row `l`, and Dynkin coordinate `i` equal to `w_i − w_{i+1}`.
-fn sun_weights(irrep: &sun::Irrep) -> BTreeMap<Vec<i64>, u64> {
-    let n = irrep.rank();
-    let mut out = BTreeMap::new();
-    for p in irrep.patterns() {
-        let sigma: Vec<i64> = (0..=n)
-            .map(|l| (1..=l).map(|k| p.get(k, l)).sum())
-            .collect();
-        let w: Vec<i64> = (1..=n).map(|l| sigma[l] - sigma[l - 1]).collect();
-        let dynkin = w.windows(2).map(|x| x[0] - x[1]).collect();
-        *out.entry(dynkin).or_insert(0) += 1;
-    }
-    out
-}
-
-#[test]
-fn differential_sun() {
-    for r in 1..=4 {
-        let d = CartanData::new(RootSystem::A(r));
-        let box_ = labels(r, if r <= 2 { 3 } else { 2 });
-        for l in &box_ {
-            let irrep = sun_irrep(l);
-            assert_eq!(d.weyl_dimension(l).unwrap(), irrep.dim(), "A{r} {l:?}");
-            assert_eq!(d.dual(l).unwrap(), irrep.dual().dynkin(), "A{r} {l:?}");
-            assert_eq!(
-                d.weight_multiplicities(l).unwrap(),
-                sun_weights(&irrep),
-                "A{r} {l:?}"
-            );
-            if irrep.dual() == irrep {
-                let sign = f64::from(d.two_rho_vee_sign(l).unwrap());
-                assert_eq!(sign, irrep.frobenius_schur_phase(), "A{r} {l:?}");
-            }
-        }
-        for a in labels(r, 2) {
-            for b in labels(r, if r <= 2 { 2 } else { 1 }) {
-                let expected: BTreeMap<Vec<i64>, u32> =
-                    sun::directproduct(&sun_irrep(&a), &sun_irrep(&b))
-                        .unwrap()
-                        .into_iter()
-                        .map(|(c, n)| (c.dynkin(), n))
-                        .collect();
-                assert_eq!(
-                    d.tensor_product(&a, &b).unwrap(),
-                    expected,
-                    "A{r} {a:?}⊗{b:?}"
-                );
-            }
-        }
-    }
-}
-
-#[test]
-fn differential_bcd() {
-    let cases = [
-        (Series::B, 2, 3, 2),
-        (Series::B, 3, 2, 1),
-        (Series::C, 2, 3, 2),
-        (Series::C, 3, 2, 1),
-        (Series::D, 4, 2, 1),
-        (Series::D, 5, 1, 1),
-    ];
-    for (series, r, total, product_total) in cases {
-        let d = CartanData::new(series.root_system(r));
-        for l in labels(r, total) {
-            let irrep = bcd_irrep(series, &l);
-            let tag = format!("{series:?}{r} {l:?}");
-            assert_eq!(d.weyl_dimension(&l).unwrap(), irrep.dim(), "{tag}");
-            assert_eq!(d.dual(&l).unwrap(), irrep.dual().dynkin(), "{tag}");
-            assert_eq!(
-                d.weight_multiplicities(&l).unwrap(),
-                irrep.dynkin_weight_multiplicities(),
-                "{tag}"
-            );
-            if irrep.dual() == irrep {
-                let sign = f64::from(d.two_rho_vee_sign(&l).unwrap());
-                assert_eq!(sign, irrep.frobenius_schur_phase(), "{tag}");
-            }
-        }
-        for a in labels(r, product_total) {
-            for b in labels(r, product_total) {
-                let expected: BTreeMap<Vec<i64>, u32> =
-                    bcd::directproduct(&bcd_irrep(series, &a), &bcd_irrep(series, &b))
-                        .unwrap()
-                        .into_iter()
-                        .map(|(c, n)| (c.dynkin(), n))
-                        .collect();
-                assert_eq!(
-                    d.tensor_product(&a, &b).unwrap(),
-                    expected,
-                    "{series:?}{r} {a:?}⊗{b:?}"
-                );
-            }
-        }
-    }
 }
 
 // ---- exceptional tables ------------------------------------------------------
@@ -596,7 +486,8 @@ fn invalid_and_huge_labels() {
     assert_eq!(g2.weyl_dimension(&[m, 0]).unwrap(), expected);
     assert_eq!(g2.two_rho_vee_sign(&[m, m]), Ok(1));
     // −(m, 0) → s₁ → (m, −m) → s₂ needs m − 3m: out of range.
-    assert_eq!(g2.dual(&[m, 0]), Err(LieError::LabelOverflow));
+    assert_eq!(g2.dual(&[m, 0]), Ok(vec![m, 0]));
+    assert_eq!(g2.check_dual_domain(&[m, 0]), Err(LieError::LabelOverflow));
     assert_eq!(
         g2.dominant_multiplicities(&[m, 0]),
         Err(LieError::LabelOverflow)
@@ -615,4 +506,292 @@ fn invalid_and_huge_labels() {
     );
     let e8 = CartanData::new(RootSystem::E8);
     assert!(e8.weyl_dimension(&[m; 8]).unwrap() > u128::MAX);
+}
+
+#[test]
+fn payload_identity_and_legacy_product_order() {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let hash = |x: &RootIrrep| {
+        let mut h = DefaultHasher::new();
+        x.hash(&mut h);
+        h.finish()
+    };
+    for (root, a, b, expected) in [
+        // SU(3): 3 x 6bar = 3bar + 15bar, ordered by partitions, not Dynkin labels.
+        (
+            RootSystem::A(2),
+            vec![1, 0],
+            vec![0, 2],
+            vec![vec![0, 1], vec![1, 2]],
+        ),
+        // D3: 4 x 4bar = 1 + 15 (odd-D dual pair).
+        (
+            RootSystem::D(3),
+            vec![0, 0, 1],
+            vec![0, 1, 0],
+            vec![vec![0, 0, 0], vec![0, 1, 1]],
+        ),
+        // B2: 4 x 4 = 1 + 5 + 10 (equal-dimension spinor factors).
+        (
+            RootSystem::B(2),
+            vec![0, 1],
+            vec![0, 1],
+            vec![vec![0, 0], vec![1, 0], vec![0, 2]],
+        ),
+        // C2: 4 x 4 = 1 + 5 + 10.
+        (
+            RootSystem::C(2),
+            vec![1, 0],
+            vec![1, 0],
+            vec![vec![0, 0], vec![0, 1], vec![2, 0]],
+        ),
+    ] {
+        let data = CartanData::new(root);
+        let (a, b) = (data.irrep(&a).unwrap(), data.irrep(&b).unwrap());
+        let product = data.product(&a, &b).unwrap();
+        assert_eq!(
+            product
+                .iter()
+                .map(|(c, n)| {
+                    assert_eq!(*n, 1);
+                    c.dynkin().to_vec()
+                })
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(data.product(&b, &a).unwrap(), product);
+        assert_eq!(
+            product
+                .iter()
+                .rev()
+                .map(|(c, _)| c.dynkin().to_vec())
+                .collect::<Vec<_>>(),
+            expected.into_iter().rev().collect::<Vec<_>>()
+        );
+        for (c, n) in product.iter() {
+            assert_eq!(product.multiplicity(c), *n);
+        }
+        let same = data.irrep(a.dynkin()).unwrap();
+        assert_eq!(a, same);
+        assert_eq!(hash(&a), hash(&same));
+        assert_eq!(a.dual().dual(), a);
+        let unit = data.irrep(&vec![0; root.rank()]).unwrap();
+        let unit_product = data
+            .load_product(
+                data.multiplicities(unit.dynkin(), a.dynkin(), Some((&unit, &a)))
+                    .unwrap(),
+                Some((&unit, &a)),
+            )
+            .unwrap();
+        assert_eq!(unit_product.len(), 1);
+        assert_eq!(unit_product[0].1, 1);
+        assert!(Arc::ptr_eq(&unit_product[0].0.data, &a.data));
+    }
+    let data = CartanData::new(RootSystem::A(2));
+    assert!(
+        data.irrep(&[1, 0]).unwrap() < data.irrep(&[0, 2]).unwrap(),
+        "preserve partition order, which differs from Dynkin order"
+    );
+}
+
+#[test]
+fn classical_overflow_precedes_unit_shortcuts() {
+    for root in [RootSystem::B(2), RootSystem::C(2), RootSystem::D(3)] {
+        let data = CartanData::new(root);
+        let r = root.rank();
+        let mut huge = vec![0; r];
+        huge[0] = i64::MAX / 2;
+        assert_eq!(
+            data.tensor_product(&vec![0; r], &huge),
+            Err(LieError::LabelOverflow)
+        );
+    }
+    let data = CartanData::new(RootSystem::D(3));
+    assert_eq!(
+        data.dynkin(&[i64::MAX, i64::MAX, i64::MAX]).unwrap(),
+        vec![0, 0, i64::MAX]
+    );
+    assert_eq!(data.dynkin(&[i64::MIN, 0, 0]), Err(LieError::LabelOverflow));
+}
+
+#[test]
+fn d_chirality_orbits() {
+    let orbit = |w: &[i64]| {
+        classical::try_weyl_orbit(Series::D, w)
+            .unwrap()
+            .into_iter()
+            .collect::<BTreeSet<_>>()
+    };
+    assert_eq!(
+        orbit(&[1, 1, -1]),
+        [
+            vec![-1, -1, -1],
+            vec![-1, 1, 1],
+            vec![1, -1, 1],
+            vec![1, 1, -1]
+        ]
+        .into_iter()
+        .collect()
+    );
+    assert_eq!(
+        orbit(&[1, 1, 1]),
+        [
+            vec![1, 1, 1],
+            vec![1, -1, -1],
+            vec![-1, 1, -1],
+            vec![-1, -1, 1]
+        ]
+        .into_iter()
+        .collect()
+    );
+    assert_eq!(
+        orbit(&[2, 0, 0]),
+        [
+            vec![2, 0, 0],
+            vec![-2, 0, 0],
+            vec![0, 2, 0],
+            vec![0, -2, 0],
+            vec![0, 0, 2],
+            vec![0, 0, -2]
+        ]
+        .into_iter()
+        .collect()
+    );
+    for series in [Series::B, Series::C, Series::D] {
+        assert_eq!(
+            classical::try_weyl_orbit(series, &[0; 32]),
+            Err(LieError::LabelOverflow)
+        );
+        assert_eq!(
+            classical::try_weyl_orbit(series, &[i64::MIN, 0]),
+            Err(LieError::LabelOverflow)
+        );
+    }
+}
+
+#[test]
+fn n_builds_no_channel_dimensions_and_fusion_reuses_the_product() {
+    let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
+    for root in [
+        RootSystem::A(5),
+        RootSystem::B(3),
+        RootSystem::C(4),
+        RootSystem::D(6),
+        RootSystem::E6,
+    ] {
+        let data = CartanData::new(root);
+        let a = data.irrep(&unit(root.rank(), 0, 1)).unwrap();
+        let b = a.dual();
+        let one = data.irrep(&vec![0; root.rank()]).unwrap();
+        crate::cache::reset();
+        EVALUATIONS.with(|n| n.set((0, 0)));
+        assert_eq!(data.multiplicity(&a, &b, &one).unwrap(), 1);
+        assert_eq!(data.multiplicity(&b, &a, &one).unwrap(), 1);
+        EVALUATIONS.with(|n| assert_eq!(n.get(), (0, 0)));
+        let product = data.product(&a, &b).unwrap();
+        assert_eq!(product.multiplicity(&one), 1);
+        EVALUATIONS.with(|n| n.set((0, 0)));
+        assert!(product.ptr_eq(&data.product(&b, &a).unwrap()));
+        EVALUATIONS.with(|n| assert_eq!(n.get(), (0, 0)));
+    }
+}
+
+#[test]
+fn labels_reuse_live_root_context_without_retaining_its_tables() {
+    let data = CartanData::new(RootSystem::A(2));
+    let weak = Arc::downgrade(&data);
+    let a = data.irrep(&[1, 0]).unwrap();
+    EVALUATIONS.with(|n| n.set((0, 0)));
+    assert!(Arc::ptr_eq(&data, &a.roots()));
+    assert_eq!(a.weight_multiplicities(&a.roots()).unwrap().len(), 3);
+    EVALUATIONS.with(|n| assert_eq!(n.get(), (0, 0)));
+    drop(data);
+    assert!(
+        weak.upgrade().is_none(),
+        "labels must not retain root tables"
+    );
+    assert_eq!(a.weight_multiplicities(&a.roots()).unwrap().len(), 3);
+}
+
+#[test]
+#[ignore = "isolated Product cache and root-context counters"]
+fn warm_adapter_does_not_rebuild_context_after_group_drop() {
+    let data = CartanData::new(RootSystem::A(2));
+    let a = data.irrep(&[1, 0]).unwrap();
+    let one = data.irrep(&[0, 0]).unwrap();
+    crate::cache::reset();
+    let first = shared_product(&a, &one).unwrap();
+    drop(data);
+    EVALUATIONS.with(|n| n.set((0, 0)));
+    assert!(first.ptr_eq(&shared_product(&a, &one).unwrap()));
+    EVALUATIONS.with(|n| assert_eq!(n.get(), (0, 0)));
+}
+
+#[test]
+fn weyl_dimension_of_scaled_rho() {
+    use malachite_base::num::arithmetic::traits::Pow;
+    // Every Weyl factor of k*rho is k+1, including beyond the u128 boundary.
+    for root in [
+        RootSystem::A(16),
+        RootSystem::B(12),
+        RootSystem::C(12),
+        RootSystem::D(12),
+        RootSystem::G2,
+        RootSystem::F4,
+        RootSystem::E6,
+        RootSystem::E7,
+        RootSystem::E8,
+    ] {
+        let data = CartanData::new(root);
+        for k in [0, 1, 1000] {
+            assert_eq!(
+                data.weyl_dimension(&vec![k; root.rank()]).unwrap(),
+                Integer::from(Natural::from((k + 1) as u64).pow(data.positive.len() as u64)),
+                "{root} k={k}"
+            );
+        }
+    }
+}
+
+#[test]
+fn coefficient_checks_use_dimension_free_multiplicities() {
+    use crate::frcore::Family;
+    let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
+    let roots = CartanData::new(RootSystem::C(2));
+    let a = crate::lie::bcd::Irrep(roots.irrep(&[1, 0]).unwrap());
+    let one = crate::lie::bcd::Irrep(roots.irrep(&[0, 0]).unwrap());
+    crate::cache::reset();
+    EVALUATIONS.with(|n| n.set((0, 0)));
+    assert_eq!(crate::lie::bcd::fr::mult(&a, &a, &one).unwrap(), 1);
+    assert_eq!(crate::lie::bcd::fr::mult(&a, &a, &one).unwrap(), 1);
+    EVALUATIONS.with(|n| assert_eq!(n.get(), (0, 0)));
+    let mut family = super::super::cgc::GeneralFamily::new(RootSystem::G2);
+    crate::cache::reset();
+    EVALUATIONS.with(|n| n.set((0, 0)));
+    assert_eq!(
+        family.mult(&vec![1, 0], &vec![1, 0], &vec![0, 0]).unwrap(),
+        1
+    );
+    EVALUATIONS.with(|n| n.set((0, 0)));
+    assert_eq!(
+        family.mult(&vec![1, 0], &vec![1, 0], &vec![0, 0]).unwrap(),
+        1
+    );
+    EVALUATIONS.with(|n| assert_eq!(n.get(), (0, 0)));
+    // Slice-only checks may compute input dimensions, but retain no labels projection.
+    assert_eq!(
+        crate::cache::tier_stats(crate::cache::CoefficientCacheTier::Product).entries,
+        1
+    );
+
+    let engine = super::super::Engine::new(RootSystem::G2);
+    let a = engine.irrep(&[1, 0]).unwrap();
+    let one = engine.irrep(&[0, 0]).unwrap();
+    crate::cache::reset();
+    let first = engine.cgc(&a, &a, &one).unwrap();
+    assert_eq!(engine.cgc(&a, &a, &one).unwrap(), first);
+    assert_eq!(
+        crate::cache::tier_stats(crate::cache::CoefficientCacheTier::Product).entries,
+        1
+    );
 }

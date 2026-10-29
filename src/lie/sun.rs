@@ -51,13 +51,19 @@
 //! stores no global form: two forms that share a weight share its basis
 //! ordering, phases, normalization, gauge and cache entries.
 //!
-use std::collections::{BTreeMap, HashMap};
+#[cfg(test)]
+use super::general::roots::CartanData;
+use super::general::roots::{Product as RootProduct, RootIrrep};
+#[cfg(test)]
+use super::RootSystem;
+#[cfg(test)]
+use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
 
+use malachite_base::num::arithmetic::traits::Abs;
 #[cfg(test)]
 use malachite_base::num::arithmetic::traits::Pow;
-use malachite_base::num::{arithmetic::traits::Abs, basic::traits::One};
 #[cfg(test)]
 use malachite_nz::integer::Integer;
 use malachite_nz::natural::Natural;
@@ -84,14 +90,17 @@ pub(crate) enum SunError {
     LabelOverflow,
     /// A rank-0 label (empty weight / empty Dynkin for `N = 1` is a single
     /// zero, so a genuinely empty slice is rejected here).
+    #[cfg(test)]
     EmptyLabel,
     /// A weight that is not nonincreasing (`λᵢ < λᵢ₊₁` for some `i`), i.e. its
     /// implied Dynkin label would be negative.
+    #[cfg(test)]
     NotNonincreasing {
         /// The offending (unnormalized) weight.
         weight: Vec<i64>,
     },
     /// A Dynkin label with a negative component.
+    #[cfg(test)]
     NegativeDynkin {
         /// The offending Dynkin label.
         dynkin: Vec<i64>,
@@ -142,10 +151,13 @@ impl fmt::Display for SunError {
                 f,
                 "a label, weight, dimension or multiplicity exceeds the integer range"
             ),
+            #[cfg(test)]
             SunError::EmptyLabel => write!(f, "SU(N) irrep label must be non-empty"),
+            #[cfg(test)]
             SunError::NotNonincreasing { weight } => {
                 write!(f, "SU(N) weight is not nonincreasing: {weight:?}")
             }
+            #[cfg(test)]
             SunError::NegativeDynkin { dynkin } => {
                 write!(f, "SU(N) Dynkin label has a negative component: {dynkin:?}")
             }
@@ -183,96 +195,54 @@ impl std::error::Error for SunError {}
 /// `Ord`/`Hash` are on the normalized weight, so two `Irrep`s are equal iff
 /// they denote the same irrep; the order is deterministic (used as a map key).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub(crate) struct Irrep {
-    /// Normalized highest weight, length `N`, nonincreasing, last entry `0`.
-    weight: Arc<[i64]>,
-}
+pub(crate) struct Irrep(pub(crate) RootIrrep);
 
-/// Shared, sorted channels of one SU(N) tensor-product decomposition.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SunProduct(Arc<[(Irrep, u32)]>);
-
-impl SunProduct {
-    pub(crate) fn channel(&self, index: usize) -> &Irrep {
-        &self.0[index].0
+pub struct Product(pub(crate) RootProduct);
+impl Product {
+    pub(crate) fn channel(&self, i: usize) -> Irrep {
+        Irrep(self.0[i].0.clone())
     }
-
-    pub(crate) fn from_map(product: BTreeMap<Irrep, u32>) -> Self {
-        Self(product.into_iter().collect())
+    #[cfg(test)]
+    pub fn iter(&self) -> impl Iterator<Item = (Irrep, u32)> + '_ {
+        self.0.iter().map(|(c, n)| (Irrep(c.clone()), *n))
     }
-
-    /// Iterates over channels in irrep order with their multiplicities.
-    pub fn iter(&self) -> impl Iterator<Item = (&Irrep, u32)> {
-        self.0
-            .iter()
-            .map(|(irrep, multiplicity)| (irrep, *multiplicity))
+    #[cfg(test)]
+    pub fn multiplicity(&self, c: &Irrep) -> u32 {
+        self.0.multiplicity(&c.0)
     }
-
-    /// Returns the channel multiplicity, or zero when `irrep` is absent.
-    pub fn multiplicity(&self, irrep: &Irrep) -> u32 {
-        self.0
-            .binary_search_by(|(candidate, _)| candidate.cmp(irrep))
-            .map(|index| self.0[index].1)
-            .unwrap_or(0)
-    }
-
     #[cfg(test)]
     pub(crate) fn ptr_eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
+        self.0.ptr_eq(&other.0)
     }
-
     #[cfg(test)]
     pub(crate) fn strong_count(&self) -> usize {
-        Arc::strong_count(&self.0)
+        std::sync::Arc::strong_count(&self.0 .0)
     }
 }
-
-#[cfg(test)]
-std::thread_local! {
-    static PUBLIC_DIRECTPRODUCT_RECONSTRUCTIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+impl crate::cache::CacheKeyCharge for Irrep {
+    fn key_bytes(&self) -> usize {
+        self.0.key_bytes()
+    }
 }
-
+#[cfg(test)]
+std::thread_local! {static PUBLIC_DIRECTPRODUCT_RECONSTRUCTIONS:std::cell::Cell<usize>=const {std::cell::Cell::new(0)};}
 #[cfg(test)]
 pub(crate) fn reset_public_directproduct_reconstructions() {
-    PUBLIC_DIRECTPRODUCT_RECONSTRUCTIONS.with(|count| count.set(0));
+    PUBLIC_DIRECTPRODUCT_RECONSTRUCTIONS.with(|c| c.set(0));
 }
-
 #[cfg(test)]
 pub(crate) fn public_directproduct_reconstructions() -> usize {
     PUBLIC_DIRECTPRODUCT_RECONSTRUCTIONS.with(std::cell::Cell::get)
 }
 
-impl crate::cache::CacheCharge for SunProduct {
-    fn value_bytes(&self) -> usize {
-        std::mem::size_of::<Self>()
-            .saturating_add(crate::cache::ARC_COUNTS_BYTES)
-            .saturating_add(std::mem::size_of_val(self.0.as_ref()))
-            .saturating_add(
-                self.0
-                    .iter()
-                    .map(|(irrep, _)| irrep.weight_bytes())
-                    .fold(0usize, usize::saturating_add),
-            )
-    }
-}
-
-impl crate::cache::CacheKeyCharge for Irrep {
-    fn key_bytes(&self) -> usize {
-        std::mem::size_of::<Self>().saturating_add(self.weight_bytes())
-    }
-}
-
 impl Irrep {
-    /// Shared weight allocation: counts plus payload.
-    pub(crate) fn weight_bytes(&self) -> usize {
-        crate::cache::ARC_COUNTS_BYTES.saturating_add(std::mem::size_of_val(self.weight.as_ref()))
-    }
-
     /// Construct from an `N`-component highest weight (any shift representative).
     ///
     /// Normalizes by subtracting the last component. Rejects an empty slice
     /// ([`SunError::EmptyLabel`]) or a non-nonincreasing weight
     /// ([`SunError::NotNonincreasing`]).
+    #[cfg(test)]
     pub fn from_weight(weight: &[i64]) -> Result<Self, SunError> {
         if weight.is_empty() {
             return Err(SunError::EmptyLabel);
@@ -287,7 +257,7 @@ impl Irrep {
         let last = weight[weight.len() - 1];
         weight[0].checked_sub(last).ok_or(SunError::LabelOverflow)?;
         // Keep the exact-length iterator so Arc fills its allocation directly.
-        let norm: Arc<[i64]> = weight
+        let norm: Vec<i64> = weight
             .iter()
             .map(|x| {
                 x.checked_sub(last).expect(
@@ -295,7 +265,7 @@ impl Irrep {
                 )
             })
             .collect();
-        Ok(Irrep { weight: norm })
+        Self::from_dynkin(&norm.windows(2).map(|w| w[0] - w[1]).collect::<Vec<_>>())
     }
 
     /// Construct from the `N-1` Dynkin labels `aᵢ = λᵢ − λᵢ₊₁` (all `≥ 0`).
@@ -303,25 +273,17 @@ impl Irrep {
     /// `N = dynkin.len() + 1`. Mirrors `_dynkin_to_weight`: the weight is the
     /// suffix sums with a trailing `0`. An empty slice yields the SU(1) trivial
     /// irrep. Rejects a negative component ([`SunError::NegativeDynkin`]).
+    #[cfg(test)]
     pub fn from_dynkin(dynkin: &[i64]) -> Result<Self, SunError> {
         if dynkin.iter().any(|&a| a < 0) {
             return Err(SunError::NegativeDynkin {
                 dynkin: dynkin.to_vec(),
             });
         }
-        // Suffix sums, emitted front to back so the exact-length iterator fills
-        // the shared allocation directly.
-        let mut suffix = weight_sum(dynkin)?;
-        let weight = dynkin
-            .iter()
-            .map(|&a| {
-                let w = suffix;
-                suffix -= a;
-                w
-            })
-            .chain([0])
-            .collect();
-        Ok(Irrep { weight })
+        CartanData::new(RootSystem::A(dynkin.len()))
+            .irrep(dynkin)
+            .map(Self)
+            .map_err(|_| SunError::LabelOverflow)
     }
 
     /// The trivial (vacuum) SU(N) irrep — the all-zero weight of length `N`.
@@ -331,24 +293,22 @@ impl Irrep {
         if n == 0 {
             return Err(SunError::EmptyLabel);
         }
-        Ok(Irrep {
-            weight: vec![0i64; n].into(),
-        })
+        Self::from_dynkin(&vec![0; n - 1])
     }
 
     /// The rank `N` of the SU(N) group.
     pub fn rank(&self) -> usize {
-        self.weight.len()
+        self.0.classical().len()
     }
 
     /// The normalized highest weight (length `N`, nonincreasing, last `0`).
     pub(super) fn weight(&self) -> &[i64] {
-        &self.weight
+        self.0.classical()
     }
 
     /// The `N-1` Dynkin labels `aᵢ = λᵢ − λᵢ₊₁`.
     pub fn dynkin(&self) -> Vec<i64> {
-        self.weight.windows(2).map(|w| w[0] - w[1]).collect()
+        self.0.dynkin().to_vec()
     }
 
     /// The Weyl dimension, exact.
@@ -358,44 +318,21 @@ impl Irrep {
     /// The product is an integer, evaluated in checked machine arithmetic and,
     /// only when that overflows, as a `Rational` (no `u*` cap on `N`).
     pub fn dim(&self) -> Natural {
-        self.checked_dim()
-            .map_or_else(|| self.ratio_dim(), Natural::from)
+        self.0.dim().clone()
     }
-
-    /// [`Self::dim`] when it and its reduced intermediates fit `u128`.
+    pub(crate) fn dim_f64(&self) -> f64 {
+        self.0.dim_f64()
+    }
+    #[cfg(test)]
     pub(crate) fn checked_dim(&self) -> Option<u128> {
-        crate::exact::checked_integral_quotient(self.weyl_factors())
+        u128::try_from(self.0.dim()).ok()
     }
-
-    /// [`Self::dim`] in unbounded exact arithmetic.
+    #[cfg(test)]
     pub(crate) fn ratio_dim(&self) -> Natural {
-        self.weyl_factors()
-            .fold(Rational::ONE, |acc, (n, d)| {
-                acc * Rational::from_unsigneds(n, d)
-            })
-            .into_numerator()
+        self.dim()
     }
-
-    /// The Weyl factors `(k₂-k₁ + λ_{k₁} - λ_{k₂}, k₂-k₁)`; the weight is
-    /// nonincreasing, so `abs_diff` is the exact difference.
-    fn weyl_factors(&self) -> impl Iterator<Item = (u128, u128)> + '_ {
-        let w = &self.weight;
-        (2..=w.len()).flat_map(move |k2| {
-            (1..k2).map(move |k1| {
-                let d = (k2 - k1) as u128;
-                (d + u128::from(w[k1 - 1].abs_diff(w[k2 - 1])), d)
-            })
-        })
-    }
-
-    /// The dual (conjugate) irrep. Ported from `sector.jl:dual`: reverse the
-    /// Dynkin labels. Reversing a nonnegative Dynkin label stays valid, so the
-    /// reconstruction cannot fail.
-    pub fn dual(&self) -> Irrep {
-        let mut d = self.dynkin();
-        d.reverse();
-        Irrep::from_dynkin(&d)
-            .expect("reversing nonnegative Dynkin labels preserves their representable sum")
+    pub fn dual(&self) -> Self {
+        Self(self.0.dual())
     }
 
     /// The Frobenius–Schur phase $\kappa_a = \operatorname{sign} F^{a\bar a a}_a[1, 1]$
@@ -429,25 +366,7 @@ impl Irrep {
     /// sweep and SUNRepresentations' own values. No CGC is generated to
     /// answer it.
     pub fn frobenius_schur_phase(&self) -> f64 {
-        let n = self.rank();
-        // Only the parity of Σ aᵢ·i(N−i) matters; summing parities avoids overflow.
-        let odd = self
-            .weight
-            .windows(2)
-            .enumerate()
-            .filter(|&(i, w)| {
-                (w[0] - w[1]) % 2 != 0
-                    && !(i + 1).is_multiple_of(2)
-                    && !(n - i - 1).is_multiple_of(2)
-            })
-            .count()
-            % 2
-            == 1;
-        if odd {
-            -1.0
-        } else {
-            1.0
-        }
+        f64::from(self.0.sign())
     }
 
     /// All GT patterns of this irrep, in the reference basis order.
@@ -459,7 +378,7 @@ impl Irrep {
     /// `gt_enumerate` for the recursion.
     pub fn patterns(&self) -> Vec<GtPattern> {
         let n = self.rank();
-        gt_enumerate(&self.weight)
+        super::gt::gt_enumerate(self.weight())
             .into_iter()
             .map(|data| GtPattern {
                 n,
@@ -618,46 +537,6 @@ struct LadderEntry {
 /// for each recurses into `GTPatternIterator{N-1}`, with the recursion as the
 /// inner (faster) loop. Concatenating `(toprow, subpattern)` reproduces both
 /// the flat storage layout and the iteration order.
-fn gt_enumerate(toprow: &[i64]) -> Vec<Vec<i64>> {
-    let n = toprow.len();
-    if n == 1 {
-        return vec![vec![toprow[0]]];
-    }
-    let mut out = Vec::new();
-    for subrow in subrow_order(toprow) {
-        for sub in gt_enumerate(&subrow) {
-            let mut data = toprow.to_vec();
-            data.extend_from_slice(&sub);
-            out.push(data);
-        }
-    }
-    out
-}
-
-/// All admissible second rows for `toprow`, in the reference product order:
-/// `sub[j] ∈ [toprow[j+1], toprow[j]]` (GT betweenness), with the *last* entry
-/// `sub[N-2]` varying fastest and `sub[0]` slowest.
-fn subrow_order(toprow: &[i64]) -> Vec<Vec<i64>> {
-    let m = toprow.len() - 1;
-    let mut out = Vec::new();
-    let mut cur = Vec::with_capacity(m);
-    subrow_rec(0, m, toprow, &mut cur, &mut out);
-    out
-}
-
-fn subrow_rec(j: usize, m: usize, toprow: &[i64], cur: &mut Vec<i64>, out: &mut Vec<Vec<i64>>) {
-    if j == m {
-        out.push(cur.clone());
-        return;
-    }
-    // Ascending, matching Julia's `I[j+1]:I[j]` UnitRange iteration.
-    for val in toprow[j + 1]..=toprow[j] {
-        cur.push(val);
-        subrow_rec(j + 1, m, toprow, cur, out);
-        cur.pop();
-    }
-}
-
 fn ladder_base(weight: i64, kp: usize, k: usize) -> Result<i64, SunError> {
     i64::try_from(kp)
         .ok()
@@ -677,11 +556,12 @@ fn ladder_denominator(g: i64) -> Result<i64, SunError> {
         .ok_or(SunError::LabelOverflow)
 }
 fn add_weight(a: i64, b: i64) -> Result<i64, SunError> {
-    a.checked_add(b).ok_or(SunError::LabelOverflow)
+    super::general::roots::add_weight(a, b).map_err(|_| SunError::LabelOverflow)
 }
 fn weight_sum(weights: &[i64]) -> Result<i64, SunError> {
     weights.iter().try_fold(0i64, |sum, &w| add_weight(sum, w))
 }
+#[cfg(test)]
 fn add_multiplicity(a: u32, b: u32) -> Result<u32, SunError> {
     a.checked_add(b).ok_or(SunError::LabelOverflow)
 }
@@ -722,56 +602,22 @@ pub fn directproduct(a: &Irrep, b: &Irrep) -> Result<BTreeMap<Irrep, u32>, SunEr
 /// The cached, read-only tensor-product decomposition of `a ⊗ b`.
 ///
 /// Same content as [`directproduct`] — every `c` with `N^c_ab > 0` and its
-/// multiplicity — but returned as a cheaply cloneable [`SunProduct`] backed by
+/// multiplicity — but returned as a cheaply cloneable [`Product`] backed by
 /// the process-global product cache, so repeated queries on the same pair do
-/// not rebuild the map. Query it with [`SunProduct::multiplicity`] or iterate
-/// with [`SunProduct::iter`]. Errors identically ([`SunError::RankMismatch`]
+/// not rebuild the map. Query it with [`Product::multiplicity`] or iterate
+/// with [`Product::iter`]. Errors identically ([`SunError::RankMismatch`]
 /// on mismatched `N`).
-pub fn shared_directproduct(a: &Irrep, b: &Irrep) -> Result<SunProduct, SunError> {
+#[cfg(test)]
+pub fn shared_directproduct(a: &Irrep, b: &Irrep) -> Result<Product, SunError> {
     if a.rank() != b.rank() {
         return Err(SunError::RankMismatch {
             a: a.rank(),
             b: b.rank(),
         });
     }
-    let (left, right) = if a <= b { (a, b) } else { (b, a) };
-    crate::cache::sun_product(left, right, || directproduct_uncached(a, b))
-}
-
-fn directproduct_uncached(a: &Irrep, b: &Irrep) -> Result<SunProduct, SunError> {
-    // Check before GT enumeration, including when one huge label is paired with a small one.
-    for (&x, &y) in a.weight().iter().zip(b.weight()) {
-        add_weight(x, y)?;
-    }
-    let (a, b) = if a.dim() <= b.dim() { (a, b) } else { (b, a) };
-    let n = a.rank();
-    let mut result: BTreeMap<Irrep, u32> = BTreeMap::new();
-    for m in a.patterns() {
-        // t starts as b's weight; each GT row of `a` shifts one component.
-        let mut t: Vec<i64> = b.weight.to_vec();
-        let mut bad = false;
-        'scan: for k in 1..=n {
-            for l in (k..=n).rev() {
-                let mut bkl = m.get(k, l);
-                if l > k {
-                    // checkbounds(m, k, l-1): valid when l-1 ≥ k.
-                    bkl -= m.get(k, l - 1);
-                }
-                t[l - 1] = add_weight(t[l - 1], bkl)?;
-                if l > 1 && t[l - 2] < t[l - 1] {
-                    bad = true;
-                    break 'scan;
-                }
-            }
-        }
-        if !bad {
-            // t is a valid (nonincreasing) weight; from_weight normalizes it.
-            let s = Irrep::from_weight(&t)?;
-            let count = result.entry(s).or_insert(0);
-            *count = add_multiplicity(*count, 1)?;
-        }
-    }
-    Ok(SunProduct::from_map(result))
+    super::general::roots::shared_product(&a.0, &b.0)
+        .map(Product)
+        .map_err(|_| SunError::LabelOverflow)
 }
 
 /// `sign(coef) * sqrt(|coef|)` as an exact [`SignedSqrtRational`], matching

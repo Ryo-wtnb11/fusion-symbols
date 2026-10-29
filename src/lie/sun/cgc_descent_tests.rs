@@ -262,9 +262,7 @@ fn indexed_descent_preserves_bits_and_builds_structure_once() {
                 assert_eq!(new_op.by_col, old_op.by_col);
             }
         }
-        let expected =
-            crate::lie::checked_dimension(shared_directproduct(&a, &b).unwrap().multiplicity(&c))
-                .unwrap();
+        let expected = super::super::fr::mult(&a, &b, &c).unwrap();
         let mut data = HashMap::new();
         let mut old = HashMap::new();
         let n = highest_weight_cgc(&mut data, &ctx, expected).unwrap();
@@ -354,4 +352,22 @@ fn descent_factors_only_plans_with_rhs() {
         Some(SunError::Linalg("lstsq: singular R diagonal".into()))
     );
     assert_eq!(linalg::FACTORIZATIONS.get(), 1);
+}
+
+#[test]
+fn coefficient_multiplicity_checks_do_not_build_channel_dimensions() {
+    use crate::lie::general::roots::{CartanData, EVALUATIONS};
+    let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
+    let roots = CartanData::new(crate::lie::RootSystem::A(2));
+    let a = Irrep(roots.irrep(&[1, 0]).unwrap());
+    let b = Irrep(a.0.dual());
+    let one = Irrep(roots.irrep(&[0, 0]).unwrap());
+    crate::cache::reset();
+    EVALUATIONS.with(|n| n.set((0, 0)));
+    assert_eq!(super::super::fr::mult(&a, &b, &one).unwrap(), 1);
+    assert_eq!(super::super::fr::mult(&b, &a, &one).unwrap(), 1);
+    EVALUATIONS.with(|n| assert_eq!(n.get(), (0, 0)));
+    crate::cache::reset();
+    generate(&a, &b, &one, None).unwrap();
+    EVALUATIONS.with(|n| assert_eq!(n.get(), (0, 0)));
 }

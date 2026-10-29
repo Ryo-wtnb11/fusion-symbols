@@ -93,6 +93,10 @@ The diagram with one column of height k is `ω_k`, the antisymmetric power.
 
 ## Dimension
 
+Generated labels store their exact Weyl dimension and its rounded `f64` value
+at construction; repeated `dim()` reads need no global lock. Conjugate views
+share one label payload, so `dual()` needs no cache lookup.
+
 The Weyl dimension formula gives the dimension from the labels:
 
 dim λ = Π_{α > 0} ⟨λ + ρ, α∨⟩ / ⟨ρ, α∨⟩,

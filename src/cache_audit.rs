@@ -58,8 +58,8 @@ fn emit(phase: &str, measurement: Option<Measurement>) {
         CoefficientCacheTier::DerivedF,
     ]
     .map(cache::tier_stats);
-    let [sun_product, sun_cgc, sun_f, sun_r, bcd_cgc, bcd_f, bcd_r] = [
-        CoefficientCacheTier::SunProduct,
+    let [product, sun_cgc, sun_f, sun_r, bcd_cgc, bcd_f, bcd_r] = [
+        CoefficientCacheTier::Product,
         CoefficientCacheTier::SunCgc,
         CoefficientCacheTier::SunF,
         CoefficientCacheTier::SunR,
@@ -87,7 +87,7 @@ fn emit(phase: &str, measurement: Option<Measurement>) {
         three_j.entries, three_j.bytes, three_j.hits, three_j.misses, three_j.evictions,
         six_j.entries, six_j.bytes, six_j.hits, six_j.misses, six_j.evictions,
         derived_f.entries, derived_f.bytes, derived_f.hits, derived_f.misses, derived_f.evictions,
-        sun_product.entries, sun_product.bytes, sun_product.hits, sun_product.misses, sun_product.evictions,
+        product.entries, product.bytes, product.hits, product.misses, product.evictions,
         sun_cgc.entries, sun_cgc.bytes, sun_cgc.hits, sun_cgc.misses, sun_cgc.evictions,
         sun_f.entries, sun_f.bytes, sun_f.hits, sun_f.misses, sun_f.evictions,
         bcd_cgc.entries, bcd_cgc.bytes, bcd_cgc.hits, bcd_cgc.misses, bcd_cgc.evictions,
@@ -246,7 +246,7 @@ fn coefficient_cache_audit() {
     let three_bar = irr(&[0, 1]);
     let eight = irr(&[1, 1]);
     let _ = shared_directproduct(&three, &three_bar).unwrap();
-    clone_slope("owned_sun_product", || {
+    clone_slope("owned_product", || {
         directproduct(&three, &three_bar).unwrap()
     });
     let _ = cgc(&three, &three_bar, &eight).unwrap();
@@ -277,5 +277,5 @@ fn coefficient_cache_audit() {
         owners_before_reset,
         before_drop.saturating_sub(after_drop),
     );
-    emit("public_sun_product_retained_after_reset", None);
+    emit("public_product_retained_after_reset", None);
 }

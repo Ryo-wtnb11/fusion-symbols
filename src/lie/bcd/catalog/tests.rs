@@ -708,7 +708,7 @@ fn retained_raw_budget_failures_are_atomic_and_retryable() {
     let a = irr(Series::C, &[1, 0]);
     let one = irr(Series::C, &[0, 0]);
     let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap();
-    let raw = canonical_product(&a, &a, &cat.store[&a], &cat.store[&a], None).unwrap();
+    let raw = canonical_product(&cat.roots, &a, &a, &cat.store[&a], &cat.store[&a], None).unwrap();
     let child = raw.blocks().iter().find(|b| b.irrep() != &one).unwrap();
     cat.max_bytes = cat.bytes() + gen_bytes(child.generators());
     let before = (cat.len(), cat.bytes(), catalog_bits(&cat));

@@ -120,10 +120,10 @@ fn warm_product_is_shared_without_resweeping() {
         assert_eq!(cat.nsymbol(&a, &a, &c), 1);
     }
     let second = super::super::shared_directproduct(a.bcd().unwrap(), a.bcd().unwrap()).unwrap();
-    assert!(std::sync::Arc::ptr_eq(&product, &second));
-    let before_owners = std::sync::Arc::strong_count(&product);
-    cache::trim_to(cache::CoefficientCacheTier::BcdCgc, 0);
-    assert_eq!(std::sync::Arc::strong_count(&product), before_owners - 1);
+    assert!(product.ptr_eq(&second));
+    let before_owners = std::sync::Arc::strong_count(&product.0);
+    cache::trim_to(cache::CoefficientCacheTier::Product, 0);
+    assert_eq!(std::sync::Arc::strong_count(&product.0), before_owners - 1);
     assert_eq!(product.len(), 3, "external products survive trimming");
 }
 
@@ -205,7 +205,7 @@ fn cgc_budget_covers_only_the_requested_channel() {
                 .unwrap();
             }
             if mode == "evicted" {
-                cache::trim_to(cache::CoefficientCacheTier::BcdCgc, 0);
+                cache::trim_to(cache::CoefficientCacheTier::Product, 0);
             }
         }
         let cat = LieGroup::with_catalog_budget(group.clone(), needed).unwrap();
