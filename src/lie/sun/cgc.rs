@@ -9,12 +9,12 @@
 //! Pipeline (`clebschgordan.jl:_CGC`):
 //! 1. `highest_weight_CGC` — build the sparse raising-operator system over the
 //!    coupling subspace at `s3`'s highest weight, take its dense right
-//!    nullspace (full SVD, cut at `TOL_NULLSPACE`), and gauge-fix the block.
+//!    nullspace (SVD with full V, cut at `TOL_NULLSPACE`), and gauge-fix the block.
 //! 2. `lower_weight_CGC!` — descend to every lower weight in reverse
 //!    lexicographic order, solving a per-weight least-squares system.
 //! 3. `purge!` — drop coefficients below `TOL_PURGE`.
 //!
-//! Numerical seams (full SVD, positive-diagonal QR, least squares) route
+//! Numerical seams (SVD with full V, positive-diagonal QR, least squares) route
 //! through [`super::linalg`] (t4a-faer public APIs only).
 
 use super::{add_weight, magnetic_index, weight_sum};
@@ -669,12 +669,12 @@ fn lower_weight_cgc(
                 i += 1;
             }
         }
-        plans.push((m3list, eqs, roots, capacity));
+        plans.push((m3list, eqs, roots, capacity, None));
     }
 
     for alpha in 0..n123 {
         let alpha = magnetic_index(alpha)?;
-        for (m3list, eqs, roots, capacity) in &plans {
+        for (m3list, eqs, roots, capacity, factorization) in &mut plans {
             // Upper bounds count every structural edge for every parent,
             // including zero coefficients: replay never grows either buffer.
             let mut mask_index = HashMap::with_capacity(*capacity);
@@ -709,7 +709,11 @@ fn lower_weight_cgc(
             }
             #[cfg(test)]
             descent_tests::record_solve(eqs, &rhs, &mask);
-            let sols = linalg::lstsq(eqs, &rhs)?;
+            // A plan with no RHS must never factor (or report a singular R).
+            if factorization.is_none() {
+                *factorization = Some(linalg::LeastSquares::factor(eqs, &rhs)?);
+            }
+            let sols = factorization.as_mut().unwrap().solve(&rhs)?;
             for (c, &(m1, m2)) in mask.iter().enumerate() {
                 for (j, &m3) in m3list.iter().enumerate() {
                     let v = sols.at(j, c);
