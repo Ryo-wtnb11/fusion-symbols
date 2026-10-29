@@ -1885,6 +1885,19 @@ pub fn tier_stats(tier: CoefficientCacheTier) -> TierStats {
 pub(crate) static TEST_CACHE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[cfg(all(test, feature = "lie-generated"))]
+pub(crate) fn product_multiplicities_are_resident(
+    root: crate::lie::RootSystem,
+    a: &[i64],
+    b: &[i64],
+) -> bool {
+    let (a, b) = if a <= b { (a, b) } else { (b, a) };
+    product_cache::CACHE_PRODUCT
+        .inner
+        .peek(&product_cache::ProductRef(root, a, b, true))
+        .is_some()
+}
+
+#[cfg(all(test, feature = "lie-generated"))]
 pub(crate) fn with_publication_locks<T>(f: impl FnOnce() -> T) -> T {
     let _guards = [
         CACHE_3J.publication.lock().unwrap(),
@@ -2642,7 +2655,9 @@ mod tests {
             lie::{GroupId, LieGroup},
         };
         use bcd_cgc_cache::{BcdKey, BcdValue, CACHE_BCD_CGC};
-        let _lock = TEST_CACHE_LOCK.lock().unwrap();
+        let _lock = TEST_CACHE_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         for mode in ["public", "f", "r", "f_public", "large"] {
             reset();
             let large = mode == "large";
@@ -2717,7 +2732,9 @@ mod tests {
     #[test]
     fn raw_charge_eviction_and_external_ownership_are_independent() {
         use bcd_cgc_cache::{BcdKey, BcdValue};
-        let _lock = TEST_CACHE_LOCK.lock().unwrap();
+        let _lock = TEST_CACHE_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset();
         let (key, raw) = raw_fixture();
         let BcdValue::Raw(blocks) = &raw else {
@@ -2794,7 +2811,9 @@ mod tests {
     #[test]
     fn nested_raw_lookup_inherits_epoch_before_and_after_child_guard() {
         use bcd_cgc_cache::{BcdKey, BcdValue};
-        let _lock = TEST_CACHE_LOCK.lock().unwrap();
+        let _lock = TEST_CACHE_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset();
         let (raw_key, raw) = raw_fixture();
         let BcdKey::RawProduct(a, b) = &raw_key else {
@@ -2867,7 +2886,9 @@ mod tests {
             sync::{mpsc, Barrier},
             time::Duration,
         };
-        let _lock = TEST_CACHE_LOCK.lock().unwrap();
+        let _lock = TEST_CACHE_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset();
         let (key, raw) = raw_fixture();
         let local = Arc::new(CoefficientCache::new(16, 1 << 20));

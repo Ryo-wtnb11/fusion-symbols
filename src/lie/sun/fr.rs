@@ -271,7 +271,9 @@ mod tests {
 
     #[test]
     fn cached_r_is_bit_identical_to_the_raw_join() {
-        let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
+        let _guard = crate::cache::TEST_CACHE_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let bits = |r: &RBlock<f64>| {
             (
                 r.dim(),

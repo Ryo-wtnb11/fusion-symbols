@@ -671,7 +671,9 @@ fn d_chirality_orbits() {
 
 #[test]
 fn n_builds_no_channel_dimensions_and_fusion_reuses_the_product() {
-    let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
+    let _guard = crate::cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     for root in [
         RootSystem::A(5),
         RootSystem::B(3),
@@ -756,7 +758,9 @@ fn weyl_dimension_of_scaled_rho() {
 #[test]
 fn coefficient_checks_use_dimension_free_multiplicities() {
     use crate::frcore::Family;
-    let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
+    let _guard = crate::cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let roots = CartanData::new(RootSystem::C(2));
     let a = crate::lie::bcd::Irrep(roots.irrep(&[1, 0]).unwrap());
     let one = crate::lie::bcd::Irrep(roots.irrep(&[0, 0]).unwrap());
@@ -767,6 +771,7 @@ fn coefficient_checks_use_dimension_free_multiplicities() {
     EVALUATIONS.with(|n| assert_eq!(n.get(), (0, 0)));
     let mut family = super::super::cgc::GeneralFamily::new(RootSystem::G2);
     crate::cache::reset();
+    LABEL_PROJECTIONS.set(0);
     EVALUATIONS.with(|n| n.set((0, 0)));
     assert_eq!(
         family.mult(&vec![1, 0], &vec![1, 0], &vec![0, 0]).unwrap(),
@@ -778,20 +783,25 @@ fn coefficient_checks_use_dimension_free_multiplicities() {
         1
     );
     EVALUATIONS.with(|n| assert_eq!(n.get(), (0, 0)));
-    // Slice-only checks may compute input dimensions, but retain no labels projection.
-    assert_eq!(
-        crate::cache::tier_stats(crate::cache::CoefficientCacheTier::Product).entries,
-        1
-    );
+    // Observe this key and this thread; unrelated tests may populate other projections.
+    assert!(crate::cache::product_multiplicities_are_resident(
+        RootSystem::G2,
+        &[1, 0],
+        &[1, 0]
+    ));
+    assert_eq!(LABEL_PROJECTIONS.get(), 0);
 
     let engine = super::super::Engine::new(RootSystem::G2);
     let a = engine.irrep(&[1, 0]).unwrap();
     let one = engine.irrep(&[0, 0]).unwrap();
     crate::cache::reset();
+    LABEL_PROJECTIONS.set(0);
     let first = engine.cgc(&a, &a, &one).unwrap();
     assert_eq!(engine.cgc(&a, &a, &one).unwrap(), first);
-    assert_eq!(
-        crate::cache::tier_stats(crate::cache::CoefficientCacheTier::Product).entries,
-        1
-    );
+    assert!(crate::cache::product_multiplicities_are_resident(
+        RootSystem::G2,
+        &[1, 0],
+        &[1, 0]
+    ));
+    assert_eq!(LABEL_PROJECTIONS.get(), 0);
 }

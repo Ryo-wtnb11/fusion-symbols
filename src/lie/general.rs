@@ -396,7 +396,9 @@ mod product_contract_tests {
 
     #[test]
     fn n_does_not_inherit_coefficient_output_limit() {
-        let _guard = cache::TEST_CACHE_LOCK.lock().unwrap();
+        let _guard = cache::TEST_CACHE_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         cache::reset();
         let e = Engine::new(RootSystem::E6);
         let big = e.data.irrep(&[20, 0, 0, 0, 0, 0]).unwrap();

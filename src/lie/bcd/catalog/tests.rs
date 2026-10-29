@@ -602,7 +602,9 @@ fn cgc_bits(c: &CatalogCgc) -> Vec<u64> {
 #[test]
 fn raw_reuse_preserves_canonical_bits_across_orders_and_resets() {
     use crate::{cache, lie::GroupId};
-    let _guard = cache::TEST_CACHE_LOCK.lock().unwrap();
+    let _guard = cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     // B/C/D, spinors, a non-self-dual D label and an OM>1 product.
     for (group, da, db) in [
         (GroupId::so(5).unwrap(), vec![2, 0], vec![2, 0]),
@@ -665,7 +667,9 @@ fn raw_reuse_preserves_canonical_bits_across_orders_and_resets() {
 #[test]
 fn retained_raw_budget_failures_are_atomic_and_retryable() {
     use crate::cache;
-    let _guard = cache::TEST_CACHE_LOCK.lock().unwrap();
+    let _guard = cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     cache::reset();
     let a = irr(Series::B, &[2, 0]);
     let one = irr(Series::B, &[0, 0]);

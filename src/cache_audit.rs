@@ -220,7 +220,9 @@ fn sequential_trace(label: &str, work: &[(&str, fn())]) {
 #[test]
 #[ignore = "manual release-only cache measurement; run --release --features lie-generated -- --ignored --nocapture"]
 fn coefficient_cache_audit() {
-    let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
+    let _guard = crate::cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     eprintln!(
         "COEFFICIENT_CACHE_AUDIT {{\"kind\":\"metadata\",\"revision\":\"{}\",\"features\":\"lie-generated\",\"consumer_revision\":\"N/A\",\"allocator\":\"System tracking test wrapper\",\"platform\":\"{}/{}\",\"rustc\":\"recorded by command\"}}",
         option_env!("RACAH_AUDIT_REVISION").unwrap_or("not-embedded; record git rev-parse HEAD with command"),

@@ -58,7 +58,9 @@ fn workload() {
 }
 
 fn run(mode: &str) {
-    let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
+    let _guard = crate::cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     cache::reset();
     workload();
     let [before_three_j, before_six_j, before_product] = [

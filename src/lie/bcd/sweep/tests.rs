@@ -1075,7 +1075,9 @@ fn projection_reuse_matches_old_bits_and_counts() {
         }
     }
 
-    let _lock = cache::TEST_CACHE_LOCK.lock().unwrap();
+    let _lock = cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut identical = true;
     for (id, labels, channel) in [
         (GroupId::sp(4).unwrap(), vec![2, 1], vec![2, 1]),
@@ -1157,7 +1159,9 @@ fn cached_rotated_raw_is_aligned_before_channel_publication() {
     use super::super::{fr::cached_cgc, CanonicalCatalog};
     use crate::cache;
     use std::sync::{Arc, Mutex};
-    let _lock = cache::TEST_CACHE_LOCK.lock().unwrap();
+    let _lock = cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     cache::reset();
     let a = defining_irrep(Series::B, 2);
     let c = Irrep::from_dynkin(Series::B, &[0, 2]).unwrap();

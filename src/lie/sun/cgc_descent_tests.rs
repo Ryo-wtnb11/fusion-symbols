@@ -357,7 +357,9 @@ fn descent_factors_only_plans_with_rhs() {
 #[test]
 fn coefficient_multiplicity_checks_do_not_build_channel_dimensions() {
     use crate::lie::general::roots::{CartanData, EVALUATIONS};
-    let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
+    let _guard = crate::cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let roots = CartanData::new(crate::lie::RootSystem::A(2));
     let a = Irrep(roots.irrep(&[1, 0]).unwrap());
     let b = Irrep(a.0.dual());

@@ -2282,7 +2282,9 @@ mod tests {
 
     #[test]
     fn torus_composites_warm_calls_do_not_generate() {
-        let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
+        let _guard = crate::cache::TEST_CACHE_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         crate::cache::reset();
         let cover = LieGroup::new(GroupId::cover(&[RootSystem::A(2)], 1).unwrap()).unwrap();
         let quotient = LieGroup::new(GroupId::u(3).unwrap()).unwrap();
@@ -2323,7 +2325,9 @@ mod tests {
 
     #[test]
     fn composite_catalog_budget_split_and_reset() {
-        let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
+        let _guard = crate::cache::TEST_CACHE_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         use RootSystem::{A, B, C, D};
         let byte_budget = |s: CatalogStats| (s.bytes, s.budget);
         let roots = [A(1), B(2), D(2), C(2)];
@@ -2378,8 +2382,9 @@ mod tests {
 
     #[test]
     fn composite_warm_calls_reuse_cover_caches() {
-        use std::sync::atomic::Ordering;
-        let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
+        let _guard = crate::cache::TEST_CACHE_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         crate::cache::reset();
         // Cover and quotient share all generated leaf keys; D2's A1 leaves
         // have exact closed forms and no numerical generation sweep.
@@ -2411,13 +2416,13 @@ mod tests {
         };
         query(&cover);
         let sun = sun::cgc::GENERATIONS.with(std::cell::Cell::get);
-        let bcd = bcd::fr::CGC_SWEEPS.load(Ordering::Relaxed);
+        let bcd = bcd::DECOMPOSITIONS.get();
         assert!(sun > 0);
         assert!(bcd > 0);
         query(&cover);
         query(&quotient);
         assert_eq!(sun::cgc::GENERATIONS.with(std::cell::Cell::get), sun);
-        assert_eq!(bcd::fr::CGC_SWEEPS.load(Ordering::Relaxed), bcd);
+        assert_eq!(bcd::DECOMPOSITIONS.get(), bcd);
     }
 
     #[test]
@@ -2699,7 +2704,9 @@ mod root_payload_tests {
     #[test]
     fn dim_is_label_owned_and_takes_no_global_lock() {
         use std::{sync::mpsc, time::Duration};
-        let _serial = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
+        let _serial = crate::cache::TEST_CACHE_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let groups = [
             GroupId::su(6).unwrap(),
             GroupId::spin(9).unwrap(),

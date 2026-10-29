@@ -54,7 +54,9 @@ fn workload() {
 }
 
 fn run(mode: &str, budgets: CoefficientCacheBudgets, require_eviction: bool, partial: bool) {
-    let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
+    let _guard = crate::cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     cache::configure_cache_budgets(budgets).unwrap();
     cache::reset();
     crate::audit_alloc::reset_peak_to_live();

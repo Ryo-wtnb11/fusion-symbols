@@ -811,6 +811,8 @@ impl CartanData {
         channels: Multiplicities,
         inputs: Option<(&RootIrrep, &RootIrrep)>,
     ) -> Result<Product, LieError> {
+        #[cfg(test)]
+        LABEL_PROJECTIONS.with(|n| n.set(n.get() + 1));
         let mut channels = channels
             .0
             .iter()
@@ -1270,4 +1272,5 @@ pub(crate) use classical::{half_sum, two_partition_to_dynkin};
 #[cfg(test)]
 std::thread_local! {
     pub(crate) static EVALUATIONS:std::cell::Cell<(usize,usize)>=const{std::cell::Cell::new((0,0))};
+    static LABEL_PROJECTIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
