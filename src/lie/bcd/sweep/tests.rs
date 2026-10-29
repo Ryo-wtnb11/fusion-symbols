@@ -1075,7 +1075,9 @@ fn projection_reuse_matches_old_bits_and_counts() {
         }
     }
 
-    let _lock = cache::TEST_CACHE_LOCK.lock().unwrap();
+    let _lock = cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut identical = true;
     for (id, labels, channel) in [
         (GroupId::sp(4).unwrap(), vec![2, 1], vec![2, 1]),
@@ -1120,7 +1122,7 @@ fn projection_reuse_matches_old_bits_and_counts() {
 
 #[test]
 fn raw_storage_charges_all_capacities_and_deep_labels() {
-    use crate::cache::{CacheKeyCharge, ARC_COUNTS_BYTES};
+    use crate::cache::CacheKeyCharge;
     use std::mem::size_of;
     let mut block = so5_adjoint_block();
     block.cgc.data.reserve_exact(13);
@@ -1141,7 +1143,7 @@ fn raw_storage_charges_all_capacities_and_deep_labels() {
         + block.gens.sz.capacity() * size_of::<Vec<f64>>();
     assert_eq!(
         block.irrep.key_bytes() - size_of::<Irrep>(),
-        ARC_COUNTS_BYTES + 16
+        block.irrep.0.heap_bytes()
     );
     let mut blocks = Vec::with_capacity(5);
     blocks.push(block);
@@ -1157,7 +1159,9 @@ fn cached_rotated_raw_is_aligned_before_channel_publication() {
     use super::super::{fr::cached_cgc, CanonicalCatalog};
     use crate::cache;
     use std::sync::{Arc, Mutex};
-    let _lock = cache::TEST_CACHE_LOCK.lock().unwrap();
+    let _lock = cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     cache::reset();
     let a = defining_irrep(Series::B, 2);
     let c = Irrep::from_dynkin(Series::B, &[0, 2]).unwrap();

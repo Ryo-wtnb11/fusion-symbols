@@ -151,6 +151,12 @@ hashing represent mathematical identity, independently of fingerprints.
 
 ## Numerical and capability contracts
 
+The exact producer is `lie/general/roots.rs::CartanData`, with classical
+coordinate branches (including integer A-series GT counting) in that layer.
+Generated labels share immutable dimension/sign/conjugate data; materialized
+simple-factor decompositions share the bounded `cache::CoefficientCacheTier::Product`.
+Rank-one arithmetic and the existing coefficient generators keep their gauges.
+
 Lie dimensions, duals, Frobenius–Schur indicators, weights and fusion
 multiplicities are exact. SU(2) coefficients use signed square-rooted rationals
 and round once to `f64`. G₂, F₄, E₆, E₇ and E₈ coefficients are computed
@@ -210,7 +216,7 @@ Reassociation agrees to floating-point tolerance where intermediate queries are
 representable. Products of `GroupRepresentations` provide lazy tuple or vector CGCs,
 with the last factor fastest on each magnetic and multiplicity axis. Combined
 axis overflow returns `ProductError::Overflow`. Products add no coefficient cache.
-With inline dimension arithmetic, warm single-factor A/B queries allocate only their
+With label-owned dimension reads, warm single-factor A/B queries allocate only their
 returned coefficient buffer (zero for empty or inline blocks).
 Product F/R/A/B compose factor blocks on each query: beyond the factors' own
 allocations, a warm query allocates one buffer per product level whose block

@@ -36,7 +36,7 @@ fn every_coefficient_tier_has_zero_allocation_warm_hits() {
         use fusion_symbols::category::GroupRepresentations;
         let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
         let octet = su3.irrep(&[1, 1]).unwrap();
-        check(Tier::SunProduct, || {
+        check(Tier::Product, || {
             su3.fusion(&octet, &octet).unwrap().count()
         });
         check(Tier::SunCgc, || su3.cgc(&octet, &octet, &octet).unwrap());
@@ -50,8 +50,8 @@ fn every_coefficient_tier_has_zero_allocation_warm_hits() {
         let unit = b2.unit();
         let vector = b2.irrep(&[1, 0]).unwrap();
         let adjoint = b2.irrep(&[0, 2]).unwrap();
-        // The B/C/D tier contains both exact products and CGC.
-        check(Tier::BcdCgc, || {
+        // Exact products use the same tier for every root system.
+        check(Tier::Product, || {
             b2.fusion(&vector, &vector).unwrap().count()
         });
         check(Tier::BcdCgc, || b2.cgc(&vector, &vector, &adjoint).unwrap());
@@ -62,6 +62,31 @@ fn every_coefficient_tier_has_zero_allocation_warm_hits() {
         check(Tier::BcdR, || {
             b2.r_symbol(&vector, &vector, &adjoint).unwrap()
         });
+        for (id, label) in [
+            (GroupId::g2(), vec![1, 0]),
+            (GroupId::e6(), vec![1, 0, 0, 0, 0, 0]),
+            (GroupId::e8(), vec![0, 0, 0, 0, 0, 0, 0, 1]),
+        ] {
+            let g = LieGroup::new(id).unwrap();
+            let a = g.irrep(&label).unwrap();
+            let b = g.dual(&a);
+            let one = g.unit();
+            check(Tier::Product, || g.try_nsymbol(&a, &b, &one).unwrap());
+            check(Tier::Product, || g.fusion(&a, &b).unwrap().count());
+        }
+        for id in [
+            GroupId::su(6).unwrap(),
+            GroupId::spin(12).unwrap(),
+            GroupId::sp(8).unwrap(),
+            GroupId::e8(),
+        ] {
+            let g = LieGroup::new(id).unwrap();
+            let a = g
+                .irrep(&vec![1000; g.group_id().semisimple_rank()])
+                .unwrap();
+            assert!(u128::try_from(&a.dim_exact()).is_err());
+            assert_eq!(counting_alloc::measure(|| g.dim(&a)).0, 0);
+        }
     }
 }
 

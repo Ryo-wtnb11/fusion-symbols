@@ -141,7 +141,7 @@ fn check_product(root: RootSystem, a: &[i64], b: &[i64]) {
         .product(a, b)
         .unwrap()
         .iter()
-        .map(|(c, n)| (c.clone(), *n))
+        .map(|(c, n)| (c.dynkin().to_vec(), *n))
         .collect();
     for (c, n) in outcomes {
         check_channel(&mut fam, a, b, &c, n as usize);
@@ -150,12 +150,12 @@ fn check_product(root: RootSystem, a: &[i64], b: &[i64]) {
 
 /// §9.3, literal decompositions with dimensions from the spec.
 fn decomposition(root: RootSystem, a: &[i64], b: &[i64]) -> Vec<(u64, u32)> {
-    let mut fam = GeneralFamily::new(root);
+    let fam = GeneralFamily::new(root);
     let product: Vec<(Vec<i64>, u32)> = fam
         .product(a, b)
         .unwrap()
         .iter()
-        .map(|(c, n)| (c.clone(), *n))
+        .map(|(c, n)| (c.dynkin().to_vec(), *n))
         .collect();
     let mut out: Vec<(u64, u32)> = product
         .into_iter()
@@ -560,11 +560,11 @@ impl FusionCategory for Cat {
         1.0
     }
     fn fusion<'a>(&'a self, a: &Vec<i64>, b: &Vec<i64>) -> Result<Self::Fusion<'a>, LieError> {
-        let mut fam = self.fam.borrow_mut();
+        let fam = self.fam.borrow_mut();
         Ok(fam
             .product(a, b)?
-            .keys()
-            .cloned()
+            .iter()
+            .map(|(c, _)| c.dynkin().to_vec())
             .collect::<Vec<_>>()
             .into_iter())
     }
@@ -725,7 +725,12 @@ fn resource_report() {
             fam.module(l).unwrap();
         }
         println!("{root:?} {a:?} modules: {:?}", t.elapsed());
-        let outcomes: Vec<Vec<i64>> = fam.product(&a, &b).unwrap().keys().cloned().collect();
+        let outcomes: Vec<Vec<i64>> = fam
+            .product(&a, &b)
+            .unwrap()
+            .iter()
+            .map(|(c, _)| c.dynkin().to_vec())
+            .collect();
         for c in outcomes {
             if !only.is_empty() && !only.contains(&c) {
                 continue;
@@ -793,7 +798,7 @@ fn memo_eviction_bounds_and_phase_pairs() {
     // A completed channel owns its data after all modules/products are gone.
     fam.trim(1, usize::MAX);
     assert_eq!(fam.channels.len(), 1);
-    assert!(fam.modules.is_empty() && fam.products.is_empty());
+    assert!(fam.modules.is_empty());
     let entry = fam.channels.values().next().unwrap();
     assert_eq!(
         entry.bytes,
@@ -921,13 +926,13 @@ fn sparse_nullspace_matches_dense_channels() {
         let outcomes = fam.product(&a, &b).unwrap().clone();
         fam.module(&a).unwrap();
         fam.module(&b).unwrap();
-        for (c, n) in outcomes {
+        for (c, n) in outcomes.iter() {
             compare_nullspace(
                 &fam.data,
                 &fam.modules[&a].value,
                 &fam.modules[&b].value,
-                &c,
-                n as usize,
+                c.dynkin(),
+                *n as usize,
             );
             count += 1;
         }

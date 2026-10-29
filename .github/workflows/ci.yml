@@ -71,6 +71,8 @@ jobs:
           cache-targets: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo test ${{ matrix.args }}
+      - if: matrix.name == 'default'
+        run: cargo test ${{ matrix.args }} --lib lie::general::product_contract_tests::exceptional_product_cache_counted -- --ignored --exact --test-threads=1
 
   # Keep the required check name; failed, cancelled or skipped suites must fail it.
   test:

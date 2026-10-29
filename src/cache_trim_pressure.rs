@@ -44,16 +44,29 @@ fn workload() {
             .unwrap(),
         );
     }
+    use crate::category::FusionCategory;
+    use crate::lie::{GroupId, LieGroup};
+    for (id, label) in [
+        (GroupId::sp(4).unwrap(), vec![1, 0]),
+        (GroupId::e6(), vec![1, 0, 0, 0, 0, 0]),
+    ] {
+        let g = LieGroup::new(id).unwrap();
+        let a = g.irrep(&label).unwrap();
+        let b = g.dual(&a);
+        black_box(g.fusion(&a, &b).unwrap().count());
+    }
 }
 
 fn run(mode: &str) {
-    let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
+    let _guard = crate::cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     cache::reset();
     workload();
     let [before_three_j, before_six_j, before_product] = [
         CoefficientCacheTier::ThreeJ,
         CoefficientCacheTier::SixJ,
-        CoefficientCacheTier::SunProduct,
+        CoefficientCacheTier::Product,
     ]
     .map(cache::tier_stats);
     let targets = match mode {
@@ -73,7 +86,7 @@ fn run(mode: &str) {
     let reports = [
         cache::trim_to(CoefficientCacheTier::ThreeJ, targets[0]),
         cache::trim_to(CoefficientCacheTier::SixJ, targets[1]),
-        cache::trim_to(CoefficientCacheTier::SunProduct, targets[2]),
+        cache::trim_to(CoefficientCacheTier::Product, targets[2]),
     ];
     match mode {
         "retained" => assert!(reports.iter().all(|report| report.removed_entries == 0)),
@@ -92,12 +105,12 @@ fn run(mode: &str) {
     let [after_three_j, after_six_j, after_product] = [
         CoefficientCacheTier::ThreeJ,
         CoefficientCacheTier::SixJ,
-        CoefficientCacheTier::SunProduct,
+        CoefficientCacheTier::Product,
     ]
     .map(cache::tier_stats);
     assert!(after_three_j.bytes <= cache::cache_budgets().limit(CoefficientCacheTier::ThreeJ));
     assert!(after_six_j.bytes <= cache::cache_budgets().limit(CoefficientCacheTier::SixJ));
-    assert!(after_product.bytes <= cache::cache_budgets().limit(CoefficientCacheTier::SunProduct));
+    assert!(after_product.bytes <= cache::cache_budgets().limit(CoefficientCacheTier::Product));
     let sample = std::env::var("COEFFICIENT_CACHE_TRIM_SAMPLE").unwrap_or_else(|_| "0".into());
     let revision = option_env!("RACAH_TRIM_REVISION").unwrap_or("not-embedded");
     eprintln!(

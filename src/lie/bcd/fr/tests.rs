@@ -7,7 +7,9 @@ use std::{sync::mpsc, time::Duration};
 
 #[test]
 fn warm_calls_do_not_lock_or_resweep() {
-    let _guard = cache::TEST_CACHE_LOCK.lock().unwrap();
+    let _guard = cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     cache::reset();
     let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
     let one = cat.unit();
@@ -22,14 +24,15 @@ fn warm_calls_do_not_lock_or_resweep() {
         v.bcd().unwrap(),
         other.bcd().unwrap()
     ));
-    let sweeps = super::CGC_SWEEPS.load(std::sync::atomic::Ordering::Relaxed);
     let clone = cat.clone();
     let lock = cat.catalog.as_ref().unwrap().lock().unwrap();
     let (tx, rx) = mpsc::channel();
     let thread = std::thread::spawn(move || {
+        let sweeps = crate::lie::bcd::DECOMPOSITIONS.get();
         let f = clone.f_symbol(&one, &v, &v, &adj, &v, &adj).unwrap();
         let c = clone.cgc(&v, &v, &adj).unwrap();
         let r = clone.r_symbol(&v, &v, &adj).unwrap();
+        assert_eq!(crate::lie::bcd::DECOMPOSITIONS.get(), sweeps);
         tx.send((f, c, r)).unwrap();
     });
     let result = rx.recv_timeout(Duration::from_secs(5));
@@ -39,15 +42,13 @@ fn warm_calls_do_not_lock_or_resweep() {
     assert_eq!(first, f);
     assert_eq!(cgc, c);
     assert_eq!(r.dim(), 1);
-    assert_eq!(
-        super::CGC_SWEEPS.load(std::sync::atomic::Ordering::Relaxed),
-        sweeps
-    );
 }
 
 #[test]
 fn cached_r_is_bit_identical_to_the_raw_join() {
-    let _guard = cache::TEST_CACHE_LOCK.lock().unwrap();
+    let _guard = cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let bits = |r: &super::RBlock<f64>| {
         (
             r.dim(),
@@ -88,7 +89,9 @@ fn cached_r_is_bit_identical_to_the_raw_join() {
 
 #[test]
 fn poisoned_catalog_is_a_generation_error() {
-    let _guard = cache::TEST_CACHE_LOCK.lock().unwrap();
+    let _guard = cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     cache::reset();
     let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
     let clone = cat.clone();
@@ -109,7 +112,9 @@ fn poisoned_catalog_is_a_generation_error() {
 
 #[test]
 fn warm_product_is_shared_without_resweeping() {
-    let _guard = cache::TEST_CACHE_LOCK.lock().unwrap();
+    let _guard = cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     cache::reset();
     let cat = LieGroup::new(GroupId::spin(5).unwrap()).unwrap();
     let a = cat.irrep(&[0, 1]).unwrap();
@@ -120,10 +125,10 @@ fn warm_product_is_shared_without_resweeping() {
         assert_eq!(cat.nsymbol(&a, &a, &c), 1);
     }
     let second = super::super::shared_directproduct(a.bcd().unwrap(), a.bcd().unwrap()).unwrap();
-    assert!(std::sync::Arc::ptr_eq(&product, &second));
-    let before_owners = std::sync::Arc::strong_count(&product);
-    cache::trim_to(cache::CoefficientCacheTier::BcdCgc, 0);
-    assert_eq!(std::sync::Arc::strong_count(&product), before_owners - 1);
+    assert!(product.ptr_eq(&second));
+    let before_owners = std::sync::Arc::strong_count(&product.0);
+    cache::trim_to(cache::CoefficientCacheTier::Product, 0);
+    assert_eq!(std::sync::Arc::strong_count(&product.0), before_owners - 1);
     assert_eq!(product.len(), 3, "external products survive trimming");
 }
 
@@ -169,7 +174,9 @@ fn d3_adjoint_square_84_channel_cgc_is_coherent_or_bricks() {
 
 #[test]
 fn d3_adjoint_f_symbol_closes_or_bricks() {
-    let _guard = cache::TEST_CACHE_LOCK.lock().unwrap();
+    let _guard = cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let cat = LieGroup::new(GroupId::so(6).unwrap()).unwrap();
     let g = cat.irrep(&[0, 1, 1]).unwrap();
     match cat.f_symbol(&g, &g, &g, &g, &g, &g) {
@@ -186,7 +193,9 @@ fn d3_adjoint_f_symbol_closes_or_bricks() {
 #[test]
 fn cgc_budget_covers_only_the_requested_channel() {
     use super::super::{CanonicalCatalog, Irrep, Series};
-    let _guard = cache::TEST_CACHE_LOCK.lock().unwrap();
+    let _guard = cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     cache::reset();
     let group = GroupId::spin(5).unwrap();
     let s = Irrep::from_dynkin_in(&group, &[0, 1]).unwrap();
@@ -205,7 +214,7 @@ fn cgc_budget_covers_only_the_requested_channel() {
                 .unwrap();
             }
             if mode == "evicted" {
-                cache::trim_to(cache::CoefficientCacheTier::BcdCgc, 0);
+                cache::trim_to(cache::CoefficientCacheTier::Product, 0);
             }
         }
         let cat = LieGroup::with_catalog_budget(group.clone(), needed).unwrap();
@@ -230,7 +239,9 @@ fn cgc_budget_covers_only_the_requested_channel() {
 #[test]
 fn resident_ordered_products_are_swept_once() {
     use super::super::sweep::DECOMPOSITIONS;
-    let _guard = cache::TEST_CACHE_LOCK.lock().unwrap();
+    let _guard = cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     for mode in ["public", "f", "r"] {
         cache::reset();
         let cat = LieGroup::new(GroupId::so(5).unwrap()).unwrap();
@@ -286,7 +297,9 @@ fn resident_ordered_products_are_swept_once() {
 fn simultaneous_siblings_and_canonical_parent_collision_complete() {
     use super::super::sweep::DECOMPOSITIONS;
     use std::sync::{Arc, Barrier};
-    let _guard = cache::TEST_CACHE_LOCK.lock().unwrap();
+    let _guard = cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     // In the last case one thread needs 55's parent 14⊗14 while another
     // requests a channel of that very product.
     for (independent, collision) in [(false, false), (true, false), (true, true)] {
@@ -365,7 +378,9 @@ fn cached_and_uncached_fr_preserve_every_bit_and_fingerprint() {
         }
     }
     let bits = |x: &[f64]| x.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
-    let _guard = cache::TEST_CACHE_LOCK.lock().unwrap();
+    let _guard = cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     for (id, labels, middle) in [
         (GroupId::so(5).unwrap(), vec![2, 0], vec![2, 0]),
         (GroupId::sp(4).unwrap(), vec![1, 0], vec![2, 0]),

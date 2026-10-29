@@ -8,14 +8,11 @@ pub(crate) mod roots;
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use malachite_base::num::arithmetic::traits::UnsignedAbs;
-use malachite_nz::natural::Natural;
-
 use self::cgc::GeneralFamily;
 use self::roots::CartanData;
 use crate::category::{FBlock, RBlock};
 use crate::frcore::{f_block_raw, r_block_raw, Family};
-use crate::lie::{checked_dimension, checked_size, weyl_dim_f64, LieError, RootSystem};
+use crate::lie::{checked_dimension, checked_size, LieError, RootSystem};
 
 /// The exceptional root systems whose coefficients this engine serves: all
 /// five. E6 is the only one with complex irreps, whose `κ_a` is generated
@@ -34,7 +31,7 @@ pub(crate) fn fingerprint() -> &'static [u8] {
     b"fusion-symbols:lie-exceptional:ref=gauge-exceptional-spec:input=bourbaki-cartan:order=depth-rootlex-asc:basis=greedy-rank-gs-own-positive:kron=a-fast:mult=rcef-pivot-gs:descent=intertwiner-own-basis:sign=own-candidate-and-pivot-positive:round=once-correct:fs=gauge-derived:fr=frcore:twist=one:scalar=f64:epoch=1"
 }
 
-/// Memo entries (modules + products + channels + phases) retained after a query.
+/// Memo entries (modules + channels + phases) retained after a query.
 /// A pentagon through the G2 vertex `27 ⊗ 27 → 27` fits; at 256 it ran twice as long.
 const MEMO_ENTRIES: usize = 512;
 
@@ -48,32 +45,30 @@ const MEMO_ENTRIES: usize = 512;
 const MEMO_BYTES: usize = 256 << 20;
 
 /// One exceptional simple factor: its root data and the memo of exact
-/// modules, products, channels and complex-irrep phases, owned by the group value and bounded by
+/// modules, channels and complex-irrep phases, owned by the group value and bounded by
 /// [`MEMO_ENTRIES`] and [`MEMO_BYTES`]. Values are exact, so the memo state
-/// never changes a bit. Fusion and N use only the root data and never take
-/// the memo lock.
+/// never changes a bit. Fusion and N share Product and never take the family memo lock.
 pub(crate) struct Engine {
-    root: RootSystem,
-    data: CartanData,
+    data: Arc<CartanData>,
     family: Mutex<GeneralFamily>,
 }
 
 impl Engine {
     pub(crate) fn new(root: RootSystem) -> Self {
+        let data = CartanData::new(root);
         Self {
-            root,
-            data: CartanData::new(root),
-            family: Mutex::new(GeneralFamily::new(root)),
+            data: data.clone(),
+            family: Mutex::new(GeneralFamily::with_data(data)),
         }
     }
 
-    fn family(&self) -> MutexGuard<'_, GeneralFamily> {
+    pub(super) fn family(&self) -> MutexGuard<'_, GeneralFamily> {
         // A panic mid-query can leave a memo without its partner entries;
         // starting over is always valid.
         self.family.lock().unwrap_or_else(|poisoned| {
             self.family.clear_poison();
             let mut fam = poisoned.into_inner();
-            *fam = GeneralFamily::new(self.root);
+            *fam = GeneralFamily::with_data(self.data.clone());
             fam
         })
     }
@@ -94,10 +89,10 @@ impl Engine {
         (fam.memo_len(), fam.memo_bytes())
     }
 
-    /// Drop every memoized module, product, channel and phase.
+    /// Drop every memoized module, channel and phase.
     pub(crate) fn reset(&self) {
         // Poison recovery already starts over; only the healthy case needs it.
-        *self.family() = GeneralFamily::new(self.root);
+        *self.family() = GeneralFamily::with_data(self.data.clone());
     }
 
     /// A validated label: nonnegative, of this rank, with an exact dimension.
@@ -105,38 +100,25 @@ impl Engine {
     /// `u32::MAX`: its `κ_a` is generated in the module basis (§6.3), whose
     /// magnetic index is `u32`, and `frobenius_schur_phase` is infallible.
     pub(crate) fn irrep(&self, dynkin: &[i64]) -> Result<Irrep, LieError> {
-        let dim = self.data.weyl_dimension(dynkin)?.unsigned_abs();
-        let dual = self.data.dual(dynkin)?;
-        if dual != dynkin && u32::try_from(&dim).is_err() {
+        let irrep = self.data.irrep(dynkin)?;
+        self.validate_output(&irrep)?;
+        Ok(irrep)
+    }
+    fn validate_output(&self, irrep: &Irrep) -> Result<(), LieError> {
+        if !irrep.public_coefficient_label_ok() {
             return Err(LieError::LabelOverflow);
         }
-        let sign = self.data.two_rho_vee_sign(dynkin)?;
-        let dim_f64 = weyl_dim_f64(u128::try_from(&dim).ok(), || dim.clone());
-        Ok(Irrep(Arc::new(Data {
-            dynkin: dynkin.to_vec(),
-            dual,
-            dim,
-            dim_f64,
-            sign,
-        })))
+        Ok(())
     }
-
-    /// `a ⊗ b` in ascending Dynkin-label order, with multiplicities.
-    pub(crate) fn product(&self, a: &Irrep, b: &Irrep) -> Result<Arc<[(Irrep, u32)]>, LieError> {
-        self.data
-            .tensor_product(&a.0.dynkin, &b.0.dynkin)?
-            .into_iter()
-            .map(|(c, n)| Ok((self.irrep(&c)?, n)))
-            .collect()
+    pub(crate) fn product(&self, a: &Irrep, b: &Irrep) -> Result<roots::Product, LieError> {
+        let product = self.data.product(a, b)?;
+        for (c, _) in product.iter() {
+            self.validate_output(c)?;
+        }
+        Ok(product)
     }
-
     pub(crate) fn nsymbol(&self, a: &Irrep, b: &Irrep, c: &Irrep) -> Result<u32, LieError> {
-        Ok(self
-            .data
-            .tensor_product(&a.0.dynkin, &b.0.dynkin)?
-            .get(&c.0.dynkin)
-            .copied()
-            .unwrap_or(0))
+        self.data.multiplicity(a, b, c)
     }
 
     /// `κ_a` (§6.3): the stored closed form for a self-dual irrep, otherwise
@@ -144,17 +126,17 @@ impl Engine {
     /// lock and then memoized for `a` and `ā`.
     pub(crate) fn frobenius_schur_phase(&self, a: &Irrep) -> Result<i8, LieError> {
         if a.is_self_dual() {
-            return Ok(a.0.sign);
+            return Ok(a.sign());
         }
-        self.query(|fam| fam.frobenius_schur_phase(&a.0.dynkin))
+        self.query(|fam| fam.frobenius_schur_phase(a.dynkin()))
     }
 
     pub(crate) fn f_symbol(
         &self,
         [a, b, c, d, e, f]: [&Irrep; 6],
     ) -> Result<FBlock<f64>, LieError> {
-        let [a, b, c, d, e, f] = [a, b, c, d, e, f].map(|x| &x.0.dynkin);
-        self.query(|fam| f_block_raw(fam, a, b, c, d, e, f))
+        let [a, b, c, d, e, f] = [a, b, c, d, e, f].map(|x| x.dynkin().to_vec());
+        self.query(|fam| f_block_raw(fam, &a, &b, &c, &d, &e, &f))
     }
 
     pub(crate) fn r_symbol(
@@ -163,7 +145,14 @@ impl Engine {
         b: &Irrep,
         c: &Irrep,
     ) -> Result<RBlock<f64>, LieError> {
-        self.query(|fam| r_block_raw(fam, &a.0.dynkin, &b.0.dynkin, &c.0.dynkin))
+        self.query(|fam| {
+            r_block_raw(
+                fam,
+                &a.dynkin().to_vec(),
+                &b.dynkin().to_vec(),
+                &c.dynkin().to_vec(),
+            )
+        })
     }
 
     /// The CGC as dims `[d_a, d_b, d_c, N]` and a dense row-major buffer
@@ -175,18 +164,22 @@ impl Engine {
         c: &Irrep,
     ) -> Result<([usize; 4], Vec<f64>), LieError> {
         self.query(|fam| {
-            let [da, db, dc] = [a, b, c].map(|x| checked_dimension(&x.0.dim));
+            let [da, db, dc] = [a, b, c].map(|x| checked_dimension(x.dim()));
             let dims = [
                 da?,
                 db?,
                 dc?,
-                fam.mult(&a.0.dynkin, &b.0.dynkin, &c.0.dynkin)?,
+                crate::lie::checked_dimension(self.data.multiplicity(a, b, c)?)?,
             ];
             if dims[3] == 0 {
                 return Ok((dims, Vec::new()));
             }
             let mut data = vec![0.0; checked_size(dims)?];
-            for e in fam.cgc_entries(&a.0.dynkin, &b.0.dynkin, &c.0.dynkin)? {
+            for e in fam.cgc_entries(
+                &a.dynkin().to_vec(),
+                &b.dynkin().to_vec(),
+                &c.dynkin().to_vec(),
+            )? {
                 let [m1, m2, m3, mu] = [e.m1, e.m2, e.m3, e.mu].map(|i| i as usize);
                 data[((m1 * dims[1] + m2) * dims[2] + m3) * dims[3] + mu] = e.value;
             }
@@ -195,82 +188,7 @@ impl Engine {
     }
 }
 
-/// An exceptional irrep label with its exact dimension, dual label and the
-/// closed-form sign `(−1)^{⟨λ, 2ρ∨⟩}`. Clones share one allocation; identity
-/// is the Dynkin label (the group is compared by `LieIrrep`).
-#[derive(Clone, Debug)]
-pub(crate) struct Irrep(Arc<Data>);
-
-#[derive(Debug)]
-struct Data {
-    dynkin: Vec<i64>,
-    dual: Vec<i64>,
-    dim: Natural,
-    dim_f64: f64,
-    /// `⟨−w₀λ, 2ρ∨⟩ = ⟨λ, 2ρ∨⟩`, so the dual carries the same sign.
-    sign: i8,
-}
-
-impl Irrep {
-    pub(crate) fn dynkin(&self) -> &[i64] {
-        &self.0.dynkin
-    }
-
-    pub(crate) fn dim(&self) -> &Natural {
-        &self.0.dim
-    }
-
-    pub(crate) fn dim_f64(&self) -> f64 {
-        self.0.dim_f64
-    }
-
-    pub(crate) fn is_self_dual(&self) -> bool {
-        self.0.dynkin == self.0.dual
-    }
-
-    pub(crate) fn dual(&self) -> Self {
-        if self.is_self_dual() {
-            return self.clone();
-        }
-        Self(Arc::new(Data {
-            dynkin: self.0.dual.clone(),
-            dual: self.0.dynkin.clone(),
-            dim: self.0.dim.clone(),
-            dim_f64: self.0.dim_f64,
-            sign: self.0.sign,
-        }))
-    }
-
-    /// Every weight with its multiplicity, in Dynkin coordinates.
-    pub(crate) fn weight_multiplicities(
-        &self,
-        root: RootSystem,
-    ) -> Result<std::collections::BTreeMap<Vec<i64>, u64>, LieError> {
-        CartanData::new(root).weight_multiplicities(&self.0.dynkin)
-    }
-}
-
-impl PartialEq for Irrep {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.dynkin == other.0.dynkin
-    }
-}
-impl Eq for Irrep {}
-impl PartialOrd for Irrep {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-impl Ord for Irrep {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.0.dynkin.cmp(&other.0.dynkin)
-    }
-}
-impl std::hash::Hash for Irrep {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.dynkin.hash(state);
-    }
-}
+pub(crate) use roots::RootIrrep as Irrep;
 
 #[cfg(test)]
 mod tests {
@@ -396,5 +314,102 @@ mod tests {
                 eprintln!("{label:?}: cold {cold:?}, warm {warm:?}, builds {builds:?}");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod product_contract_tests {
+    use super::*;
+    use crate::{
+        cache,
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    #[ignore = "isolated global product producer counter; required migration gate"]
+    fn exceptional_product_cache_counted() {
+        let builds = || roots::PRODUCT_BUILDS.load(Ordering::SeqCst);
+        for (id, label) in [
+            (GroupId::g2(), vec![1, 0]),
+            (GroupId::f4(), vec![0, 0, 0, 1]),
+            (GroupId::e6(), vec![1, 0, 0, 0, 0, 0]),
+            (GroupId::e7(), vec![0, 0, 0, 0, 0, 0, 1]),
+            (GroupId::e8(), vec![0, 0, 0, 0, 0, 0, 0, 1]),
+        ] {
+            let g = LieGroup::new(id.clone()).unwrap();
+            let h = LieGroup::new(id).unwrap();
+            let a = g.irrep(&label).unwrap();
+            let b = g.dual(&a);
+            let one = g.unit();
+            let mut absent = label.clone();
+            absent[0] += 3;
+            let absent = g.irrep(&absent).unwrap();
+            cache::reset();
+            let before = builds();
+            assert_eq!(g.try_nsymbol(&a, &b, &one).unwrap(), 1);
+            assert_eq!(builds() - before, 1);
+            assert_eq!(g.try_nsymbol(&a, &b, &absent).unwrap(), 0);
+            assert_eq!(h.try_nsymbol(&b, &a, &one).unwrap(), 1);
+            let channels = g.fusion(&a, &b).unwrap().collect::<Vec<_>>();
+            assert!(channels.contains(&one));
+            g.reset_catalog().unwrap();
+            let fam = g.engine().family();
+            assert_eq!(
+                fam.product(
+                    a.exceptional().unwrap().dynkin(),
+                    b.exceptional().unwrap().dynkin()
+                )
+                .unwrap()
+                .multiplicity(one.exceptional().unwrap()),
+                1
+            );
+            drop(fam);
+            assert_eq!(
+                builds() - before,
+                1,
+                "N, fusion, equal groups and GeneralFamily must share Product"
+            );
+            assert_eq!(
+                cache::tier_stats(cache::CoefficientCacheTier::Product).entries,
+                2
+            );
+            assert_eq!(
+                cache::tier_stats(cache::CoefficientCacheTier::BcdCgc).entries,
+                0
+            );
+            cache::reset();
+            let before = builds();
+            // Four validated N prechecks contain two distinct unordered pairs: (a,b), (one,a).
+            let f = g.f_symbol(&a, &b, &a, &a, &one, &one).unwrap();
+            assert!(!f.data().is_empty());
+            assert_eq!(builds() - before, 2);
+            assert_eq!(g.f_symbol(&a, &b, &a, &a, &one, &one).unwrap(), f);
+            assert_eq!(
+                builds() - before,
+                2,
+                "warm validated F must not rebuild exact products"
+            );
+        }
+    }
+
+    #[test]
+    fn n_does_not_inherit_coefficient_output_limit() {
+        let _guard = cache::TEST_CACHE_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        cache::reset();
+        let e = Engine::new(RootSystem::E6);
+        let big = e.data.irrep(&[20, 0, 0, 0, 0, 0]).unwrap();
+        assert!(u32::try_from(big.dim()).is_err());
+        assert!(!big.is_self_dual());
+        let one = e.irrep(&[0; 6]).unwrap();
+        assert_eq!(e.nsymbol(&one, &big, &big).unwrap(), 1);
+        assert!(matches!(
+            e.product(&one, &big),
+            Err(LieError::LabelOverflow)
+        ));
+        cache::reset();
     }
 }

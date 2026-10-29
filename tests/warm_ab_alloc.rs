@@ -148,18 +148,19 @@ fn warm_ab_allocate_only_leaf_blocks_and_one_buffer_per_product_level() {
         );
     }
 
-    // Dual labels belong to the shared tier, so its lifecycle releases them.
+    // Label-owned duals survive cache trim and reset without populating a tier.
     let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
     let a = cat.irrep(&[1, 0]).unwrap();
+    cache::reset();
     let dual = cat.dual(&a);
-    let trimmed = cache::trim_to(cache::CoefficientCacheTier::SunProduct, 0);
-    assert!(trimmed.removed_entries > 0);
+    let trimmed = cache::trim_to(cache::CoefficientCacheTier::Product, 0);
+    assert_eq!(trimmed.removed_entries, 0);
     assert_eq!(trimmed.remaining_charged_bytes, 0);
     assert_eq!(cat.dual(&a), dual);
     assert_eq!(measure(|| cat.dual(&a)).0, (0, 0));
     cache::reset();
     assert_eq!(
-        cache::tier_stats(cache::CoefficientCacheTier::SunProduct).entries,
+        cache::tier_stats(cache::CoefficientCacheTier::Product).entries,
         0
     );
     assert_eq!(cat.dual(&a), dual);

@@ -144,3 +144,13 @@ No numerical or external constructor is ported here (additional SUN/CU1
 reference guards are N/A). Warm generated calls are checked directly with
 `src/lie.rs::tests::torus_composites_warm_calls_do_not_generate` and the
 `src/lie/sun/cgc.rs::GENERATIONS` counter.
+
+The `sun_product` benchmark/test target names remain stable; their tier control
+is `CoefficientCacheTier::Product`. Product retention includes all simple
+Lie families, while BcdCgc observations describe raw/CGC coefficients only.
+
+The reset-sensitive producer-count gate runs alone in the default CI job:
+
+```sh
+cargo test --release --offline --lib lie::general::product_contract_tests::exceptional_product_cache_counted -- --ignored --exact --test-threads=1
+```

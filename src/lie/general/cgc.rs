@@ -13,7 +13,9 @@ use super::module::{labels_bytes, q_heap, qs_bytes, IrrepModule, Q};
 use super::roots::CartanData;
 use crate::exact::SignedSqrtRational;
 use crate::frcore::{Family, MEntry};
-use crate::lie::{GenerationError, LieError, RootSystem};
+#[cfg(test)]
+use crate::lie::RootSystem;
+use crate::lie::{GenerationError, LieError};
 
 /// A sparse operator in the rational basis: `op[m]` lists `(m', x)` with
 /// `X b_m = Σ x b_{m'}`.
@@ -490,9 +492,6 @@ fn echelon_nullspace(mut m: Vec<BTreeMap<usize, Q>>, cols: usize) -> (Vec<usize>
     (free, basis)
 }
 
-/// `a ⊗ b` as coupled label → `N^c_{ab}`.
-type Decomposition = BTreeMap<Vec<i64>, u32>;
-
 struct MemoEntry<T> {
     value: T,
     bytes: usize,
@@ -509,13 +508,12 @@ fn evict_oldest<K: Clone + Eq + std::hash::Hash, V>(
 /// The exceptional engine as a [`Family`]: exact CGC (§5) and `κ_a` (§6.3),
 /// with F and R from the generic `frcore` contractions (§7).
 ///
-/// Modules, tensor products, channels and complex-irrep phases are memoized
+/// Modules, channels and complex-irrep phases are memoized
 /// for the lifetime of the value only; `bytes` is the estimated retained size
-/// of all four.
+/// of these three kinds.
 pub(crate) struct GeneralFamily {
-    data: CartanData,
+    data: std::sync::Arc<CartanData>,
     modules: HashMap<Vec<i64>, MemoEntry<Ladders>>,
-    products: HashMap<(Vec<i64>, Vec<i64>), MemoEntry<Decomposition>>,
     channels: HashMap<[Vec<i64>; 3], MemoEntry<Vec<MEntry>>>,
     /// One `κ` per non-self-dual pair, keyed by its smaller label.
     phases: HashMap<Vec<i64>, MemoEntry<i8>>,
@@ -526,11 +524,14 @@ pub(crate) struct GeneralFamily {
 }
 
 impl GeneralFamily {
+    #[cfg(test)]
     pub(crate) fn new(root: RootSystem) -> Self {
+        Self::with_data(CartanData::new(root))
+    }
+    pub(crate) fn with_data(data: std::sync::Arc<CartanData>) -> Self {
         Self {
-            data: CartanData::new(root),
+            data,
             modules: HashMap::new(),
-            products: HashMap::new(),
             channels: HashMap::new(),
             phases: HashMap::new(),
             bytes: 0,
@@ -547,7 +548,7 @@ impl GeneralFamily {
 
     /// Retained memo entries; each phase pair counts as two label entries.
     pub(super) fn memo_len(&self) -> usize {
-        self.modules.len() + self.products.len() + self.channels.len() + 2 * self.phases.len()
+        self.modules.len() + self.channels.len() + 2 * self.phases.len()
     }
 
     /// Estimated retained bytes of the memo (capacity-based, saturating).
@@ -560,7 +561,6 @@ impl GeneralFamily {
     pub(super) fn trim(&mut self, max_entries: usize, max_bytes: usize) {
         while self.memo_len() > max_entries || self.memo_bytes() > max_bytes {
             let bytes = evict_oldest(&mut self.modules)
-                .or_else(|| evict_oldest(&mut self.products))
                 .or_else(|| evict_oldest(&mut self.channels))
                 .or_else(|| evict_oldest(&mut self.phases))
                 .expect("an over-budget memo has entries");
@@ -594,32 +594,9 @@ impl GeneralFamily {
     }
 
     /// `a ⊗ b` by Brauer–Klimyk, label → `N^c_{ab}`.
-    pub(crate) fn product(&mut self, a: &[i64], b: &[i64]) -> Result<&Decomposition, LieError> {
-        self.clock = self.clock.saturating_add(1);
-        let key = (a.to_vec(), b.to_vec());
-        if !self.products.contains_key(&key) {
-            let n = self.data.tensor_product(a, b)?;
-            let entries: usize = n
-                .keys()
-                .map(|c| labels_bytes(c) + std::mem::size_of::<u32>())
-                .sum();
-            let bytes = labels_bytes(a)
-                + labels_bytes(b)
-                + entries
-                + std::mem::size_of::<MemoEntry<Decomposition>>();
-            self.bytes = self.bytes.saturating_add(bytes);
-            self.products.insert(
-                key.clone(),
-                MemoEntry {
-                    value: n,
-                    bytes,
-                    used: self.clock,
-                },
-            );
-        }
-        let hit = self.products.get_mut(&key).unwrap();
-        hit.used = self.clock;
-        Ok(&hit.value)
+    #[cfg(test)]
+    pub(crate) fn product(&self, a: &[i64], b: &[i64]) -> Result<super::roots::Product, LieError> {
+        self.data.shared_product(a, b)
     }
 
     /// The rational channel with its three modules.
@@ -629,7 +606,7 @@ impl GeneralFamily {
         b: &[i64],
         c: &[i64],
     ) -> Result<(Channel, &Ladders, &Ladders, &Ladders), LieError> {
-        let n = self.product(a, b)?.get(c).copied().unwrap_or(0) as usize;
+        let n = self.data.multiplicities(a, b, None)?.multiplicity(c) as usize;
         for l in [a, b, c] {
             self.module(l)?;
         }
@@ -686,7 +663,7 @@ impl Family for GeneralFamily {
     }
 
     fn mult(&mut self, a: &Vec<i64>, b: &Vec<i64>, c: &Vec<i64>) -> Result<usize, LieError> {
-        Ok(self.product(a, b)?.get(c).copied().unwrap_or(0) as usize)
+        Ok(self.data.multiplicities(a, b, None)?.multiplicity(c) as usize)
     }
 
     fn cgc_entries(

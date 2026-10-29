@@ -21,7 +21,7 @@ use super::{add_weight, magnetic_index, weight_sum};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use super::linalg::{self, Mat};
-use super::{shared_directproduct, GtPattern, Irrep, LadderEntry, SunError};
+use super::{GtPattern, Irrep, LadderEntry, SunError};
 
 /// Absolute singular-value tolerance for the highest-weight nullspace rank cut.
 /// Reference: `clebschgordan.jl:TOL_NULLSPACE = 1.0e-13`.
@@ -255,8 +255,7 @@ fn generate(
     let (d1, d2, d3) = (d1?, d2?, d3?);
     let expected = match expected_override {
         Some(expected) => expected,
-        None => crate::lie::checked_dimension(shared_directproduct(s1, s2)?.multiplicity(s3))
-            .map_err(|_| SunError::LabelOverflow)?,
+        None => super::fr::mult(s1, s2, s3)?,
     };
 
     // Trivial couplings (clebschgordan.jl:trivial_CGC): 1 ⊗ s → s and s ⊗ 1 → s

@@ -47,9 +47,11 @@ use std::collections::HashMap;
 
 use malachite_nz::natural::Natural;
 
+#[cfg(test)]
+use super::directproduct;
 use super::seeds::spinor_seeds;
 use super::sweep::{align_block, decompose, Block, Decomposition, Generators, SweepError};
-use super::{defining_seed, directproduct, BcdError, Irrep, Series};
+use super::{defining_seed, BcdError, Irrep, Series};
 use crate::cache::BcdCgcSweep;
 use std::sync::Arc;
 
@@ -92,7 +94,7 @@ pub enum CatalogError {
     Label(BcdError),
     /// [`cgc_with`](CanonicalCatalog::cgc_with) was asked for a triple with `N^c_ab = 0`
     /// (the coupled irrep `c` does not appear in `a ⊗ b`, per the exact
-    /// [`directproduct`]). The reference sweep would simply never emit such a
+    /// `directproduct`). The reference sweep would simply never emit such a
     /// block; a query API must reject the ill-posed question loudly instead of
     /// returning an empty or zero block. Carries the Dynkin labels.
     ZeroFusionChannel {
@@ -277,6 +279,7 @@ impl CatalogCgc {
 /// well-foundedness argument.
 #[derive(Debug)]
 pub struct CanonicalCatalog {
+    pub(in crate::lie) roots: Arc<crate::lie::general::roots::CartanData>,
     series: Series,
     rank: usize,
     /// The discovered generator sets, keyed by irrep. Append-only; contains the
@@ -308,6 +311,7 @@ impl CanonicalCatalog {
             Self::seed_requirement(series, r, max_bytes)?;
         }
         let mut cat = CanonicalCatalog {
+            roots: crate::lie::general::roots::CartanData::new(series.root_system(r)),
             series,
             rank: r,
             store: HashMap::new(),
@@ -452,7 +456,7 @@ impl CanonicalCatalog {
 
         // Ill-posed-input guard: every N^c_ab = 0 is a typed error, decided by
         // the exact decomposition before any float work.
-        let expected = directproduct(s1, s2)?;
+        let expected = exact_product(&self.roots, s1, s2)?;
         if expected.get(s3).copied().unwrap_or(0) == 0 {
             return Err(CatalogError::ZeroFusionChannel {
                 a: s1.dynkin(),
@@ -464,7 +468,8 @@ impl CanonicalCatalog {
         self.ensure(s1, sweep)?;
         self.ensure(s2, sweep)?;
         self.ensure(s3, sweep)?;
-        let decomp = canonical_product(s1, s2, &self.store[s1], &self.store[s2], sweep)?;
+        let decomp =
+            canonical_product(&self.roots, s1, s2, &self.store[s1], &self.store[s2], sweep)?;
         let wanted = self.assemble_channel(s1, s2, s3, &decomp)?;
         if complete {
             if let Some(sweep) = sweep {
@@ -496,7 +501,16 @@ impl CanonicalCatalog {
         sweep: &BcdCgcSweep<'_>,
     ) -> Result<(), CatalogError> {
         let mut staged = Vec::new();
-        harvest(self.series, self.rank, &self.store, &mut staged, a, b, raw)?;
+        harvest(
+            &self.roots,
+            self.series,
+            self.rank,
+            &self.store,
+            &mut staged,
+            a,
+            b,
+            raw,
+        )?;
         match self.commit_staged(staged) {
             Ok(()) | Err(CatalogError::BudgetExceeded { .. }) => {}
             Err(error) => return Err(error),
@@ -537,7 +551,7 @@ impl CanonicalCatalog {
         self.ensure(s1, None)?;
         self.ensure(s2, None)?;
 
-        let expected = directproduct(s1, s2)?;
+        let expected = exact_product(&self.roots, s1, s2)?;
         let g1 = self
             .store
             .get(s1)
@@ -660,7 +674,15 @@ impl CanonicalCatalog {
             return Ok(());
         }
         let mut staged: Vec<(Irrep, Generators)> = Vec::new();
-        build_into(self.series, self.rank, &self.store, &mut staged, c, sweep)?;
+        build_into(
+            &self.roots,
+            self.series,
+            self.rank,
+            &self.store,
+            &mut staged,
+            c,
+            sweep,
+        )?;
         self.commit_staged(staged)
     }
 
@@ -784,10 +806,11 @@ fn try_prec_key(c: &Irrep) -> Result<(i64, Natural, Vec<i64>), BcdError> {
 /// never does — those are pre-seeded and short-circuited.
 #[cfg(test)]
 fn canonical_parent(series: Series, rank: usize, c: &Irrep) -> Option<(Irrep, Irrep)> {
-    try_canonical_parent(series, rank, c)
+    try_canonical_parent(&c.0.roots(), series, rank, c)
         .expect("test fixture has representable canonical-parent arithmetic")
 }
 fn try_canonical_parent(
+    data: &Arc<crate::lie::general::roots::CartanData>,
     series: Series,
     rank: usize,
     c: &Irrep,
@@ -810,7 +833,7 @@ fn try_canonical_parent(
 
     let key_c = try_prec_key(c)?;
     // All irreps strictly `≺ c` — the finite candidate set for `a` and `b`.
-    let below = try_irreps_below(series, rank, c)?;
+    let below = try_irreps_below(data, series, rank, c)?;
 
     let mut best: Option<Cand> = None;
     // Iterate `a` in ascending `≺` order; prune once `2·dim_a` exceeds the best
@@ -825,9 +848,12 @@ fn try_canonical_parent(
         }
         // `c ∈ a ⊗ b`  ⟺  `b ∈ a* ⊗ c` (Frobenius reciprocity). Enumerate the
         // candidate `b` directly from that product rather than looping all irreps.
-        let prod = directproduct(&a.dual(), c)?;
-        for b in prod.keys() {
-            if try_prec_key(b)? >= key_c {
+        let prod = data
+            .product(&a.0.dual(), &c.0)
+            .map_err(|_| BcdError::LabelOverflow)?;
+        for (b, _) in prod.iter() {
+            let b = Irrep(b.clone());
+            if try_prec_key(&b)? >= key_c {
                 continue; // require b ≺ c
             }
             let cand = Cand {
@@ -868,17 +894,23 @@ fn try_canonical_parent(
 /// `retain` keeps exactly `{ x : x ≺ c }`.
 #[cfg(test)]
 fn irreps_below(series: Series, rank: usize, c: &Irrep) -> Vec<Irrep> {
-    try_irreps_below(series, rank, c).expect("test fixture has representable box count")
+    try_irreps_below(&c.0.roots(), series, rank, c)
+        .expect("test fixture has representable box count")
 }
-fn try_irreps_below(series: Series, rank: usize, c: &Irrep) -> Result<Vec<Irrep>, BcdError> {
+fn try_irreps_below(
+    data: &Arc<crate::lie::general::roots::CartanData>,
+    series: Series,
+    rank: usize,
+    c: &Irrep,
+) -> Result<Vec<Irrep>, BcdError> {
     let max_boxes = box_count(c)?;
     let key_c = try_prec_key(c)?;
     let mut out: Vec<Irrep> = Vec::new();
     let mut cur = vec![0i64; rank];
     // Parity 0 = the tensor sublattice, parity 1 = the spinor class.
-    enum_partitions(series, rank, max_boxes, 0, 0, 0, &mut cur, &mut out)?;
+    enum_partitions(data, series, rank, max_boxes, 0, 0, 0, &mut cur, &mut out)?;
     if c.is_spinor() {
-        enum_partitions(series, rank, max_boxes, 1, 0, 0, &mut cur, &mut out)?;
+        enum_partitions(data, series, rank, max_boxes, 1, 0, 0, &mut cur, &mut out)?;
     }
     let mut below = Vec::new();
     for x in out {
@@ -894,6 +926,7 @@ fn try_irreps_below(series: Series, rank: usize, c: &Irrep) -> Result<Vec<Irrep>
 /// spinor) with `Σ|2λ_i| ≤ max_boxes`.
 #[allow(clippy::too_many_arguments)]
 fn enum_partitions(
+    data: &Arc<crate::lie::general::roots::CartanData>,
     series: Series,
     rank: usize,
     max_boxes: i64,
@@ -904,7 +937,7 @@ fn enum_partitions(
     out: &mut Vec<Irrep>,
 ) -> Result<(), BcdError> {
     if pos == rank {
-        push_partition_irrep(series, cur, out);
+        push_partition_irrep(data, series, cur, out);
         return Ok(());
     }
     let upper = if pos == 0 { max_boxes } else { cur[pos - 1] };
@@ -916,12 +949,13 @@ fn enum_partitions(
         }
         cur[pos] = v;
         enum_partitions(
+            data,
             series,
             rank,
             max_boxes,
             parity,
             pos + 1,
-            super::add_weight(used, v)?,
+            crate::lie::general::roots::add_weight(used, v).map_err(|_| BcdError::LabelOverflow)?,
             cur,
             out,
         )?;
@@ -937,14 +971,19 @@ fn enum_partitions(
 /// Emit the (non-negative) partition `cur` as an irrep, and — for the D series
 /// with `λ_r > 0` — its chiral partner `λ_r ↦ -λ_r` (a distinct tensor irrep of
 /// the same box count and dim). `irreps_below`'s `retain` applies the `≺` filter.
-fn push_partition_irrep(series: Series, cur: &[i64], out: &mut Vec<Irrep>) {
-    out.push(make_irrep(series, cur.to_vec()));
+fn push_partition_irrep(
+    data: &Arc<crate::lie::general::roots::CartanData>,
+    series: Series,
+    cur: &[i64],
+    out: &mut Vec<Irrep>,
+) {
+    out.push(make_irrep(data, cur.to_vec()));
     if series == Series::D {
         let last = cur.len() - 1;
         if cur[last] > 0 {
             let mut w = cur.to_vec();
             w[last] = -w[last];
-            out.push(make_irrep(series, w));
+            out.push(make_irrep(data, w));
         }
     }
 }
@@ -953,8 +992,15 @@ fn push_partition_irrep(series: Series, cur: &[i64], out: &mut Vec<Irrep>) {
 /// descendant module of `bcd` may build the private struct). The enumeration
 /// only ever produces valid dominant weights of the cover, so no validation is
 /// needed here.
-fn make_irrep(series: Series, two_weight: Vec<i64>) -> Irrep {
-    super::Irrep::from_two_weight(series, two_weight)
+fn make_irrep(data: &Arc<crate::lie::general::roots::CartanData>, two_weight: Vec<i64>) -> Irrep {
+    Irrep(
+        data.irrep(
+            &data
+                .dynkin(&two_weight)
+                .expect("catalog coordinates fit Dynkin labels"),
+        )
+        .expect("catalog emits dominant weights"),
+    )
 }
 
 // ---- recursive build into the staging buffer -------------------------------
@@ -981,6 +1027,7 @@ fn lookup<'a>(
 /// Cartan-spectrum agreement (the `clebsch.cc:6710-6718 @ dd2cc7e` cross-copy
 /// `normDiff` check, replaced by-design; §14).
 fn build_into(
+    data: &Arc<crate::lie::general::roots::CartanData>,
     series: Series,
     rank: usize,
     store: &HashMap<Irrep, Generators>,
@@ -1018,17 +1065,17 @@ fn build_into(
 
     // Non-base c: its canonical parent exists (§14.4 existence argument). The
     // error path is unreachable by that theorem; kept as defense-in-depth.
-    let (a, b) = try_canonical_parent(series, rank, c)?
+    let (a, b) = try_canonical_parent(data, series, rank, c)?
         .ok_or_else(|| CatalogError::NoCanonicalParent { dynkin: c.dynkin() })?;
-    build_into(series, rank, store, staged, &a, sweep)?;
-    build_into(series, rank, store, staged, &b, sweep)?;
+    build_into(data, series, rank, store, staged, &a, sweep)?;
+    build_into(data, series, rank, store, staged, &b, sweep)?;
 
     let ga = lookup(store, staged, &a)
         .expect("successful recursive build_into establishes canonical inputs");
     let gb = lookup(store, staged, &b)
         .expect("successful recursive build_into establishes canonical inputs");
-    let decomp = canonical_product(&a, &b, ga, gb, sweep)?;
-    harvest(series, rank, store, staged, &a, &b, &decomp)?;
+    let decomp = canonical_product(data, &a, &b, ga, gb, sweep)?;
+    harvest(data, series, rank, store, staged, &a, &b, &decomp)?;
     debug_assert!(
         lookup(store, staged, c).is_some(),
         "canonical parent must produce c"
@@ -1036,9 +1083,23 @@ fn build_into(
     Ok(())
 }
 
+fn exact_product(
+    data: &Arc<crate::lie::general::roots::CartanData>,
+    a: &Irrep,
+    b: &Irrep,
+) -> Result<std::collections::BTreeMap<Irrep, u32>, BcdError> {
+    Ok(data
+        .product(&a.0, &b.0)
+        .map_err(|_| BcdError::LabelOverflow)?
+        .iter()
+        .map(|(c, n)| (Irrep(c.clone()), *n))
+        .collect())
+}
+
 /// Called only after both canonical input frames have been established. The
 /// loader is nonrecursive and never acquires a catalog or descendant key.
 fn canonical_product(
+    data: &Arc<crate::lie::general::roots::CartanData>,
     a: &Irrep,
     b: &Irrep,
     ga: &Generators,
@@ -1047,7 +1108,8 @@ fn canonical_product(
 ) -> Result<Arc<Decomposition>, CatalogError> {
     let compute = || {
         let product = Generators::product(ga, gb)?;
-        Ok(Arc::new(decompose(&product, &directproduct(a, b)?)?))
+        let expected = exact_product(data, a, b)?;
+        Ok(Arc::new(decompose(&product, &expected)?))
     };
     match sweep {
         Some(sweep) => sweep.raw(a, b, compute),
@@ -1057,6 +1119,7 @@ fn canonical_product(
 
 #[allow(clippy::too_many_arguments)]
 fn harvest(
+    data: &Arc<crate::lie::general::roots::CartanData>,
     series: Series,
     rank: usize,
     store: &HashMap<Irrep, Generators>,
@@ -1078,7 +1141,7 @@ fn harvest(
         if block.outer_multiplicity().0 != 0 {
             continue;
         }
-        if try_canonical_parent(series, rank, ci)?.as_ref() == Some(&(a.clone(), b.clone())) {
+        if try_canonical_parent(data, series, rank, ci)?.as_ref() == Some(&(a.clone(), b.clone())) {
             staged.push((ci.clone(), block.generators().clone()));
         }
     }
@@ -1146,11 +1209,11 @@ mod arithmetic_tests {
         assert_eq!(gen_bytes_for(usize::MAX, 1), None);
         let c = Irrep::from_two_weight(Series::B, vec![i64::MAX; 2]);
         assert_eq!(
-            try_irreps_below(Series::B, 2, &c),
+            try_irreps_below(&c.0.roots(), Series::B, 2, &c),
             Err(BcdError::LabelOverflow)
         );
         assert_eq!(
-            try_canonical_parent(Series::B, 2, &c),
+            try_canonical_parent(&c.0.roots(), Series::B, 2, &c),
             Err(CatalogError::Label(BcdError::LabelOverflow))
         );
     }

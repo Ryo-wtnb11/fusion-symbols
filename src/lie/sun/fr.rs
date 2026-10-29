@@ -20,7 +20,7 @@
 //! conjugation is the identity and is elided; the port is value-identical (see
 //! the `frcore` core).
 
-use super::{cgc, shared_directproduct, Irrep, SunError};
+use super::{cgc, Irrep, SunError};
 use crate::frcore::{f_block_raw, r_block_raw, Family, MEntry};
 
 use crate::category::{FBlock, RBlock};
@@ -28,7 +28,7 @@ use crate::category::{FBlock, RBlock};
 /// The SU(N) binding of the generic F/R core: a stateless zero-sized provider.
 ///
 /// Its `&mut self` methods (required by [`Family`]) delegate to the free
-/// functions [`cgc`] / [`shared_directproduct`], which are backed by the
+/// functions [`cgc`] / [`mult`], which are backed by the
 /// process-global CGC and product caches. The `&mut` is vacuous here — no
 /// provider-local interior mutability — so
 /// the shared core's `&mut`-provider seam costs SU(N) nothing.
@@ -68,15 +68,19 @@ impl Family for SunFamily {
 /// `N^c_{ab}`, the fusion multiplicity of `a ⊗ b → c`. Errors
 /// [`SunError::RankMismatch`] if `a`, `b`, `c` are not all SU(N) for one `N`
 /// (the reference relies on the `SUNIrrep{N}` type parameter for this).
-fn mult(a: &Irrep, b: &Irrep, c: &Irrep) -> Result<usize, SunError> {
+pub(super) fn mult(a: &Irrep, b: &Irrep, c: &Irrep) -> Result<usize, SunError> {
     if c.rank() != a.rank() {
         return Err(SunError::RankMismatch {
             a: a.rank(),
             b: c.rank(),
         });
     }
-    crate::lie::checked_dimension(shared_directproduct(a, b)?.multiplicity(c))
-        .map_err(|_| SunError::LabelOverflow)
+    require_same_rank(&[a, b])?;
+    let n =
+        a.0.roots()
+            .multiplicity(&a.0, &b.0, &c.0)
+            .map_err(|_| SunError::LabelOverflow)?;
+    crate::lie::checked_dimension(n).map_err(|_| SunError::LabelOverflow)
 }
 
 /// All labels of an F/R request share one rank, or [`SunError::RankMismatch`].
@@ -267,7 +271,9 @@ mod tests {
 
     #[test]
     fn cached_r_is_bit_identical_to_the_raw_join() {
-        let _guard = crate::cache::TEST_CACHE_LOCK.lock().unwrap();
+        let _guard = crate::cache::TEST_CACHE_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let bits = |r: &RBlock<f64>| {
             (
                 r.dim(),
