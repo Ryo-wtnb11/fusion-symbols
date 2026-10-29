@@ -1,6 +1,6 @@
 //! Dense SU(N) factorizations on t4a-faer, using explicit sequential paths and
 //! scratch workspaces. Plain column-major f64 buffers keep backend types private.
-//! Full SVD supplies the right nullspace; unpivoted QR supplies gauge fixing
+//! SVD with full V supplies the right nullspace; unpivoted QR supplies gauge fixing
 //! and least squares. Zero R diagonals are left unflipped (docs/gauge.md §4b).
 
 use super::SunError;
@@ -115,7 +115,7 @@ pub(crate) fn nullspace(a: &Mat, atol: f64) -> Result<Mat, SunError> {
     let n = a.cols;
     // Reference `_nullspace!`: an empty system (no rows or no columns) has the
     // whole space as its nullspace -> the n x n identity. Also avoids handing a
-    // 0-row matrix to full SVD.
+    // 0-row matrix to SVD.
     if a.rows == 0 || n == 0 {
         let mut id = Mat::try_zeros(n, n)?;
         for i in 0..n {
@@ -123,15 +123,13 @@ pub(crate) fn nullspace(a: &Mat, atol: f64) -> Result<Mat, SunError> {
         }
         return Ok(id);
     }
-    crate::lie::checked_size([a.rows, a.rows]).map_err(|_| SunError::LabelOverflow)?;
     crate::lie::checked_size([n, n]).map_err(|_| SunError::LabelOverflow)?;
-    let mut u = FaerMat::zeros(a.rows, a.rows);
     let mut v = FaerMat::zeros(n, n);
     let mut sv = Diag::zeros(a.rows.min(n));
     let mut mem = MemBuffer::new(svd::svd_scratch::<f64>(
         a.rows,
         n,
-        ComputeSvdVectors::Full,
+        ComputeSvdVectors::No,
         ComputeSvdVectors::Full,
         ParShape::Seq,
         Default::default(),
@@ -139,7 +137,7 @@ pub(crate) fn nullspace(a: &Mat, atol: f64) -> Result<Mat, SunError> {
     svd::svd(
         a.view(),
         sv.as_mut(),
-        Some(u.as_mut()),
+        None,
         Some(v.as_mut()),
         Par::Seq,
         MemStack::new(&mut mem),
@@ -210,9 +208,83 @@ pub(crate) fn qr_positive_q(a: &Mat) -> Result<Mat, SunError> {
     })
 }
 
+#[cfg(test)]
+thread_local! {
+    pub(super) static FACTORIZATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Packed unpivoted QR reused by the RHS blocks of one target-weight plan.
+pub(crate) struct LeastSquares {
+    packed: FaerMat<f64>,
+    coeff: FaerMat<f64>,
+    mem: MemBuffer,
+}
+
+impl LeastSquares {
+    pub fn factor(a: &Mat, b: &Mat) -> Result<Self, SunError> {
+        if a.rows < a.cols || b.rows != a.rows {
+            return Err(SunError::Linalg(
+                "lstsq: expected tall/square A and matching RHS rows".into(),
+            ));
+        }
+        #[cfg(test)]
+        FACTORIZATIONS.set(FACTORIZATIONS.get() + 1);
+        let (packed, coeff) = qr(a.view());
+        if (0..a.cols).any(|i| packed[(i, i)] == 0.0) {
+            return Err(SunError::Linalg("lstsq: singular R diagonal".into()));
+        }
+        let mem = MemBuffer::new(solve::solve_lstsq_in_place_scratch::<f64>(
+            a.rows,
+            a.cols,
+            coeff.nrows(),
+            b.cols,
+            ParShape::Seq,
+        ));
+        Ok(Self { packed, coeff, mem })
+    }
+
+    pub fn solve(&mut self, b: &Mat) -> Result<Mat, SunError> {
+        let (m, n) = self.packed.shape();
+        if b.rows != m {
+            return Err(SunError::Linalg(
+                "lstsq: expected tall/square A and matching RHS rows".into(),
+            ));
+        }
+        let mut x = b.view().to_owned();
+        let req = solve::solve_lstsq_in_place_scratch::<f64>(
+            m,
+            n,
+            self.coeff.nrows(),
+            b.cols,
+            ParShape::Seq,
+        );
+        // RHS widths can differ between alpha columns; retain the largest scratch.
+        if !MemStack::new(&mut self.mem).can_hold(req) {
+            self.mem = MemBuffer::new(req);
+        }
+        solve::solve_lstsq_in_place(
+            self.packed.as_ref(),
+            self.coeff.as_ref(),
+            self.packed.as_ref(),
+            x.as_mut(),
+            Par::Seq,
+            MemStack::new(&mut self.mem),
+        );
+        Ok(Mat {
+            rows: n,
+            cols: b.cols,
+            data: x
+                .col_iter()
+                .flat_map(|c| c.iter().take(n).copied())
+                .collect(),
+        })
+    }
+}
+
 /// Least-squares solution `X` of `A X = B` for tall/square full-column-rank
 /// `A` (`ldiv!(qr!(A), B)`). `X` has shape `A.cols x B.cols`.
-pub(crate) fn lstsq(a: &Mat, b: &Mat) -> Result<Mat, SunError> {
+#[cfg(test)]
+pub(super) fn lstsq(a: &Mat, b: &Mat) -> Result<Mat, SunError> {
     if a.rows < a.cols || b.rows != a.rows {
         return Err(SunError::Linalg(
             "lstsq: expected tall/square A and matching RHS rows".into(),
@@ -299,6 +371,50 @@ mod tests {
     }
 
     #[test]
+    fn lstsq_errors_match_original() {
+        let mut a = Mat {
+            rows: 2,
+            cols: 1,
+            data: vec![0.0; 2],
+        };
+        let mut b = Mat {
+            rows: 1,
+            cols: 1,
+            data: vec![1.0],
+        };
+        // Bad RHS shape takes precedence over the singular-R error.
+        assert_eq!(
+            LeastSquares::factor(&a, &b).err(),
+            Some(SunError::Linalg(
+                "lstsq: expected tall/square A and matching RHS rows".into()
+            ))
+        );
+        b.rows = 2;
+        b.data.push(1.0);
+        assert_eq!(
+            LeastSquares::factor(&a, &b).err(),
+            Some(SunError::Linalg("lstsq: singular R diagonal".into()))
+        );
+        a.data[0] = 1.0;
+        let mut qr = LeastSquares::factor(&a, &b).unwrap();
+        b.rows = 1;
+        assert_eq!(
+            qr.solve(&b).err(),
+            Some(SunError::Linalg(
+                "lstsq: expected tall/square A and matching RHS rows".into()
+            ))
+        );
+        a.rows = 1;
+        a.cols = 2;
+        assert_eq!(
+            LeastSquares::factor(&a, &b).err(),
+            Some(SunError::Linalg(
+                "lstsq: expected tall/square A and matching RHS rows".into()
+            ))
+        );
+    }
+
+    #[test]
     fn lstsq_recovers_consistent_tall_system() {
         // A (3x2) full column rank, b = A x_true -> lstsq recovers x_true.
         let a = Mat {
@@ -318,7 +434,7 @@ mod tests {
             cols: 1,
             data: bdata,
         };
-        let x = lstsq(&a, &b).unwrap();
+        let x = LeastSquares::factor(&a, &b).unwrap().solve(&b).unwrap();
         assert_eq!((x.rows, x.cols), (2, 1));
         assert!((x.at(0, 0) - 2.0).abs() < 1e-9);
         assert!((x.at(1, 0) + 1.0).abs() < 1e-9);

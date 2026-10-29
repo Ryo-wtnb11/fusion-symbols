@@ -133,12 +133,13 @@ nullspace = copy(SVD.Vt[indstart:end, :]')  # trailing right-singular vectors
 - Because `atol = 1e-13 > 0`, the relative term vanishes (`iszero(atol) = 0`),
   so the cut is **purely** `Sᵢ > 1e-13`; `rank = #{ Sᵢ > 1e-13 }` and the
   nullspace dimension is `n − rank`.
-- **Full** SVD is required: the nullspace is the trailing `n − rank` **rows of
-  the full `Vh` (n×n)**, which a thin SVD would discard whenever the system is
-  wide (`m < n`, e.g. the minimal SU(2) singlet ½⊗½→0, a 1×2 system).
+- **Full V** is required (U is unused): the nullspace is the trailing
+  `n − rank` **rows of the full `Vh` (n×n)**, which a thin SVD would discard
+  whenever the system is wide (`m < n`, e.g. the minimal SU(2) singlet
+  ½⊗½→0, a 1×2 system).
 - Empty system (`m = 0` or `n = 0`): the whole space is the nullspace — return
   the `n×n` identity (`_nullspace!`'s `(m==0 || n==0)` guard).
-- Port: `linalg.rs:nullspace` via full `faer::linalg::svd::svd` (§10).
+- Port: `linalg.rs:nullspace` via `faer::linalg::svd::svd` with full V and no U (§10).
 
 **Multiplicity gate.** `#{nullspace vectors} == directproduct(s1, s2)[s3]` must
 hold (`clebschgordan.jl` `@assert N123 == directproduct(s1, s2)[s3]`); a
@@ -193,8 +194,9 @@ Q = q * Diagonal(d);  R = Diagonal(d) \ r     # so every R[i,i] ≥ 0
 
 `gaugefix!` keeps **`Q`** (`first(...)`), the orthonormal basis with the sign
 convention "each `R` diagonal entry is non-negative; an exactly-zero diagonal is
-left unflipped." Port: `src/lie/sun/linalg.rs::qr_positive_q` uses unpivoted
-QR and folds each negative R-diagonal sign into Q; zero stays unflipped.
+left unflipped." Port: `src/lie/sun/linalg.rs::qr_positive_q` uses
+unpivoted QR and folds each negative R-diagonal sign into Q; zero stays
+unflipped.
 
 The gauge-fixed highest-weight block is scattered into `C[·, ·, d3−1, μ]`.
 
@@ -215,8 +217,9 @@ Reference: `clebschgordan.jl:lower_weight_CGC!`. Port: `cgc.rs:lower_weight_cgc`
   Lowering matrices are `private GT lowering operator` (transpose of `creation`,
   `gtpatterns.jl`).
 - **Solve.** `sols = ldiv!(qr!(eqs), rhs)` — a QR **least-squares** solve of the
-  (tall or square, full-column-rank) system. Port: `linalg.rs:lstsq` via
-  QR least squares in `linalg.rs::lstsq` (§10). Contributions accumulate into
+  (tall or square, full-column-rank) system. Port:
+  `linalg.rs::LeastSquares::{factor,solve}` (§10), reusing each weight's
+  factorization once it has an RHS. Contributions accumulate into
   `C[·, ·, m3, α]`.
 
 ## 6. Purge
@@ -273,7 +276,7 @@ seams never set or consult global parallelism.
 
 | Operation | Reference | t4a-faer API (`src/lie/sun/linalg.rs`) |
 |---|---|---|
-| nullspace | `_nullspace!` (`svd!(A; full=true)`) | `linalg::svd::svd` (full vectors) → trailing V columns |
+| nullspace | `_nullspace!` (`svd!(A; full=true)`) | `linalg::svd::svd` (no U, full V) → trailing V columns |
 | gauge sign | `qrpos!` (`qr!` + `sign(diag R)`) | `qr::no_pivoting::factor::qr_in_place` + sign fix → Q |
 | descent | `ldiv!(qr!(eqs), rhs)` | `qr::no_pivoting::solve::solve_lstsq_in_place` |
 

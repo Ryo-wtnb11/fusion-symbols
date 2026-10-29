@@ -22,6 +22,9 @@ value/gauge rule noted below.
 
 ### Performance
 
+- Reuse SU(N) descent QR per active target weight and omit unused SVD U,
+  preserving coefficient bits and full right-nullspace vectors.
+
 - Reuse each resident ordered B/C/D decomposition across canonical parents and
   requested channels, reducing repeated sweeps while preserving coefficient bits.
 

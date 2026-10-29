@@ -271,7 +271,9 @@ fn indexed_descent_preserves_bits_and_builds_structure_once() {
         assert_eq!(n, highest_weight_cgc(&mut old, &old_ctx, expected).unwrap());
         MATCH_BUILDS.with(|counts| counts.borrow_mut().clear());
         SOLVES.set(Some(Vec::new()));
+        linalg::FACTORIZATIONS.set(0);
         lower_weight_cgc(&mut data, &ctx, n).unwrap();
+        let factorizations = linalg::FACTORIZATIONS.get();
         let builds = MATCH_BUILDS.take();
         let solves = SOLVES.take().unwrap();
         SOLVES.set(Some(Vec::new()));
@@ -298,7 +300,11 @@ fn indexed_descent_preserves_bits_and_builds_structure_once() {
         }
         assert_eq!(data.len(), old.len());
         assert_eq!(solves, old_solves, "solve shapes, masks and inputs changed");
-        eprintln!("dimension {}: multiplicity {n}, ladder builds 5 -> {distinct}, matching builds {} -> {}", ctx.d3, old_builds.values().sum::<usize>(), builds.values().sum::<usize>());
+        if n > 0 {
+            assert_eq!(factorizations, ctx.three.map.len() - 1);
+        } else {
+            assert_eq!(factorizations, 0);
+        }
         // Both paths still pass the same generation gates after purging.
         for mut entries in [data, old] {
             purge(&mut entries);
@@ -313,4 +319,39 @@ fn indexed_descent_preserves_bits_and_builds_structure_once() {
             check_ladder(&cgc, &ctx).unwrap();
         }
     }
+}
+
+#[test]
+fn descent_factors_only_plans_with_rhs() {
+    let a = Irrep::from_dynkin(&[1, 1]).unwrap();
+    let ctx = Ctx::new(&a, &a, &a).unwrap();
+    let mut data = HashMap::new();
+    assert_eq!(highest_weight_cgc(&mut data, &ctx, 2).unwrap(), 2);
+    SOLVES.set(Some(Vec::new()));
+    linalg::FACTORIZATIONS.set(0);
+    lower_weight_cgc(&mut data, &ctx, 2).unwrap();
+    let solves = SOLVES.take().unwrap();
+    // The octet has six root weights and zero: seven distinct weights. Skip
+    // the highest, leaving six plans, each with an RHS for both alpha columns.
+    assert_eq!(ctx.three.map.len(), 7);
+    assert_eq!(solves.len(), 12);
+    assert_eq!(linalg::FACTORIZATIONS.get(), 6);
+
+    // Make every plan singular, but give none an RHS: factoring eagerly would
+    // report a singular R even though the old descent performed no solves.
+    let [a, b, c] = [&[1, 0][..], &[0, 1], &[1, 1]].map(|d| Irrep::from_dynkin(d).unwrap());
+    let mut ctx = Ctx::new(&a, &b, &c).unwrap();
+    let mut data = HashMap::new();
+    highest_weight_cgc(&mut data, &ctx, 1).unwrap();
+    for op in &mut std::sync::Arc::get_mut(&mut ctx.three).unwrap().annih {
+        op.by_col.clear();
+    }
+    linalg::FACTORIZATIONS.set(0);
+    lower_weight_cgc(&mut HashMap::new(), &ctx, 1).unwrap();
+    assert_eq!(linalg::FACTORIZATIONS.get(), 0);
+    assert_eq!(
+        lower_weight_cgc(&mut data, &ctx, 1).err(),
+        Some(SunError::Linalg("lstsq: singular R diagonal".into()))
+    );
+    assert_eq!(linalg::FACTORIZATIONS.get(), 1);
 }
