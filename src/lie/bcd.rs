@@ -1385,6 +1385,10 @@ use seeds::{check_commutators, spinor_seeds};
 mod linalg;
 #[cfg(feature = "lie-generated")]
 pub(super) mod sweep;
+#[cfg(feature = "lie-generated")]
+pub(crate) use sweep::Decomposition;
+#[cfg(all(test, feature = "lie-generated"))]
+pub(crate) use sweep::DECOMPOSITIONS;
 
 // The canonical catalog (append-only generator ownership) sits on top of
 // the sweep, so it shares the `lie-generated` feature gate.

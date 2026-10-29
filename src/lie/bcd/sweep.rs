@@ -655,6 +655,33 @@ impl Decomposition {
     pub fn blocks(&self) -> &[Block] {
         &self.blocks
     }
+    /// All owned backing allocations; embedded shells are charged only once.
+    pub(crate) fn storage_bytes(&self) -> usize {
+        use crate::cache::CacheKeyCharge;
+        use std::mem::size_of;
+        let buffer = |capacity: usize| capacity.saturating_mul(size_of::<f64>());
+        self.blocks.iter().fold(
+            size_of::<Self>()
+                .saturating_add(self.blocks.capacity().saturating_mul(size_of::<Block>())),
+            |bytes, b| {
+                let sp = match &b.gens.sp {
+                    Raising::Dense(sp) => sp,
+                    Raising::Adjacency(_) => unreachable!("projected blocks own dense generators"),
+                };
+                let bytes = bytes
+                    .saturating_add(b.irrep.key_bytes() - size_of::<Irrep>())
+                    .saturating_add(buffer(b.cgc.data.capacity()))
+                    .saturating_add(buffer(b.z.data.capacity()))
+                    .saturating_add(sp.capacity().saturating_mul(size_of::<Dense>()))
+                    .saturating_add(b.gens.sz.capacity().saturating_mul(size_of::<Vec<f64>>()));
+                sp.iter()
+                    .map(|m| m.data.capacity())
+                    .chain(b.gens.sz.iter().map(Vec::capacity))
+                    .fold(bytes, |n, capacity| n.saturating_add(buffer(capacity)))
+            },
+        )
+    }
+
     /// The multiset of discovered irreps with their sweep multiplicities.
     #[cfg(test)]
     pub fn multiplicities(&self) -> BTreeMap<Irrep, u32> {
@@ -664,6 +691,11 @@ impl Decomposition {
         }
         m
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(crate) static DECOMPOSITIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 // ---- public entry points ---------------------------------------------------
@@ -703,6 +735,8 @@ pub fn decompose(
     product: &Generators,
     expected: &BTreeMap<Irrep, u32>,
 ) -> Result<Decomposition, SweepError> {
+    #[cfg(test)]
+    DECOMPOSITIONS.set(DECOMPOSITIONS.get() + 1);
     let blocks = get_symmetry_states(product)?;
 
     // Production gate: both-direction multiplicity check.

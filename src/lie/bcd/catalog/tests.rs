@@ -187,7 +187,11 @@ fn generators_bitwise_identical_across_query_orders() {
     for t in &targets {
         let ga = stored_generators(&cat_a, series, t);
         let gb = stored_generators(&cat_b, series, t);
-        assert_eq!(ga, gb, "generators of {t:?} differ across query orders");
+        assert_eq!(
+            generator_bits(&ga),
+            generator_bits(&gb),
+            "generators of {t:?} differ across query orders"
+        );
     }
 }
 
@@ -203,12 +207,20 @@ fn cgc_bitwise_identical_across_query_orders() {
     let c = irr(series, &[2, 0]);
     let cgc_a = cat_a.cgc(&d, &d, &c).unwrap();
     let cgc_b = cat_b.cgc(&d, &d, &c).unwrap();
-    assert_eq!(cgc_a, cgc_b, "CGC bytes differ across query orders");
+    assert_eq!(
+        cgc_bits(&cgc_a),
+        cgc_bits(&cgc_b),
+        "CGC bytes differ across query orders"
+    );
 
     // And a fresh catalog (no warming) gives the same CGC.
     let mut cat_c = CanonicalCatalog::new(series, r).unwrap();
     let cgc_c = cat_c.cgc(&d, &d, &c).unwrap();
-    assert_eq!(cgc_a, cgc_c, "CGC depends on prior queries");
+    assert_eq!(
+        cgc_bits(&cgc_a),
+        cgc_bits(&cgc_c),
+        "CGC depends on prior queries"
+    );
 }
 
 // ---- 4. ill-posed cgc inputs are typed errors ------------------------------
@@ -311,7 +323,11 @@ fn reset_then_rematerialize_is_bitwise_identical() {
 
     cat.generators(&c).unwrap();
     let second = cat.store.get(&c).unwrap().clone();
-    assert_eq!(first, second, "re-materialization not bitwise identical");
+    assert_eq!(
+        generator_bits(&first),
+        generator_bits(&second),
+        "re-materialization not bitwise identical"
+    );
     assert_eq!(cat.bytes(), first_bytes);
 }
 
@@ -556,4 +572,149 @@ fn construction_checks_seed_budget_before_materialization() {
             })
         ));
     }
+}
+
+fn generator_bits(g: &Generators) -> Vec<u64> {
+    (0..g.rank())
+        .flat_map(|j| {
+            g.raising(j)
+                .data
+                .iter()
+                .chain(g.cartan_diag(j))
+                .map(|v| v.to_bits())
+        })
+        .collect()
+}
+
+fn catalog_bits(cat: &CanonicalCatalog) -> std::collections::BTreeMap<Irrep, Vec<u64>> {
+    cat.store
+        .iter()
+        .map(|(c, g)| (c.clone(), generator_bits(g)))
+        .collect()
+}
+
+fn cgc_bits(c: &CatalogCgc) -> Vec<u64> {
+    (0..c.multiplicity())
+        .flat_map(|mu| c.copy(mu).iter().map(|v| v.to_bits()))
+        .collect()
+}
+
+#[test]
+fn raw_reuse_preserves_canonical_bits_across_orders_and_resets() {
+    use crate::{cache, lie::GroupId};
+    let _guard = cache::TEST_CACHE_LOCK.lock().unwrap();
+    // B/C/D, spinors, a non-self-dual D label and an OM>1 product.
+    for (group, da, db) in [
+        (GroupId::so(5).unwrap(), vec![2, 0], vec![2, 0]),
+        (GroupId::sp(4).unwrap(), vec![1, 0], vec![0, 1]),
+        (GroupId::spin(5).unwrap(), vec![0, 1], vec![0, 1]),
+        (GroupId::spin(6).unwrap(), vec![0, 1, 0], vec![0, 0, 1]),
+        (GroupId::so(6).unwrap(), vec![0, 1, 1], vec![0, 1, 1]),
+    ] {
+        cache::reset();
+        let a = Irrep::from_dynkin_in(&group, &da).unwrap();
+        let b = Irrep::from_dynkin_in(&group, &db).unwrap();
+        let mut reference = CanonicalCatalog::new(a.series(), a.rank()).unwrap();
+        let expected: Vec<_> = reference.cgc_product(&a, &b).unwrap();
+        let expected_gens = catalog_bits(&reference);
+        for (reverse, complete, evict) in [
+            (false, false, false),
+            (true, true, false),
+            (true, false, true),
+        ] {
+            let mut cat = CanonicalCatalog::new(a.series(), a.rank()).unwrap();
+            for reset in [false, true] {
+                if reset {
+                    cat.reset();
+                }
+                let mut order: Vec<_> = expected.iter().collect();
+                if reverse {
+                    order.reverse();
+                }
+                for c in order {
+                    if evict {
+                        cache::trim_to(cache::CoefficientCacheTier::BcdCgc, 0);
+                    }
+                    let got = cache::with_bcd_test_sweep(&a, &b, c.s3(), |sweep| {
+                        cat.cgc_with(&a, &b, c.s3(), Some(sweep), complete)
+                    })
+                    .unwrap();
+                    assert_eq!(
+                        cgc_bits(&got),
+                        cgc_bits(c),
+                        "{group:?} {reverse}/{complete}/{evict}/{reset}"
+                    );
+                }
+                assert_eq!(catalog_bits(&cat), expected_gens);
+            }
+        }
+        // Reverse factors are a different carrier ordering, even when exact
+        // fusion metadata are shared. This is the provenance negative control.
+        let mut reversed_reference = CanonicalCatalog::new(a.series(), a.rank()).unwrap();
+        for c in reversed_reference.cgc_product(&b, &a).unwrap() {
+            let mut fresh = CanonicalCatalog::new(a.series(), a.rank()).unwrap();
+            let got = cache::with_bcd_test_sweep(&b, &a, c.s3(), |sweep| {
+                fresh.cgc_with(&b, &a, c.s3(), Some(sweep), false)
+            })
+            .unwrap();
+            assert_eq!(cgc_bits(&got), cgc_bits(&c), "reversed ordered pair");
+        }
+    }
+}
+
+#[test]
+fn retained_raw_budget_failures_are_atomic_and_retryable() {
+    use crate::cache;
+    let _guard = cache::TEST_CACHE_LOCK.lock().unwrap();
+    cache::reset();
+    let a = irr(Series::B, &[2, 0]);
+    let one = irr(Series::B, &[0, 0]);
+    let deep = irr(Series::B, &[4, 0]);
+    let mut warm = CanonicalCatalog::new(Series::B, 2).unwrap();
+    cache::with_bcd_test_sweep(&a, &a, &deep, |sweep| {
+        warm.cgc_with(&a, &a, &deep, Some(sweep), false)
+    })
+    .unwrap();
+    let mut demanded = CanonicalCatalog::new(Series::B, 2).unwrap();
+    demanded.cgc(&a, &a, &one).unwrap();
+    let budget = demanded.bytes();
+    let mut cat = CanonicalCatalog::with_budget(Series::B, 2, budget).unwrap();
+    cache::with_bcd_test_sweep(&a, &a, &one, |sweep| {
+        cat.cgc_with(&a, &a, &one, Some(sweep), false)
+    })
+    .unwrap();
+    let before = (cat.len(), cat.bytes(), catalog_bits(&cat));
+    for _ in 0..2 {
+        let err = cache::with_bcd_test_sweep(&a, &a, &deep, |sweep| {
+            cat.cgc_with(&a, &a, &deep, Some(sweep), false)
+        })
+        .unwrap_err();
+        assert!(matches!(err, CatalogError::BudgetExceeded { .. }));
+        assert_eq!((cat.len(), cat.bytes(), catalog_bits(&cat)), before);
+    }
+    // The optional batch cannot fit. Demand succeeds and no optional frame leaks.
+    cache::with_bcd_test_sweep(&a, &a, &a, |sweep| {
+        cat.cgc_with(&a, &a, &a, Some(sweep), true)
+    })
+    .unwrap();
+    assert_eq!((cat.len(), cat.bytes(), catalog_bits(&cat)), before);
+    assert!(
+        !cache::bcd_cgc_is_resident(&a, &a, &a),
+        "requested channel belongs to its guard, not the sibling publisher"
+    );
+
+    // A batch with two eligible children must not commit its first child when
+    // only that child fits (Sp(4) 4⊗4 supplies both 5 and 10).
+    let a = irr(Series::C, &[1, 0]);
+    let one = irr(Series::C, &[0, 0]);
+    let mut cat = CanonicalCatalog::new(Series::C, 2).unwrap();
+    let raw = canonical_product(&a, &a, &cat.store[&a], &cat.store[&a], None).unwrap();
+    let child = raw.blocks().iter().find(|b| b.irrep() != &one).unwrap();
+    cat.max_bytes = cat.bytes() + gen_bytes(child.generators());
+    let before = (cat.len(), cat.bytes(), catalog_bits(&cat));
+    cache::with_bcd_test_sweep(&a, &a, &one, |sweep| {
+        cat.complete_product(&a, &a, &one, &raw, sweep)
+    })
+    .unwrap();
+    assert_eq!((cat.len(), cat.bytes(), catalog_bits(&cat)), before);
 }

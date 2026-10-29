@@ -1117,3 +1117,105 @@ fn projection_reuse_matches_old_bits_and_counts() {
     }
     assert!(identical, "projection path changed coefficient bits");
 }
+
+#[test]
+fn raw_storage_charges_all_capacities_and_deep_labels() {
+    use crate::cache::{CacheKeyCharge, ARC_COUNTS_BYTES};
+    use std::mem::size_of;
+    let mut block = so5_adjoint_block();
+    block.cgc.data.reserve_exact(13);
+    block.z.data.reserve_exact(7);
+    block.gens.sz.reserve_exact(2);
+    block.gens.sz[0].reserve_exact(11);
+    let Raising::Dense(sp) = &mut block.gens.sp else {
+        unreachable!()
+    };
+    sp.reserve_exact(3);
+    sp[0].data.reserve_exact(17);
+    let expected_block = block.irrep.key_bytes() - size_of::<Irrep>()
+        + 8 * (block.cgc.data.capacity()
+            + block.z.data.capacity()
+            + sp.iter().map(|m| m.data.capacity()).sum::<usize>()
+            + block.gens.sz.iter().map(Vec::capacity).sum::<usize>())
+        + sp.capacity() * size_of::<Dense>()
+        + block.gens.sz.capacity() * size_of::<Vec<f64>>();
+    assert_eq!(
+        block.irrep.key_bytes() - size_of::<Irrep>(),
+        ARC_COUNTS_BYTES + 16
+    );
+    let mut blocks = Vec::with_capacity(5);
+    blocks.push(block);
+    let raw = Decomposition { blocks };
+    assert_eq!(
+        raw.storage_bytes(),
+        size_of::<Decomposition>() + raw.blocks.capacity() * size_of::<Block>() + expected_block
+    );
+}
+
+#[test]
+fn cached_rotated_raw_is_aligned_before_channel_publication() {
+    use super::super::{fr::cached_cgc, CanonicalCatalog};
+    use crate::cache;
+    use std::sync::{Arc, Mutex};
+    let _lock = cache::TEST_CACHE_LOCK.lock().unwrap();
+    cache::reset();
+    let a = defining_irrep(Series::B, 2);
+    let c = Irrep::from_dynkin(Series::B, &[0, 2]).unwrap();
+    let mut cat = CanonicalCatalog::new(Series::B, 2).unwrap();
+    // Establish every canonical frame before injecting a synthetic rotated copy.
+    cat.cgc_product(&a, &a).unwrap();
+    let g = cat.generators(&a).unwrap().clone();
+    let mut raw = decompose(
+        &Generators::product(&g, &g).unwrap(),
+        &directproduct(&a, &a).unwrap(),
+    )
+    .unwrap();
+    let block = raw.blocks.iter_mut().find(|b| b.irrep() == &c).unwrap();
+    let canonical = cat.generators(&c).unwrap().clone();
+    let rotation = rotation_on(block.dim(), zero_weight_indices(block.generators()));
+    block.gens = conjugate_generators(&block.gens, &rotation.transpose()).unwrap();
+    block.cgc = matmul(&block.cgc, &rotation).unwrap();
+    assert!(block.gens.coherence_residual(&canonical) > 1e-3);
+    let raw = Arc::new(raw);
+    cache::with_bcd_test_sweep(&a, &a, &c, |sweep| {
+        sweep.raw(&a, &a, || Ok::<_, ()>(raw.clone()))
+    })
+    .unwrap();
+    assert!(!cache::bcd_cgc_is_resident(&a, &a, &c));
+    let cat = Mutex::new(cat);
+    let result = cached_cgc(&cat, &a, &a, &c).unwrap();
+    assert!(cache::bcd_cgc_is_resident(&a, &a, &c));
+    let block = raw.blocks.iter().find(|b| b.irrep() == &c).unwrap();
+    let (aligned, residual) = align_block(block, &canonical).unwrap();
+    assert!(residual < 1e-10);
+    assert_eq!(
+        result
+            .copy(0)
+            .iter()
+            .map(|x| x.to_bits())
+            .collect::<Vec<_>>(),
+        aligned.data.iter().map(|x| x.to_bits()).collect::<Vec<_>>()
+    );
+    assert!(
+        block.gens.coherence_residual(&canonical) > 1e-3,
+        "raw remains immutable"
+    );
+
+    // An unalignable raw frame returns the ordinary typed error and never
+    // publishes a completed channel.
+    cache::reset();
+    let mut bad = (*raw).clone();
+    let block = bad.blocks.iter_mut().find(|b| b.irrep() == &c).unwrap();
+    let Raising::Dense(sp) = &mut block.gens.sp else {
+        unreachable!()
+    };
+    for m in sp {
+        m.data.fill(0.0);
+    }
+    cache::with_bcd_test_sweep(&a, &a, &c, |sweep| {
+        sweep.raw(&a, &a, || Ok::<_, ()>(Arc::new(bad)))
+    })
+    .unwrap();
+    assert!(cached_cgc(&cat, &a, &a, &c).is_err());
+    assert!(!cache::bcd_cgc_is_resident(&a, &a, &c));
+}

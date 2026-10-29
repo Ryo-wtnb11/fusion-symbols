@@ -65,10 +65,12 @@ pub(crate) fn cached_cgc(
     b: &Irrep,
     c: &Irrep,
 ) -> Result<Arc<CatalogCgc>, LieError> {
-    cached_cgc_by(cat, a, b, c, |cat, _| Ok(Arc::new(cat.cgc(a, b, c)?)))
+    cached_cgc_by(cat, a, b, c, |cat, sweep| {
+        Ok(Arc::new(cat.cgc_with(a, b, c, Some(sweep), false)?))
+    })
 }
 
-/// Sweep every channel of `a ⊗ b` at once, publishing the others.
+/// Demand the channel, then publish only already-coherent canonical siblings.
 fn cached_product_cgc(
     cat: &Mutex<CanonicalCatalog>,
     a: &Irrep,
@@ -76,15 +78,7 @@ fn cached_product_cgc(
     c: &Irrep,
 ) -> Result<Arc<CatalogCgc>, LieError> {
     cached_cgc_by(cat, a, b, c, |cat, sweep| {
-        let mut wanted = None;
-        for ch in cat.cgc_product(a, b)? {
-            if ch.s3() == c {
-                wanted = Some(Arc::new(ch));
-            } else {
-                sweep.publish(ch);
-            }
-        }
-        Ok(wanted.expect("the sweep passed its exact support gate for this nonempty channel"))
+        Ok(Arc::new(cat.cgc_with(a, b, c, Some(sweep), true)?))
     })
 }
 

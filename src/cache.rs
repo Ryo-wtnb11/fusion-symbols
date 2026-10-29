@@ -1121,6 +1121,32 @@ impl<K: Clone + Eq + Hash + CacheKeyCharge, V: Clone + CacheCharge> Publisher<'_
         value
     }
 
+    /// Nested work inherits this generation's epoch even if reset precedes
+    /// acquisition of its own placeholder. The loader must not recurse.
+    fn get_or_try_compute<Q: Hash + quick_cache::Equivalent<K> + ?Sized, E>(
+        &self,
+        key: &Q,
+        own: impl FnOnce() -> K,
+        compute: impl FnOnce() -> Result<V, E>,
+    ) -> Result<V, E> {
+        let cache = self.cache;
+        if let Some(value) = cache.get(key) {
+            return Ok(value);
+        }
+        let key = own();
+        let guard = match cache.guard(&key) {
+            Ok(guard) => guard,
+            Err(value) => return Ok(cache.hit(value)),
+        };
+        let value = compute()?;
+        let _publication = cache.publication.lock().unwrap();
+        if cache.epoch.load(Ordering::Relaxed) != self.epoch {
+            cache.misses.fetch_add(1, Ordering::Relaxed);
+            return Ok(value);
+        }
+        Ok(cache.fill(guard, &key, value))
+    }
+
     /// Uncounted recheck for a generation that waited on an engine lock.
     fn peek<Q: Hash + quick_cache::Equivalent<K> + ?Sized>(&self, key: &Q) -> Option<V> {
         self.cache.inner.peek(key).map(|value| value.value)
@@ -1612,8 +1638,10 @@ pub(crate) fn bcd_r<E>(
 ///
 /// Private key/value variants share the existing `BcdCgc` byte budget, Clock-PRO
 /// eviction, statistics, trim and reset controls. Exact products are shared
-/// sorted channel slices on an unordered irrep-pair key. Dense CGC isometries
-/// use ordered triples; one sweep populates all coupled channels.
+/// sorted channel slices on an unordered irrep-pair key. Raw ordered-pair
+/// `RawProduct` entries share this tier and retain decompositions before alignment.
+/// Dense CGC isometries use ordered triples: public CGC publishes only the
+/// requested channel; F/R also publishes siblings that are already coherent.
 /// Keys omit global form: admissibility is checked by `LieGroup::irrep`, while
 /// surviving weights share their canonical coefficients across global forms.
 ///
@@ -1624,10 +1652,10 @@ pub(crate) fn bcd_r<E>(
 #[cfg(feature = "lie-generated")]
 mod bcd_cgc_cache {
     use super::{CacheCharge, CacheKeyCharge, CoefficientCache};
-    use crate::lie::bcd::{CatalogCgc, Irrep};
+    use crate::lie::bcd::{CatalogCgc, Decomposition, Irrep};
     use std::sync::{Arc, LazyLock};
 
-    /// Product pairs, CGC triples, or one dual-lookup label.
+    /// Exact unordered pairs, raw ordered pairs, CGC triples, or dual labels.
     ///
     /// **No [`GroupId`](crate::lie::GroupId), deliberately.**
     /// A global form gates *which* highest weights may be requested; it never
@@ -1645,12 +1673,14 @@ mod bcd_cgc_cache {
         Product(Irrep, Irrep),
         Cgc(Irrep, Irrep, Irrep),
         Dual(Irrep),
+        RawProduct(Irrep, Irrep),
     }
     #[derive(Hash)]
     pub(super) enum BcdRef<'a> {
         Product(&'a Irrep, &'a Irrep),
         Cgc(&'a Irrep, &'a Irrep, &'a Irrep),
         Dual(&'a Irrep),
+        RawProduct(&'a Irrep, &'a Irrep),
     }
     impl quick_cache::Equivalent<BcdKey> for BcdRef<'_> {
         fn equivalent(&self, key: &BcdKey) -> bool {
@@ -1658,39 +1688,45 @@ mod bcd_cgc_cache {
                 (Self::Product(a, b), BcdKey::Product(x, y)) => *a == x && *b == y,
                 (Self::Cgc(a, b, c), BcdKey::Cgc(x, y, z)) => *a == x && *b == y && *c == z,
                 (Self::Dual(a), BcdKey::Dual(x)) => *a == x,
+                (Self::RawProduct(a, b), BcdKey::RawProduct(x, y)) => *a == x && *b == y,
                 _ => false,
             }
         }
     }
     impl CacheKeyCharge for BcdKey {
         fn key_bytes(&self) -> usize {
-            std::mem::size_of::<Self>()
-                + match self {
-                    Self::Product(a, b) => a.key_bytes() + b.key_bytes(),
-                    Self::Cgc(a, b, c) => a.key_bytes() + b.key_bytes() + c.key_bytes(),
-                    Self::Dual(a) => a.key_bytes(),
+            std::mem::size_of::<Self>().saturating_add(match self {
+                Self::Product(a, b) | Self::RawProduct(a, b) => {
+                    a.key_bytes().saturating_add(b.key_bytes())
                 }
+                Self::Cgc(a, b, c) => a
+                    .key_bytes()
+                    .saturating_add(b.key_bytes())
+                    .saturating_add(c.key_bytes()),
+                Self::Dual(a) => a.key_bytes(),
+            })
         }
     }
     #[derive(Clone, Debug)]
     pub(super) enum BcdValue {
         Product(Arc<[(Irrep, u32)]>),
         Cgc(Arc<CatalogCgc>),
+        Raw(Arc<Decomposition>),
     }
     impl CacheCharge for BcdValue {
         fn value_bytes(&self) -> usize {
-            std::mem::size_of::<Self>()
-                + match self {
-                    Self::Product(channels) => {
-                        super::ARC_COUNTS_BYTES
-                            + std::mem::size_of_val(channels.as_ref())
-                            + channels
-                                .iter()
-                                .map(|(c, _)| c.key_bytes() - std::mem::size_of::<Irrep>())
-                                .sum::<usize>()
-                    }
-                    Self::Cgc(cgc) => cgc.storage_bytes(),
+            std::mem::size_of::<Self>().saturating_add(match self {
+                Self::Product(channels) => {
+                    super::ARC_COUNTS_BYTES
+                        + std::mem::size_of_val(channels.as_ref())
+                        + channels
+                            .iter()
+                            .map(|(c, _)| c.key_bytes() - std::mem::size_of::<Irrep>())
+                            .sum::<usize>()
                 }
+                Self::Cgc(cgc) => cgc.storage_bytes(),
+                Self::Raw(raw) => super::ARC_COUNTS_BYTES.saturating_add(raw.storage_bytes()),
+            })
         }
     }
 
@@ -1756,7 +1792,7 @@ pub(crate) fn bcd_dual(x: &bcd::Irrep, dual: impl FnOnce() -> bcd::Irrep) -> bcd
     dual[0].0.clone()
 }
 
-/// One B/C/D CGC generation, which may cover every channel of `a ⊗ b`.
+/// One B/C/D channel request and its inherited raw/sibling publication epoch.
 #[cfg(feature = "lie-generated")]
 pub(crate) struct BcdCgcSweep<'a> {
     publisher: &'a Publisher<'a, bcd_cgc_cache::BcdKey, bcd_cgc_cache::BcdValue>,
@@ -1775,8 +1811,28 @@ impl BcdCgcSweep<'_> {
             .peek(&bcd_cgc_cache::BcdRef::Cgc(self.a, self.b, self.c))?
         {
             bcd_cgc_cache::BcdValue::Cgc(cgc) => Some(cgc),
-            bcd_cgc_cache::BcdValue::Product(_) => unreachable!("CGC key stores a CGC"),
+            _ => unreachable!("CGC key stores a CGC"),
         }
+    }
+
+    /// Only the catalog's canonical-input path may supply this loader. The
+    /// inherited epoch predates the catalog lock and every recursive child.
+    pub(crate) fn raw<E>(
+        &self,
+        a: &bcd::Irrep,
+        b: &bcd::Irrep,
+        compute: impl FnOnce() -> Result<Arc<bcd::Decomposition>, E>,
+    ) -> Result<Arc<bcd::Decomposition>, E> {
+        use bcd_cgc_cache::{BcdKey, BcdRef, BcdValue};
+        let value = self.publisher.get_or_try_compute(
+            &BcdRef::RawProduct(a, b),
+            || BcdKey::RawProduct(a.clone(), b.clone()),
+            || compute().map(BcdValue::Raw),
+        )?;
+        let BcdValue::Raw(raw) = value else {
+            unreachable!("raw product key stores a decomposition")
+        };
+        Ok(raw)
     }
 
     /// Publish another channel of `a ⊗ b` produced by this sweep.
@@ -1817,6 +1873,22 @@ pub(crate) fn bcd_cgc_is_resident(a: &bcd::Irrep, b: &bcd::Irrep, c: &bcd::Irrep
         .inner
         .peek(&bcd_cgc_cache::BcdRef::Cgc(a, b, c))
         .is_some()
+}
+
+#[cfg(all(test, feature = "lie-generated"))]
+pub(crate) fn with_bcd_test_sweep<T>(
+    a: &bcd::Irrep,
+    b: &bcd::Irrep,
+    c: &bcd::Irrep,
+    run: impl FnOnce(&BcdCgcSweep<'_>) -> T,
+) -> T {
+    let publisher = bcd_cgc_cache::CACHE_BCD_CGC.publisher();
+    run(&BcdCgcSweep {
+        publisher: &publisher,
+        a,
+        b,
+        c,
+    })
 }
 
 fn control(tier: CoefficientCacheTier) -> &'static dyn TierControl {
@@ -2248,17 +2320,21 @@ mod tests {
 
     #[cfg(feature = "lie-generated")]
     #[test]
-    fn dual_keys_preserve_existing_entry_sizes() {
+    fn generated_key_and_value_shell_sizes() {
         use super::bcd_cgc_cache::{BcdKey, BcdValue};
         use super::sun_product_cache::SunProductKey;
         use crate::lie::bcd::{Irrep as BcdIrrep, Series};
         use crate::lie::sun::Irrep as SunIrrep;
         use std::{mem::size_of, sync::Arc};
 
-        // Original Product/Cgc layouts, before adding dual-key variants.
+        // Keys retain their original layout. The third value variant needs
+        // a discriminant beside the fat product Arc; it is fully charged.
         assert_eq!(size_of::<SunProductKey>(), 2 * size_of::<SunIrrep>());
         assert_eq!(size_of::<BcdKey>(), 3 * size_of::<BcdIrrep>());
-        assert_eq!(size_of::<BcdValue>(), size_of::<Arc<[(BcdIrrep, u32)]>>());
+        assert_eq!(
+            size_of::<BcdValue>(),
+            size_of::<Arc<[(BcdIrrep, u32)]>>() + size_of::<usize>()
+        );
 
         let sun = SunIrrep::from_dynkin(&[1, 0]).unwrap();
         assert_eq!(
@@ -2680,6 +2756,316 @@ mod tests {
 
     #[cfg(feature = "lie-generated")]
     #[test]
+    #[ignore = "release measurement: retained raw bytes and actual decomposition calls"]
+    fn bcd_raw_retention_measurement() {
+        use crate::{
+            category::{FusionCategory, GroupRepresentations},
+            lie::{GroupId, LieGroup},
+        };
+        use bcd_cgc_cache::{BcdKey, BcdValue, CACHE_BCD_CGC};
+        let _lock = TEST_CACHE_LOCK.lock().unwrap();
+        for mode in ["public", "f", "r", "f_public", "large"] {
+            reset();
+            let large = mode == "large";
+            let group = LieGroup::new(if large {
+                GroupId::sp(4).unwrap()
+            } else {
+                GroupId::so(5).unwrap()
+            })
+            .unwrap();
+            let a = group.irrep(if large { &[2, 1] } else { &[2, 0] }).unwrap();
+            let channels: Vec<_> = group.fusion(&a, &a).unwrap().collect();
+            bcd::DECOMPOSITIONS.set(0);
+            if mode == "f" || mode == "f_public" {
+                group.f_symbol(&a, &a, &a, &a, &a, &a).unwrap();
+            }
+            if mode == "r" {
+                group.r_symbol(&a, &a, &a).unwrap();
+            }
+            if mode != "f" && mode != "r" {
+                for c in channels {
+                    group.cgc(&a, &a, &c).unwrap();
+                }
+            }
+            let label = bcd::Irrep::from_dynkin(
+                if large {
+                    bcd::Series::C
+                } else {
+                    bcd::Series::B
+                },
+                if large { &[2, 1] } else { &[2, 0] },
+            )
+            .unwrap();
+            let mut entries = 0;
+            let mut bytes = 0;
+            let mut queried = 0;
+            for (key, value) in CACHE_BCD_CGC.inner.iter() {
+                if let BcdValue::Raw(_) = &value.value {
+                    entries += 1;
+                    bytes += value.bytes;
+                    if key == BcdKey::RawProduct(label.clone(), label.clone()) {
+                        queried = value.bytes;
+                    }
+                }
+            }
+            println!("{mode}: sweeps={} raw_entries={entries} raw_bytes={bytes} queried_raw_bytes={queried}", bcd::DECOMPOSITIONS.get());
+            assert!(queried > 0 && bytes <= CACHE_BCD_CGC.tier_stats().bytes);
+        }
+    }
+
+    #[cfg(feature = "lie-generated")]
+    fn raw_fixture() -> (bcd_cgc_cache::BcdKey, bcd_cgc_cache::BcdValue) {
+        use crate::{
+            category::{FusionCategory, GroupRepresentations},
+            lie::{GroupId, LieGroup},
+        };
+        use bcd_cgc_cache::{BcdKey, BcdRef, CACHE_BCD_CGC};
+        let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
+        let a = cat.irrep(&[1, 0]).unwrap();
+        cat.cgc(&a, &a, &cat.unit()).unwrap();
+        let a = &bcd::Irrep::from_dynkin(bcd::Series::C, &[1, 0]).unwrap();
+        (
+            BcdKey::RawProduct(a.clone(), a.clone()),
+            CACHE_BCD_CGC
+                .inner
+                .peek(&BcdRef::RawProduct(a, a))
+                .unwrap()
+                .value,
+        )
+    }
+
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn raw_charge_eviction_and_external_ownership_are_independent() {
+        use bcd_cgc_cache::{BcdKey, BcdValue};
+        let _lock = TEST_CACHE_LOCK.lock().unwrap();
+        reset();
+        let (key, raw) = raw_fixture();
+        let BcdValue::Raw(blocks) = &raw else {
+            unreachable!()
+        };
+        let charge = entry_charge(&key, &raw);
+        assert_eq!(
+            charge,
+            key.key_bytes()
+                + std::mem::size_of::<BcdValue>()
+                + ARC_COUNTS_BYTES
+                + blocks.storage_bytes()
+                + std::mem::size_of::<usize>()
+        );
+        for budget in [charge, charge - 1, 0] {
+            let local = CoefficientCache::new(16, budget);
+            let owners = Arc::strong_count(blocks);
+            local.get_or_compute(key.clone(), || raw.clone());
+            let retained = usize::from(budget == charge);
+            assert_eq!(
+                (local.tier_stats().entries, local.tier_stats().bytes),
+                (retained, charge * retained)
+            );
+            assert_eq!(Arc::strong_count(blocks), owners + retained);
+            assert_eq!(local.trim_to(0), (retained, charge * retained, 0, 0));
+            assert_eq!(Arc::strong_count(blocks), owners);
+        }
+        let BcdKey::RawProduct(a, b) = &key else {
+            unreachable!()
+        };
+        let mut cat = bcd::CanonicalCatalog::new(a.series(), a.rank()).unwrap();
+        let one = bcd::Irrep::trivial(a.series(), a.rank()).unwrap();
+        let channel = Arc::new(cat.cgc(a, b, &one).unwrap());
+        let ckey = BcdKey::Cgc(a.clone(), b.clone(), one);
+        let cvalue = BcdValue::Cgc(channel.clone());
+        let ccharge = entry_charge(&ckey, &cvalue);
+        for remove_raw in [true, false] {
+            let local = CoefficientCache::new(16, charge + ccharge);
+            let raw_owners = Arc::strong_count(blocks);
+            let channel_owners = Arc::strong_count(&channel);
+            local.publisher().publish(key.clone(), raw.clone());
+            local.publisher().publish(ckey.clone(), cvalue.clone());
+            let remove = if remove_raw { &key } else { &ckey };
+            let removed = local.inner.remove(remove).unwrap();
+            local
+                .retained_bytes
+                .fetch_sub(removed.1.bytes, Ordering::Relaxed);
+            drop(removed);
+            assert_eq!(
+                local.tier_stats().bytes,
+                if remove_raw { ccharge } else { charge }
+            );
+            assert_eq!(
+                Arc::strong_count(blocks),
+                raw_owners + usize::from(!remove_raw)
+            );
+            assert_eq!(
+                Arc::strong_count(&channel),
+                channel_owners + usize::from(remove_raw)
+            );
+            local.trim_to(0);
+            assert_eq!(channel.copy(0).len(), 16);
+            assert_eq!(blocks.blocks().len(), 3);
+        }
+        // A rejected raw value must not displace an existing useful channel.
+        let local = CoefficientCache::new(16, ccharge);
+        local.publisher().publish(ckey.clone(), cvalue);
+        local.publisher().publish(key, raw);
+        assert!(local.get(&ckey).is_some());
+        assert_eq!(local.tier_stats().bytes, ccharge);
+    }
+
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn nested_raw_lookup_inherits_epoch_before_and_after_child_guard() {
+        use bcd_cgc_cache::{BcdKey, BcdValue};
+        let _lock = TEST_CACHE_LOCK.lock().unwrap();
+        reset();
+        let (raw_key, raw) = raw_fixture();
+        let BcdKey::RawProduct(a, b) = &raw_key else {
+            unreachable!()
+        };
+        let top = BcdKey::Cgc(a.clone(), b.clone(), a.clone());
+        let sibling = BcdKey::Cgc(
+            a.clone(),
+            b.clone(),
+            bcd::Irrep::trivial(a.series(), a.rank()).unwrap(),
+        );
+        for reset_before_guard in [true, false] {
+            let local = CoefficientCache::new(16, 1 << 20);
+            local
+                .get_or_try_sweep(
+                    &top,
+                    || top.clone(),
+                    |parent| {
+                        if reset_before_guard {
+                            local.reset();
+                        }
+                        let value = parent.get_or_try_compute(
+                            &raw_key,
+                            || raw_key.clone(),
+                            || {
+                                if !reset_before_guard {
+                                    local.reset();
+                                }
+                                Ok::<_, ()>(raw.clone())
+                            },
+                        )?;
+                        assert!(matches!(value, BcdValue::Raw(_)));
+                        parent.publish(sibling.clone(), raw.clone());
+                        Ok::<_, ()>(raw.clone())
+                    },
+                )
+                .unwrap();
+            let stats = local.tier_stats();
+            assert_eq!((stats.entries, stats.bytes, stats.misses), (0, 0, 2));
+            local
+                .publisher()
+                .get_or_try_compute(&raw_key, || raw_key.clone(), || Ok::<_, ()>(raw.clone()))
+                .unwrap();
+            assert_eq!(
+                local.tier_stats().entries,
+                1,
+                "stale child guard must be released"
+            );
+        }
+        // Trimming does not invalidate the inherited epoch.
+        let local = CoefficientCache::new(16, 1 << 20);
+        let parent = local.publisher();
+        parent
+            .get_or_try_compute(
+                &raw_key,
+                || raw_key.clone(),
+                || {
+                    local.trim_to(0);
+                    Ok::<_, ()>(raw.clone())
+                },
+            )
+            .unwrap();
+        assert_eq!(local.tier_stats().entries, 1);
+    }
+
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn raw_single_flight_errors_and_panics_are_retryable() {
+        use std::{
+            sync::{mpsc, Barrier},
+            time::Duration,
+        };
+        let _lock = TEST_CACHE_LOCK.lock().unwrap();
+        reset();
+        let (key, raw) = raw_fixture();
+        let local = Arc::new(CoefficientCache::new(16, 1 << 20));
+        assert!(local
+            .publisher()
+            .get_or_try_compute(
+                &key,
+                || key.clone(),
+                || Err::<bcd_cgc_cache::BcdValue, _>(())
+            )
+            .is_err());
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            local.publisher().get_or_try_compute(
+                &key,
+                || key.clone(),
+                || -> Result<_, ()> { panic!("raw loader panic") },
+            )
+        }))
+        .is_err());
+        let start = Arc::new(Barrier::new(2));
+        let computations = Arc::new(AtomicUsize::new(0));
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let release_rx = Arc::new(std::sync::Mutex::new(release_rx));
+        let (done_tx, done_rx) = mpsc::channel();
+        let workers: Vec<_> = (0..2)
+            .map(|_| {
+                let (local, key, raw, start, computations, entered_tx, release_rx, done_tx) = (
+                    local.clone(),
+                    key.clone(),
+                    raw.clone(),
+                    start.clone(),
+                    computations.clone(),
+                    entered_tx.clone(),
+                    release_rx.clone(),
+                    done_tx.clone(),
+                );
+                std::thread::spawn(move || {
+                    let value = local
+                        .publisher()
+                        .get_or_try_compute(
+                            &key,
+                            || {
+                                start.wait();
+                                key.clone()
+                            },
+                            || {
+                                computations.fetch_add(1, Ordering::Relaxed);
+                                entered_tx.send(()).unwrap();
+                                release_rx
+                                    .lock()
+                                    .unwrap()
+                                    .recv_timeout(Duration::from_secs(5))
+                                    .unwrap();
+                                Ok::<_, ()>(raw)
+                            },
+                        )
+                        .unwrap();
+                    done_tx.send(value).unwrap();
+                })
+            })
+            .collect();
+        entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        release_tx.send(()).unwrap();
+        for _ in 0..2 {
+            done_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        }
+        for worker in workers {
+            worker.join().unwrap();
+        }
+        assert_eq!(computations.load(Ordering::Relaxed), 1);
+        assert_eq!(local.tier_stats().misses, 1);
+        assert_eq!(local.probes.joined.load(Ordering::Relaxed), 1);
+    }
+
+    #[cfg(feature = "lie-generated")]
+    #[test]
     fn borrowed_generated_views_hit_before_owning_keys() {
         use super::bcd_cgc_cache::{BcdKey, BcdRef};
         use super::sun_product_cache::{SunProductKey, SunProductRef};
@@ -2742,6 +3128,10 @@ mod tests {
             &BcdRef::Cgc(&a, &b, &b),
         );
         hit(BcdKey::Dual(a.clone()), &BcdRef::Dual(&a));
+        hit(
+            BcdKey::RawProduct(a.clone(), b.clone()),
+            &BcdRef::RawProduct(&a, &b),
+        );
     }
 
     #[test]
