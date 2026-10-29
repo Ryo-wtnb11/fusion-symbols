@@ -580,18 +580,7 @@ impl CartanData {
             self.check_label(lambda)?;
             let mut out = BTreeMap::new();
             for p in self.gt_patterns(lambda)? {
-                let n = self.rank + 1;
-                let mut previous = 0;
-                let mut w = Vec::with_capacity(n);
-                for l in 1..=n {
-                    let sum = (1..=l).try_fold(0i64, |sum, k| {
-                        sum.checked_add(p.get(k, l)).ok_or(LieError::LabelOverflow)
-                    })?;
-                    w.push(sum.checked_sub(previous).ok_or(LieError::LabelOverflow)?);
-                    previous = sum;
-                }
-                let key = self.dynkin(&w)?;
-                let entry = out.entry(key).or_insert(0u64);
+                let entry = out.entry(self.gt_weight(&p)?).or_insert(0u64);
                 *entry = entry.checked_add(1).ok_or(LieError::LabelOverflow)?;
             }
             return Ok(out);
@@ -864,6 +853,20 @@ impl CartanData {
         Ok(self
             .multiplicities(a.dynkin(), b.dynkin(), Some((a, b)))?
             .multiplicity(c.dynkin()))
+    }
+    /// The Dynkin weight of an `A_r` pattern: `μ_j = w_{j+1} − w_{j+2}` with
+    /// `w_l` the sum of row `l` minus the sum of row `l − 1`.
+    pub(crate) fn gt_weight(&self, p: &crate::lie::GtPattern) -> Result<Vec<i64>, LieError> {
+        let mut previous = 0;
+        let mut w = Vec::with_capacity(self.rank + 1);
+        for l in 1..=self.rank + 1 {
+            let sum = (1..=l).try_fold(0i64, |sum, k| {
+                sum.checked_add(p.get(k, l)).ok_or(LieError::LabelOverflow)
+            })?;
+            w.push(sum.checked_sub(previous).ok_or(LieError::LabelOverflow)?);
+            previous = sum;
+        }
+        self.dynkin(&w)
     }
     pub(crate) fn gt_patterns(
         &self,

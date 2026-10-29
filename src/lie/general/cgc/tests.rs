@@ -77,8 +77,20 @@ fn weight(m: &Ladders, i: usize) -> &[i64] {
 fn check_channel(fam: &mut GeneralFamily, a: &[i64], b: &[i64], c: &[i64], n: usize) {
     let (ch, ma, mb, mc) = fam.channel(a, b, c).unwrap();
     assert_eq!(ch.mult, n, "§5.2 N gate for {a:?}⊗{b:?}→{c:?}");
+    check_exact(&ch, ma, mb, mc);
+}
+
+/// The exact identities of [`check_channel`] on a built channel, for any
+/// basis of the three modules.
+pub(crate) fn check_exact(ch: &Channel, ma: &Ladders, mb: &Ladders, mc: &Ladders) {
+    let n = ch.mult;
+    let (a, b, c) = (
+        &ma.module.weights[0].mu,
+        &mb.module.weights[0].mu,
+        &mc.module.weights[0].mu,
+    );
     let phi: Vec<Vec<Vector>> = (0..mc.dim())
-        .map(|m| (0..n).map(|mu| as_vector(&ch, mc, m, mu)).collect())
+        .map(|m| (0..n).map(|mu| as_vector(ch, mc, m, mu)).collect())
         .collect();
     for (m, per_mu) in phi.iter().enumerate() {
         // Weight support.
@@ -303,22 +315,85 @@ fn e8_248x248_to_3875_is_exact() {
     check_channel(&mut fam, &v, &v, &unit(8, 0), 1);
 }
 
+/// Gate 2 in both directions: a declared multiplicity above or below the
+/// exact nullity, including a declared `N = 0` for a present channel and
+/// `N = 1` for an absent one (G2 has `7 ⊗ 7 ↛ 64`).
 #[test]
 fn nullity_gate_rejects_a_wrong_multiplicity() {
     let data = CartanData::new(RootSystem::G2);
     let m7 = Ladders::new(&data, &G7).unwrap();
     let m14 = Ladders::new(&data, &G14).unwrap();
-    let err = Channel::new(&data, &m7, &m7, &m14, 2).err().unwrap();
+    let m64 = Ladders::new(&data, &G64).unwrap();
+    for (c, l, nullity, multiplicity) in [(&m14, G14, 1, 2), (&m14, G14, 1, 0), (&m64, G64, 0, 1)] {
+        let err = Channel::new(&data, &m7, &m7, c, multiplicity)
+            .err()
+            .unwrap();
+        assert_eq!(
+            err,
+            LieError::from(CgcError::NullityMismatch {
+                a: G7.to_vec(),
+                b: G7.to_vec(),
+                c: l.to_vec(),
+                nullity,
+                multiplicity
+            })
+        );
+    }
+}
+
+/// Gate 3: a vanishing principal ladder is a typed failure, not a sign.
+#[test]
+fn principal_ladder_gate_rejects_a_zero_ladder() {
+    let data = CartanData::new(RootSystem::E6);
+    let lambda = unit(6, 0);
+    let mut l = Ladders::new(&data, &lambda).unwrap();
+    assert_eq!(l.principal_sign(&lambda), Ok(1));
+    let low = l.dim() - 1;
+    for op in &mut l.lower {
+        for col in op.iter_mut() {
+            col.retain(|&(t, _)| t != low);
+        }
+    }
     assert_eq!(
-        err,
-        LieError::from(CgcError::NullityMismatch {
-            a: G7.to_vec(),
-            b: G7.to_vec(),
-            c: G14.to_vec(),
-            nullity: 1,
-            multiplicity: 2
-        })
+        l.principal_sign(&lambda),
+        Err(CgcError::ZeroPrincipalLadder { lambda }.into())
     );
+}
+
+/// The product states of a weight are exactly the pairs of that weight sum,
+/// in ascending composite order `m_a + d_a·m_b`, whichever factor is scanned.
+#[test]
+fn product_space_is_the_weight_fibre_in_composite_order() {
+    let data = CartanData::new(RootSystem::G2);
+    let m7 = Ladders::new(&data, &G7).unwrap();
+    let m27 = Ladders::new(&data, &G27).unwrap();
+    for (a, b) in [(&m7, &m27), (&m27, &m7), (&m27, &m27)] {
+        for w in &b.module.weights {
+            let nu: Vec<i64> =
+                w.mu.iter()
+                    .zip(&a.module.weights[0].mu)
+                    .map(|(x, y)| x + y)
+                    .collect();
+            let mut want = Vec::new();
+            for q in 0..b.dim() {
+                for p in 0..a.dim() {
+                    let sum: Vec<i64> = weight(a, p)
+                        .iter()
+                        .zip(weight(b, q))
+                        .map(|(x, y)| x + y)
+                        .collect();
+                    if sum == nu {
+                        want.push((p, q));
+                    }
+                }
+            }
+            let got = ProductSpace::new(a, b, &nu);
+            assert_eq!(got.pairs, want, "{nu:?}");
+            for (t, &pq) in want.iter().enumerate() {
+                assert_eq!(got.at(pq), t);
+            }
+        }
+    }
 }
 
 /// G2 7 (§3–§4 by hand, Cartan rows α₀ = (2,−1), α₁ = (−3,2)): weights
@@ -1005,100 +1080,179 @@ fn performance_large_e8_channels() {
     }
 }
 
-// The c236d39 product-space scan and descent are exact drift references.
-fn old_product_space(a: &Ladders, b: &Ladders, nu: &[i64]) -> ProductSpace {
-    let mut pairs = Vec::new();
-    for wb in &b.module.weights {
-        let mu_a: Vec<i64> = nu.iter().zip(&wb.mu).map(|(x, y)| x - y).collect();
-        let Some(wa) = a.module.weight_index(&mu_a) else {
-            continue;
-        };
-        let wa = &a.module.weights[wa];
-        for q in wb.offset..wb.offset + wb.norms.len() {
-            pairs.extend((wa.offset..wa.offset + wa.norms.len()).map(|p| (p, q)));
-        }
-    }
-    let index = pairs.iter().enumerate().map(|(t, &pq)| (pq, t)).collect();
-    ProductSpace { pairs, index }
-}
-
-fn compare_old_descent(a: &Ladders, b: &Ladders, c: &Ladders, channel: &Channel) {
-    for (space, product) in c.module.weights.iter().zip(&channel.spaces) {
-        let old = old_product_space(a, b, &space.mu);
-        assert_eq!(product.pairs, old.pairs);
-        assert_eq!(product.index, old.index);
-    }
-    let mut spaces: Vec<ProductSpace> = vec![old_product_space(a, b, &c.module.weights[0].mu)];
-    let mut phi: Vec<Vec<Vec<Q>>> = Vec::with_capacity(c.dim());
-    phi.push(channel.phi[0].clone());
-    for space in &c.module.weights[1..] {
-        let to = old_product_space(a, b, &space.mu);
-        let lowered: Vec<Vec<Vec<Q>>> = space
-            .kept
-            .iter()
-            .map(|&(j, q)| {
-                let (src, _) = space.lower[j]
-                    .as_ref()
-                    .expect("a kept candidate's source weight space exists (§4.1)");
-                let from = &spaces[*src];
-                let m = c.module.weights[*src].offset + q;
-                phi[m]
-                    .iter()
-                    .map(|v| coproduct(&a.lower[j], &b.lower[j], from, &to, v))
-                    .collect()
-            })
-            .collect();
-        for coeffs in &space.gs {
-            let per_mu = (0..channel.mult)
-                .map(|mu| {
-                    let mut v = vec![Q::from(0); to.len()];
-                    for (r, cand) in coeffs.iter().zip(&lowered) {
-                        if r.numerator_ref() == &0 {
-                            continue;
-                        }
-                        for (x, y) in v.iter_mut().zip(&cand[mu]) {
-                            if y.numerator_ref() != &0 {
-                                *x += r * y;
-                            }
-                        }
-                    }
-                    v
-                })
-                .collect();
-            phi.push(per_mu);
-        }
-        spaces.push(to);
-    }
-    assert_eq!(channel.phi, phi);
-}
-
+/// §9.5 on large E8 channels `248 ⊗ λ → 248` and `λ ⊗ 248 → 248` (release).
 #[test]
-fn descent_matches_old_path() {
-    let data = CartanData::new(RootSystem::G2);
-    let a = Ladders::new(&data, &G7).unwrap();
-    let b = Ladders::new(&data, &G27).unwrap();
-    let channel = Channel::new(&data, &b, &b, &b, 2).unwrap();
-    compare_old_descent(&b, &b, &b, &channel);
-    for (a, b) in [(&a, &b), (&b, &a), (&b, &b)] {
-        for w in &b.module.weights {
-            let new = ProductSpace::new(a, b, &w.mu);
-            let old = old_product_space(a, b, &w.mu);
-            assert_eq!(new.pairs, old.pairs);
-            assert_eq!(new.index, old.index);
-        }
-    }
-}
-
-#[test]
-#[ignore = "large E8 exact descent comparisons; run in release"]
-fn large_descent_matches_old_path() {
+#[ignore = "large E8 exact channels; run in release"]
+fn large_e8_channels_are_exact() {
     let data = CartanData::new(RootSystem::E8);
     let adjoint = Ladders::new(&data, &unit(8, 7)).unwrap();
     for label in [vec![0, 0, 0, 0, 0, 0, 0, 2], unit(8, 6)] {
         let large = Ladders::new(&data, &label).unwrap();
         for (a, b) in [(&adjoint, &large), (&large, &adjoint)] {
-            let channel = Channel::new(&data, a, b, &adjoint, 1).unwrap();
-            compare_old_descent(a, b, &adjoint, &channel);
+            check_exact(
+                &Channel::new(&data, a, b, &adjoint, 1).unwrap(),
+                a,
+                b,
+                &adjoint,
+            );
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Rounded gates.
+// ---------------------------------------------------------------------------
+
+/// A channel's rounded entries before the gates, with its modules.
+fn rounded(
+    root: RootSystem,
+    a: &[i64],
+    b: &[i64],
+    c: &[i64],
+) -> (Vec<MEntry>, [Ladders; 3], usize) {
+    let data = CartanData::new(root);
+    let [ma, mb, mc] = [a, b, c].map(|l| Ladders::new(&data, l).unwrap());
+    let n = data.multiplicities(a, b, None).unwrap().multiplicity(c) as usize;
+    let ch = Channel::new(&data, &ma, &mb, &mc, n).unwrap();
+    let entries = ch.rounded_entries(&ma, &mb, &mc).unwrap();
+    (entries, [ma, mb, mc], n)
+}
+
+fn gate(root: RootSystem, l: &[Ladders; 3], n: usize, e: &[MEntry]) -> Result<(), GateError> {
+    check_rounded(&CartanData::new(root), &l[0], &l[1], &l[2], n, e)
+}
+
+/// Every channel of the exactly verified products passes both rounded gates.
+#[test]
+fn rounded_gates_pass_on_exact_channels() {
+    for (root, a, b) in [
+        (RootSystem::G2, G7.to_vec(), G7.to_vec()),
+        (RootSystem::G2, G7.to_vec(), G14.to_vec()),
+        (RootSystem::G2, G27.to_vec(), G27.to_vec()),
+        (RootSystem::F4, unit(4, 3), unit(4, 3)),
+        (RootSystem::E6, unit(6, 0), unit(6, 5)),
+    ] {
+        let fam = GeneralFamily::new(root);
+        for (c, _) in fam.product(&a, &b).unwrap().iter() {
+            let (e, l, n) = rounded(root, &a, &b, c.dynkin());
+            gate(root, &l, n, &e).unwrap();
+        }
+    }
+}
+
+/// The isometry gate rejects a rescaled column, a missing column, two
+/// parallel columns within one weight block, an entry off its weight and
+/// nonfinite entries.
+#[test]
+fn isometry_gate_rejects_broken_channels() {
+    let (good, l, n) = rounded(RootSystem::G2, &G27, &G27, &G27);
+    assert_eq!(n, 2);
+    let isometry = |e: &[MEntry]| match gate(RootSystem::G2, &l, n, e) {
+        Err(GateError::Residual {
+            gate: "isometry",
+            residual,
+        }) => residual,
+        other => panic!("{other:?}"),
+    };
+    let m = 3u32;
+    // A column norm of 1.01² instead of 1.
+    let mut e = good.clone();
+    e.iter_mut()
+        .filter(|x| (x.m3, x.mu) == (m, 0))
+        .for_each(|x| x.value *= 1.01);
+    assert!((isometry(&e) - 0.0201).abs() < 1e-6);
+    // A whole column absent: its diagonal Gram entry is 0.
+    let e: Vec<_> = good
+        .iter()
+        .copied()
+        .filter(|x| (x.m3, x.mu) != (m, 1))
+        .collect();
+    assert!((isometry(&e) - 1.0).abs() < 1e-12);
+    // Column (m, 1) replaced by column (m, 0): same weight block, overlap 1.
+    let mut e: Vec<_> = good
+        .iter()
+        .copied()
+        .filter(|x| (x.m3, x.mu) != (m, 1))
+        .collect();
+    e.extend(
+        good.iter()
+            .filter(|x| (x.m3, x.mu) == (m, 0))
+            .map(|x| MEntry { mu: 1, ..*x }),
+    );
+    assert!((isometry(&e) - 1.0).abs() < 1e-12);
+    // An entry moved onto a pair of the wrong weight.
+    let mut e = good.clone();
+    e[0].m1 = if e[0].m1 == 0 { 1 } else { 0 };
+    assert_eq!(gate(RootSystem::G2, &l, n, &e), Err(GateError::Support));
+    // An index out of range.
+    let mut e = good.clone();
+    e[0].mu = 2;
+    assert_eq!(gate(RootSystem::G2, &l, n, &e), Err(GateError::Support));
+    // Finite entries whose Gram accumulation overflows.
+    let mut e = good.clone();
+    e[5].value = 1e200;
+    assert_eq!(
+        gate(RootSystem::G2, &l, n, &e),
+        Err(GateError::NonFinite { gate: "isometry" })
+    );
+    for bad in [f64::NAN, f64::INFINITY] {
+        let mut e = good.clone();
+        e[5].value = bad;
+        assert_eq!(
+            gate(RootSystem::G2, &l, n, &e),
+            Err(GateError::NonFinite { gate: "isometry" })
+        );
+    }
+}
+
+/// The ladder gate checks every applicable generator: flipping the sign of
+/// the coupled state `f_j u_top` keeps the channel isometric but breaks
+/// `Δ(f_j) C_top = Σ_m ⟨u_m, f_j u_top⟩ C_m`, for `j = 0` and for `j = 1`.
+#[test]
+fn ladder_gate_rejects_a_broken_first_descent() {
+    let (good, l, n) = rounded(RootSystem::G2, &G7, &G14, &G64);
+    gate(RootSystem::G2, &l, n, &good).unwrap();
+    let top = &l[2].module.weights[0].mu;
+    for j in 0..2 {
+        let nu: Vec<i64> = (0..2)
+            .map(|i| top[i] - CartanData::new(RootSystem::G2).c(j, i))
+            .collect();
+        let w = l[2].module.weight_index(&nu).unwrap();
+        let m = l[2].module.weights[w].offset as u32;
+        let mut e = good.clone();
+        e.iter_mut()
+            .filter(|x| x.m3 == m)
+            .for_each(|x| x.value = -x.value);
+        match gate(RootSystem::G2, &l, n, &e) {
+            Err(GateError::Residual {
+                gate: "ladder",
+                residual,
+            }) => assert!(residual > 0.1),
+            other => panic!("j = {j}: {other:?}"),
+        }
+    }
+}
+
+/// A channel failing a gate is never retained, its error is a typed
+/// generation failure, and a valid retry builds and retains it once.
+#[test]
+fn failed_gate_is_not_retained_and_retry_succeeds() {
+    let mut fam = GeneralFamily::new(RootSystem::G2);
+    let (a, c) = (G7.to_vec(), G14.to_vec());
+    fam.corrupt = Some(|e| e[0].value = f64::NAN);
+    let err = fam.cgc_entries(&a, &a, &c).err().unwrap();
+    assert_eq!(
+        err,
+        LieError::from(GateError::NonFinite { gate: "isometry" })
+    );
+    assert!(matches!(err, LieError::Generation(_)));
+    assert!(fam.channels.is_empty());
+    fam.corrupt = None;
+    let good = fam.cgc_entries(&a, &a, &c).unwrap();
+    assert_eq!(fam.channels.len(), 1);
+    let builds = fam.builds;
+    let again = fam.cgc_entries(&a, &a, &c).unwrap();
+    assert_eq!(fam.builds, builds, "warm channel must not regenerate");
+    let bits = |e: &[MEntry]| e.iter().map(|x| x.value.to_bits()).collect::<Vec<_>>();
+    assert_eq!(bits(&again), bits(&good));
 }

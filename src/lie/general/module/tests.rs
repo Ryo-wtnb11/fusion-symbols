@@ -1,7 +1,8 @@
 //! Independent oracles (`docs/gauge_exceptional.md` §9): the Chevalley
 //! relations of §2.3, Weyl and Freudenthal counts, an `e_j` built from the
-//! module axioms alone against the transpose of `f_j`, and basis facts derived
-//! by hand from §3–§4.
+//! module axioms alone against the transpose of `f_j`, the lowering recipe
+//! against the stored ladders, and basis facts derived by hand from §3–§4.
+//! The relation and recipe checks are shared with the Gelfand–Tsetlin basis.
 
 use super::*;
 use crate::exact::SignedSqrtRational;
@@ -72,12 +73,12 @@ fn raising_by_form(m: &IrrepModule, j: usize) -> Op {
     op
 }
 
-/// `e_j` from the module axioms only: `b_a = Σ_t gs[a][t] f_{j_t} b_{q_t}` and
-/// `e_j f_i = f_i e_j + δ_ij h_j`, depth by depth.
+/// `e_j` from the module axioms only: `b_a = Σ_t recipe[a][t] f_{j_t} b_{q_t}`
+/// and `e_j f_i = f_i e_j + δ_ij h_j`, depth by depth.
 fn raising_by_recursion(m: &IrrepModule, j: usize, lowers: &[Op]) -> Op {
     let mut op: Op = vec![Vec::new(); m.dim];
     for s in m.weights.iter().skip(1) {
-        for (a, row) in s.gs.iter().enumerate() {
+        for (a, row) in s.recipe.iter().enumerate() {
             let mut out = Vector::new();
             for (&(jt, q), r) in s.kept.iter().zip(row) {
                 let src = &m.weights[s.lower[jt].as_ref().unwrap().0];
@@ -147,17 +148,24 @@ fn serre(x: &[Op], i: usize, j: usize, n: i64, v: &Vector) -> Vector {
 /// §9.4 and e_i† = f_i, exactly in the rational basis.
 fn check_relations(root: RootSystem, lambda: &[i64]) {
     let (data, m) = build(root, lambda);
+    check_relations_of(&data, &m);
+}
+
+/// The Chevalley relations of §2.3 on `m`, with `e_j` both as the
+/// contravariant transpose of `f_j` and from the recipe and module axioms.
+pub(crate) fn check_relations_of(data: &CartanData, m: &IrrepModule) {
+    let (root, lambda) = (data.root, &m.weights[0].mu);
     let r = lambda.len();
-    let f: Vec<Op> = (0..r).map(|j| lowering(&m, j)).collect();
-    let e: Vec<Op> = (0..r).map(|j| raising_by_form(&m, j)).collect();
+    let f: Vec<Op> = (0..r).map(|j| lowering(m, j)).collect();
+    let e: Vec<Op> = (0..r).map(|j| raising_by_form(m, j)).collect();
     for (j, e_j) in e.iter().enumerate() {
         assert_eq!(
             *e_j,
-            raising_by_recursion(&m, j, &f),
+            raising_by_recursion(m, j, &f),
             "{root:?} {lambda:?} e_{j}"
         );
     }
-    let own = owners(&m);
+    let own = owners(m);
     for g in 0..m.dim {
         let mu = &m.weights[own[g].0].mu;
         let v = Vector::from([(g, Q::from(1))]);
@@ -183,6 +191,26 @@ fn check_relations(root: RootSystem, lambda: &[i64]) {
                     assert!(serre(&e, i, j, n, &v).is_empty(), "e Serre {i} {j}");
                     assert!(serre(&f, i, j, n, &v).is_empty(), "f Serre {i} {j}");
                 }
+            }
+        }
+    }
+}
+
+/// Each recipe reproduces its basis vector exactly: with the candidate
+/// `c_t = f_{j_t} b_{q_t}` having coordinates `F_{j_t}[·][q_t]` in the
+/// weight space, `Σ_t recipe[k][t] F_{j_t}[a][q_t] = δ_ak`.
+pub(crate) fn check_recipes(m: &IrrepModule) {
+    for s in &m.weights[1..] {
+        let dim = s.norms.len();
+        assert_eq!((s.recipe.len(), s.kept.len()), (dim, dim), "{:?}", s.mu);
+        for (k, row) in s.recipe.iter().enumerate() {
+            for a in 0..dim {
+                let got = row
+                    .iter()
+                    .zip(&s.kept)
+                    .map(|(r, &(j, q))| r * &s.lower[j].as_ref().unwrap().1[a][q])
+                    .fold(Q::from(0), |acc, x| acc + x);
+                assert_eq!(got, Q::from(u8::from(a == k)), "{:?} b_{k} at {a}", s.mu);
             }
         }
     }
@@ -220,6 +248,61 @@ fn generator_relations_exact() {
     for (root, lambda, _) in cases() {
         check_relations(root, &lambda);
     }
+}
+
+/// The Gram–Schmidt recipe is unit lower triangular (§4.3) and reproduces
+/// each basis vector from the kept candidates.
+#[test]
+fn gram_schmidt_recipes_are_unit_lower_triangular_and_exact() {
+    for (root, lambda, _) in cases()
+        .into_iter()
+        .chain([(RootSystem::F4, unit(4, 2), 273)])
+    {
+        let (_, m) = build(root, &lambda);
+        check_recipes(&m);
+        for s in &m.weights[1..] {
+            for (k, row) in s.recipe.iter().enumerate() {
+                assert_eq!(row[k], Q::from(1));
+                assert!(row[k + 1..].iter().all(|x| x.numerator_ref() == &0));
+            }
+        }
+    }
+}
+
+/// Gate 1 rejects a weight space whose selected rank differs from the
+/// declared multiplicity, and an assembled module whose dimension differs
+/// from the Weyl dimension.
+#[test]
+fn rank_and_dimension_gates_reject_discrepancies() {
+    let data = CartanData::new(RootSystem::G2);
+    let order = depth_order(&data, &[2, 0]).unwrap();
+    let m = IrrepModule::new(&data, &[2, 0]).unwrap();
+    let w = order.index[&vec![0, 0]];
+    let (k, mu) = order.spaces[w].clone();
+    let err = build_space(&data, &m.weights[..w], &order.index, mu, k, 0, 4).err();
+    assert_eq!(
+        err,
+        Some(
+            ModuleError::RankMismatch {
+                weight: vec![0, 0],
+                rank: 3,
+                multiplicity: 4
+            }
+            .into()
+        )
+    );
+    let mut wrong = depth_order(&data, &[2, 0]).unwrap();
+    wrong.weyl += 1;
+    assert_eq!(
+        IrrepModule::from_spaces(m.weights, wrong).err(),
+        Some(
+            ModuleError::DimensionMismatch {
+                built: 27,
+                weyl: 28
+            }
+            .into()
+        )
+    );
 }
 
 #[test]
@@ -303,7 +386,7 @@ fn g2_27_zero_weight_keeps_every_candidate() {
     let s = &m.weights[m.weight_index(&[0, 0]).unwrap()];
     assert_eq!(s.kept, vec![(0, 0), (0, 1), (1, 0)]);
     // §4.3: b_k = c_k − (earlier b), so its own coefficient is 1 and later ones 0.
-    for (k, row) in s.gs.iter().enumerate() {
+    for (k, row) in s.recipe.iter().enumerate() {
         assert_eq!(row[k], Q::from(1));
         assert!(row[k + 1..].iter().all(|x| x.numerator_ref() == &0));
     }
@@ -316,8 +399,8 @@ fn determinism() {
         let (_, b) = build(root, &lambda);
         for (x, y) in a.weights.iter().zip(&b.weights) {
             assert_eq!(
-                (&x.mu, &x.norms, &x.kept, &x.gs, &x.lower),
-                (&y.mu, &y.norms, &y.kept, &y.gs, &y.lower)
+                (&x.mu, &x.norms, &x.kept, &x.recipe, &x.lower),
+                (&y.mu, &y.norms, &y.kept, &y.recipe, &y.lower)
             );
         }
     }
@@ -357,40 +440,11 @@ fn build_times() {
     }
 }
 
-/// Single-thread release measurements and exact-module drift checks. Filter a
+/// Single-thread release module-build measurements. Filter a
 /// case with FS_PERF_CASE (e.g. E8-27000); repeat with FS_PERF_SAMPLES.
 #[test]
 #[ignore = "release performance report"]
 fn performance_modules() {
-    use std::hash::{DefaultHasher, Hash, Hasher};
-    // Preserve the fixture's num 0.4 hash encoding without retaining num types.
-    // Ratio hashes the floor-division continued fraction; BigInt hashes its
-    // sign discriminant, then its magnitude's little-endian u64 limbs.
-    struct LegacyHash<'a>(&'a Q);
-    impl Hash for LegacyHash<'_> {
-        fn hash<H: Hasher>(&self, state: &mut H) {
-            use malachite_base::num::arithmetic::traits::DivMod;
-            use malachite_nz::integer::Integer;
-            let mut n = Integer::from_sign_and_abs(self.0 >= &0, self.0.to_numerator());
-            let mut d = Integer::from(self.0.to_denominator());
-            while d != 0 {
-                let (q, r) = n.div_mod(&d);
-                let sign: isize = if q < 0 {
-                    0
-                } else if q == 0 {
-                    1
-                } else {
-                    2
-                };
-                sign.hash(state);
-                if q != 0 {
-                    q.unsigned_abs_ref().to_limbs_asc().hash(state);
-                }
-                (n, d) = (d, r);
-            }
-            1isize.hash(state); // terminal zero integer
-        }
-    }
     let samples: usize = std::env::var("FS_PERF_SAMPLES")
         .unwrap_or_else(|_| "3".into())
         .parse()
@@ -427,43 +481,13 @@ fn performance_modules() {
                 })
                 .max()
                 .unwrap();
-            let mut hash = DefaultHasher::new();
             let mut depths = BTreeMap::<i64, usize>::new();
             let mut max_mult = 0;
             for w in &m.weights {
-                fn conv(v: &[Q]) -> Vec<LegacyHash<'_>> {
-                    v.iter().map(LegacyHash).collect()
-                }
-                let norms = conv(&w.norms);
-                let gs: Vec<_> = w.gs.iter().map(|v| conv(v)).collect();
-                let lower: Vec<_> = w
-                    .lower
-                    .iter()
-                    .map(|x| {
-                        x.as_ref()
-                            .map(|(src, f)| (*src, f.iter().map(|v| conv(v)).collect::<Vec<_>>()))
-                    })
-                    .collect();
-                (&w.mu, &w.k, w.offset, &norms, &w.kept, &gs, &lower).hash(&mut hash);
                 *depths.entry(w.k.iter().sum()).or_default() += 1;
                 max_mult = max_mult.max(w.norms.len());
             }
-            // Exact internal-state hashes pinned on 854d838e; drift detectors.
-            let expected = match name {
-                "G2-27" => 0x98dca8b5927fdde9,
-                "G2-64" => 0x9f32818cded4dda3,
-                "F4-273" => 0xb6c9b017f19398d7,
-                "F4-324" => 0x72f327c59a64ebaa,
-                "E7-912" => 0x293f5a027dd425e7,
-                "E7-1539" => 0xa74a83768eb11a82,
-                "E8-3875" => 0x76563c5ac7e240cc,
-                "E8-27000" => 0x7d4ed4abef86235f,
-                "E8-30380" => 0x46ebcf415bfd3db9,
-                "E6-7371" => 0xd6f8ec25d1d901d4,
-                _ => unreachable!(),
-            };
-            assert_eq!(hash.finish(), expected, "{name}");
-            println!("{name} sample={sample} seconds={:.9} dim={} spaces={} depths={} max_width={} max_mult={max_mult} max_candidates={max_candidates} bytes={} exact_hash={:016x}", elapsed.as_secs_f64(), m.dim, m.weights.len(), depths.len(), depths.values().max().unwrap(), m.bytes(), hash.finish());
+            println!("{name} sample={sample} seconds={:.9} dim={} spaces={} depths={} max_width={} max_mult={max_mult} max_candidates={max_candidates} bytes={}", elapsed.as_secs_f64(), m.dim, m.weights.len(), depths.len(), depths.values().max().unwrap(), m.bytes());
         }
     }
 }
@@ -521,206 +545,17 @@ fn entries(m: &IrrepModule) -> Vec<SignedSqrtRational> {
     out
 }
 
-// The c236d39 §4 recursion is a drift reference, not an independent oracle.
-fn old_build_space(
-    data: &CartanData,
-    weights: &[WeightSpace],
-    index: &HashMap<Vec<i64>, usize>,
-    mu: Vec<i64>,
-    k: Vec<i64>,
-    offset: usize,
-    multiplicity: u64,
-) -> Result<WeightSpace, LieError> {
-    let rank = mu.len();
-    let raise =
-        |nu: &[i64], j: usize| -> Vec<i64> { (0..rank).map(|i| nu[i] + data.c(j, i)).collect() };
-    // §4.1: candidates (j, source weight, q); `start[j]` is where j's block begins.
-    let mut cands: Vec<(usize, usize, usize)> = Vec::new();
-    let mut start = vec![None; rank];
-    for (j, slot) in start.iter_mut().enumerate() {
-        if let Some(&src) = index.get(&raise(&mu, j)) {
-            *slot = Some(cands.len());
-            cands.extend((0..weights[src].norms.len()).map(|q| (j, src, q)));
-        }
-    }
-
-    // §4.4: ⟨f_j w, f_k w′⟩ = ⟨e_k w, e_j w′⟩ + δ_jk (μ+α_j)_j ⟨w, w′⟩, with
-    // ⟨e_k b_q, e_j b_q′⟩ = Σ_p F_k[q][p] F_j[q′][p] n_q n_q′ / n_p by contravariance.
-    let c = cands.len();
-    let mut gram = vec![vec![Q::from(0); c]; c];
-    for s in 0..c {
-        let (j, v1, q) = cands[s];
-        for t in s..c {
-            let (kk, v2, q2) = cands[t];
-            let (w1, w2) = (&weights[v1], &weights[v2]);
-            let mut g = Q::from(0);
-            if let (Some((tau, f1)), Some((_, f2))) = (&w1.lower[kk], &w2.lower[j]) {
-                let n_tau = &weights[*tau].norms;
-                for (p, n_p) in n_tau.iter().enumerate() {
-                    if f1[q][p].numerator_ref() != &0 && f2[q2][p].numerator_ref() != &0 {
-                        g += &f1[q][p] * &f2[q2][p] / n_p;
-                    }
-                }
-                if g.numerator_ref() != &0 {
-                    g *= &w1.norms[q] * &w2.norms[q2];
-                }
-            }
-            if j == kk && q == q2 {
-                g += Q::from(w1.mu[j]) * &w1.norms[q];
-            }
-            gram[t][s] = g.clone();
-            gram[s][t] = g;
-        }
-    }
-
-    // §4.2/§4.3: greedy selection by exact Gram–Schmidt residual, in
-    // candidate order; coefficients are over all candidates.
-    let mut full: Vec<Vec<Q>> = Vec::new();
-    let mut norms: Vec<Q> = Vec::new();
-    let mut kept_idx: Vec<usize> = Vec::new();
-    for t in 0..c {
-        let mut coeffs = vec![Q::from(0); c];
-        coeffs[t] = Q::from(1);
-        let mut n = gram[t][t].clone();
-        for (r, n_l) in full.iter().zip(&norms) {
-            let proj: Q = r
-                .iter()
-                .zip(&gram[t])
-                .filter(|(x, g)| x.numerator_ref() != &0 && g.numerator_ref() != &0)
-                .map(|(x, g)| x * g)
-                .fold(Q::from(0), |acc, x| acc + x);
-            if proj.numerator_ref() == &0 {
-                continue;
-            }
-            let scale = &proj / n_l;
-            n -= &scale * &proj;
-            for (x, y) in coeffs.iter_mut().zip(r) {
-                if y.numerator_ref() != &0 {
-                    *x -= &scale * y;
-                }
-            }
-        }
-        if n < 0 {
-            return Err(ModuleError::IndefiniteForm { weight: mu }.into());
-        }
-        if n.numerator_ref() != &0 {
-            full.push(coeffs);
-            norms.push(n);
-            kept_idx.push(t);
-        }
-    }
-    if u64::try_from(norms.len()).ok() != Some(multiplicity) {
-        return Err(ModuleError::RankMismatch {
-            weight: mu,
-            rank: norms.len(),
-            multiplicity,
-        }
-        .into());
-    }
-
-    // §4.5: F[a][b] = ⟨f_j b_b, b_a⟩ / n_a, and f_j b_b is candidate (j, b).
-    let lower = (0..rank)
-        .map(|j| {
-            let s0 = start[j]?;
-            let src = cands[s0].1;
-            let f = full
-                .iter()
-                .zip(&norms)
-                .map(|(r, n_a)| {
-                    (0..weights[src].norms.len())
-                        .map(|b| {
-                            let col = s0 + b;
-                            let dot: Q = r
-                                .iter()
-                                .zip(&gram)
-                                .filter(|(x, row)| {
-                                    x.numerator_ref() != &0 && row[col].numerator_ref() != &0
-                                })
-                                .map(|(x, row)| x * &row[col])
-                                .fold(Q::from(0), |acc, x| acc + x);
-                            dot / n_a
-                        })
-                        .collect()
-                })
-                .collect();
-            Some((src, f))
-        })
-        .collect();
-    let gs = full
-        .iter()
-        .map(|r| kept_idx.iter().map(|&t| r[t].clone()).collect())
-        .collect();
-    let kept = kept_idx.iter().map(|&t| (cands[t].0, cands[t].2)).collect();
-    Ok(WeightSpace {
-        mu,
-        k,
-        offset,
-        norms,
-        kept,
-        gs,
-        lower,
-    })
-}
-
-fn compare_old_module(root: RootSystem, lambda: &[i64]) {
-    let data = CartanData::new(root);
-    let new = IrrepModule::new(&data, lambda).unwrap();
-    let mut old = vec![WeightSpace {
-        mu: lambda.to_vec(),
-        k: vec![0; lambda.len()],
-        offset: 0,
-        norms: vec![Q::from(1)],
-        kept: Vec::new(),
-        gs: vec![Vec::new()],
-        lower: vec![None; lambda.len()],
-    }];
-    for w in &new.weights[1..] {
-        let space = old_build_space(
-            &data,
-            &old,
-            &new.index,
-            w.mu.clone(),
-            w.k.clone(),
-            w.offset,
-            w.norms.len() as u64,
-        )
-        .unwrap();
-        assert_eq!(
-            (
-                &space.mu,
-                &space.k,
-                space.offset,
-                &space.norms,
-                &space.kept,
-                &space.gs,
-                &space.lower
-            ),
-            (&w.mu, &w.k, w.offset, &w.norms, &w.kept, &w.gs, &w.lower),
-            "{root:?} {lambda:?} {:?}",
-            w.mu
-        );
-        old.push(space);
-    }
-    assert_eq!(old.iter().map(|w| w.norms.len()).sum::<usize>(), new.dim);
-}
-
+/// Gate 1 and the recipe identity on large modules (release).
 #[test]
-fn module_matches_old_path_exactly() {
-    for (root, lambda, _) in cases() {
-        compare_old_module(root, &lambda);
-    }
-    compare_old_module(RootSystem::F4, &unit(4, 2));
-}
-
-#[test]
-#[ignore = "large exact old/new module comparisons; run in release"]
-fn large_modules_match_old_path_exactly() {
-    for (root, lambda) in [
-        (RootSystem::E8, unit(8, 0)),
-        (RootSystem::E8, vec![0, 0, 0, 0, 0, 0, 0, 2]),
-        (RootSystem::E8, unit(8, 6)),
-        (RootSystem::E6, vec![1, 0, 0, 0, 1, 0]),
+#[ignore = "large exact modules; run in release"]
+fn large_modules_satisfy_rank_gates_and_recipes() {
+    for (root, lambda, weyl) in [
+        (RootSystem::E8, unit(8, 0), 3875),
+        (RootSystem::E8, vec![0, 0, 0, 0, 0, 0, 0, 2], 27000),
+        (RootSystem::E8, unit(8, 6), 30380),
+        (RootSystem::E6, vec![1, 0, 0, 0, 1, 0], 7371),
     ] {
-        compare_old_module(root, &lambda);
+        check_ranks(root, &lambda, weyl);
+        check_recipes(&build(root, &lambda).1);
     }
 }

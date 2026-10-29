@@ -6,13 +6,18 @@
 //! of §4.5, whose metric is `diag(n^a_{m_a} n^b_{m_b})`. Each lowered vector
 //! is `√N_μ Φ_μ(b^c_{m_c})`, so a CGC entry is its rational coordinate `x`
 //! times `√(n^a n^b / (N_μ n^c))`: one signed square root, rounded once.
+//!
+//! Before a rounded channel is retained or returned it passes two
+//! verification gates, which never change a value: an isometry check over
+//! every expected column within each output weight block, and a first-descent
+//! ladder check for every applicable simple generator.
 
 use std::collections::{BTreeMap, HashMap};
 
 use super::module::{labels_bytes, q_heap, qs_bytes, IrrepModule, Q};
 use super::roots::CartanData;
 use crate::exact::SignedSqrtRational;
-use crate::frcore::{Family, MEntry};
+use crate::frcore::{Family, GateError, MEntry};
 #[cfg(test)]
 use crate::lie::RootSystem;
 use crate::lie::{GenerationError, LieError};
@@ -65,7 +70,15 @@ impl From<CgcError> for LieError {
     }
 }
 
-/// `L(λ)` with its ladder operators flattened to magnetic indices.
+impl From<GateError> for LieError {
+    fn from(error: GateError) -> Self {
+        Self::Generation(GenerationError(std::sync::Arc::new(error)))
+    }
+}
+
+/// `L(λ)` with its ladder operators flattened to engine indices: the weight
+/// spaces of the module in §3 order, so index 0 is the highest weight and the
+/// last weight space is the lowest. `public` maps them to magnetic indices.
 pub(super) struct Ladders {
     pub(super) module: IrrepModule,
     /// `n_m = ⟨b_m, b_m⟩` per magnetic index.
@@ -76,12 +89,23 @@ pub(super) struct Ladders {
     pub(super) lower: Vec<Op>,
     /// `e_j` per `j`, the contravariant transpose `E[b][a] = F[a][b] n_a / n_b`.
     pub(super) raise: Vec<Op>,
+    /// The public magnetic index of each engine index, a permutation; the
+    /// identity for the Gram–Schmidt basis.
+    pub(super) public: Vec<u32>,
 }
 
 impl Ladders {
     pub(super) fn new(data: &CartanData, lambda: &[i64]) -> Result<Self, LieError> {
         let module = IrrepModule::new(data, lambda)?;
-        let rank = lambda.len();
+        // The module dimension is at most `u32::MAX` (§4 dimension gate).
+        let public = (0..module.dim as u32).collect();
+        Ok(Self::from_module(module, public))
+    }
+
+    /// Flattens `module`'s ladders; `public` is the magnetic index of each
+    /// engine index.
+    pub(super) fn from_module(module: IrrepModule, public: Vec<u32>) -> Self {
+        let rank = module.weights[0].mu.len();
         let mut norm = Vec::with_capacity(module.dim);
         let mut space = Vec::with_capacity(module.dim);
         for (w, s) in module.weights.iter().enumerate() {
@@ -106,13 +130,14 @@ impl Ladders {
                 }
             }
         }
-        Ok(Self {
+        Self {
             module,
             norm,
             space,
             lower,
             raise,
-        })
+            public,
+        }
     }
 
     pub(super) fn dim(&self) -> usize {
@@ -139,6 +164,26 @@ impl Ladders {
             + self.space.capacity() * std::mem::size_of::<usize>()
             + ops(&self.lower)
             + ops(&self.raise)
+            + self.public.capacity() * std::mem::size_of::<u32>()
+    }
+
+    /// The weight of engine index `m`.
+    fn weight(&self, m: usize) -> &[i64] {
+        &self.module.weights[self.space[m]].mu
+    }
+
+    /// The engine index of each public magnetic index.
+    fn engine(&self) -> Vec<usize> {
+        let mut out = vec![0; self.dim()];
+        for (m, &p) in self.public.iter().enumerate() {
+            out[p as usize] = m;
+        }
+        out
+    }
+
+    /// `⟨u_m, f_j u_src⟩` rounded once, for an `(m, x)` entry of `lower[j][src]`.
+    fn rounded_lower(&self, src: usize, m: usize, x: &Q) -> f64 {
+        super::rational::radical(x, &self.norm[m], &Q::from(1), &self.norm[src]).to_f64()
     }
 
     /// `sign ⟨low| L^h |high⟩` with `L = Σ_i f_i` (§6.3). Positive rescalings
@@ -310,7 +355,7 @@ impl Channel {
             seeds.push(v);
         }
 
-        // §5.4: replay c's own basis recipe through Δ(f_j).
+        // §5.4: replay c's basis recipe through Δ(f_j).
         let mut spaces = vec![p];
         let mut phi: Vec<Vec<Vec<Q>>> = Vec::with_capacity(c.dim());
         phi.push(seeds);
@@ -331,17 +376,23 @@ impl Channel {
                         .collect()
                 })
                 .collect();
-            for (k, coeffs) in space.gs.iter().enumerate() {
+            for coeffs in &space.recipe {
                 let per_mu = (0..multiplicity)
                     .map(|mu| {
-                        // §4.3: own-candidate coefficient is 1; later ones are 0.
-                        let mut v = lowered[k][mu].clone();
-                        for (r, cand) in coeffs[..k].iter().zip(&lowered) {
+                        // b_k = Σ_t recipe[k][t] c_t, so Φ(b_k) = Σ_t recipe[k][t] Δ(f_{j_t}) Φ(b_{q_t}).
+                        let mut v = vec![Q::from(0); to.len()];
+                        for (r, cand) in coeffs.iter().zip(&lowered) {
                             if r.numerator_ref() == &0 {
                                 continue;
                             }
+                            let unit = *r == 1;
                             for (x, y) in v.iter_mut().zip(&cand[mu]) {
-                                if y.numerator_ref() != &0 {
+                                if y.numerator_ref() == &0 {
+                                    continue;
+                                }
+                                if unit {
+                                    *x += y;
+                                } else {
                                     *x += r * y;
                                 }
                             }
@@ -363,27 +414,30 @@ impl Channel {
         })
     }
 
-    /// The exactly nonzero entries `(m_a, m_b, m_c, μ, C)` in the §5.6 order:
-    /// `μ`, then `m_c`, then `composite(m_a, m_b)`, all ascending.
+    /// The exactly nonzero entries `(m_a, m_b, m_c, μ, C)` at public magnetic
+    /// indices, in the §5.6 order: `μ`, then `m_c`, then the product-space
+    /// order of `(m_a, m_b)`, which is ascending composite order for the
+    /// Gram–Schmidt basis.
     pub(super) fn exact_entries(
         &self,
         a: &Ladders,
         b: &Ladders,
         c: &Ladders,
     ) -> Vec<(usize, usize, usize, usize, SignedSqrtRational)> {
+        let by_public = c.engine();
         let mut out = Vec::new();
         for mu in 0..self.mult {
-            for (mc, per_mu) in self.phi.iter().enumerate() {
+            for &mc in &by_public {
                 let space = &self.spaces[c.space[mc]];
                 let scale = &self.seed_norms[mu] * &c.norm[mc];
-                for (&(pa, pb), x) in space.pairs.iter().zip(&per_mu[mu]) {
+                for (&(pa, pb), x) in space.pairs.iter().zip(&self.phi[mc][mu]) {
                     if x.numerator_ref() == &0 {
                         continue;
                     }
                     out.push((
-                        pa,
-                        pb,
-                        mc,
+                        a.public[pa] as usize,
+                        b.public[pb] as usize,
+                        c.public[mc] as usize,
                         mu,
                         super::rational::radical(x, &a.norm[pa], &b.norm[pb], &scale),
                     ));
@@ -392,6 +446,182 @@ impl Channel {
         }
         out
     }
+
+    /// The entries rounded once to `f64`, gated by [`check_rounded`].
+    pub(super) fn rounded_entries(
+        &self,
+        a: &Ladders,
+        b: &Ladders,
+        c: &Ladders,
+    ) -> Result<Vec<MEntry>, LieError> {
+        let entries = self
+            .exact_entries(a, b, c)
+            .into_iter()
+            .map(|(m1, m2, m3, mu, x)| {
+                Ok(MEntry {
+                    m1: magnetic_index(m1)?,
+                    m2: magnetic_index(m2)?,
+                    m3: magnetic_index(m3)?,
+                    mu: magnetic_index(mu)?,
+                    value: x.to_f64(),
+                })
+            })
+            .collect::<Result<Vec<_>, LieError>>()?;
+        Ok(entries)
+    }
+}
+
+/// A rounded entry in one output weight block: `((m_a, m_b), column, value)`.
+type BlockEntry = ((u32, u32), usize, f64);
+/// A rounded entry of one column at engine indices: `(m_a, m_b, value)`.
+type PairEntry = (usize, usize, f64);
+
+/// Verification tolerance of the isometry and ladder gates (not value-fixing).
+const TOL_ROUNDED: f64 = 1e-9;
+
+/// The largest `|x|` over `residuals`, with a nonfinite residual a failure of
+/// `gate` (a float `max` would hide NaN).
+fn worst(gate: &'static str, residuals: impl Iterator<Item = f64>) -> Result<(), GateError> {
+    let mut worst = 0.0f64;
+    for r in residuals {
+        if !r.is_finite() {
+            return Err(GateError::NonFinite { gate });
+        }
+        worst = worst.max(r.abs());
+    }
+    if worst > TOL_ROUNDED {
+        return Err(GateError::Residual {
+            gate,
+            residual: worst,
+        });
+    }
+    Ok(())
+}
+
+/// The rounded gates on one channel `a ⊗ b → c` of multiplicity `n`, with
+/// `entries` at public magnetic indices:
+///
+/// - every entry in range, finite and on its weight, `wt(m_a) + wt(m_b) = wt(m_c)`;
+/// - isometry, `max |MᵀM − I| ≤ 1e-9` with `M[(m_a, m_b), (m_c, μ)]` over every
+///   expected column `(m_c, μ)`, including absent ones. Validated support makes
+///   columns of different output weights disjoint, so the weight blocks are
+///   the whole condition;
+/// - ladder consistency at the highest weight: for each `μ` and each `j` with
+///   `λ_c − α_j` a weight, `Δ(f_j) C[·, ·, top, μ] = Σ_m ⟨u_m, f_j u_top⟩
+///   C[·, ·, m, μ]` within `1e-9`, with correctly rounded ladder entries.
+pub(super) fn check_rounded(
+    data: &CartanData,
+    a: &Ladders,
+    b: &Ladders,
+    c: &Ladders,
+    n: usize,
+    entries: &[MEntry],
+) -> Result<(), GateError> {
+    let (ea, eb, ec) = (a.engine(), b.engine(), c.engine());
+    // Each entry at its engine indices `(m_a, m_b, m_c)`.
+    let mut blocks: Vec<Vec<BlockEntry>> = vec![Vec::new(); c.module.weights.len()];
+    for e in entries {
+        let (m1, m2, m3, mu) = (e.m1 as usize, e.m2 as usize, e.m3 as usize, e.mu as usize);
+        if m1 >= a.dim() || m2 >= b.dim() || m3 >= c.dim() || mu >= n {
+            return Err(GateError::Support);
+        }
+        if !e.value.is_finite() {
+            return Err(GateError::NonFinite { gate: "isometry" });
+        }
+        let (pa, pb, pc) = (ea[m1], eb[m2], ec[m3]);
+        let on_weight = a
+            .weight(pa)
+            .iter()
+            .zip(b.weight(pb))
+            .zip(c.weight(pc))
+            .all(|((x, y), z)| x.checked_add(*y) == Some(*z));
+        if !on_weight {
+            return Err(GateError::Support);
+        }
+        let w = c.space[pc];
+        let col = (pc - c.module.weights[w].offset) * n + mu;
+        blocks[w].push(((e.m1, e.m2), col, e.value));
+    }
+
+    for (w, block) in blocks.iter_mut().enumerate() {
+        let k = c.module.weights[w].norms.len() * n;
+        let mut gram = vec![0.0f64; k * k];
+        block.sort_unstable_by_key(|&(row, col, _)| (row, col));
+        for run in block.chunk_by(|x, y| x.0 == y.0) {
+            for (i, &(_, ci, vi)) in run.iter().enumerate() {
+                for &(_, cj, vj) in &run[i..] {
+                    gram[ci * k + cj] += vi * vj;
+                }
+            }
+        }
+        worst(
+            "isometry",
+            (0..k).flat_map(|i| {
+                let gram = &gram;
+                (i..k).map(move |j| gram[i * k + j] - f64::from(u8::from(i == j)))
+            }),
+        )?;
+    }
+
+    // First descent: f_j u_top lies in the weight space λ_c − α_j, which
+    // exists exactly when (λ_c)_j > 0 (an unbroken α_j-string).
+    let top = &c.module.weights[0].mu;
+    let mut descents: Vec<(usize, Vec<(usize, f64)>)> = Vec::new();
+    for j in 0..top.len() {
+        if top[j] <= 0 {
+            continue;
+        }
+        let nu = (0..top.len())
+            .map(|i| top[i].checked_sub(data.c(j, i)))
+            .collect::<Option<Vec<i64>>>();
+        let Some(w) = nu.and_then(|nu| c.module.weight_index(&nu)) else {
+            return Err(GateError::Support);
+        };
+        let space = &c.module.weights[w];
+        let ladder = (space.offset..space.offset + space.norms.len())
+            .map(|m| {
+                let x = c.lower[j][0].iter().find(|(t, _)| *t == m);
+                (m, x.map_or(0.0, |(_, x)| c.rounded_lower(0, m, x)))
+            })
+            .collect();
+        descents.push((j, ladder));
+    }
+    if descents.is_empty() {
+        return Ok(());
+    }
+    let mut columns: HashMap<(usize, usize), Vec<PairEntry>> = HashMap::new();
+    let wanted = |m: usize| m == 0 || descents.iter().any(|(_, l)| l.iter().any(|x| x.0 == m));
+    for e in entries {
+        let mc = ec[e.m3 as usize];
+        if wanted(mc) {
+            columns.entry((mc, e.mu as usize)).or_default().push((
+                ea[e.m1 as usize],
+                eb[e.m2 as usize],
+                e.value,
+            ));
+        }
+    }
+    let empty = Vec::new();
+    for (j, ladder) in &descents {
+        for mu in 0..n {
+            let mut diff: HashMap<(usize, usize), f64> = HashMap::new();
+            for &(pa, pb, v) in columns.get(&(0, mu)).unwrap_or(&empty) {
+                for (pa2, x) in &a.lower[*j][pa] {
+                    *diff.entry((*pa2, pb)).or_default() += a.rounded_lower(pa, *pa2, x) * v;
+                }
+                for (pb2, x) in &b.lower[*j][pb] {
+                    *diff.entry((pa, *pb2)).or_default() += b.rounded_lower(pb, *pb2, x) * v;
+                }
+            }
+            for &(m, l) in ladder {
+                for &(pa, pb, v) in columns.get(&(m, mu)).unwrap_or(&empty) {
+                    *diff.entry((pa, pb)).or_default() -= l * v;
+                }
+            }
+            worst("ladder", diff.into_values())?;
+        }
+    }
+    Ok(())
 }
 
 /// Stacked raising coproducts on `P`, retaining only nonzero coordinates.
@@ -521,6 +751,9 @@ pub(crate) struct GeneralFamily {
     clock: u64,
     #[cfg(test)]
     pub(super) builds: [usize; 2],
+    /// Test-only fault injection between rounding and the gates.
+    #[cfg(test)]
+    pub(super) corrupt: Option<fn(&mut Vec<MEntry>)>,
 }
 
 impl GeneralFamily {
@@ -538,6 +771,8 @@ impl GeneralFamily {
             clock: 0,
             #[cfg(test)]
             builds: [0; 2],
+            #[cfg(test)]
+            corrupt: None,
         }
     }
 
@@ -682,20 +917,17 @@ impl Family for GeneralFamily {
         {
             self.builds[1] += 1;
         }
+        let data = self.data.clone();
+        #[cfg(test)]
+        let corrupt = self.corrupt;
         let (channel, ma, mb, mc) = self.channel(a, b, c)?;
-        let entries = channel
-            .exact_entries(ma, mb, mc)
-            .into_iter()
-            .map(|(m1, m2, m3, mu, x)| {
-                Ok(MEntry {
-                    m1: magnetic_index(m1)?,
-                    m2: magnetic_index(m2)?,
-                    m3: magnetic_index(m3)?,
-                    mu: magnetic_index(mu)?,
-                    value: x.to_f64(),
-                })
-            })
-            .collect::<Result<Vec<_>, LieError>>()?;
+        #[allow(unused_mut)]
+        let mut entries = channel.rounded_entries(ma, mb, mc)?;
+        #[cfg(test)]
+        if let Some(corrupt) = corrupt {
+            corrupt(&mut entries);
+        }
+        check_rounded(&data, ma, mb, mc, channel.mult, &entries)?;
         let key_bytes: usize = key.iter().map(|l| labels_bytes(l)).sum();
         let retained = entries.clone();
         let bytes = key_bytes
@@ -715,4 +947,4 @@ impl Family for GeneralFamily {
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
