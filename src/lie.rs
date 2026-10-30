@@ -1716,8 +1716,31 @@ mod tests {
 
     /// `cache::reset` drops the retained G2 modules and channels of every
     /// group value, including composite factors, without changing values.
+    ///
+    /// Runs in a child process: unlocked coefficient tests may publish the
+    /// same G2 entries into the process-global cache right after a reset.
     #[test]
     fn cache_reset_drops_cartan_construction_data() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "lie::tests::cache_reset_drops_cartan_construction_data_isolated",
+                "--ignored",
+                "--test-threads=1",
+            ])
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && stdout.contains("1 passed"),
+            "isolated child failed:\n{stdout}{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    #[ignore = "child of cache_reset_drops_cartan_construction_data"]
+    fn cache_reset_drops_cartan_construction_data_isolated() {
         let _guard = crate::cache::TEST_CACHE_LOCK
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
