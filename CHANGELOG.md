@@ -142,6 +142,17 @@ value/gauge rule noted below.
 
 ### Performance
 
+- The CGC rounding works in two `u128` limbs instead of big integers when
+  both integers of the unreduced ratio fit 64 bits: the scaled quotient and
+  its integer square root, and the exact midpoint comparison. Such a
+  conversion allocates nothing; wider inputs take the big-integer path, and
+  the scale, significand and rounding decision stay shared, so every
+  coefficient bit is unchanged. Sequential release cold `cgc`, medians:
+  F4 `273³` 46.1 → 38.8 ms, D5 `210 ⊗ 945 → 5940` 1.36 → 1.14 s,
+  E7 `1539² → 40755` 12.4 → 10.5 s, F4 `1274² → 29172` 35.7 → 31.8 s;
+  A2 `(6,6)³`, A3 `[2,2,2]³` and G2 `[2,2]³`, whose ratios mostly exceed
+  64 bits, unchanged within 1–3%.
+
 - The channel misses of one F or R query share their irrep modules: a
   module the CGC tier does not retain (oversize, or under a small budget) is
   built once per query instead of once per missed channel, and it is
