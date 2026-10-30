@@ -153,6 +153,14 @@ mod audit_alloc {
     static ALLOC_CALLS: AtomicUsize = AtomicUsize::new(0);
     static ALLOC_BYTES: AtomicUsize = AtomicUsize::new(0);
 
+    std::thread_local! {
+        static THREAD_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    fn count_thread_call() {
+        let _ = THREAD_CALLS.try_with(|n| n.set(n.get() + 1));
+    }
+
     pub(crate) struct TrackingAllocator;
 
     unsafe impl GlobalAlloc for TrackingAllocator {
@@ -160,6 +168,7 @@ mod audit_alloc {
             let ptr = unsafe { System.alloc(layout) };
             if !ptr.is_null() {
                 ALLOC_CALLS.fetch_add(1, Ordering::Relaxed);
+                count_thread_call();
                 ALLOC_BYTES.fetch_add(layout.size(), Ordering::Relaxed);
                 let live = LIVE.fetch_add(layout.size(), Ordering::Relaxed) + layout.size();
                 PEAK.fetch_max(live, Ordering::Relaxed);
@@ -171,6 +180,7 @@ mod audit_alloc {
             let ptr = unsafe { System.alloc_zeroed(layout) };
             if !ptr.is_null() {
                 ALLOC_CALLS.fetch_add(1, Ordering::Relaxed);
+                count_thread_call();
                 ALLOC_BYTES.fetch_add(layout.size(), Ordering::Relaxed);
                 let live = LIVE.fetch_add(layout.size(), Ordering::Relaxed) + layout.size();
                 PEAK.fetch_max(live, Ordering::Relaxed);
@@ -189,6 +199,7 @@ mod audit_alloc {
                 if size >= layout.size() {
                     let delta = size - layout.size();
                     ALLOC_CALLS.fetch_add(1, Ordering::Relaxed);
+                    count_thread_call();
                     ALLOC_BYTES.fetch_add(delta, Ordering::Relaxed);
                     let live = LIVE.fetch_add(delta, Ordering::Relaxed) + delta;
                     PEAK.fetch_max(live, Ordering::Relaxed);
@@ -206,6 +217,12 @@ mod audit_alloc {
 
     pub(crate) fn reset_peak_to_live() {
         PEAK.store(LIVE.load(Ordering::Relaxed), Ordering::Relaxed);
+    }
+
+    /// Successful allocation requests made by the calling thread, counted
+    /// like [`allocation_totals`] but immune to concurrently running tests.
+    pub(crate) fn thread_allocation_calls() -> usize {
+        THREAD_CALLS.try_with(std::cell::Cell::get).unwrap_or(0)
     }
 
     /// Cumulative successful allocation requests. `realloc` contributes only

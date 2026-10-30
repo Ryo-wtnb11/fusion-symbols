@@ -24,6 +24,7 @@ use std::sync::Arc;
 use super::module::{q_heap, qs_bytes, IrrepModule, Q};
 use super::roots::CartanData;
 use crate::category::{FBlock, RBlock};
+#[cfg(test)]
 use crate::exact::SignedSqrtRational;
 use crate::frcore::{check_f_block, check_r_block, f_block_raw, r_block_raw, GateError, MEntry};
 use crate::lie::{GenerationError, LieError, RootSystem};
@@ -196,7 +197,7 @@ impl Ladders {
 
     /// `⟨u_m, f_j u_src⟩` rounded once, for an `(m, x)` entry of `lower[j][src]`.
     fn rounded_lower(&self, src: usize, m: usize, x: &Q) -> f64 {
-        super::rational::radical(x, &self.norm[m], &Q::from(1), &self.norm[src]).to_f64()
+        super::rational::rounded_radical(x, &self.norm[m], &Q::from(1), &self.norm[src])
     }
 
     /// `sign ⟨low| L^h |high⟩` with `L = Σ_i f_i` (§5.3). Positive rescalings
@@ -459,14 +460,16 @@ impl Channel {
 
     /// Visits the exactly nonzero entries `(m_a, m_b, m_c, μ, C)` at public
     /// magnetic indices, in the §4.7 order: `μ`, then public `m_c`, then
-    /// `(m_a, m_b)` a-slow (§4.1). Exactly zero coefficients are omitted; a
-    /// rounded value is never filtered.
-    fn visit_exact<E>(
+    /// `(m_a, m_b)` a-slow (§4.1). `C = form(x, n^a, n^b, N_μ n^c)` is
+    /// `x·√(n^a n^b/(N_μ n^c))`, exact or rounded once. Exactly zero
+    /// coefficients are omitted; a rounded value is never filtered.
+    fn visit_entries<T, E>(
         &self,
         a: &Ladders,
         b: &Ladders,
         c: &Ladders,
-        mut visit: impl FnMut(usize, usize, usize, usize, SignedSqrtRational) -> Result<(), E>,
+        form: impl Fn(&Q, &Q, &Q, &Q) -> T,
+        mut visit: impl FnMut(usize, usize, usize, usize, T) -> Result<(), E>,
     ) -> Result<(), E> {
         let by_public = c.engine();
         for mu in 0..self.mult {
@@ -482,7 +485,7 @@ impl Channel {
                         b.public[pb] as usize,
                         c.public[mc] as usize,
                         mu,
-                        super::rational::radical(x, &a.norm[pa], &b.norm[pb], &scale),
+                        form(x, &a.norm[pa], &b.norm[pb], &scale),
                     )?;
                 }
             }
@@ -490,7 +493,7 @@ impl Channel {
         Ok(())
     }
 
-    /// The exact entries of [`Self::visit_exact`], collected.
+    /// The exact entries of [`Self::visit_entries`], collected.
     #[cfg(test)]
     pub(super) fn exact_entries(
         &self,
@@ -499,7 +502,8 @@ impl Channel {
         c: &Ladders,
     ) -> Vec<(usize, usize, usize, usize, SignedSqrtRational)> {
         let mut out = Vec::new();
-        let _ = self.visit_exact(a, b, c, |m1, m2, m3, mu, x| {
+        let form = super::rational::radical;
+        let _ = self.visit_entries(a, b, c, form, |m1, m2, m3, mu, x| {
             out.push((m1, m2, m3, mu, x));
             Ok::<_, std::convert::Infallible>(())
         });
@@ -522,13 +526,14 @@ impl Channel {
             .filter(|x| x.numerator_ref() != &0)
             .count();
         let mut entries = Vec::with_capacity(nonzero);
-        self.visit_exact(a, b, c, |m1, m2, m3, mu, x| {
+        let form = super::rational::rounded_radical;
+        self.visit_entries(a, b, c, form, |m1, m2, m3, mu, value| {
             entries.push(MEntry {
                 m1: magnetic_index(m1)?,
                 m2: magnetic_index(m2)?,
                 m3: magnetic_index(m3)?,
                 mu: magnetic_index(mu)?,
-                value: x.to_f64(),
+                value,
             });
             Ok::<_, LieError>(())
         })?;

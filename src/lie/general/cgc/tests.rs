@@ -472,34 +472,52 @@ fn regeneration_is_byte_identical() {
     assert_eq!(bits(), bits());
 }
 
-/// Entry-level drift check against the pre-optimization exact formula (§4.4).
+/// Entry-level drift check against the canonical-rational formula (§4.4,
+/// §4.7) through the public exact type: every ordered `(m_a, m_b, m_c, μ)`
+/// tuple, its exact value, and the `to_bits()` of the published rounded value,
+/// including the `A_1` vertex sign applied once (§4.6).
 fn check_radical_formation(root: RootSystem, a: &[i64], b: &[i64], c: &[i64]) {
     let fam = GeneralFamily::new(root);
     let (ch, ma, mb, mc) = fam.channel(a, b, c).unwrap();
-    let got = ch.exact_entries(&ma, &mb, &mc);
-    let mut entries = got.iter();
+    let mut want = Vec::new();
     for mu in 0..ch.mult {
-        for (m, per_mu) in ch.phi.iter().enumerate() {
+        for m in mc.engine() {
             let scale = &ch.seed_norms[mu] * &mc.norm[m];
-            for (&(pa, pb), x) in ch.spaces[mc.space[m]].pairs.iter().zip(&per_mu[mu]) {
+            for (&(pa, pb), x) in ch.spaces[mc.space[m]].pairs.iter().zip(&ch.phi[m][mu]) {
                 if x.numerator_ref() == &0 {
                     continue;
                 }
                 let old = SignedSqrtRational::from_prefactor_radical(
-                    (x).clone(),
+                    x.clone(),
                     &ma.norm[pa] * &mb.norm[pb] / &scale,
                 );
-                let (ga, gb, gc, gm, value) = entries.next().unwrap();
-                assert_eq!((*ga, *gb, *gc, *gm), (pa, pb, m, mu));
-                assert_eq!(*value, old);
-                assert_eq!(value.to_f64().to_bits(), old.to_f64().to_bits());
+                let (pa, pb, pc) = (ma.public[pa], mb.public[pb], mc.public[m]);
+                want.push((pa as usize, pb as usize, pc as usize, mu, old));
             }
         }
     }
-    assert!(entries.next().is_none());
+    assert!(ch.exact_entries(&ma, &mb, &mc) == want);
+
+    let odd = root == RootSystem::A(1) && (a[0] + b[0] - c[0]) / 2 % 2 != 0;
+    let want: Vec<_> = want
+        .iter()
+        .map(|(pa, pb, pc, mu, old)| {
+            let v = old.to_f64();
+            let v = if odd { -v } else { v };
+            (*pa as u32, *pb as u32, *pc as u32, *mu as u32, v.to_bits())
+        })
+        .collect();
+    let got: Vec<_> = fam
+        .cgc_entries(a, b, c)
+        .unwrap()
+        .iter()
+        .map(|e| (e.m1, e.m2, e.m3, e.mu, e.value.to_bits()))
+        .collect();
+    assert!(got == want);
     eprintln!(
-        "{root:?} {a:?}⊗{b:?}→{c:?}: {} exact entries agree",
-        got.len()
+        "{root:?} {a:?}⊗{b:?}→{c:?}: N = {}, {} entries agree",
+        ch.mult,
+        want.len()
     );
 }
 
@@ -516,6 +534,58 @@ fn radical_formation_preserves_exact_entries() {
         check_radical_formation(root, &a, &a, &c);
     }
     check_radical_formation(RootSystem::E6, &unit(6, 0), &unit(6, 5), &[0; 6]);
+    // GT bases (A_r), with N = 2 at A_2 (1,1)³ and A_3 [1,0,1]³.
+    for (a, b, c) in [
+        ([1, 1], [1, 1], [1, 1]),
+        ([2, 0], [0, 2], [1, 1]),
+        ([2, 1], [1, 2], [2, 2]),
+    ] {
+        check_radical_formation(RootSystem::A(2), &a, &b, &c);
+    }
+    let adj = [1, 0, 1];
+    check_radical_formation(RootSystem::A(3), &adj, &adj, &adj);
+    // A_1: odd and even vertex signs.
+    for (a, b, c) in [(1, 1, 0), (2, 2, 2), (2, 1, 1), (1, 1, 2), (3, 2, 3)] {
+        check_radical_formation(RootSystem::A(1), &[a], &[b], &[c]);
+    }
+}
+
+/// Round-only formation saves exactly the canonical temporary's one
+/// allocation per nonzero entry, with the arithmetic and the bits unchanged
+/// (GS and GT bases, N = 2).
+#[cfg(feature = "lie-generated")]
+#[test]
+fn round_only_formation_skips_the_exact_temporary() {
+    use super::super::rational::{radical, rounded_radical};
+    let calls = crate::audit_alloc::thread_allocation_calls;
+    for (root, a, b, c) in [
+        (RootSystem::G2, G27.to_vec(), G27.to_vec(), G64.to_vec()),
+        (RootSystem::A(2), vec![2, 1], vec![1, 2], vec![2, 2]),
+    ] {
+        let fam = GeneralFamily::new(root);
+        let (ch, ma, mb, mc) = fam.channel(&a, &b, &c).unwrap();
+        let mut nonzero = 0;
+        for mu in 0..ch.mult {
+            for (m, per_mu) in ch.phi.iter().enumerate() {
+                let scale = &ch.seed_norms[mu] * &mc.norm[m];
+                for (&(pa, pb), x) in ch.spaces[mc.space[m]].pairs.iter().zip(&per_mu[mu]) {
+                    if x.numerator_ref() == &0 {
+                        continue;
+                    }
+                    let (na, nb) = (&ma.norm[pa], &mb.norm[pb]);
+                    let start = calls();
+                    let old = radical(x, na, nb, &scale).to_f64();
+                    let mid = calls();
+                    let new = rounded_radical(x, na, nb, &scale);
+                    let end = calls();
+                    assert_eq!(old.to_bits(), new.to_bits());
+                    assert_eq!(mid - start, end - mid + 1);
+                    nonzero += 1;
+                }
+            }
+        }
+        assert!(nonzero > 0);
+    }
 }
 
 #[test]

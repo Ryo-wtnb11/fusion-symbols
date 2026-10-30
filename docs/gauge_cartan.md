@@ -465,9 +465,9 @@ factor of `D_2`.
 `Ψ_μ = B_μ/√N_μ` with `B_μ` rational in the rational coordinates and
 `N_μ = ⟨B_μ, B_μ⟩` rational. The intertwiner keeps coordinates rational, so
 each CGC entry is `x·√(n^a_{m_a} n^b_{m_b} / (N_μ n^c_{m_c}))` with `x`
-rational: a single signed √rational. Its `f64` value is
-`SignedSqrtRational::to_f64`, the correctly rounded conversion
-(`src/exact.rs`), and is **the only rounding of a CGC**. Only exactly zero
+rational: a single signed √rational. Its `f64` value is the correctly
+rounded conversion of `SignedSqrtRational::to_f64` (`src/exact.rs`), applied
+to the reduced radicand, and is **the only rounding of a CGC**. Only exactly zero
 coefficients are omitted; an exactly nonzero coefficient that rounds to a
 signed zero keeps its entry. An absent entry reads `+0.0`. There is no purge
 threshold.
