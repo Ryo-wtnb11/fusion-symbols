@@ -128,6 +128,13 @@ value/gauge rule noted below.
 
 ### Performance
 
+- Cartan CGC entries and ladder-gate coefficients are rounded from their
+  reduced radicand by the conversion of `SignedSqrtRational::to_f64`, without
+  building the exact value first: one allocation (72 B) fewer per nonzero
+  entry, with every coefficient bit unchanged. Sequential release cold
+  `cgc`: F4 `1274² → 29172` 52.8 → 51.7 s, 618 → 525 M allocation calls;
+  E7 `1539² → 40755` 17.2 → 16.5 s.
+
 - A resident CGC channel carries its multiplicity, so a warm CGC query makes
   no Product lookup. A(1) irrep modules are written directly from the lowering
   chain instead of the general GT enumeration, with identical exact data.

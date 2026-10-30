@@ -66,6 +66,7 @@ impl SignedSqrtRational {
     }
 
     /// Accept an already reduced nonnegative radicand at the exceptional boundary.
+    #[cfg(test)]
     pub(crate) fn from_radicand(sign: i8, r: Rational) -> Self {
         if r == 0 {
             Self::zero()
@@ -139,18 +140,23 @@ impl SignedSqrtRational {
     /// `(2*mant+1)^2 * 2^(2*exp-2)` — no floating point enters the decision, so
     /// the only rounding is the final exactly-representable `mant * 2^exp`.
     pub fn to_f64(&self) -> f64 {
-        if self.sign == 0 {
-            return 0.0;
-        }
-        let n = self.radicand().numerator_ref();
-        let d = self.radicand().denominator_ref();
-        // radicand is nonnegative and reduced; numer/denom are nonnegative.
-        let mag = sqrt_ratio_to_f64(n, d);
-        if self.sign < 0 {
-            -mag
-        } else {
-            mag
-        }
+        signed_sqrt_to_f64(self.sign, self.radicand())
+    }
+}
+
+/// The value of [`SignedSqrtRational::to_f64`] for `sign * sqrt(r)` with `r`
+/// reduced and nonnegative, without materializing the exact value. The sign is
+/// applied after rounding the magnitude, so a nonzero value that underflows
+/// keeps its signed zero.
+pub(crate) fn signed_sqrt_to_f64(sign: i8, r: &Rational) -> f64 {
+    if sign == 0 {
+        return 0.0;
+    }
+    let mag = sqrt_ratio_to_f64(r.numerator_ref(), r.denominator_ref());
+    if sign < 0 {
+        -mag
+    } else {
+        mag
     }
 }
 
@@ -497,6 +503,54 @@ mod tests {
             (got - want).abs() <= want * 4.0 * f64::EPSILON,
             "got={got} want={want}"
         );
+    }
+
+    /// The shared converter at its rounding boundaries, with expected bits
+    /// derived by hand. Each radicand is `n / 2^k`, so `sqrt` is the dyadic
+    /// `sqrt(n) / 2^(k/2)` when `n` is a square.
+    #[test]
+    fn signed_sqrt_to_f64_rounding_boundaries() {
+        let two = |k: u64| Integer::from(2u64).pow(k);
+        let r = |n: Integer, k: u64| Rational::from_integers(n, two(k));
+        let sq = |x: Integer| &x * &x;
+        let one = Integer::ONE;
+        let e = two(53);
+        let cases = [
+            // 1 + 2^-53: midpoint of 1 and 1 + 2^-52, even significand below.
+            (r(sq(&e + &one), 106), 0x3FF0_0000_0000_0000u64),
+            (r(sq(&e + &one) + &one, 106), 0x3FF0_0000_0000_0001),
+            (r(sq(&e + &one) - &one, 106), 0x3FF0_0000_0000_0000),
+            // 1 + 3·2^-53: midpoint of an odd significand and the even one above.
+            (r(sq(&e + Integer::from(3)), 106), 0x3FF0_0000_0000_0002),
+            (
+                r(sq(&e + Integer::from(3)) + &one, 106),
+                0x3FF0_0000_0000_0002,
+            ),
+            (
+                r(sq(&e + Integer::from(3)) - &one, 106),
+                0x3FF0_0000_0000_0001,
+            ),
+            // 2 - 2^-53: midpoint of the all-ones significand below 2 and 2;
+            // the tie rounds to even and carries into the exponent.
+            (r(sq(two(54) - &one), 106), 0x4000_0000_0000_0000),
+            (r(sq(two(54) - &one) + &one, 106), 0x4000_0000_0000_0000),
+            (r(sq(two(54) - &one) - &one, 106), 0x3FFF_FFFF_FFFF_FFFF),
+            // 2^-1070, an exact subnormal.
+            (r(one.clone(), 2140), 1 << 4),
+            // 2^-1100 underflows to a zero that keeps the sign.
+            (r(one.clone(), 2200), 0),
+        ];
+        for (radicand, bits) in cases {
+            for sign in [1i8, -1] {
+                let want = if sign < 0 { bits | 1 << 63 } else { bits };
+                let got = signed_sqrt_to_f64(sign, &radicand);
+                assert_eq!(got.to_bits(), want, "{sign} sqrt({radicand})");
+                let exact = SignedSqrtRational::from_radicand(sign, radicand.clone());
+                assert_eq!(exact.to_f64().to_bits(), want, "{sign} sqrt({radicand})");
+            }
+        }
+        assert_eq!(signed_sqrt_to_f64(0, &Rational::ZERO).to_bits(), 0);
+        assert_eq!(SignedSqrtRational::zero().to_f64().to_bits(), 0);
     }
 
     #[test]
