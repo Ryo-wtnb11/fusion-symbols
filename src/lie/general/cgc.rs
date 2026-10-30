@@ -100,6 +100,9 @@ pub(crate) struct Ladders {
     /// The public magnetic index of each engine index, a permutation; the
     /// identity for the Gram–Schmidt basis.
     pub(super) public: Vec<u32>,
+    /// The position of each engine index within its weight space, in public
+    /// order: the column of a right state within its product-space row.
+    pub(super) rank: Vec<u32>,
 }
 
 impl Ladders {
@@ -126,6 +129,19 @@ impl Ladders {
             norm.extend(s.norms.iter().cloned());
             space.extend(std::iter::repeat_n(w, s.norms.len()));
         }
+        // Ranks are read from `public`, so the row formula of `PairRows`
+        // does not rely on how a basis orders a weight space internally.
+        let mut by_rank = vec![0u32; module.dim];
+        let mut members = Vec::new();
+        for s in &module.weights {
+            members.clear();
+            members.extend(s.offset..s.offset + s.norms.len());
+            members.sort_unstable_by_key(|&m| public[m]);
+            for (r, &m) in members.iter().enumerate() {
+                // A weight multiplicity is at most the dimension, a `u32`.
+                by_rank[m] = r as u32;
+            }
+        }
         let mut lower = vec![vec![Vec::new(); module.dim]; rank];
         let mut raise = vec![vec![Vec::new(); module.dim]; rank];
         for s in &module.weights {
@@ -151,6 +167,7 @@ impl Ladders {
             lower,
             raise,
             public,
+            rank: by_rank,
         }
     }
 
@@ -178,7 +195,7 @@ impl Ladders {
             + self.space.capacity() * std::mem::size_of::<usize>()
             + ops(&self.lower)
             + ops(&self.raise)
-            + self.public.capacity() * std::mem::size_of::<u32>()
+            + (self.public.capacity() + self.rank.capacity()) * std::mem::size_of::<u32>()
     }
 
     /// The weight of engine index `m`.
@@ -236,7 +253,6 @@ impl Ladders {
 /// by their public indices with the left factor slow ("a-slow", §4.1).
 pub(super) struct ProductSpace {
     pub(super) pairs: Vec<(usize, usize)>,
-    index: HashMap<(usize, usize), usize>,
 }
 
 impl ProductSpace {
@@ -265,23 +281,75 @@ impl ProductSpace {
             }
         }
         pairs.sort_unstable_by_key(|&(p, q)| (a.public[p], b.public[q]));
-        let index = pairs.iter().enumerate().map(|(t, &pq)| (pq, t)).collect();
-        Self { pairs, index }
+        Self { pairs }
     }
 
     fn len(&self) -> usize {
         self.pairs.len()
     }
+}
 
-    /// Row of `pq`; every image of a weight vector under a ladder operator has
-    /// the target weight, so the lookup always succeeds.
+/// Row starts of the left states, reused for every target product space of
+/// one channel: `d_a` slots, of which a target writes only its own rows.
+///
+/// For a target weight `w` and left state `p`, the right states of `P_w` are
+/// the whole weight space of `w - wt(p)`, one contiguous run of the a-slow
+/// order sorted by public index. So `(p, q)` sits at `start[p] + rank_b[q]`.
+struct RowScratch(Vec<usize>);
+
+impl RowScratch {
+    fn new(a: &Ladders) -> Self {
+        Self(vec![0; a.dim()])
+    }
+
+    /// The row index of `to`, writing one slot per left state of `to`.
+    /// Slots of other left states keep stale values; [`PairRows::at`]
+    /// rejects them by pair equality, so no clearing is needed.
+    fn rows<'s>(&'s mut self, to: &'s ProductSpace, b: &'s Ladders) -> PairRows<'s> {
+        let mut last = None;
+        for (t, &(p, _)) in to.pairs.iter().enumerate() {
+            if last != Some(p) {
+                self.0[p] = t;
+                last = Some(p);
+                #[cfg(test)]
+                ROW_WRITES.with(|w| w.set(w.get() + 1));
+            }
+        }
+        PairRows {
+            start: &self.0,
+            pairs: &to.pairs,
+            rank: &b.rank,
+        }
+    }
+}
+
+/// [`ProductSpace`] positions by row arithmetic, for one bound target.
+struct PairRows<'s> {
+    start: &'s [usize],
+    pairs: &'s [(usize, usize)],
+    rank: &'s [u32],
+}
+
+impl PairRows<'_> {
+    fn len(&self) -> usize {
+        self.pairs.len()
+    }
+
+    /// Row of `pq`. Every image of a weight vector under a ladder operator
+    /// has the target weight, so the pair is always there; an impossible
+    /// image fails loudly instead of landing on a stale row.
     fn at(&self, pq: (usize, usize)) -> usize {
-        self.index[&pq]
+        let t = self.start[pq.0] + self.rank[pq.1] as usize;
+        assert!(
+            self.pairs.get(t) == Some(&pq),
+            "ladder image {pq:?} is not a coupling pair of the target weight (§4.1)"
+        );
+        t
     }
 }
 
 /// `Δ(x) = x ⊗ 1 + 1 ⊗ x` applied to `v` on `from`, landing on `to`.
-fn coproduct(op_a: &Op, op_b: &Op, from: &ProductSpace, to: &ProductSpace, v: &[Q]) -> Vec<Q> {
+fn coproduct(op_a: &Op, op_b: &Op, from: &ProductSpace, to: &PairRows, v: &[Q]) -> Vec<Q> {
     let mut out = vec![Q::from(0); to.len()];
     for (&(p, q), x) in from.pairs.iter().zip(v) {
         if x.numerator_ref() == &0 {
@@ -321,9 +389,10 @@ impl Channel {
     ) -> Result<Self, LieError> {
         let top = &c.module.weights[0].mu;
         let p = ProductSpace::new(a, b, top);
+        let mut scratch = RowScratch::new(a);
 
         // §4.2: H is the nullspace of the stacked Δ(e_i) on span(P).
-        let rows = raising_rows(data, a, b, &p, top);
+        let rows = raising_rows(data, a, b, &p, top, &mut scratch);
         let (_pivots, echelon) = echelon_nullspace(rows, p.len());
         if echelon.len() != multiplicity {
             return Err(CgcError::NullityMismatch {
@@ -385,6 +454,7 @@ impl Channel {
         phi.push(seeds);
         for space in &c.module.weights[1..] {
             let to = ProductSpace::new(a, b, &space.mu);
+            let rows = scratch.rows(&to, b);
             let mut lowered: Vec<Vec<Vec<Q>>> = space
                 .kept
                 .iter()
@@ -396,7 +466,7 @@ impl Channel {
                     let m = c.module.weights[*src].offset + q;
                     phi[m]
                         .iter()
-                        .map(|v| coproduct(&a.lower[j], &b.lower[j], from, &to, v))
+                        .map(|v| coproduct(&a.lower[j], &b.lower[j], from, &rows, v))
                         .collect()
                 })
                 .collect();
@@ -701,6 +771,7 @@ fn raising_rows(
     b: &Ladders,
     p: &ProductSpace,
     top: &[i64],
+    scratch: &mut RowScratch,
 ) -> Vec<BTreeMap<usize, Q>> {
     let mut rows = Vec::new();
     for i in 0..top.len() {
@@ -709,6 +780,7 @@ fn raising_rows(
         if target.pairs.is_empty() {
             continue;
         }
+        let target = scratch.rows(&target, b);
         let base = rows.len();
         rows.resize_with(base + target.len(), BTreeMap::new);
         for (col, &(pa, pb)) in p.pairs.iter().enumerate() {
@@ -799,6 +871,8 @@ type Fault<T> = std::cell::Cell<Option<T>>;
 thread_local! {
     /// Modules and channels this thread generated (not loaded from the cache).
     pub(crate) static BUILDS: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
+    /// Row-start slots written by [`RowScratch::rows`].
+    pub(super) static ROW_WRITES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// Fault injection between rounding and the gates.
     pub(super) static CORRUPT: Fault<fn(&mut Vec<MEntry>)> = const { std::cell::Cell::new(None) };
     /// Called on entry to every module and channel load, before its cache lookup.

@@ -828,13 +828,20 @@ column.
   number of coupling pairs of weight `w` of `c` and `m_c(w)` its
   multiplicity in `c`.
   1. *Modules* (live throughout): one irrep module per distinct label among
-     `a, b, c`, shared by equal labels, with their weight
-     spaces, norms, public indices and ladder arrays, one raising and one
-     lowering sparse matrix per simple root and weight space. For `SU(n)`
+     `a, b, c`, shared by equal labels, with their weight spaces, norms,
+     public indices with their within-weight ranks and ladder arrays, one
+     raising and one lowering sparse matrix per simple root and weight space. For `SU(n)`
      the ladder arrays alone hold `2(n−1)` matrix headers per weight space,
      already quadratic in `n` for the fundamental.
   2. *Pair storage* (live through rounding): for every weight `w` of `c`, its
-     pair list and pair-to-index map, `O(P_w)` each.
+     pair list, `O(P_w)`. A pair is located by row arithmetic, not a map: for
+     a left state `m_a`, the pairs of `P_w` are the whole weight space of
+     `w − wt(m_a)` in public order, so `(m_a, m_b)` sits at the row start of
+     `m_a` plus the public rank of `m_b` within its weight space. One row-start
+     scratch of `d_a` slots per channel (written only for the left states of
+     the target in use) and one rank per magnetic index of each module serve
+     every target; a pair not of the target weight is rejected by pair
+     equality.
   3. The maximum of three successive stages:
      - *elimination*: the sparse raising constraint matrix on `P_{λ_c}`, the
        pivot row in use and the emerging nullspace basis (`N` rational

@@ -358,39 +358,124 @@ fn principal_ladder_gate_rejects_a_zero_ladder() {
     );
 }
 
-/// The product states of a weight are exactly the pairs of that weight sum,
-/// in ascending composite order `m_a + d_a·m_b`, whichever factor is scanned.
-#[test]
-fn product_space_is_the_weight_fibre_in_a_slow_order() {
-    let data = CartanData::new(RootSystem::G2);
-    let m7 = Ladders::new(&data, &G7).unwrap();
-    let m27 = Ladders::new(&data, &G27).unwrap();
-    for (a, b) in [(&m7, &m27), (&m27, &m7), (&m27, &m27)] {
-        for w in &b.module.weights {
-            let nu: Vec<i64> =
-                w.mu.iter()
-                    .zip(&a.module.weights[0].mu)
-                    .map(|(x, y)| x + y)
-                    .collect();
-            let mut want = Vec::new();
-            for p in 0..a.dim() {
-                for q in 0..b.dim() {
-                    let sum: Vec<i64> = weight(a, p)
-                        .iter()
-                        .zip(weight(b, q))
-                        .map(|(x, y)| x + y)
-                        .collect();
-                    if sum == nu {
-                        want.push((p, q));
-                    }
-                }
-            }
-            let got = ProductSpace::new(a, b, &nu);
-            assert_eq!(got.pairs, want, "{nu:?}");
-            for (t, &pq) in want.iter().enumerate() {
-                assert_eq!(got.at(pq), t);
+/// The pairs of `a ⊗ b` with weight sum `nu`, enumerated over public indices
+/// in a-slow order and returned at engine indices.
+fn public_fibre(a: &Ladders, b: &Ladders, nu: &[i64]) -> Vec<(usize, usize)> {
+    let (ea, eb) = (a.engine(), b.engine());
+    let mut want = Vec::new();
+    for &p in &ea {
+        for &q in &eb {
+            let sum: Vec<i64> = weight(a, p)
+                .iter()
+                .zip(weight(b, q))
+                .map(|(x, y)| x + y)
+                .collect();
+            if sum == nu {
+                want.push((p, q));
             }
         }
+    }
+    want
+}
+
+/// Every weight of `a ⊗ b` reached from `a`'s highest weight, then every
+/// weight of `b` shifted down from `b`'s: both repeated and simple fibres.
+fn fibre_weights(a: &Ladders, b: &Ladders) -> Vec<Vec<i64>> {
+    let add = |x: &[i64], y: &[i64]| -> Vec<i64> { x.iter().zip(y).map(|(u, v)| u + v).collect() };
+    let mut out: Vec<Vec<i64>> = (b.module.weights.iter())
+        .map(|w| add(&w.mu, &a.module.weights[0].mu))
+        .collect();
+    out.extend((a.module.weights.iter()).map(|w| add(&w.mu, &b.module.weights.last().unwrap().mu)));
+    out
+}
+
+/// The product states of a weight are exactly the pairs of that weight sum
+/// in a-slow public order, and row arithmetic finds each at its position,
+/// for the Gram–Schmidt (G2, B2) and Gelfand–Tsetlin (A2, A3) bases, unequal
+/// and swapped factors, and weight spaces of multiplicity above one.
+#[test]
+fn product_space_is_the_weight_fibre_in_a_slow_order() {
+    let cases: [(RootSystem, &[i64], &[i64]); 4] = [
+        (RootSystem::G2, &G7, &G27),
+        (RootSystem::B(2), &[1, 1], &[0, 2]),
+        (RootSystem::A(2), &[2, 1], &[1, 1]),
+        (RootSystem::A(3), &[1, 0, 1], &[0, 1, 1]),
+    ];
+    for (root, x, y) in cases {
+        let data = CartanData::new(root);
+        let mx = Ladders::new(&data, x).unwrap();
+        let my = Ladders::new(&data, y).unwrap();
+        let repeated = |m: &Ladders| m.module.weights.iter().any(|w| w.norms.len() > 1);
+        assert!(repeated(&mx) || repeated(&my), "{root:?}");
+        // GT public indices are not the engine (depth) order, so the a-slow
+        // sort and the public ranks are exercised; GS public is the identity.
+        let identity = |m: &Ladders| m.public.iter().enumerate().all(|(i, &p)| p as usize == i);
+        let gt = matches!(root, RootSystem::A(_));
+        assert_eq!(identity(&mx) && identity(&my), !gt, "{root:?}");
+        for (a, b) in [(&mx, &my), (&my, &mx), (&my, &my)] {
+            let mut scratch = RowScratch::new(a);
+            for nu in fibre_weights(a, b) {
+                let want = public_fibre(a, b, &nu);
+                let got = ProductSpace::new(a, b, &nu);
+                assert_eq!(got.pairs, want, "{root:?} {nu:?}");
+                let rows = scratch.rows(&got, b);
+                for (t, &pq) in want.iter().enumerate() {
+                    assert_eq!(rows.at(pq), t, "{root:?} {nu:?}");
+                }
+            }
+        }
+    }
+}
+
+/// A pair outside the bound target fails loudly even when its left state
+/// keeps a stale, in-range row start from an earlier target.
+#[test]
+#[should_panic(expected = "is not a coupling pair of the target weight")]
+fn row_arithmetic_rejects_an_off_weight_pair() {
+    let data = CartanData::new(RootSystem::A(2));
+    let a = Ladders::new(&data, &[2, 1]).unwrap();
+    let mut scratch = RowScratch::new(&a);
+    let source = ProductSpace::new(&a, &a, &[4, 2]);
+    let stale = (0, 0);
+    assert_eq!(source.pairs.first(), Some(&stale));
+    let _ = scratch.rows(&source, &a);
+    let target = ProductSpace::new(&a, &a, &[2, -3]);
+    // Left state 0 is absent, so its row start is not rewritten, and the
+    // stale index lands inside the target on a different pair.
+    assert!(target.pairs.iter().all(|&(p, _)| p != stale.0));
+    let t = scratch.0[stale.0] + a.rank[stale.1] as usize;
+    assert_eq!((t, target.len(), target.pairs[t]), (0, 10, (14, 1)));
+    let _ = scratch.rows(&target, &a).at(stale);
+}
+
+/// A channel addresses its product spaces by row arithmetic alone: one
+/// row-start write per left state of each bound target (the raising targets
+/// of §4.2 and every descent space of §4.4), never a scan of all `d_a` slots.
+#[test]
+fn channel_writes_one_row_start_per_left_state() {
+    let distinct = |s: &ProductSpace| s.pairs.chunk_by(|x, y| x.0 == y.0).count();
+    for (root, x, y, z, n) in [
+        (RootSystem::A(2), &[1, 1][..], &[1, 1][..], &[1, 1][..], 2),
+        (RootSystem::G2, &G27[..], &G27[..], &G27[..], 2),
+    ] {
+        let data = CartanData::new(root);
+        let (a, b, c) = (
+            Ladders::new(&data, x).unwrap(),
+            Ladders::new(&data, y).unwrap(),
+            Ladders::new(&data, z).unwrap(),
+        );
+        ROW_WRITES.with(|w| w.set(0));
+        let ch = Channel::new(&data, &a, &b, &c, n).unwrap();
+        let top = &c.module.weights[0].mu;
+        let raising: usize = (0..top.len())
+            .map(|i| {
+                let nu: Vec<i64> = (0..top.len()).map(|k| top[k] + data.c(i, k)).collect();
+                distinct(&ProductSpace::new(&a, &b, &nu))
+            })
+            .sum();
+        let descent: usize = ch.spaces[1..].iter().map(distinct).sum();
+        assert_eq!(ROW_WRITES.with(|w| w.get()), raising + descent, "{root:?}");
+        assert!(ch.spaces.iter().all(|s| distinct(s) <= s.len()));
     }
 }
 
@@ -958,16 +1043,18 @@ fn compare_nullspace(data: &CartanData, a: &Ladders, b: &Ladders, top: &[i64], n
         }
         let base = rows.len();
         rows.resize(base + target.len(), vec![Q::from(0); p.len()]);
+        // A linear search, independent of the engine's row arithmetic.
+        let at = |pq: (usize, usize)| target.pairs.iter().position(|&x| x == pq).unwrap();
         for (col, &(pa, pb)) in p.pairs.iter().enumerate() {
             for (p2, y) in &a.raise[i][pa] {
-                rows[base + target.at((*p2, pb))][col] += y;
+                rows[base + at((*p2, pb))][col] += y;
             }
             for (q2, y) in &b.raise[i][pb] {
-                rows[base + target.at((pa, *q2))][col] += y;
+                rows[base + at((pa, *q2))][col] += y;
             }
         }
     }
-    let sparse = raising_rows(data, a, b, &p, top);
+    let sparse = raising_rows(data, a, b, &p, top, &mut RowScratch::new(a));
     let expected_rows: Vec<BTreeMap<usize, Q>> = rows
         .iter()
         .map(|row| {

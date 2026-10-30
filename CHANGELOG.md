@@ -128,6 +128,14 @@ value/gauge rule noted below.
 
 ### Performance
 
+- Cartan CGC product states are located by row arithmetic instead of a
+  per-weight pair-to-index hash map: a left state's pairs are one contiguous
+  run of the a-slow order, so a pair sits at its row start plus the right
+  state's public rank within its weight space. One reusable row-start scratch
+  per channel replaces every retained map; every coefficient bit is
+  unchanged. Sequential release cold `cgc`: F4 `1274² → 29172` 51.1 → 48.6 s,
+  E7 `1539² → 40755` 17.2 → 15.8 s, A3 `[2,2,2]³` 13.4 → 12.8 s.
+
 - Cartan CGC entries and ladder-gate coefficients are rounded from their
   reduced radicand by the conversion of `SignedSqrtRational::to_f64`, without
   building the exact value first: one allocation (72 B) fewer per nonzero
