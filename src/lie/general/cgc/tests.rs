@@ -55,7 +55,7 @@ fn delta(op_a: &Op, op_b: &Op, v: &Vector) -> Vector {
     out
 }
 
-fn as_vector(ch: &Channel, c: &Ladders, mc: usize, mu: usize) -> Vector {
+fn as_vector(ch: &ExactChannel, c: &Ladders, mc: usize, mu: usize) -> Vector {
     let mut v = Vector::new();
     for (&pq, x) in ch.spaces[c.space[mc]].pairs.iter().zip(&ch.phi[mc][mu]) {
         if x.numerator_ref() != &0 {
@@ -80,7 +80,7 @@ fn check_channel(fam: &GeneralFamily, a: &[i64], b: &[i64], c: &[i64], n: usize)
 
 /// The exact identities of [`check_channel`] on a built channel, for any
 /// basis of the three modules.
-pub(crate) fn check_exact(ch: &Channel, ma: &Ladders, mb: &Ladders, mc: &Ladders) {
+pub(crate) fn check_exact(ch: &ExactChannel, ma: &Ladders, mb: &Ladders, mc: &Ladders) {
     let n = ch.mult;
     let (a, b, c) = (
         &ma.module.weights[0].mu,
@@ -207,7 +207,7 @@ fn brauer_klimyk_counts_match_the_spec() {
 }
 
 /// §8 oracle 5 for every channel of G2 7⊗7, 7⊗14 and 14⊗14 (the N gate runs inside
-/// `Channel::new`).
+/// `descend`).
 #[test]
 fn g2_small_products_are_exact_isometric_intertwiners() {
     check_product(RootSystem::G2, &G7, &G7);
@@ -323,7 +323,7 @@ fn nullity_gate_rejects_a_wrong_multiplicity() {
     let m14 = Ladders::new(&data, &G14).unwrap();
     let m64 = Ladders::new(&data, &G64).unwrap();
     for (c, l, nullity, multiplicity) in [(&m14, G14, 1, 2), (&m14, G14, 1, 0), (&m64, G64, 0, 1)] {
-        let err = Channel::new(&data, &m7, &m7, c, multiplicity)
+        let err = ExactChannel::new(&data, &m7, &m7, c, multiplicity)
             .err()
             .unwrap();
         assert_eq!(
@@ -448,6 +448,54 @@ fn row_arithmetic_rejects_an_off_weight_pair() {
     let _ = scratch.rows(&target, &a).at(stale);
 }
 
+/// The descent keeps an exact vector only through its readers: once the
+/// channel is rounded no exact slot is live, and the live maximum stays within
+/// two depth layers plus one weight's candidates, `N (B + H)` with
+/// `B = max_ℓ (D_{ℓ−1} + D_ℓ)`, `D_ℓ = Σ_{depth w = ℓ} m_c(w) |P_w|` and
+/// `H = max_w kept_w |P_w|` (`docs/gauge_cartan.md` §9), strictly below the
+/// whole channel `N Σ_w m_c(w) |P_w|`. GT and Gram–Schmidt bases, `N = 2`.
+#[test]
+fn exact_vectors_live_only_through_their_readers() {
+    for (root, x, y, z) in [
+        (RootSystem::A(2), &[1, 1][..], &[1, 1][..], &[1, 1][..]),
+        (
+            RootSystem::A(3),
+            &[1, 0, 1][..],
+            &[1, 0, 1][..],
+            &[1, 0, 1][..],
+        ),
+        (RootSystem::G2, &G27[..], &G27[..], &G27[..]),
+        (RootSystem::G2, &G27[..], &G27[..], &G64[..]),
+    ] {
+        let data = CartanData::new(root);
+        let [a, b, c] = [x, y, z].map(|l| Ladders::new(&data, l).unwrap());
+        let n = data.multiplicities(x, y, None).unwrap().multiplicity(z) as usize;
+        assert_eq!(n, 2, "{root:?}");
+        let weights = &c.module.weights;
+        let depth = |w: usize| weights[w].k.iter().sum::<i64>() as usize;
+        let mut layers = vec![0usize; depth(weights.len() - 1) + 1];
+        let (mut whole, mut candidates) = (0, 0);
+        for (w, s) in weights.iter().enumerate() {
+            let pairs = ProductSpace::new(&a, &b, &s.mu).len();
+            layers[depth(w)] += s.norms.len() * pairs;
+            whole += s.norms.len() * pairs;
+            candidates = usize::max(candidates, s.kept.len() * pairs);
+        }
+        let two = layers.windows(2).map(|l| l[0] + l[1]).max().unwrap();
+        let bound = n * (two + candidates);
+        assert!(
+            bound < n * whole,
+            "{root:?}: the frontier bound must restrict"
+        );
+
+        LIVE_EXACT.with(|l| l.set([0, 0]));
+        rounded_entries(&data, &a, &b, &c, n).unwrap();
+        let [live, max] = LIVE_EXACT.with(std::cell::Cell::get);
+        assert_eq!(live, 0, "{root:?}: an exact vector outlived the descent");
+        assert!(max <= bound, "{root:?}: live {max} > frontier {bound}");
+    }
+}
+
 /// A channel addresses its product spaces by row arithmetic alone: one
 /// row-start write per left state of each bound target (the raising targets
 /// of §4.2 and every descent space of §4.4), never a scan of all `d_a` slots.
@@ -465,7 +513,7 @@ fn channel_writes_one_row_start_per_left_state() {
             Ladders::new(&data, z).unwrap(),
         );
         ROW_WRITES.with(|w| w.set(0));
-        let ch = Channel::new(&data, &a, &b, &c, n).unwrap();
+        let ch = ExactChannel::new(&data, &a, &b, &c, n).unwrap();
         let top = &c.module.weights[0].mu;
         let raising: usize = (0..top.len())
             .map(|i| {
@@ -1179,7 +1227,7 @@ fn large_e8_channels_are_exact() {
         let large = Ladders::new(&data, &label).unwrap();
         for (a, b) in [(&adjoint, &large), (&large, &adjoint)] {
             check_exact(
-                &Channel::new(&data, a, b, &adjoint, 1).unwrap(),
+                &ExactChannel::new(&data, a, b, &adjoint, 1).unwrap(),
                 a,
                 b,
                 &adjoint,
@@ -1202,8 +1250,7 @@ fn rounded(
     let data = CartanData::new(root);
     let [ma, mb, mc] = [a, b, c].map(|l| Ladders::new(&data, l).unwrap());
     let n = data.multiplicities(a, b, None).unwrap().multiplicity(c) as usize;
-    let ch = Channel::new(&data, &ma, &mb, &mc, n).unwrap();
-    let entries = ch.rounded_entries(&ma, &mb, &mc).unwrap();
+    let entries = rounded_entries(&data, &ma, &mb, &mc, n).unwrap();
     (entries, [ma, mb, mc], n)
 }
 

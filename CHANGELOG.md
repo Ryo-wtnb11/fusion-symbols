@@ -142,6 +142,17 @@ value/gauge rule noted below.
 
 ### Performance
 
+- The Cartan CGC descent streams its exact vectors: each coupled state is
+  rounded once when it completes and its exact coordinates are kept only
+  until its last lowered child has read them, so at most two depth layers
+  plus one weight's candidates are live instead of the whole exact channel.
+  Rounded entries are written per column and concatenated in the published
+  order without a sort; every coefficient bit and the entry order are
+  unchanged. Sequential release cold `cgc`, peak memory footprint:
+  F4 `1274² → 29172` 12.8 → 4.9 GB, E7 `1539² → 40755` 7.0 → 2.5 GB,
+  A3 `[2,2,2]³` 1.8 → 0.9 GB, G2 `[2,2]³` 3.6 → 2.1 GB; time unchanged
+  within noise.
+
 - Cartan CGC entries are rounded from the unreduced integer ratio of their
   operands' numerators and denominators instead of a gcd-normalized
   radicand; the conversion depends only on the ratio, so every coefficient
