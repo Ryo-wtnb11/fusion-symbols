@@ -22,7 +22,7 @@ fn u1_values_and_bounds() {
     assert!(g.has_trivial_associator_gauge() && g.has_canonical_unit());
     for n in [-i64::from(i32::MAX), -5, 0, 3, i64::from(i32::MAX)] {
         let a = q(n);
-        assert!(a.dynkin().is_empty());
+        assert_eq!(a.dynkin().len(), 0);
         assert_eq!(a.charges().collect::<Vec<_>>(), [n]);
         let index = (if n > 0 { 2 * n - 1 } else { -2 * n }) as u64;
         assert_eq!(g.object_index(&a), Ok(index));
@@ -32,7 +32,7 @@ fn u1_values_and_bounds() {
         assert_eq!(a.dim_exact(), 1);
         assert_eq!(a.weight_multiplicities(), [(vec![n], 1)].into());
         assert_eq!(
-            (g.dim(&a), g.frobenius_schur_phase(&a), g.twist(&a)),
+            (g.dim(&a), g.frobenius_schur_phase(&a).unwrap(), g.twist(&a)),
             (1.0, 1.0, 1.0)
         );
         assert_eq!(
@@ -46,29 +46,29 @@ fn u1_values_and_bounds() {
             g.fusion(&a, &b).unwrap().collect::<Vec<_>>(),
             std::slice::from_ref(&c)
         );
-        assert_eq!(g.nsymbol(&a, &b, &c), 1);
+        assert_eq!(g.nsymbol(&a, &b, &c).unwrap(), 1);
         for block in [
             g.r_symbol(&a, &b, &c),
             g.a_symbol(&a, &b, &c),
             g.b_symbol(&a, &b, &c),
         ] {
-            assert_eq!(block.unwrap().data(), [1.0]);
+            assert_eq!(block.unwrap().as_slice(), [1.0]);
         }
         let cg = g.cgc(&a, &b, &c).unwrap();
         assert_eq!(cg.dims(), [1; 4]);
-        assert_eq!(cg.at([0; 4]), 1.0);
+        assert_eq!(cg.get([0; 4]), 1.0);
         let absent = q(c.charges().next().unwrap() + 1);
-        assert_eq!(g.nsymbol(&a, &b, &absent), 0);
+        assert_eq!(g.nsymbol(&a, &b, &absent).unwrap(), 0);
         assert_eq!(g.cgc(&a, &b, &absent).unwrap().dims(), [1, 1, 1, 0]);
-        assert!(g.r_symbol(&a, &b, &absent).unwrap().data().is_empty());
-        assert!(g.a_symbol(&a, &b, &absent).unwrap().data().is_empty());
-        assert!(g.b_symbol(&a, &b, &absent).unwrap().data().is_empty());
+        assert!(g.r_symbol(&a, &b, &absent).unwrap().as_slice().is_empty());
+        assert!(g.a_symbol(&a, &b, &absent).unwrap().as_slice().is_empty());
+        assert!(g.b_symbol(&a, &b, &absent).unwrap().as_slice().is_empty());
     }
     // 3 + (-5) + 4 = 2, with intermediate charges -2 and -1.
     assert_eq!(
         g.f_symbol(&q(3), &q(-5), &q(4), &q(2), &q(-2), &q(-1))
             .unwrap()
-            .data(),
+            .as_slice(),
         [1.0]
     );
     assert_eq!(
@@ -92,12 +92,11 @@ fn u1_values_and_bounds() {
     for (a, b) in [(i64::from(i32::MAX), 1), (-i64::from(i32::MAX), -1)] {
         let (a, b) = (q(a), q(b));
         assert_eq!(g.fusion(&a, &b).unwrap_err(), LieError::LabelOverflow);
-        assert_eq!(g.nsymbol(&a, &b, &g.unit()), 0);
-        assert_eq!(g.try_nsymbol(&a, &b, &g.unit()), Ok(0));
+        assert_eq!(g.nsymbol(&a, &b, &g.unit()).unwrap(), 0);
         assert!(g
             .f_symbol(&a, &b, &g.unit(), &g.unit(), &g.unit(), &b)
             .unwrap()
-            .data()
+            .as_slice()
             .is_empty());
         for block in [
             g.r_symbol(&a, &b, &g.unit()),
@@ -153,7 +152,10 @@ fn typed_u1_matches_liegroup_bitwise() {
             assert_eq!(U1.object_index(&a), g.object_index(&la));
             for (typed, general) in [
                 (U1.dim(&a), g.dim(&la)),
-                (U1.frobenius_schur_phase(&a), g.frobenius_schur_phase(&la)),
+                (
+                    U1.frobenius_schur_phase(&a).unwrap(),
+                    g.frobenius_schur_phase(&la).unwrap(),
+                ),
                 (
                     U1.frobenius_schur_indicator(&a),
                     g.frobenius_schur_indicator(&la),
@@ -182,15 +184,13 @@ fn typed_u1_matches_liegroup_bitwise() {
                 for qc in charges {
                     let (c, lc) = (U1Irrep::new(qc).unwrap(), charge(&g, i64::from(qc)));
                     let n = u32::from(sum == i64::from(qc));
-                    assert_eq!(U1.nsymbol(&a, &b, &c), n);
-                    assert_eq!(g.nsymbol(&la, &lb, &lc), n);
-                    assert_eq!(U1.try_nsymbol(&a, &b, &c), Ok(n));
-                    assert_eq!(g.try_nsymbol(&la, &lb, &lc), Ok(n));
+                    assert_eq!(U1.nsymbol(&a, &b, &c).unwrap(), n);
+                    assert_eq!(g.nsymbol(&la, &lb, &lc).unwrap(), n);
                     let r = g.r_symbol(&la, &lb, &lc).unwrap();
                     assert_eq!(r.dims(), [n as usize; 2]);
                     assert_eq!(
                         U1.r_symbol(&a, &b, &c).unwrap().to_bits(),
-                        r.data().first().copied().unwrap_or(0.0).to_bits()
+                        r.as_slice().first().copied().unwrap_or(0.0).to_bits()
                     );
                     same_block(
                         U1.a_symbol(&a, &b, &c).unwrap(),
@@ -204,7 +204,7 @@ fn typed_u1_matches_liegroup_bitwise() {
                     assert_eq!(cg.dims(), [1, 1, 1, n as usize]);
                     assert_eq!(
                         U1.cgc(&a, &b, &c).unwrap().to_bits(),
-                        (if n == 0 { 0.0 } else { cg.at([0; 4]) }).to_bits()
+                        (if n == 0 { 0.0 } else { cg.get([0; 4]) }).to_bits()
                     );
                 }
             }
@@ -229,7 +229,7 @@ fn typed_u1_matches_liegroup_bitwise() {
         let block = result.unwrap();
         assert_eq!(block.dims(), dims);
         assert_eq!(
-            block.data(),
+            block.as_slice(),
             if dims.contains(&0) {
                 &[][..]
             } else {
@@ -240,7 +240,7 @@ fn typed_u1_matches_liegroup_bitwise() {
             [a, b, c, d, e, f].map(|i| U1Irrep::new(charges[i] as i32).unwrap());
         assert_eq!(
             U1.f_symbol(&a, &b, &c, &d, &e, &f).unwrap().to_bits(),
-            block.data().first().copied().unwrap_or(0.0).to_bits()
+            block.as_slice().first().copied().unwrap_or(0.0).to_bits()
         );
     }
     let foreign = group(GroupId::su(2).unwrap()).unit();
@@ -289,9 +289,10 @@ fn u2_highest_weights_and_charge_conservation() {
                     z.charges().next().unwrap(),
                     x.charges().next().unwrap() + y.charges().next().unwrap()
                 );
-                assert!(g
-                    .group_id()
-                    .admits(&z.dynkin(), &z.charges().collect::<Vec<_>>()));
+                assert!(g.group_id().admits(
+                    &z.dynkin().collect::<Vec<_>>(),
+                    &z.charges().collect::<Vec<_>>()
+                ));
             }
         }
     }
@@ -326,7 +327,9 @@ fn torus_composites_equal_product() {
         let g = group(id);
         let split = |x: &LieIrrep| {
             vec![
-                product.factors()[0].irrep(&x.dynkin()).unwrap(),
+                product.factors()[0]
+                    .irrep(&x.dynkin().collect::<Vec<_>>())
+                    .unwrap(),
                 charge(&product.factors()[1], x.charges().next().unwrap()),
             ]
         };
@@ -339,7 +342,10 @@ fn torus_composites_equal_product() {
                 let (pa, pb) = (split(a), split(b));
                 for c in g.fusion(a, b).unwrap() {
                     let pc = split(&c);
-                    assert_eq!(g.nsymbol(a, b, &c), product.nsymbol(&pa, &pb, &pc));
+                    assert_eq!(
+                        g.nsymbol(a, b, &c).unwrap(),
+                        product.nsymbol(&pa, &pb, &pc).unwrap()
+                    );
                     same_block(
                         g.r_symbol(a, b, &c).unwrap(),
                         product.r_symbol(&pa, &pb, &pc).unwrap(),
@@ -361,8 +367,8 @@ fn torus_composites_equal_product() {
                             for k in 0..dc {
                                 for m in 0..n {
                                     assert_eq!(
-                                        cg.at([i, j, k, m]).to_bits(),
-                                        pg.at([i, j, k, m]).to_bits()
+                                        cg.get([i, j, k, m]).to_bits(),
+                                        pg.get([i, j, k, m]).to_bits()
                                     );
                                 }
                             }
@@ -427,7 +433,7 @@ fn tori_quotients_and_trivial_group() {
     assert_eq!(even.object_index(&q), Err(EnumerationError::NotEnumerable));
     let g = group(GroupId::new(&[], 0, &[]).unwrap());
     let one = g.unit();
-    assert!(one.dynkin().is_empty() && one.charges().len() == 0);
+    assert!(one.dynkin().collect::<Vec<_>>().is_empty() && one.charges().len() == 0);
     assert_eq!(g.object_count(), Ok(Some(1)));
     assert_eq!(g.object_at(0), Ok(one.clone()));
     assert_eq!(g.object_at(1), Err(EnumerationError::OutOfRange));
@@ -437,13 +443,13 @@ fn tori_quotients_and_trivial_group() {
         g.fusion(&one, &one).unwrap().collect::<Vec<_>>(),
         std::slice::from_ref(&one)
     );
-    assert_eq!(g.nsymbol(&one, &one, &one), 1);
+    assert_eq!(g.nsymbol(&one, &one, &one).unwrap(), 1);
     assert_eq!(g.dim(&one), 1.0);
     assert_eq!(one.dim_exact(), 1);
     assert_eq!(
         g.f_symbol(&one, &one, &one, &one, &one, &one)
             .unwrap()
-            .data(),
+            .as_slice(),
         [1.0]
     );
     for block in [
@@ -451,9 +457,9 @@ fn tori_quotients_and_trivial_group() {
         g.a_symbol(&one, &one, &one),
         g.b_symbol(&one, &one, &one),
     ] {
-        assert_eq!(block.unwrap().data(), [1.0]);
+        assert_eq!(block.unwrap().as_slice(), [1.0]);
     }
-    assert_eq!(g.cgc(&one, &one, &one).unwrap().at([0; 4]), 1.0);
+    assert_eq!(g.cgc(&one, &one, &one).unwrap().get([0; 4]), 1.0);
 }
 
 #[cfg(feature = "lie-generated")]
@@ -481,15 +487,19 @@ fn u3_fundamental_antifundamental_and_leaf_symbols() {
                     &sb,
                     &sa,
                     &sa,
-                    &su.irrep(&e.dynkin()).unwrap(),
-                    &su.irrep(&f.dynkin()).unwrap(),
+                    &su.irrep(&e.dynkin().collect::<Vec<_>>()).unwrap(),
+                    &su.irrep(&f.dynkin().collect::<Vec<_>>()).unwrap(),
                 )
                 .unwrap(),
             );
             same_block(
                 g.r_symbol(&a, &b, e).unwrap(),
-                su.r_symbol(&sa, &sb, &su.irrep(&e.dynkin()).unwrap())
-                    .unwrap(),
+                su.r_symbol(
+                    &sa,
+                    &sb,
+                    &su.irrep(&e.dynkin().collect::<Vec<_>>()).unwrap(),
+                )
+                .unwrap(),
             );
         }
     }

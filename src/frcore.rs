@@ -42,7 +42,7 @@ pub(crate) struct MEntry {
     pub value: f64,
 }
 
-use crate::category::{FBlock, RBlock};
+use crate::category::{FBlock, RBlock, SymbolBlock};
 use crate::lie::general::GeneralFamily;
 use crate::lie::LieError;
 
@@ -76,7 +76,7 @@ impl std::error::Error for GateError {}
 /// `F^{abc}_d[e, f]` is only a subblock of a change of basis, so it has no
 /// unitarity of its own.
 pub(crate) fn check_f_block(block: &FBlock<f64>) -> Result<(), GateError> {
-    if block.data().iter().all(|x| x.is_finite()) {
+    if block.as_slice().iter().all(|x| x.is_finite()) {
         Ok(())
     } else {
         Err(GateError::NonFinite { gate: "F" })
@@ -87,7 +87,7 @@ pub(crate) fn check_f_block(block: &FBlock<f64>) -> Result<(), GateError> {
 /// every entry finite and `max |RᵀR − I| ≤ 1e-9`. The empty block passes.
 pub(crate) fn check_r_block(block: &RBlock<f64>) -> Result<(), GateError> {
     const TOL_UNITARY: f64 = 1e-9;
-    let (n, r) = (block.dim(), block.data());
+    let ([n, _], r) = (block.dims(), block.as_slice());
     if !r.iter().all(|x| x.is_finite()) {
         return Err(GateError::NonFinite { gate: "R" });
     }

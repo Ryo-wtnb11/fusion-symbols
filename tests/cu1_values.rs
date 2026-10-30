@@ -185,7 +185,10 @@ fn unary_data_and_fusion_order_follow_tensorkitsectors() {
     for a in labels() {
         assert_eq!(CU1.dim(&a), dim(a) as f64);
         assert_eq!(CU1.dual(&a), a);
-        assert_eq!((CU1.frobenius_schur_phase(&a), CU1.twist(&a)), (1.0, 1.0));
+        assert_eq!(
+            (CU1.frobenius_schur_phase(&a).unwrap(), CU1.twist(&a)),
+            (1.0, 1.0)
+        );
     }
     // `SectorProductIterator{CU1Irrep}` order: `0± ⊗ 0± = 0^{s xor s'}`,
     // `0± ⊗ j = j`, `j ⊗ j = [0+, 0-, 2j]`, `j ⊗ k = [|j-k|, j+k]`.
@@ -203,7 +206,10 @@ fn unary_data_and_fusion_order_follow_tensorkitsectors() {
             let got: Vec<_> = CU1.fusion(&a, &b).unwrap().collect();
             assert_eq!(got, want, "{a:?} ⊗ {b:?}");
             for &c in &all {
-                assert_eq!(CU1.nsymbol(&a, &b, &c), u32::from(want.contains(&c)));
+                assert_eq!(
+                    CU1.nsymbol(&a, &b, &c).unwrap(),
+                    u32::from(want.contains(&c))
+                );
             }
         }
     }

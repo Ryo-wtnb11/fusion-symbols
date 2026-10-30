@@ -1,14 +1,14 @@
 use crate::common::counting_alloc;
 use fusion_symbols::{
     category::FusionCategory,
-    lie::{GroupId, LieGroup, LieIrrep},
+    lie::{GroupId, LieGroup, LieIrrep, RootSystem},
 };
 
-// Compatibility with owned materialization, including length after every step.
-fn check_labels(a: &LieIrrep) {
-    let expected = a.dynkin();
+// The iterator yields `expected` (including zeros) with an exact length after
+// every step, then stays exhausted, without allocating.
+fn check_labels(a: &LieIrrep, expected: &[i64]) {
     let before = counting_alloc::calls();
-    let mut labels = std::hint::black_box(a).dynkin_labels();
+    let mut labels = std::hint::black_box(a).dynkin();
     assert_eq!(labels.len(), expected.len());
     for (i, &coordinate) in expected.iter().enumerate() {
         assert_eq!(labels.next(), Some(coordinate));
@@ -22,8 +22,29 @@ fn check_labels(a: &LieIrrep) {
     assert_eq!(after, before);
 }
 
+#[cfg(feature = "lie-generated")]
+// Textbook duals of a simple factor: A(r) reverses its Dynkin labels; B, C
+// and D(even rank) irreps, and rank one, are self-dual.
+fn dual_labels(id: &GroupId, label: &[i64]) -> Vec<i64> {
+    match id.root_systems() {
+        [RootSystem::A(r)] if *r >= 2 => label.iter().rev().copied().collect(),
+        [RootSystem::A(_) | RootSystem::B(_) | RootSystem::C(_)] => label.to_vec(),
+        [RootSystem::D(r)] if r % 2 == 0 => label.to_vec(),
+        other => panic!("no dual oracle for {other:?}"),
+    }
+}
+
+#[cfg(feature = "lie-generated")]
+// A channel's coordinates have no input array: reconstructing the channel
+// from them is the independent check.
+fn check_channel(cat: &LieGroup, c: &LieIrrep) {
+    let expected: Vec<i64> = c.dynkin().collect();
+    assert_eq!(&cat.irrep(&expected).unwrap(), c);
+    check_labels(c, &expected);
+}
+
 #[test]
-fn dynkin_labels_match_owned_labels_without_allocation() {
+fn dynkin_matches_input_labels_without_allocation() {
     let _serial = crate::common::counting_alloc::serial();
     // Initialize thread parking before measuring synchronization.
     let _thread = std::thread::current();
@@ -71,8 +92,8 @@ fn dynkin_labels_match_owned_labels_without_allocation() {
                 continue;
             }
             let a = cat.irrep(&[label]).unwrap();
-            assert!(a.dynkin_labels().eq([label]));
-            check_labels(&a);
+            check_labels(&a, &[label]);
+            check_labels(&cat.dual(&a), &[label]);
         }
         let a = cat.irrep(&[4]).unwrap();
         let b = cat.irrep(&[6]).unwrap();
@@ -80,10 +101,10 @@ fn dynkin_labels_match_owned_labels_without_allocation() {
         let before = counting_alloc::calls();
         let mut channels = 0;
         for c in cat.fusion(&a, &b).unwrap() {
-            for coordinate in c.dynkin_labels() {
+            for coordinate in c.dynkin() {
                 std::hint::black_box(coordinate);
             }
-            for coordinate in cat.dual(&c).dynkin_labels() {
+            for coordinate in cat.dual(&c).dynkin() {
                 std::hint::black_box(coordinate);
             }
             channels += 1;
@@ -118,9 +139,8 @@ fn dynkin_labels_match_owned_labels_without_allocation() {
                 .collect();
             if id.admits(&label, &[]) {
                 let a = cat.irrep(&label).unwrap();
-                assert!(a.dynkin_labels().eq(label));
-                check_labels(&a);
-                check_labels(&cat.dual(&a));
+                check_labels(&a, &label);
+                check_labels(&cat.dual(&a), &dual_labels(&id, &label));
             }
         }
         // Small admitted fundamental seeds (both D-series chiralities included).
@@ -138,8 +158,8 @@ fn dynkin_labels_match_owned_labels_without_allocation() {
         for a in &seeds {
             for b in &seeds {
                 for c in cat.fusion(a, b).unwrap() {
-                    check_labels(&c);
-                    check_labels(&cat.dual(&c));
+                    check_channel(&cat, &c);
+                    check_channel(&cat, &cat.dual(&c));
                 }
             }
         }
@@ -152,9 +172,40 @@ fn dynkin_labels_match_owned_labels_without_allocation() {
         for label in [[0, 0, i64::MAX, 0], [0, 0, 0, i64::MAX]] {
             let a = cat.irrep(&label).unwrap();
             let before = counting_alloc::calls();
-            assert!(std::hint::black_box(&a).dynkin_labels().eq(label));
+            assert!(std::hint::black_box(&a).dynkin().eq(label));
             let after = counting_alloc::calls();
             assert_eq!(after, before);
         }
+    }
+}
+
+#[test]
+fn torus_and_composite_coordinates() {
+    let _serial = crate::common::counting_alloc::serial();
+    // Tori and the trivial group have no Dynkin coordinates; charges are separate.
+    let u1 = LieGroup::new(GroupId::u(1).unwrap()).unwrap();
+    check_labels(&u1.irrep_with_charges(&[], &[3]).unwrap(), &[]);
+    let trivial = LieGroup::new(GroupId::new(&[], 0, &[]).unwrap()).unwrap();
+    check_labels(&trivial.unit(), &[]);
+    let u2 = LieGroup::new(GroupId::u(2).unwrap()).unwrap();
+    let x = u2.irrep_with_charges(&[1], &[3]).unwrap();
+    check_labels(&x, &[1]);
+    assert!(x.charges().eq([3]));
+    // D(2) keeps α₁ then α₂, zeros included.
+    let spin4 = LieGroup::new(GroupId::spin(4).unwrap()).unwrap();
+    check_labels(&spin4.irrep(&[2, 0]).unwrap(), &[2, 0]);
+    check_labels(&spin4.irrep(&[0, 3]).unwrap(), &[0, 3]);
+    // Mixed covers concatenate factor coordinates in factor order.
+    let cover = GroupId::cover(&[RootSystem::A(1), RootSystem::A(1)], 1).unwrap();
+    let cat = LieGroup::new(cover).unwrap();
+    let y = cat.irrep_with_charges(&[3, 0], &[-2]).unwrap();
+    check_labels(&y, &[3, 0]);
+    assert!(y.charges().eq([-2]));
+    #[cfg(feature = "lie-generated")]
+    {
+        let cover = GroupId::cover(&[RootSystem::A(1), RootSystem::A(2)], 0).unwrap();
+        let cat = LieGroup::new(cover).unwrap();
+        check_labels(&cat.irrep(&[1, 0, 2]).unwrap(), &[1, 0, 2]);
+        check_labels(&cat.dual(&cat.irrep(&[1, 0, 2]).unwrap()), &[1, 2, 0]);
     }
 }

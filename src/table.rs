@@ -94,9 +94,10 @@ const ISING_UUID: &str = "37fa4e56-97c6-11f1-907a-eb6ab8e8bc11";
 /// Inadmissible symbols are exact zero. On fusion-only entries, `r_symbol`
 /// returns [`TableError::NoBraiding`] and `twist` panics.
 ///
-/// Enumeration (frozen): the source object order of [`Self::objects`]; the
-/// object with one-based source index `i` has enumeration index `i − 1`, and
-/// the count is [`FusionCategory::object_count`]. Ising is therefore `(I, ψ, σ)`, unlike
+/// Enumeration (frozen): the source object order; the object with one-based
+/// source index `i` ([`Self::object`]) has enumeration index `i − 1`
+/// ([`FusionCategory::object_at`]), and the count is
+/// [`FusionCategory::object_count`]. Ising is therefore `(I, ψ, σ)`, unlike
 /// TensorKitSectors' `IsingAnyon` order `(I, σ, ψ)`.
 ///
 /// # Examples
@@ -354,11 +355,6 @@ impl TableCategory {
         }
     }
 
-    /// The category's tagged objects in the frozen source order.
-    pub fn objects(&self) -> impl Iterator<Item = TableObject> + '_ {
-        (1..=self.data.table.rank() as u16).map(|index| self.object(index).expect("in-range index"))
-    }
-
     fn index(&self, a: &TableObject) -> usize {
         assert_eq!(a.table_id, self.table_id, "foreign table object");
         usize::from(a.index) - 1
@@ -415,11 +411,11 @@ impl FusionCategory for TableCategory {
     fn dim(&self, a: &TableObject) -> f64 {
         self.data.dims[self.index(a)]
     }
-    fn frobenius_schur_phase(&self, a: &TableObject) -> Complex64 {
-        self.data.frobenius_schur[self.index(a)]
+    fn frobenius_schur_phase(&self, a: &TableObject) -> Result<Complex64, TableError> {
+        Ok(self.data.frobenius_schur[self.index(a)])
     }
     fn frobenius_schur_indicator(&self, a: &TableObject) -> Complex64 {
-        let phase = self.frobenius_schur_phase(a);
+        let phase = self.data.frobenius_schur[self.index(a)];
         if *a == self.dual(a) {
             phase
         } else {
@@ -450,10 +446,16 @@ impl FusionCategory for TableCategory {
             remaining: 0..self.data.table.rank(),
         })
     }
-    fn nsymbol(&self, a: &TableObject, b: &TableObject, c: &TableObject) -> u32 {
-        self.data
+    fn nsymbol(
+        &self,
+        a: &TableObject,
+        b: &TableObject,
+        c: &TableObject,
+    ) -> Result<u32, TableError> {
+        Ok(self
+            .data
             .table
-            .nsymbol(self.index(a), self.index(b), self.index(c))
+            .nsymbol(self.index(a), self.index(b), self.index(c)))
     }
     fn f_symbol(
         &self,

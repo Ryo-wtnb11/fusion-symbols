@@ -61,7 +61,7 @@ fn emit(fresh_groups: bool) -> Vec<u8> {
                 &[],
                 [
                     g.dim(x),
-                    g.frobenius_schur_phase(x),
+                    g.frobenius_schur_phase(x).unwrap(),
                     g.frobenius_schur_indicator(x),
                 ],
             );
@@ -74,7 +74,7 @@ fn emit(fresh_groups: bool) -> Vec<u8> {
             let values = (0..n1).flat_map(|i| {
                 let cg = &cg;
                 (0..n2).flat_map(move |j| {
-                    (0..n3).flat_map(move |k| (0..n4).map(move |mu| cg.at([i, j, k, mu])))
+                    (0..n3).flat_map(move |k| (0..n4).map(move |mu| cg.get([i, j, k, mu])))
                 })
             });
             put(&mut out, "C", &cg.dims(), values);
@@ -148,7 +148,10 @@ fn complex_phase_bits() {
     for label in [[1, 0, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0], [1, 1, 0, 0, 0, 0]] {
         let a = g.irrep(&label).unwrap();
         for x in [&a, &g.dual(&a), &a] {
-            assert_eq!(g.frobenius_schur_phase(x).to_bits(), 0x3ff0000000000000);
+            assert_eq!(
+                g.frobenius_schur_phase(x).unwrap().to_bits(),
+                0x3ff0000000000000
+            );
         }
     }
 }

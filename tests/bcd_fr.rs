@@ -15,6 +15,7 @@
 
 use crate::common::bcd as bcd_test;
 use bcd_test::{check_f_unitarity, check_hexagon, check_pentagon, f_symbol, Series};
+use fusion_symbols::category::SymbolBlock;
 use fusion_symbols::lie::{LieError, LieIrrep as Irrep};
 
 fn irr(s: Series, d: &[i64]) -> Irrep {
@@ -119,7 +120,7 @@ fn sp4_so5_vector_f_coboundary_fit_signed() {
     // B2 label (a1,a2) -> C2 label (a2,a1).
     let swap = |x: &Irrep| {
         irr(Series::C, &{
-            let d = x.dynkin();
+            let d = x.dynkin().collect::<Vec<_>>();
             vec![d[1], d[0]]
         })
     };
@@ -129,7 +130,11 @@ fn sp4_so5_vector_f_coboundary_fit_signed() {
     let mut vertex_id: std::collections::HashMap<VertexKey, usize> =
         std::collections::HashMap::new();
     let mut var = |x: &Irrep, y: &Irrep, z: &Irrep| -> usize {
-        let key = (swap(x).dynkin(), swap(y).dynkin(), swap(z).dynkin());
+        let key = (
+            swap(x).dynkin().collect::<Vec<_>>(),
+            swap(y).dynkin().collect::<Vec<_>>(),
+            swap(z).dynkin().collect::<Vec<_>>(),
+        );
         let n = vertex_id.len();
         *vertex_id.entry(key).or_insert(n)
     };
@@ -162,7 +167,7 @@ fn sp4_so5_vector_f_coboundary_fit_signed() {
                     Err(e) if e.to_string().contains("could not be aligned") => continue,
                     Err(e) => panic!("unexpected C2 error: {e:?}"),
                 };
-                let (b, c) = (fb.at(0, 0, 0, 0), fc.at(0, 0, 0, 0));
+                let (b, c) = (fb.get([0, 0, 0, 0]), fc.get([0, 0, 0, 0]));
                 worst_mag = worst_mag.max((b.abs() - c.abs()).abs());
                 if b.abs() < 1e-9 {
                     continue; // both ~0: the sign equation would be vacuous
@@ -181,9 +186,9 @@ fn sp4_so5_vector_f_coboundary_fit_signed() {
                     gf2_add(&mut rows, vars, rhs),
                     "Sp(4)/SO(5) sign mismatch at sextet e={:?} f={:?} d={:?}: \
                      F_B={b:+.6} F_C={c:+.6} is not a vertex-sign coboundary",
-                    e.dynkin(),
-                    f.dynkin(),
-                    d.dynkin()
+                    e.dynkin().collect::<Vec<_>>(),
+                    f.dynkin().collect::<Vec<_>>(),
+                    d.dynkin().collect::<Vec<_>>()
                 );
                 compared += 1;
             }
@@ -307,8 +312,8 @@ fn hexagon_with_nonsymmetric_multiplicity_r_closes() {
         })
         .any(|(g, d)| {
             let r = cat.r_symbol(&a, &g, &d).unwrap();
-            let n = r.dim();
-            (0..n).any(|i| (0..n).any(|j| (r.at(i, j) - r.at(j, i)).abs() > 1e-6))
+            let n = r.dims()[0];
+            (0..n).any(|i| (0..n).any(|j| (r.get([i, j]) - r.get([j, i])).abs() > 1e-6))
         });
     assert!(
         nonsymmetric,
@@ -325,7 +330,7 @@ fn isometry_residual(c: &fusion_symbols::lie::LieCgc) -> f64 {
     let mut gram = vec![0.0; cols * cols];
     for i in 0..d1 {
         for j in 0..d2 {
-            let col: Vec<f64> = (0..cols).map(|k| c.at([i, j, k / n, k % n])).collect();
+            let col: Vec<f64> = (0..cols).map(|k| c.get([i, j, k / n, k % n])).collect();
             for (p, x) in col.iter().enumerate().filter(|(_, x)| **x != 0.0) {
                 for (q, y) in col.iter().enumerate() {
                     gram[p * cols + q] += x * y;
@@ -365,9 +370,16 @@ fn sp4_81x81_every_channel() {
     for c in cat.fusion(&a, &a).unwrap() {
         let cgc = cat.cgc(&a, &a, &c).unwrap();
         let dc = cat.dim(&c) as usize;
-        assert_eq!(cgc.dims(), [81, 81, dc, cat.nsymbol(&a, &a, &c) as usize]);
+        assert_eq!(
+            cgc.dims(),
+            [81, 81, dc, cat.nsymbol(&a, &a, &c).unwrap() as usize]
+        );
         if dc <= 220 {
-            assert!(isometry_residual(&cgc) < 1e-12, "{:?}", c.dynkin());
+            assert!(
+                isometry_residual(&cgc) < 1e-12,
+                "{:?}",
+                c.dynkin().collect::<Vec<_>>()
+            );
         }
         channels += 1;
     }

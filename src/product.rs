@@ -76,7 +76,7 @@ impl<C> Product<C> {
     /// let q = |a, b| Ok::<_, fusion_symbols::lie::U1Error>((U1Irrep::new(a)?, U1Irrep::new(b)?));
     /// let x = q(1, -2)?;
     /// assert_eq!(cat.fusion(&x, &x)?.collect::<Vec<_>>(), [q(2, -4)?]);
-    /// assert_eq!(cat.nsymbol(&x, &x, &q(2, 0)?), 0);
+    /// assert_eq!(cat.nsymbol(&x, &x, &q(2, 0)?)?, 0);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     ///
@@ -281,27 +281,37 @@ pub struct ProductFusion<I, O> {
 
 // Read all multiplicities before multiplying: a zero factor fixes the product
 // at zero, so it beats both a nonzero prefix overflow and any factor failure.
-// Otherwise the first factor failure wins, then overflow.
-fn checked_multiplicity<E>(
-    values: impl IntoIterator<Item = Result<u32, E>>,
-    overflow: E,
-) -> Result<u32, E> {
-    let mut product = Some(1u32);
-    let mut error = None;
-    for n in values {
+// Otherwise the first factor failure wins, then overflow. Factor results are
+// pushed one at a time, so a tuple never materializes an array of results.
+struct Multiplicity<E> {
+    product: Option<u32>,
+    error: Option<E>,
+}
+impl<E> Multiplicity<E> {
+    fn new() -> Self {
+        Self {
+            product: Some(1),
+            error: None,
+        }
+    }
+    #[inline]
+    fn push(&mut self, n: Result<u32, E>) {
         match n {
-            Ok(0) => product = Some(0),
-            Ok(n) => product = product.and_then(|p| p.checked_mul(n)),
+            Ok(0) => self.product = Some(0),
+            Ok(n) => self.product = self.product.and_then(|p| p.checked_mul(n)),
             Err(e) => {
-                error.get_or_insert(e);
+                self.error.get_or_insert(e);
             }
         }
     }
-    match (error, product) {
-        (_, Some(0)) => Ok(0),
-        (Some(e), _) => Err(e),
-        (None, Some(n)) => Ok(n),
-        (None, None) => Err(overflow),
+    // The overflow error is built only when it is returned.
+    fn finish(self, overflow: impl FnOnce() -> E) -> Result<u32, E> {
+        match (self.error, self.product) {
+            (_, Some(0)) => Ok(0),
+            (Some(e), _) => Err(e),
+            (None, Some(n)) => Ok(n),
+            (None, None) => Err(overflow()),
+        }
     }
 }
 fn shape<S, const R: usize>(n: [u32; R]) -> Option<[usize; R]> {
@@ -620,7 +630,9 @@ macro_rules! product_queries {
                 let Ranked { index, .. } = $this.__fusion_symbols_validated_object_index(a, Validated(()))?;
                 u64::try_from(&index).map_err(|_| EnumerationError::Overflow)
             }
-            fn frobenius_schur_phase(&$this, a: &Self::Object) -> Self::Scalar {
+            /// The first failing factor's error, at its immediate tuple position or
+            /// vector index; otherwise the left-to-right product of factor phases.
+            fn frobenius_schur_phase(&$this, a: &Self::Object) -> Result<Self::Scalar, Self::Error> {
                 validate($this, &[a]);
                 $this.__fusion_symbols_validated_frobenius_schur_phase(a, Validated(()))
             }
@@ -639,24 +651,18 @@ macro_rules! product_queries {
                 validate($this, &[a, b]);
                 $this.__fusion_symbols_validated_fusion(a, b, Validated(()))
             }
-            /// Panics only if a nonzero product multiplicity exceeds `u32`, or an object is foreign;
-            /// [`FusionCategory::try_nsymbol`] reports the former as an error.
-            fn nsymbol(&$this, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> u32 {
-                validate($this, &[a, b, c]);
-                $this.__fusion_symbols_validated_nsymbol(a, b, c, Validated(()))
-            }
             /// A zero factor multiplicity beats both factor failures and overflow.
             /// Otherwise the first factor failure is returned at its immediate tuple
             /// position or vector index, then [`ProductError::Overflow`] if the
             /// product multiplicity exceeds `u32`. Foreign objects panic.
-            fn try_nsymbol(&$this, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<u32, Self::Error> {
+            fn nsymbol(&$this, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<u32, Self::Error> {
                 validate($this, &[a, b, c]);
-                $this.__fusion_symbols_validated_try_nsymbol(a, b, c, Validated(()))
+                $this.__fusion_symbols_validated_nsymbol(a, b, c, Validated(()))
             }
             fn f_symbol(&$this, a: &Self::Object, b: &Self::Object, c: &Self::Object, d: &Self::Object, e: &Self::Object, f: &Self::Object) -> Result<Self::FSymbol, Self::Error> {
                 validate($this, &[a, b, c, d, e, f]);
                 let t = Validated(());
-                let n = |x, y, z| $this.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
+                let n = |x, y, z| $this.__fusion_symbols_validated_nsymbol(x, y, z, t);
                 let dims = shape::<Self::Scalar, 4>([n(a, b, e)?, n(e, c, d)?, n(b, c, f)?, n(a, f, d)?]).ok_or(ProductError::Overflow)?;
                 if dims.contains(&0) { return Ok(FBlock::from_storage(dims, Storage::Empty)); }
                 let (block, _) = $this.shaped_f([a, b, c, d, e, f], Some(dims.iter().product()), t)?;
@@ -669,7 +675,7 @@ macro_rules! product_queries {
                     return Err(ProductError::NoBraiding { factor });
                 }
                 let t = Validated(());
-                let n = |x, y, z| $this.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
+                let n = |x, y, z| $this.__fusion_symbols_validated_nsymbol(x, y, z, t);
                 let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(b, a, c)?]).ok_or(ProductError::Overflow)?;
                 if dims.contains(&0) { return Ok(RBlock::from_storage(dims[0], Storage::Empty)); }
                 let (block, _) = $this.shaped_r([a, b, c], Some(dims.iter().product()), t)?;
@@ -681,7 +687,7 @@ macro_rules! product_queries {
             fn a_symbol(&$this, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<RBlock<Self::Scalar>, Self::Error> {
                 validate($this, &[a, b, c]);
                 let t = Validated(());
-                let n = |x, y, z| $this.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
+                let n = |x, y, z| $this.__fusion_symbols_validated_nsymbol(x, y, z, t);
                 let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(&$this.__fusion_symbols_validated_dual(a, t), c, b)?]).ok_or(ProductError::Overflow)?;
                 if dims.contains(&0) { return Ok(RBlock::from_storage(dims[0], Storage::Empty)); }
                 let (block, _) = $this.shaped_a([a, b, c], Some(dims.iter().product()), t)?;
@@ -692,7 +698,7 @@ macro_rules! product_queries {
             fn b_symbol(&$this, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<RBlock<Self::Scalar>, Self::Error> {
                 validate($this, &[a, b, c]);
                 let t = Validated(());
-                let n = |x, y, z| $this.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
+                let n = |x, y, z| $this.__fusion_symbols_validated_nsymbol(x, y, z, t);
                 let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(c, &$this.__fusion_symbols_validated_dual(b, t), a)?]).ok_or(ProductError::Overflow)?;
                 if dims.contains(&0) { return Ok(RBlock::from_storage(dims[0], Storage::Empty)); }
                 let (block, _) = $this.shaped_b([a, b, c], Some(dims.iter().product()), t)?;
@@ -794,9 +800,10 @@ macro_rules! impl_product {
             fn __fusion_symbols_validated_dual(&self, a: &Self::Object, t: Validated) -> Self::Object {
                 (self.factors.0.__fusion_symbols_validated_dual(&a.0, t), $(self.factors.$i.__fusion_symbols_validated_dual(&a.$i, t),)+)
             }
-            fn __fusion_symbols_validated_frobenius_schur_phase(&self, a: &Self::Object, t: Validated) -> Self::Scalar {
-                let value = self.factors.0.__fusion_symbols_validated_frobenius_schur_phase(&a.0, t);
-                $(let value = <$Prev as Promote<$C::Scalar>>::left(value) * <$Prev as Promote<$C::Scalar>>::right(self.factors.$i.__fusion_symbols_validated_frobenius_schur_phase(&a.$i, t));)+ value
+            fn __fusion_symbols_validated_frobenius_schur_phase(&self, a: &Self::Object, t: Validated) -> Result<Self::Scalar, Self::Error> {
+                let value = self.factors.0.__fusion_symbols_validated_frobenius_schur_phase(&a.0, t).map_err(ProductError::Factor0)?;
+                $(let value = <$Prev as Promote<$C::Scalar>>::left(value) * <$Prev as Promote<$C::Scalar>>::right(self.factors.$i.__fusion_symbols_validated_frobenius_schur_phase(&a.$i, t).map_err(ProductError::$Err)?);)+
+                Ok(value)
             }
             fn __fusion_symbols_validated_frobenius_schur_indicator(&self, a: &Self::Object, t: Validated) -> Self::Scalar {
                 let value = self.factors.0.__fusion_symbols_validated_frobenius_schur_indicator(&a.0, t);
@@ -814,15 +821,11 @@ macro_rules! impl_product {
                 let current = (|| Some((active.0.next()?, $(active.$i.next()?,)+)))();
                 Ok(ProductFusion { initial, active, current })
             }
-            fn __fusion_symbols_validated_nsymbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> u32 {
-                checked_multiplicity([self.factors.0.__fusion_symbols_validated_nsymbol(&a.0, &b.0, &c.0, t), $(self.factors.$i.__fusion_symbols_validated_nsymbol(&a.$i, &b.$i, &c.$i, t)),+].map(Ok), ())
-                    .expect("nonzero product multiplicity exceeds u32")
-            }
-            fn __fusion_symbols_validated_try_nsymbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> Result<u32, Self::Error> {
-                checked_multiplicity([
-                    self.factors.0.__fusion_symbols_validated_try_nsymbol(&a.0, &b.0, &c.0, t).map_err(ProductError::Factor0),
-                    $(self.factors.$i.__fusion_symbols_validated_try_nsymbol(&a.$i, &b.$i, &c.$i, t).map_err(ProductError::$Err)),+
-                ], ProductError::Overflow)
+            fn __fusion_symbols_validated_nsymbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> Result<u32, Self::Error> {
+                let mut n = Multiplicity::new();
+                n.push(self.factors.0.__fusion_symbols_validated_nsymbol(&a.0, &b.0, &c.0, t).map_err(ProductError::Factor0));
+                $(n.push(self.factors.$i.__fusion_symbols_validated_nsymbol(&a.$i, &b.$i, &c.$i, t).map_err(ProductError::$Err));)+
+                n.finish(|| ProductError::Overflow)
             }
             // The caller has established nonzero, representable shapes for every
             // factor (an enclosing product's shape bounds this one's). Check each
@@ -891,10 +894,10 @@ macro_rules! impl_product {
             fn dims(&self) -> [usize; 4] {
                 cgc_dims([self.0.dims(), $(self.$i.dims()),+]).expect("CGC axis overflow")
             }
-            fn at(&self, index: [usize; 4]) -> f64 {
+            fn get(&self, index: [usize; 4]) -> f64 {
                 let mut entry = cgc_indices(self.dims(), index);
-                let value = self.0.at(entry(self.0.dims()));
-                $(let value = value * self.$i.at(entry(self.$i.dims()));)+
+                let value = self.0.get(entry(self.0.dims()));
+                $(let value = value * self.$i.get(entry(self.$i.dims()));)+
                 value
             }
         }
@@ -1035,13 +1038,15 @@ where
         &self,
         a: &Self::Object,
         t: Validated,
-    ) -> Self::Scalar {
-        scalar_product(
-            self.factors
-                .iter()
-                .zip(a)
-                .map(|(c, a)| c.__fusion_symbols_validated_frobenius_schur_phase(a, t)),
-        )
+    ) -> Result<Self::Scalar, Self::Error> {
+        let mut value = None;
+        for (index, (c, a)) in self.factors.iter().zip(a).enumerate() {
+            let x = c
+                .__fusion_symbols_validated_frobenius_schur_phase(a, t)
+                .map_err(|source| ProductError::Factor { index, source })?;
+            value = Some(value.map_or(x, |v| v * x));
+        }
+        Ok(value.unwrap_or_else(Self::Scalar::one))
     }
     fn __fusion_symbols_validated_frobenius_schur_indicator(
         &self,
@@ -1122,30 +1127,15 @@ where
         b: &Self::Object,
         c: &Self::Object,
         t: Validated,
-    ) -> u32 {
-        checked_multiplicity(
-            self.factors
-                .iter()
-                .enumerate()
-                .map(|(i, f)| Ok(f.__fusion_symbols_validated_nsymbol(&a[i], &b[i], &c[i], t))),
-            (),
-        )
-        .expect("nonzero product multiplicity exceeds u32")
-    }
-    fn __fusion_symbols_validated_try_nsymbol(
-        &self,
-        a: &Self::Object,
-        b: &Self::Object,
-        c: &Self::Object,
-        t: Validated,
     ) -> Result<u32, Self::Error> {
-        checked_multiplicity(
-            self.factors.iter().enumerate().map(|(index, f)| {
-                f.__fusion_symbols_validated_try_nsymbol(&a[index], &b[index], &c[index], t)
-                    .map_err(|source| ProductError::Factor { index, source })
-            }),
-            ProductError::Overflow,
-        )
+        let mut n = Multiplicity::new();
+        for (index, f) in self.factors.iter().enumerate() {
+            n.push(
+                f.__fusion_symbols_validated_nsymbol(&a[index], &b[index], &c[index], t)
+                    .map_err(|source| ProductError::Factor { index, source }),
+            );
+        }
+        n.finish(|| ProductError::Overflow)
     }
     fn __fusion_symbols_validated_fusion<'a>(
         &'a self,
@@ -1362,9 +1352,9 @@ impl<B: CgcBlock> CgcBlock for Vec<B> {
     fn dims(&self) -> [usize; 4] {
         cgc_dims(self.iter().map(CgcBlock::dims)).expect("CGC axis overflow")
     }
-    fn at(&self, index: [usize; 4]) -> f64 {
+    fn get(&self, index: [usize; 4]) -> f64 {
         let mut entry = cgc_indices(self.dims(), index);
-        scalar_product(self.iter().map(|b| b.at(entry(b.dims()))))
+        scalar_product(self.iter().map(|b| b.get(entry(b.dims()))))
     }
 }
 
@@ -1600,8 +1590,8 @@ mod tests {
         fn dim(&self, _: &()) -> f64 {
             1.0
         }
-        fn frobenius_schur_phase(&self, _: &()) -> f64 {
-            1.0
+        fn frobenius_schur_phase(&self, _: &()) -> Result<f64, Infallible> {
+            Ok(1.0)
         }
         fn frobenius_schur_indicator(&self, _: &()) -> f64 {
             1.0
@@ -1612,8 +1602,8 @@ mod tests {
         fn fusion<'a>(&'a self, _: &(), _: &()) -> Result<Self::Fusion<'a>, Infallible> {
             Ok(std::iter::once(()))
         }
-        fn nsymbol(&self, _: &(), _: &(), _: &()) -> u32 {
-            self.n
+        fn nsymbol(&self, _: &(), _: &(), _: &()) -> Result<u32, Infallible> {
+            Ok(self.n)
         }
         fn f_symbol(
             &self,

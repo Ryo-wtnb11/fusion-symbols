@@ -41,6 +41,11 @@ impl FermionParityIrrep {
     }
 }
 
+// N(a, b, c): parity conservation.
+fn n(a: &FermionParityIrrep, b: &FermionParityIrrep, c: &FermionParityIrrep) -> u32 {
+    u32::from((a.odd ^ b.odd) == c.odd)
+}
+
 impl FusionCategory for FermionParity {
     type Object = FermionParityIrrep;
     type Scalar = f64;
@@ -68,8 +73,8 @@ impl FusionCategory for FermionParity {
     fn dim(&self, _a: &FermionParityIrrep) -> f64 {
         1.0
     }
-    fn frobenius_schur_phase(&self, _a: &FermionParityIrrep) -> f64 {
-        1.0
+    fn frobenius_schur_phase(&self, _a: &FermionParityIrrep) -> Result<f64, Self::Error> {
+        Ok(1.0)
     }
     fn frobenius_schur_indicator(&self, a: &FermionParityIrrep) -> f64 {
         f64::from(u8::from(*a == self.dual(a)))
@@ -93,8 +98,8 @@ impl FusionCategory for FermionParity {
         a: &FermionParityIrrep,
         b: &FermionParityIrrep,
         c: &FermionParityIrrep,
-    ) -> u32 {
-        u32::from((a.odd ^ b.odd) == c.odd)
+    ) -> Result<u32, Self::Error> {
+        Ok(n(a, b, c))
     }
     fn f_symbol(
         &self,
@@ -105,12 +110,7 @@ impl FusionCategory for FermionParity {
         e: &FermionParityIrrep,
         f: &FermionParityIrrep,
     ) -> Result<f64, Self::Error> {
-        Ok(f64::from(
-            self.nsymbol(a, b, e)
-                * self.nsymbol(e, c, d)
-                * self.nsymbol(b, c, f)
-                * self.nsymbol(a, f, d),
-        ))
+        Ok(f64::from(n(a, b, e) * n(e, c, d) * n(b, c, f) * n(a, f, d)))
     }
     fn r_symbol(
         &self,
@@ -118,7 +118,7 @@ impl FusionCategory for FermionParity {
         b: &FermionParityIrrep,
         c: &FermionParityIrrep,
     ) -> Result<f64, Self::Error> {
-        let n = f64::from(self.nsymbol(a, b, c));
+        let n = f64::from(n(a, b, c));
         Ok(if a.odd && b.odd && n != 0.0 { -n } else { n })
     }
     // F is the product of the four vertex N, so exactly `1` when admissible;

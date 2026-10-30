@@ -5,6 +5,14 @@ pub mod counting_alloc;
 pub mod lie;
 
 use fusion_symbols::cache::{tier_stats, CoefficientCacheTier as Tier, TierStats};
+use fusion_symbols::category::FusionCategory;
+
+/// Every object of a finite category in its frozen enumeration order.
+#[allow(dead_code)]
+pub fn objects<C: FusionCategory>(cat: &C) -> impl Iterator<Item = C::Object> + '_ {
+    let count = cat.object_count().unwrap().expect("finite category");
+    (0..count).map(|i| cat.object_at(i).unwrap())
+}
 
 /// Only global-state measurements/lifecycle checks serialize; value tests stay parallel.
 #[allow(dead_code)]

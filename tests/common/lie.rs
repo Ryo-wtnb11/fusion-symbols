@@ -63,7 +63,7 @@ pub fn product(
     Ok(cat
         .fusion(a, b)?
         .map(|c| {
-            let n = cat.nsymbol(a, b, &c);
+            let n = cat.nsymbol(a, b, &c).unwrap();
             (c, n)
         })
         .collect())
@@ -95,7 +95,7 @@ pub fn entries(cgc: &fusion_symbols::lie::LieCgc) -> Vec<Entry> {
         for m2 in 0..d2 {
             for m3 in 0..d3 {
                 for mu in 0..n {
-                    let value = cgc.at([m1, m2, m3, mu]);
+                    let value = cgc.get([m1, m2, m3, mu]);
                     if value != 0.0 {
                         entries.push(Entry {
                             m1: m1 as u32,

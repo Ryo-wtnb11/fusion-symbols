@@ -31,7 +31,8 @@ of every Cartan-engine F and R block, and `frcore::{check_f_block,
 check_r_block}` the block gates. The references are
 SUNRepresentations.jl 0.4.0 `src/sector.jl::{_Fsymbol,_Rsymbol}` and
 TensorKitSectors `src/sectors.jl::Fsymbol_from_fusiontensor`.
-Public blocks live in `src/category.rs::{FBlock,RBlock}`; axis order is in
+Public blocks are `src/category/blocks.rs::{FBlock,RBlock}` (reexported from
+`category`), read through `category::SymbolBlock`; axis order is in
 [the API guide](user-guide/README.md#symbol-layout). Generated F blocks use no
 SU(2)-style Regge canonicalization.
 

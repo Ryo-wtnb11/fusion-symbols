@@ -13,7 +13,7 @@ fn readme_1() -> Result<(), Box<dyn std::error::Error>> {
 
     let su3 = LieGroup::new(GroupId::su(3)?)?;
     let eight = su3.irrep(&[1, 1])?; // adjoint, Dynkin labels (1,1)
-    assert_eq!(su3.nsymbol(&eight, &eight, &eight), 2);
+    assert_eq!(su3.nsymbol(&eight, &eight, &eight)?, 2);
     let cgc = su3.cgc(&eight, &eight, &eight)?;
     assert_eq!(cgc.dims(), [8, 8, 8, 2]); // [dim a, dim b, dim c, N]
 
@@ -80,7 +80,7 @@ fn guide_building_lie_groups_2() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(e8.group_id(), &GroupId::cover(&[RootSystem::E8], 0)?);
     let e6 = LieGroup::new(GroupId::e6())?;
     let v = e6.irrep(&[1, 0, 0, 0, 0, 0])?;
-    assert_eq!(e6.dual(&v).dynkin(), [0, 0, 0, 0, 0, 1]);
+    assert!(e6.dual(&v).dynkin().eq([0, 0, 0, 0, 0, 1]));
     assert_eq!(e6.frobenius_schur_indicator(&v), 0.0);
     Ok(())
 }
@@ -95,7 +95,7 @@ fn guide_labels_1() -> Result<(), Box<dyn std::error::Error>> {
 
     let su3 = LieGroup::new(GroupId::su(3)?)?;
     let three = su3.irrep(&[1, 0])?;
-    assert_eq!(su3.dual(&three).dynkin(), vec![0, 1]); // 3-bar
+    assert!(su3.dual(&three).dynkin().eq([0, 1])); // 3-bar
     assert_eq!(three.dim_exact(), 3u32);
 
     let u2 = LieGroup::new(GroupId::u(2)?)?;
@@ -117,21 +117,24 @@ fn guide_labels_1() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn guide_fusion_and_symbols_1() -> Result<(), Box<dyn std::error::Error>> {
     use fusion_symbols::{
-        category::FusionCategory,
+        category::{FusionCategory, SymbolBlock},
         lie::{GroupId, HalfInt, LieGroup},
     };
 
     let su2 = LieGroup::new(GroupId::su(2)?)?;
     let half = su2.irrep_spin(HalfInt::half(1))?;
     let unit = su2.unit();
-    let channels: Vec<i64> = su2.fusion(&half, &half)?.map(|c| c.dynkin()[0]).collect();
-    assert_eq!(channels, vec![0, 2]); // spin 0 and spin 1
+    let channels: Vec<Vec<i64>> = su2
+        .fusion(&half, &half)?
+        .map(|c| c.dynkin().collect())
+        .collect();
+    assert_eq!(channels, [[0], [2]]); // spin 0 and spin 1
     assert_eq!(su2.frobenius_schur_indicator(&half), -1.0); // pseudoreal
 
     let f = su2.f_symbol(&half, &half, &half, &half, &unit, &unit)?;
-    assert_eq!(f.at(0, 0, 0, 0), -0.5);
+    assert_eq!(f.get([0, 0, 0, 0]), -0.5);
     let r = su2.r_symbol(&half, &half, &unit)?;
-    assert_eq!(r.at(0, 0), -1.0);
+    assert_eq!(r.get([0, 0]), -1.0);
     Ok(())
 }
 
@@ -139,7 +142,7 @@ fn guide_fusion_and_symbols_1() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn guide_symbol_layout_1() -> Result<(), Box<dyn std::error::Error>> {
     use fusion_symbols::{
-        category::FusionCategory,
+        category::{FusionCategory, SymbolBlock},
         lie::{GroupId, LieGroup},
     };
 
@@ -148,7 +151,7 @@ fn guide_symbol_layout_1() -> Result<(), Box<dyn std::error::Error>> {
     let f = su3.f_symbol(&eight, &eight, &eight, &eight, &eight, &eight)?;
     assert_eq!(f.dims(), [2, 2, 2, 2]);
     let r = su3.r_symbol(&eight, &eight, &eight)?;
-    assert_eq!(r.dim(), 2); // square: N(a,b,c) = N(b,a,c) = 2
+    assert_eq!(r.dims(), [2, 2]); // square: N(a,b,c) = N(b,a,c) = 2
     Ok(())
 }
 
@@ -164,7 +167,7 @@ fn guide_clebsch_gordan_coefficients_1() -> Result<(), Box<dyn std::error::Error
     let eight = su3.irrep(&[1, 1])?;
     let c = su3.cgc(&eight, &eight, &eight)?;
     assert_eq!(c.dims(), [8, 8, 8, 2]); // [dim a, dim b, dim c, N(a,b,c)]
-    assert!(c.at([0, 2, 0, 1]) < 0.0);
+    assert!(c.get([0, 2, 0, 1]) < 0.0);
     Ok(())
 }
 
@@ -192,11 +195,8 @@ fn guide_abelian_and_finite_categories_1() -> Result<(), Box<dyn std::error::Err
     assert_eq!(U1.dual(&q).charge(), -2);
 
     let z3 = ZN::new(3)?;
-    let one = ZNIrrep::from_canonical(1, 3)?;
-    assert_eq!(
-        z3.fusion(&one, &one)?.next(),
-        Some(ZNIrrep::from_canonical(2, 3)?)
-    );
+    let one = ZNIrrep::new(1, 3)?;
+    assert_eq!(z3.fusion(&one, &one)?.next(), Some(ZNIrrep::new(2, 3)?));
 
     assert_eq!(FermionParity.twist(&FermionParityIrrep::ODD), -1.0);
 
@@ -223,7 +223,7 @@ fn guide_tables_1() -> Result<(), Box<dyn std::error::Error>> {
 
     let fib = TableCategory::fibonacci();
     let tau = fib.object(2)?; // index 1 is the unit
-    assert_eq!(fib.nsymbol(&tau, &tau, &tau), 1);
+    assert_eq!(fib.nsymbol(&tau, &tau, &tau)?, 1);
     let golden = (1.0 + 5f64.sqrt()) / 2.0;
     assert!((fib.dim(&tau) - golden).abs() < 1e-12);
     let f = fib.f_symbol(&tau, &tau, &tau, &tau, &fib.unit(), &fib.unit())?;
@@ -319,12 +319,13 @@ fn getting_started_fusion_and_n_1() -> Result<(), Box<dyn std::error::Error>> {
 
     let su3 = LieGroup::new(GroupId::su(3)?)?;
     let eight = su3.irrep(&[1, 1])?;
-    assert_eq!(su3.nsymbol(&eight, &eight, &eight), 2); // the 8 occurs twice in 8 ⊗ 8
-                                                        // Dimensions add up: Σ_c N(8,8,c) dim(c) = 8 · 8.
-    let total: f64 = su3
-        .fusion(&eight, &eight)?
-        .map(|c| f64::from(su3.nsymbol(&eight, &eight, &c)) * su3.dim(&c))
-        .sum();
+    assert_eq!(su3.nsymbol(&eight, &eight, &eight)?, 2); // the 8 occurs twice in 8 ⊗ 8
+
+    // Dimensions add up: Σ_c N(8,8,c) dim(c) = 8 · 8.
+    let mut total = 0.0;
+    for c in su3.fusion(&eight, &eight)? {
+        total += f64::from(su3.nsymbol(&eight, &eight, &c)?) * su3.dim(&c);
+    }
     assert_eq!(total, 64.0);
     Ok(())
 }
@@ -340,7 +341,7 @@ fn getting_started_dimensions_and_duals_1() -> Result<(), Box<dyn std::error::Er
     let su3 = LieGroup::new(GroupId::su(3)?)?;
     let three = su3.irrep(&[1, 0])?;
     assert_eq!(su3.dim(&three), 3.0);
-    assert_eq!(su3.dual(&three).dynkin(), [0, 1]); // the 3̄
+    assert!(su3.dual(&three).dynkin().eq([0, 1])); // the 3̄
     assert_eq!(su3.frobenius_schur_indicator(&three), 0.0);
 
     let su2 = LieGroup::new(GroupId::su(2)?)?;
@@ -354,7 +355,7 @@ fn getting_started_dimensions_and_duals_1() -> Result<(), Box<dyn std::error::Er
 #[test]
 fn getting_started_f_and_r_symbols_1() -> Result<(), Box<dyn std::error::Error>> {
     use fusion_symbols::{
-        category::FusionCategory,
+        category::{FusionCategory, SymbolBlock},
         lie::{GroupId, LieGroup},
     };
 
@@ -363,12 +364,12 @@ fn getting_started_f_and_r_symbols_1() -> Result<(), Box<dyn std::error::Error>>
     let unit = su3.unit();
     let (a, b, c, d, e, f) = (&eight, &eight, &eight, &eight, &unit, &eight);
     let block = su3.f_symbol(a, b, c, d, e, f)?;
-    let n = |x, y, z| su3.nsymbol(x, y, z) as usize;
-    let axes = [n(a, b, e), n(e, c, d), n(b, c, f), n(a, f, d)];
+    let n = |x, y, z| su3.nsymbol(x, y, z).map(|n| n as usize);
+    let axes = [n(a, b, e)?, n(e, c, d)?, n(b, c, f)?, n(a, f, d)?];
     assert_eq!(block.dims(), axes);
     assert_eq!(axes, [1, 1, 2, 2]); // N(8,8,1) = N(1,8,8) = 1, N(8,8,8) = 2
     let r = su3.r_symbol(&eight, &eight, &eight)?;
-    assert_eq!(r.dim(), 2); // a 2 × 2 block: R(μ, ν) = r.at(μ, ν)
+    assert_eq!(r.dims(), [2, 2]); // R(μ, ν) = r.get([μ, ν])
     Ok(())
 }
 
@@ -377,7 +378,7 @@ fn getting_started_f_and_r_symbols_1() -> Result<(), Box<dyn std::error::Error>>
 fn getting_started_checking_f_against_the_wigner_6j_symbol_1(
 ) -> Result<(), Box<dyn std::error::Error>> {
     use fusion_symbols::{
-        category::FusionCategory,
+        category::{FusionCategory, SymbolBlock},
         lie::{su2::wigner_6j, GroupId, HalfInt, LieGroup},
     };
 
@@ -393,7 +394,7 @@ fn getting_started_checking_f_against_the_wigner_6j_symbol_1(
     let expected = [[-0.5, r3], [r3, 0.5]];
     for (i, e) in inner.iter().enumerate() {
         for (j, f) in inner.iter().enumerate() {
-            let x = su2.f_symbol(&h, &h, &h, &h, e, f)?.at(0, 0, 0, 0);
+            let x = su2.f_symbol(&h, &h, &h, &h, e, f)?.get([0, 0, 0, 0]);
             assert!((x - expected[i][j]).abs() < 1e-15);
         }
     }
@@ -413,9 +414,9 @@ fn getting_started_clebschgordan_coefficients_1() -> Result<(), Box<dyn std::err
     let half = su2.irrep_spin(HalfInt::half(1))?;
     let c = su2.cgc(&one, &half, &half)?;
     assert_eq!(c.dims(), [3, 2, 2, 1]);
-    assert!((c.at([2, 0, 1, 0]) - (2.0f64 / 3.0).sqrt()).abs() < 1e-15);
-    assert!((c.at([1, 1, 1, 0]) + (1.0f64 / 3.0).sqrt()).abs() < 1e-15);
-    assert_eq!(c.at([2, 1, 1, 0]), 0.0); // m₁ + m₂ ≠ m₃
+    assert!((c.get([2, 0, 1, 0]) - (2.0f64 / 3.0).sqrt()).abs() < 1e-15);
+    assert!((c.get([1, 1, 1, 0]) + (1.0f64 / 3.0).sqrt()).abs() < 1e-15);
+    assert_eq!(c.get([2, 1, 1, 0]), 0.0); // m₁ + m₂ ≠ m₃
     Ok(())
 }
 
@@ -469,7 +470,7 @@ fn getting_started_common_errors_1() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(so3.irrep(&[1]), Err(LieError::NotAdmissible)); // spin ½ is not an SO(3) irrep
 
     let three = su3.irrep(&[1, 0])?;
-    assert_eq!(su3.nsymbol(&three, &three, &su3.unit()), 0); // not an error
+    assert_eq!(su3.nsymbol(&three, &three, &su3.unit())?, 0); // not an error
     Ok(())
 }
 
@@ -489,7 +490,7 @@ fn contract_fusion_su3_octet_multiplicity() {
         cat.fusion(&eight, &eight)
             .unwrap()
             .map(|c| {
-                let n = cat.nsymbol(&eight, &eight, &c);
+                let n = cat.nsymbol(&eight, &eight, &c).unwrap();
                 (c, n)
             })
             .collect::<std::collections::BTreeMap<_, _>>()[&eight],
@@ -500,7 +501,7 @@ fn contract_fusion_su3_octet_multiplicity() {
 #[test]
 fn contract_symbols_sp4_unit_f() {
     use fusion_symbols::{
-        category::FusionCategory,
+        category::{FusionCategory, SymbolBlock},
         lie::{GroupId, LieGroup},
     };
 
@@ -513,7 +514,7 @@ fn contract_symbols_sp4_unit_f() {
         .f_symbol(&triv, &five, &five, &ten, &five, &ten)
         .unwrap();
     assert_eq!(block.dims(), [1, 1, 1, 1]);
-    assert!((block.at(0, 0, 0, 0) - 1.0).abs() < 1e-9);
+    assert!((block.get([0, 0, 0, 0]) - 1.0).abs() < 1e-9);
 }
 
 #[test]
@@ -546,7 +547,7 @@ fn contract_cgc_1() {
     let c = cat.cgc(&three, &anti, &eight).unwrap();
     assert_eq!(c.dims(), [3, 3, 8, 1]); // [dim(s1), dim(s2), dim(s3), N^{s3}_{s1 s2}]
     assert_eq!(c.dims()[3], 1);
-    assert!((c.at([0, 0, 0, 0]) - 1.0).abs() < 1e-12);
+    assert!((c.get([0, 0, 0, 0]) - 1.0).abs() < 1e-12);
 }
 
 #[test]
@@ -561,7 +562,7 @@ fn contract_cgc_2() {
     let c = cat.cgc(&eight, &eight, &eight).unwrap();
     assert_eq!(c.dims()[3], 2); // the 8 occurs twice in 8 ⊗ 8
     assert_eq!(c.dims(), [8, 8, 8, 2]);
-    assert!(c.at([0, 2, 0, 1]) < 0.0);
+    assert!(c.get([0, 2, 0, 1]) < 0.0);
 }
 
 #[test]
@@ -591,7 +592,7 @@ fn contract_fusion_1() {
     let channels: Vec<i64> = group
         .fusion(&half, &half)
         .unwrap()
-        .map(|s| s.dynkin()[0])
+        .map(|s| s.dynkin().next().unwrap())
         .collect();
     assert_eq!(channels, vec![0, 2]);
 }
@@ -610,7 +611,7 @@ fn contract_fusion_2() {
         .fusion(&three, &anti)
         .unwrap()
         .map(|c| {
-            let n = cat.nsymbol(&three, &anti, &c);
+            let n = cat.nsymbol(&three, &anti, &c).unwrap();
             (c, n)
         })
         .collect::<std::collections::BTreeMap<_, _>>();
@@ -634,7 +635,7 @@ fn contract_fusion_3() {
         .fusion(&eight, &eight)
         .unwrap()
         .map(|c| {
-            let n = cat.nsymbol(&eight, &eight, &c);
+            let n = cat.nsymbol(&eight, &eight, &c).unwrap();
             (c, n)
         })
         .collect::<std::collections::BTreeMap<_, _>>();
@@ -655,7 +656,7 @@ fn contract_fusion_4() {
         .fusion(&v, &v)
         .map(|it| {
             it.map(|c| {
-                let n = cat.nsymbol(&v, &v, &c);
+                let n = cat.nsymbol(&v, &v, &c).unwrap();
                 (c, n)
             })
             .collect::<std::collections::BTreeMap<_, _>>()
@@ -697,21 +698,18 @@ fn contract_labels_su3_fundamental() {
 
     let fund = cat.irrep(&[1, 0]).unwrap(); // the 3 of SU(3)
     assert_eq!(fund.dim_exact(), 3u32);
-    assert_eq!(cat.dual(&fund).dynkin(), vec![0, 1]); // the 3-bar
+    assert!(cat.dual(&fund).dynkin().eq([0, 1])); // the 3-bar
 }
 
 #[test]
-fn contract_cgc_su2_checked_6j() {
-    use fusion_symbols::lie::su2::{wigner_6j_checked, Su2Error};
+fn contract_cgc_su2_forbidden_6j_is_exact_zero() {
+    use fusion_symbols::lie::su2::wigner_6j;
 
-    // Admissible, and genuinely nonzero.
-    assert!(wigner_6j_checked(2, 2, 2, 2, 2, 2).is_ok());
+    // Admissible, and genuinely nonzero: {1 1 1; 1 1 1} = 1/6.
+    assert!((wigner_6j(2, 2, 2, 2, 2, 2).to_f64() - 1.0 / 6.0).abs() < 1e-14);
 
-    // Triangle violation: not a real zero, a forbidden label set.
-    assert!(matches!(
-        wigner_6j_checked(2, 2, 20, 2, 2, 2),
-        Err(Su2Error::NotAdmissible(_))
-    ));
+    // Triangle violation: a forbidden label set is exact zero, not an error.
+    assert_eq!(wigner_6j(2, 2, 20, 2, 2, 2).to_f64(), 0.0);
 }
 
 #[test]
@@ -725,7 +723,7 @@ fn contract_fusion_su2_spin_one() {
     let channels: Vec<i64> = group
         .fusion(&one, &one)
         .unwrap()
-        .map(|s| s.dynkin()[0])
+        .map(|s| s.dynkin().next().unwrap())
         .collect();
     assert_eq!(channels, vec![0, 2, 4]);
 }
@@ -743,7 +741,7 @@ fn contract_fusion_su3_octet_decomposition() {
         .fusion(&eight, &eight)
         .unwrap()
         .map(|c| {
-            let n = cat.nsymbol(&eight, &eight, &c);
+            let n = cat.nsymbol(&eight, &eight, &c).unwrap();
             (c, n)
         })
         .collect::<std::collections::BTreeMap<_, _>>();
@@ -765,7 +763,7 @@ fn contract_fusion_so5_vector_squared() {
         .fusion(&v, &v)
         .map(|it| {
             it.map(|c| {
-                let n = cat.nsymbol(&v, &v, &c);
+                let n = cat.nsymbol(&v, &v, &c).unwrap();
                 (c, n)
             })
             .collect::<std::collections::BTreeMap<_, _>>()
@@ -804,7 +802,7 @@ fn contract_fusion_sp4_defining_squared() {
         .fusion(&four, &four)
         .map(|it| {
             it.map(|c| {
-                let n = cat.nsymbol(&four, &four, &c);
+                let n = cat.nsymbol(&four, &four, &c).unwrap();
                 (c, n)
             })
             .collect::<std::collections::BTreeMap<_, _>>()
@@ -833,8 +831,8 @@ fn contract_symbols_1() {
     use fusion_symbols::finite::{ZNIrrep, ZN};
 
     let category = ZN::new(3).unwrap();
-    let one = ZNIrrep::from_canonical(1, 3).unwrap();
-    let two = ZNIrrep::from_canonical(2, 3).unwrap();
+    let one = ZNIrrep::new(1, 3).unwrap();
+    let two = ZNIrrep::new(2, 3).unwrap();
     assert_eq!(category.fusion(&one, &one).unwrap().next(), Some(two));
     assert_eq!(category.r_symbol(&one, &one, &two), Ok(1.0));
     let zero = category
@@ -847,7 +845,7 @@ fn contract_symbols_1() {
 #[test]
 fn contract_symbols_2() {
     use fusion_symbols::{
-        category::FusionCategory,
+        category::{FusionCategory, SymbolBlock},
         lie::{su2::wigner_6j, GroupId, HalfInt, LieGroup},
     };
     assert!((wigner_6j(2, 2, 2, 2, 2, 2).to_f64() - 1.0 / 6.0).abs() < 1e-14);
@@ -857,15 +855,15 @@ fn contract_symbols_2() {
     let f = group
         .f_symbol(&half, &half, &half, &half, &unit, &unit)
         .unwrap();
-    assert_eq!(f.at(0, 0, 0, 0), -0.5);
+    assert_eq!(f.get([0, 0, 0, 0]), -0.5);
     let r = group.r_symbol(&half, &half, &unit).unwrap();
-    assert_eq!(r.at(0, 0), -1.0);
+    assert_eq!(r.get([0, 0]), -1.0);
 }
 
 #[test]
 fn contract_symbols_3() {
     use fusion_symbols::{
-        category::FusionCategory,
+        category::{FusionCategory, SymbolBlock},
         lie::{GroupId, LieGroup},
     };
     let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
@@ -879,18 +877,18 @@ fn contract_symbols_3() {
         .f_symbol(&three, &anti, &three, &three, &eight, &eight)
         .unwrap();
     assert_eq!(block.dims(), [1, 1, 1, 1]);
-    assert!((block.at(0, 0, 0, 0) - 1.0 / 3.0).abs() < 1e-12);
+    assert!((block.get([0, 0, 0, 0]) - 1.0 / 3.0).abs() < 1e-12);
 
     // R^{3 3bar}_{8}
     let r = cat.r_symbol(&three, &anti, &eight).unwrap();
-    assert_eq!(r.dim(), 1);
-    assert!((r.at(0, 0).abs() - 1.0).abs() < 1e-12);
+    assert_eq!(r.dims()[0], 1);
+    assert!((r.get([0, 0]).abs() - 1.0).abs() < 1e-12);
 }
 
 #[test]
 fn contract_symbols_5() {
     use fusion_symbols::{
-        category::{CgcBlock, FusionCategory, GroupRepresentations},
+        category::{CgcBlock, FusionCategory, GroupRepresentations, SymbolBlock},
         lie::{GroupId, LieGroup, LieIrrep},
     };
     let cat = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
@@ -903,7 +901,7 @@ fn contract_symbols_5() {
         cat.fusion(&eight, &eight)
             .unwrap()
             .map(|c| {
-                let n = cat.nsymbol(&eight, &eight, &c);
+                let n = cat.nsymbol(&eight, &eight, &c).unwrap();
                 (c, n)
             })
             .collect::<std::collections::BTreeMap<_, _>>()[&eight],
@@ -913,18 +911,7 @@ fn contract_symbols_5() {
     // Materialize a CGC into (row-major buffer, dims), indexed [m1][m2][m3][mu].
     let dense = |s1: &LieIrrep, s2: &LieIrrep, s3: &LieIrrep| {
         let t = cat.cgc(s1, s2, s3).unwrap();
-        let [d1, d2, d3, n] = t.dims();
-        let mut buf = vec![0.0f64; d1 * d2 * d3 * n];
-        for m1 in 0..d1 {
-            for m2 in 0..d2 {
-                for m3 in 0..d3 {
-                    for mu in 0..n {
-                        buf[((m1 * d2 + m2) * d3 + m3) * n + mu] = t.at([m1, m2, m3, mu]);
-                    }
-                }
-            }
-        }
-        (buf, [d1, d2, d3, n])
+        (t.to_dense(), t.dims())
     };
     let at = |t: &(Vec<f64>, [usize; 4]), i: usize, j: usize, k: usize, l: usize| {
         t.0[((i * t.1[1] + j) * t.1[2] + k) * t.1[3] + l]
@@ -939,7 +926,7 @@ fn contract_symbols_5() {
         .fusion(&eight, &eight)
         .unwrap()
         .map(|c| {
-            let n = cat.nsymbol(&eight, &eight, &c);
+            let n = cat.nsymbol(&eight, &eight, &c).unwrap();
             (c, n)
         })
         .collect::<std::collections::BTreeMap<_, _>>()
@@ -979,7 +966,7 @@ fn contract_symbols_5() {
                                             pair += at(c_bcf, mb, mc, mf, kappa)
                                                 * at(c_afd, ma, mf, md, lambda);
                                         }
-                                        rhs += fblock.at(mu, nu, kappa, lambda) * pair;
+                                        rhs += fblock.get([mu, nu, kappa, lambda]) * pair;
                                     }
                                 }
                             }
@@ -1035,10 +1022,10 @@ fn contract_labels_su2_spin() {
     };
     let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
     let s = group.irrep_spin(HalfInt::half(3)).unwrap();
-    assert_eq!(s.dynkin(), vec![3]);
+    assert!(s.dynkin().eq([3]));
     assert_eq!(s.dim_exact(), 4);
     assert_eq!(group.dual(&s), s);
-    assert_eq!(group.frobenius_schur_phase(&s), -1.0);
+    assert_eq!(group.frobenius_schur_phase(&s).unwrap(), -1.0);
 }
 
 #[test]
@@ -1056,7 +1043,7 @@ fn contract_labels_su3_irreps() {
 
     assert_eq!(three.dim_exact(), 3u32);
     assert_eq!(eight.dim_exact(), 8u32);
-    assert_eq!(cat.dual(&three).dynkin(), vec![0, 1]); // 3-bar
+    assert!(cat.dual(&three).dynkin().eq([0, 1])); // 3-bar
     assert_eq!(cat.dual(&eight), eight); // the adjoint is self-dual
 }
 
@@ -1146,11 +1133,11 @@ fn labels_duals_1() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let su3 = LieGroup::new(GroupId::su(3)?)?;
-    assert_eq!(su3.dual(&su3.irrep(&[2, 0])?).dynkin(), [0, 2]);
+    assert!(su3.dual(&su3.irrep(&[2, 0])?).dynkin().eq([0, 2]));
 
     let e6 = LieGroup::new(GroupId::e6())?;
     let v = e6.irrep(&[1, 0, 1, 0, 0, 0])?;
-    assert_eq!(e6.dual(&v).dynkin(), [0, 0, 0, 0, 1, 1]);
+    assert!(e6.dual(&v).dynkin().eq([0, 0, 0, 0, 1, 1]));
 
     let sp4 = LieGroup::new(GroupId::sp(4)?)?;
     assert_eq!(sp4.frobenius_schur_indicator(&sp4.irrep(&[1, 0])?), -1.0);
@@ -1184,7 +1171,7 @@ fn labels_rank_one_and_spins_1() -> Result<(), Box<dyn std::error::Error>> {
 
     let su2 = LieGroup::new(GroupId::su(2)?)?;
     let three_halves = su2.irrep_spin(HalfInt::half(3))?;
-    assert_eq!(three_halves.dynkin(), [3]);
+    assert!(three_halves.dynkin().eq([3]));
     assert_eq!(three_halves.dim_exact(), 4u32);
     assert_eq!(three_halves.spin(), Some(HalfInt::half(3)));
 
@@ -1248,10 +1235,10 @@ fn contract_labels_common_irrep_dimensions() -> Result<(), Box<dyn std::error::E
     // The half-spinors of Spin(10) are each other's duals; the E₆ 27 and 27̄ too.
     let spin10 = LieGroup::new(GroupId::spin(10)?)?;
     let s = spin10.irrep(&[0, 0, 0, 1, 0])?;
-    assert_eq!(spin10.dual(&s).dynkin(), [0, 0, 0, 0, 1]);
+    assert!(spin10.dual(&s).dynkin().eq([0, 0, 0, 0, 1]));
     let e6 = LieGroup::new(GroupId::e6())?;
     let v = e6.irrep(&[1, 0, 0, 0, 0, 0])?;
-    assert_eq!(e6.dual(&v).dynkin(), [0, 0, 0, 0, 0, 1]);
+    assert!(e6.dual(&v).dynkin().eq([0, 0, 0, 0, 0, 1]));
     Ok(())
 }
 

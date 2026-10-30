@@ -219,7 +219,7 @@ fn gauge_equivalent(
         )?;
         close(
             format!("fs {a}"),
-            category.frobenius_schur_phase(&here(a)),
+            category.frobenius_schur_phase(&here(a)).unwrap(),
             tks.fs[&a].into(),
         )?;
         close(
@@ -230,7 +230,7 @@ fn gauge_equivalent(
         for &b in &labels {
             for &c in &labels {
                 let n = tks.n.get(&[a, b, c]).copied().unwrap_or(0);
-                if category.nsymbol(&here(a), &here(b), &here(c)) != n {
+                if category.nsymbol(&here(a), &here(b), &here(c)).unwrap() != n {
                     return Err(format!("N {a} {b} {c}"));
                 }
                 let r_tks = tks.r.get(&[a, b, c]).copied().unwrap_or_default();
@@ -356,18 +356,18 @@ fn channels(p: &TableCategory, a: TableObject, b: TableObject) -> Vec<TableObjec
 fn f_blocks_are_unitary() {
     for p in shipped() {
         let name = p.uuid();
-        let objects: Vec<TableObject> = p.objects().collect();
+        let objects: Vec<TableObject> = crate::common::objects(&p).collect();
         for &a in &objects {
             for &b in &objects {
                 for &c in &objects {
                     for &d in &objects {
                         let rows: Vec<_> = channels(&p, a, b)
                             .into_iter()
-                            .filter(|&e| p.nsymbol(&e, &c, &d) > 0)
+                            .filter(|&e| p.nsymbol(&e, &c, &d).unwrap() > 0)
                             .collect();
                         let columns: Vec<_> = channels(&p, b, c)
                             .into_iter()
-                            .filter(|&f| p.nsymbol(&a, &f, &d) > 0)
+                            .filter(|&f| p.nsymbol(&a, &f, &d).unwrap() > 0)
                             .collect();
                         assert_eq!(rows.len(), columns.len(), "{name}: F block not square");
                         for (i, &f1) in columns.iter().enumerate() {
@@ -398,7 +398,7 @@ fn f_blocks_are_unitary() {
 fn r_symbols_are_unit_modulus_on_admissible_channels() {
     for p in shipped().filter(|cat| cat.braiding_style() != BraidingStyle::None) {
         let name = p.uuid();
-        let objects: Vec<TableObject> = p.objects().collect();
+        let objects: Vec<TableObject> = crate::common::objects(&p).collect();
         for &a in &objects {
             for &b in &objects {
                 for c in channels(&p, a, b) {
@@ -422,7 +422,7 @@ fn unit_associators_are_bitwise_one() {
     for p in shipped() {
         let unit = p.unit();
         let name = p.uuid();
-        let objects: Vec<TableObject> = p.objects().collect();
+        let objects: Vec<TableObject> = crate::common::objects(&p).collect();
         for &a in &objects {
             for &b in &objects {
                 for c in channels(&p, a, b) {
@@ -463,7 +463,7 @@ fn pentagon_equation_holds() {
     let mut total = 0usize;
     for p in shipped() {
         let name = p.uuid();
-        let objects: Vec<TableObject> = p.objects().collect();
+        let objects: Vec<TableObject> = crate::common::objects(&p).collect();
         let mut cases = 0usize;
         for &a in &objects {
             for &b in &objects {
@@ -474,8 +474,8 @@ fn pentagon_equation_holds() {
                                 for g in channels(&p, f, c) {
                                     for i in channels(&p, b, h) {
                                         for &e in &objects {
-                                            if p.nsymbol(&g, &d, &e) == 0
-                                                || p.nsymbol(&a, &i, &e) == 0
+                                            if p.nsymbol(&g, &d, &e).unwrap() == 0
+                                                || p.nsymbol(&a, &i, &e).unwrap() == 0
                                             {
                                                 continue;
                                             }
@@ -519,7 +519,7 @@ fn both_hexagon_equations_hold() {
     // (asserted independently above).
     for p in shipped().filter(|cat| cat.braiding_style() != BraidingStyle::None) {
         let name = p.uuid();
-        let objects: Vec<TableObject> = p.objects().collect();
+        let objects: Vec<TableObject> = crate::common::objects(&p).collect();
         let mut cases = 0usize;
         for &a in &objects {
             for &b in &objects {
@@ -527,7 +527,9 @@ fn both_hexagon_equations_hold() {
                     for e in channels(&p, c, a) {
                         for f in channels(&p, c, b) {
                             for &d in &objects {
-                                if p.nsymbol(&e, &b, &d) == 0 || p.nsymbol(&a, &f, &d) == 0 {
+                                if p.nsymbol(&e, &b, &d).unwrap() == 0
+                                    || p.nsymbol(&a, &f, &d).unwrap() == 0
+                                {
                                     continue;
                                 }
                                 let facbdef = p.f_symbol(&a, &c, &b, &d, &e, &f).unwrap();
@@ -573,7 +575,7 @@ fn ribbon_relation_ties_twists_to_the_braid() {
     // θ_c = θ_a θ_b R^{ba}_c R^{ab}_c on every admissible channel.
     for p in shipped().filter(|cat| cat.braiding_style() != BraidingStyle::None) {
         let name = p.uuid();
-        let objects: Vec<TableObject> = p.objects().collect();
+        let objects: Vec<TableObject> = crate::common::objects(&p).collect();
         for &a in &objects {
             for &b in &objects {
                 for c in channels(&p, a, b) {
@@ -606,7 +608,9 @@ fn objects_are_validated_and_symbols_on_absent_channels_are_zero() {
         );
     }
     assert_eq!(
-        fib.objects().map(|a| a.index()).collect::<Vec<_>>(),
+        crate::common::objects(&fib)
+            .map(|a| a.index())
+            .collect::<Vec<_>>(),
         vec![1, 2]
     );
     let (unit, tau) = (fib.unit(), fib.object(2).unwrap());
@@ -650,7 +654,7 @@ fn foreign_objects_panic_before_capability_checks_in_every_argument() {
                 let _ = cat.r_symbol(&a, &b, &c);
             });
             rejects(&|| {
-                cat.nsymbol(&a, &b, &c);
+                cat.nsymbol(&a, &b, &c).unwrap();
             });
         }
         for slot in 0..2 {
@@ -667,7 +671,7 @@ fn foreign_objects_panic_before_capability_checks_in_every_argument() {
             cat.dual(&foreign);
         });
         rejects(&|| {
-            cat.frobenius_schur_phase(&foreign);
+            cat.frobenius_schur_phase(&foreign).unwrap();
         });
         rejects(&|| {
             cat.frobenius_schur_indicator(&foreign);

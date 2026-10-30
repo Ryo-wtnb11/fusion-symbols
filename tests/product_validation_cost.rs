@@ -75,10 +75,10 @@ impl FusionCategory for Counter {
         bump(0);
         1.0
     }
-    fn frobenius_schur_phase(&self, a: &u8) -> f64 {
+    fn frobenius_schur_phase(&self, a: &u8) -> Result<f64, Self::Error> {
         check(a);
         bump(3);
-        1.0
+        Ok(1.0)
     }
     fn frobenius_schur_indicator(&self, a: &u8) -> f64 {
         check(a);
@@ -95,10 +95,10 @@ impl FusionCategory for Counter {
         bump(3);
         Ok(std::iter::once(0))
     }
-    fn nsymbol(&self, a: &u8, b: &u8, c: &u8) -> u32 {
+    fn nsymbol(&self, a: &u8, b: &u8, c: &u8) -> Result<u32, Self::Error> {
         [a, b, c].into_iter().for_each(check);
         bump(1);
-        1
+        Ok(1)
     }
     fn f_symbol(
         &self,
@@ -164,11 +164,11 @@ fn costs<C: FusionCategory<Scalar = f64>>(cat: &C) -> [([usize; 4], usize); 11] 
     };
     record(0, cat.dim(&u));
     record(1, (cat.dual(&u) == u) as u8 as f64);
-    record(2, cat.frobenius_schur_phase(&u));
+    record(2, cat.frobenius_schur_phase(&u).unwrap());
     record(3, cat.frobenius_schur_indicator(&u));
     record(4, cat.twist(&u));
     record(5, cat.fusion(&u, &u).unwrap().count() as f64);
-    record(6, cat.nsymbol(&u, &u, &u) as f64);
+    record(6, cat.nsymbol(&u, &u, &u).unwrap() as f64);
     let f = cat.f_symbol(&u, &u, &u, &u, &u, &u).unwrap();
     record(7, f.as_slice()[0]);
     let r = cat.r_symbol(&u, &u, &u).unwrap();
@@ -282,12 +282,11 @@ fn nested_foreign_objects_still_panic() {
     let u = cat.unit();
     let bad = ((0, 1), 0);
     product_panic(|| cat.dual(&bad));
-    product_panic(|| cat.frobenius_schur_phase(&bad));
+    product_panic(|| cat.frobenius_schur_phase(&bad).unwrap());
     product_panic(|| cat.frobenius_schur_indicator(&bad));
     product_panic(|| cat.twist(&bad));
     product_panic(|| cat.fusion(&u, &bad).map(|_| ()));
-    product_panic(|| cat.nsymbol(&u, &u, &bad));
-    product_panic(|| cat.try_nsymbol(&u, &u, &bad));
+    product_panic(|| cat.nsymbol(&u, &u, &bad).unwrap());
     product_panic(|| cat.f_symbol(&u, &u, &u, &u, &u, &bad).map(|_| ()));
     product_panic(|| cat.r_symbol(&u, &u, &bad).map(|_| ()));
     product_panic(|| cat.a_symbol(&bad, &u, &u).map(|_| ()));
@@ -335,8 +334,8 @@ impl FusionCategory for Malformed {
         check(a);
         1.0
     }
-    fn frobenius_schur_phase(&self, _: &u8) -> f64 {
-        1.0
+    fn frobenius_schur_phase(&self, _: &u8) -> Result<f64, Self::Error> {
+        Ok(1.0)
     }
     fn frobenius_schur_indicator(&self, _: &u8) -> f64 {
         1.0
@@ -347,8 +346,8 @@ impl FusionCategory for Malformed {
     fn fusion<'a>(&'a self, _: &u8, _: &u8) -> Result<Self::Fusion<'a>, Infallible> {
         Ok(std::iter::once(0))
     }
-    fn nsymbol(&self, _: &u8, _: &u8, _: &u8) -> u32 {
-        2
+    fn nsymbol(&self, _: &u8, _: &u8, _: &u8) -> Result<u32, Self::Error> {
+        Ok(2)
     }
     fn f_symbol(
         &self,

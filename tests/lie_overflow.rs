@@ -23,7 +23,7 @@ fn overflow_propagates_through_fusion_n_f_r_a_b_and_cgc() {
         let unit = cat.unit();
         assert_eq!(cat.dual(&cat.dual(&a)), a);
         assert!(matches!(cat.fusion(&a, &b), Err(LieError::LabelOverflow)));
-        assert_eq!(cat.try_nsymbol(&a, &b, &unit), Err(LieError::LabelOverflow));
+        assert_eq!(cat.nsymbol(&a, &b, &unit), Err(LieError::LabelOverflow));
         assert_eq!(
             cat.f_symbol(&a, &b, &unit, &unit, &unit, &unit),
             Err(LieError::LabelOverflow)

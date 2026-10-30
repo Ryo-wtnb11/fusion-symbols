@@ -7,6 +7,7 @@
 #![cfg(feature = "lie-generated")]
 
 use crate::common::lie as lie_test;
+use fusion_symbols::category::SymbolBlock;
 use fusion_symbols::{category::FusionCategory, lie::LieIrrep as Irrep};
 use lie_test::f_symbol;
 
@@ -58,7 +59,9 @@ fn phase_matches_sunrepresentations() {
     ];
     for &(d, want) in reference {
         assert_eq!(
-            lie_test::group(&irr(d)).frobenius_schur_phase(&irr(d)),
+            lie_test::group(&irr(d))
+                .frobenius_schur_phase(&irr(d))
+                .unwrap(),
             want,
             "{d:?}"
         );
@@ -71,7 +74,7 @@ fn indicator_is_phase_on_self_dual_irreps_and_zero_otherwise() {
         for d in labels(n, 3) {
             let a = irr(&d);
             let want = if a == lie_test::dual(&a) {
-                lie_test::group(&a).frobenius_schur_phase(&a) as i8
+                lie_test::group(&a).frobenius_schur_phase(&a).unwrap() as i8
             } else {
                 0
             };
@@ -110,9 +113,9 @@ fn phase_is_sign_of_f_symbol() {
             let a = irr(&d);
             let f = f_symbol(&a, &lie_test::dual(&a), &a, &a, &one, &one).unwrap();
             let dim: f64 = a.dim_exact().to_string().parse().unwrap();
-            let scaled = f.at(0, 0, 0, 0) * dim;
+            let scaled = f.get([0, 0, 0, 0]) * dim;
             assert!(
-                (scaled - lie_test::group(&a).frobenius_schur_phase(&a)).abs() < 1e-9,
+                (scaled - lie_test::group(&a).frobenius_schur_phase(&a).unwrap()).abs() < 1e-9,
                 "{d:?}: dim * F = {scaled}"
             );
         }
@@ -133,8 +136,8 @@ fn kappa_beyond_the_a_series() {
         let f = g
             .f_symbol(&a, &g.dual(&a), &a, &a, &g.unit(), &g.unit())
             .unwrap()
-            .at(0, 0, 0, 0);
-        let k = g.frobenius_schur_phase(&a);
+            .get([0, 0, 0, 0]);
+        let k = g.frobenius_schur_phase(&a).unwrap();
         assert_eq!(k, f.signum(), "{d:?}: κ against sign(F)");
         (k, g.frobenius_schur_indicator(&a))
     };

@@ -333,6 +333,11 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     fn dim(&self, a: &Self::Object) -> f64;
     /// Phase of `F(a, dual(a), a, a, unit, unit)`; foreign objects panic.
     ///
+    /// # Errors
+    /// Genuine failure while obtaining the phase, such as a generated Lie
+    /// family's module generation for a complex irrep; never a substitute
+    /// value.
+    ///
     /// # Examples
     ///
     /// ```
@@ -340,11 +345,11 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     ///
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
     /// let half = su2.irrep_spin(HalfInt::half(1))?;
-    /// assert_eq!(su2.frobenius_schur_phase(&half), -1.0); // pseudoreal
-    /// assert_eq!(su2.frobenius_schur_phase(&su2.irrep(&[2])?), 1.0); // real
+    /// assert_eq!(su2.frobenius_schur_phase(&half)?, -1.0); // pseudoreal
+    /// assert_eq!(su2.frobenius_schur_phase(&su2.irrep(&[2])?)?, 1.0); // real
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    fn frobenius_schur_phase(&self, a: &Self::Object) -> Self::Scalar;
+    fn frobenius_schur_phase(&self, a: &Self::Object) -> Result<Self::Scalar, Self::Error>;
     /// Phase if self-dual, otherwise zero (TensorKitSectors 0.3.9,
     /// `src/sectors.jl::frobenius_schur_indicator`); foreign objects panic.
     ///
@@ -391,6 +396,14 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     ) -> Result<Self::Fusion<'a>, Self::Error>;
     /// Exact vertex multiplicity, including zero; foreign objects panic.
     ///
+    /// An absent channel is `Ok(0)`, never an error.
+    ///
+    /// # Errors
+    /// Genuine failure only: an unrepresentable multiplicity (a
+    /// [`crate::product::Product`] of factor multiplicities, or a generated
+    /// Lie multiplicity) or a factor's failure. Foreign objects still panic;
+    /// use [`Self::contains`] first to avoid that.
+    ///
     /// # Examples
     ///
     /// ```
@@ -399,39 +412,16 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
     /// let half = su2.irrep_spin(HalfInt::half(1))?;
     /// let one = su2.irrep_spin(HalfInt::half(2))?;
-    /// assert_eq!(su2.nsymbol(&half, &half, &one), 1);
-    /// assert_eq!(su2.nsymbol(&half, &half, &half), 0); // not an error
+    /// assert_eq!(su2.nsymbol(&half, &half, &one)?, 1);
+    /// assert_eq!(su2.nsymbol(&half, &half, &half)?, 0); // not an error
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    fn nsymbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> u32;
-    /// Checked [`Self::nsymbol`]: an unrepresentable multiplicity is an
-    /// error instead of a panic. Foreign objects still panic; use
-    /// [`Self::contains`] first to avoid that.
-    ///
-    /// The default returns `Ok(self.nsymbol(a, b, c))`, which is exact for a
-    /// category whose `nsymbol` cannot overflow. A category that composes
-    /// multiplicities, such as [`crate::product::Product`], or generates them,
-    /// such as [`crate::lie::LieGroup`], overrides it.
-    /// It costs the same as `nsymbol`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
-    ///
-    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
-    /// let half = su2.irrep_spin(HalfInt::half(1))?;
-    /// assert_eq!(su2.try_nsymbol(&half, &half, &su2.unit())?, 1);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    fn try_nsymbol(
+    fn nsymbol(
         &self,
         a: &Self::Object,
         b: &Self::Object,
         c: &Self::Object,
-    ) -> Result<u32, Self::Error> {
-        Ok(self.nsymbol(a, b, c))
-    }
+    ) -> Result<u32, Self::Error>;
     /// Certificate that the associator is trivial in this category's gauge:
     /// every admissible `F^{abc}_d[e,f]` (all four vertices nonzero) is the
     /// `1 × 1 × 1 × 1` block holding exactly `1`. Inadmissible F stay zero.
@@ -499,14 +489,15 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// # Examples
     ///
     /// ```
-    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
+    /// use fusion_symbols::category::{FusionCategory, SymbolBlock};
+    /// use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
     ///
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
     /// let half = su2.irrep_spin(HalfInt::half(1))?;
     /// let unit = su2.unit();
     /// // F^{½½½}_½[0, 0] = sqrt(1 · 1) · {½ ½ 0; ½ ½ 0} = -1/2
     /// let f = su2.f_symbol(&half, &half, &half, &half, &unit, &unit)?;
-    /// assert_eq!((f.dims(), f.at(0, 0, 0, 0)), ([1, 1, 1, 1], -0.5));
+    /// assert_eq!((f.dims(), f.get([0, 0, 0, 0])), ([1, 1, 1, 1], -0.5));
     /// // ½ ⊗ ½ cannot give ½: the first axis has length zero.
     /// let f = su2.f_symbol(&half, &half, &half, &half, &half, &unit)?;
     /// assert_eq!(f.dims()[0], 0);
@@ -528,11 +519,12 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// # Examples
     ///
     /// ```
-    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
+    /// use fusion_symbols::category::{FusionCategory, SymbolBlock};
+    /// use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
     ///
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
     /// let half = su2.irrep_spin(HalfInt::half(1))?;
-    /// let r = |c| su2.r_symbol(&half, &half, &c).map(|r| r.at(0, 0));
+    /// let r = |c| su2.r_symbol(&half, &half, &c).map(|r| r.get([0, 0]));
     /// assert_eq!(r(su2.unit())?, -1.0); // antisymmetric singlet
     /// assert_eq!(r(su2.irrep(&[2])?)?, 1.0); // symmetric triplet
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -563,7 +555,7 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// With warm Lie caches and inline dimension arithmetic, only the returned
     /// coefficient buffer allocates (nothing for an inline block). Products also
     /// allocate factor blocks and their per-query Kronecker composition buffers.
-    /// Errors are those of F.
+    /// Errors are those of N, the phase and F.
     ///
     /// # Panics
     /// Panics on foreign objects. The default also panics if the F block's
@@ -572,13 +564,14 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// # Examples
     ///
     /// ```
-    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
+    /// use fusion_symbols::category::{FusionCategory, SymbolBlock};
+    /// use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
     ///
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
     /// let half = su2.irrep_spin(HalfInt::half(1))?;
     /// let a = su2.a_symbol(&half, &half, &su2.unit())?;
-    /// assert_eq!(a.dim(), 1);
-    /// assert!((a.at(0, 0).abs() - 1.0).abs() < 1e-15); // unitary
+    /// assert_eq!(a.dims(), [1, 1]);
+    /// assert!((a.get([0, 0]).abs() - 1.0).abs() < 1e-15); // unitary
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     fn a_symbol(
@@ -587,12 +580,12 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         b: &Self::Object,
         c: &Self::Object,
     ) -> Result<RBlock<Self::Scalar>, Self::Error> {
-        let n = self.nsymbol(a, b, c) as usize;
+        let n = self.nsymbol(a, b, c)? as usize;
         if n == 0 {
             return Ok(rank2_block(n, std::iter::empty()));
         }
         let f = self.f_symbol(&self.dual(a), a, b, b, &self.unit(), c)?;
-        let kappa = self.frobenius_schur_phase(a);
+        let kappa = self.frobenius_schur_phase(a)?;
         let scale = vertex_scale(self, a, b, c);
         Ok(rank2_block(
             n,
@@ -612,7 +605,7 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     ///
     /// Returned as [`RBlock`] regardless of [`Self::RSymbol`], as for
     /// [`Self::a_symbol`]. The default evaluates that F; a category may
-    /// override it with the same values. Errors are those of F.
+    /// override it with the same values. Errors are those of N and F.
     ///
     /// # Panics
     /// As for [`Self::a_symbol`].
@@ -620,13 +613,14 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// # Examples
     ///
     /// ```
-    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
+    /// use fusion_symbols::category::{FusionCategory, SymbolBlock};
+    /// use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
     ///
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
     /// let half = su2.irrep_spin(HalfInt::half(1))?;
     /// let b = su2.b_symbol(&half, &half, &su2.irrep(&[2])?)?;
-    /// assert_eq!(b.dim(), 1);
-    /// assert!((b.at(0, 0).abs() - 1.0).abs() < 1e-15); // unitary
+    /// assert_eq!(b.dims(), [1, 1]);
+    /// assert!((b.get([0, 0]).abs() - 1.0).abs() < 1e-15); // unitary
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     fn b_symbol(
@@ -635,7 +629,7 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         b: &Self::Object,
         c: &Self::Object,
     ) -> Result<RBlock<Self::Scalar>, Self::Error> {
-        let n = self.nsymbol(a, b, c) as usize;
+        let n = self.nsymbol(a, b, c)? as usize;
         if n == 0 {
             return Ok(rank2_block(n, std::iter::empty()));
         }
@@ -850,7 +844,7 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         &self,
         a: &Self::Object,
         _: sealed::Validated,
-    ) -> Self::Scalar {
+    ) -> Result<Self::Scalar, Self::Error> {
         self.frobenius_schur_phase(a)
     }
     #[doc(hidden)]
@@ -885,18 +879,8 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         b: &Self::Object,
         c: &Self::Object,
         _: sealed::Validated,
-    ) -> u32 {
-        self.nsymbol(a, b, c)
-    }
-    #[doc(hidden)]
-    fn __fusion_symbols_validated_try_nsymbol(
-        &self,
-        a: &Self::Object,
-        b: &Self::Object,
-        c: &Self::Object,
-        _: sealed::Validated,
     ) -> Result<u32, Self::Error> {
-        self.try_nsymbol(a, b, c)
+        self.nsymbol(a, b, c)
     }
     #[doc(hidden)]
     #[allow(clippy::too_many_arguments)]
@@ -912,10 +896,10 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     ) -> Result<sealed::SymbolWithAxes<Self::FSymbol, 4>, Self::Error> {
         let block = self.f_symbol(a, b, c, d, e, f)?;
         let n = [
-            self.try_nsymbol(a, b, e)?,
-            self.try_nsymbol(e, c, d)?,
-            self.try_nsymbol(b, c, f)?,
-            self.try_nsymbol(a, f, d)?,
+            self.nsymbol(a, b, e)?,
+            self.nsymbol(e, c, d)?,
+            self.nsymbol(b, c, f)?,
+            self.nsymbol(a, f, d)?,
         ];
         Ok((block, n))
     }
@@ -928,7 +912,7 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         _: sealed::Validated,
     ) -> Result<sealed::SymbolWithAxes<Self::RSymbol, 2>, Self::Error> {
         let block = self.r_symbol(a, b, c)?;
-        let n = [self.try_nsymbol(a, b, c)?, self.try_nsymbol(b, a, c)?];
+        let n = [self.nsymbol(a, b, c)?, self.nsymbol(b, a, c)?];
         Ok((block, n))
     }
     #[doc(hidden)]
@@ -940,10 +924,7 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         _: sealed::Validated,
     ) -> Result<sealed::SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
         let block = self.a_symbol(a, b, c)?;
-        let n = [
-            self.try_nsymbol(a, b, c)?,
-            self.try_nsymbol(&self.dual(a), c, b)?,
-        ];
+        let n = [self.nsymbol(a, b, c)?, self.nsymbol(&self.dual(a), c, b)?];
         Ok((block, n))
     }
     #[doc(hidden)]
@@ -955,10 +936,7 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         _: sealed::Validated,
     ) -> Result<sealed::SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
         let block = self.b_symbol(a, b, c)?;
-        let n = [
-            self.try_nsymbol(a, b, c)?,
-            self.try_nsymbol(c, &self.dual(b), a)?,
-        ];
+        let n = [self.nsymbol(a, b, c)?, self.nsymbol(c, &self.dual(b), a)?];
         Ok((block, n))
     }
 }
@@ -1000,7 +978,58 @@ pub trait CgcBlock {
     ///
     /// # Panics
     /// Panics if any index is outside its axis.
-    fn at(&self, index: [usize; 4]) -> f64;
+    fn get(&self, index: [usize; 4]) -> f64;
+    /// Materialize the block as a fresh row-major vector over
+    /// `[ma, mb, mc, mu]`, multiplicity fastest: the entry at
+    /// `((ma * db + mb) * dc + mc) * n + mu` equals `get([ma, mb, mc, mu])`.
+    ///
+    /// Every call allocates new owned storage of `da * db * dc * n` entries
+    /// and reads each through [`Self::get`]; it generates no coefficient and
+    /// registers no cache entry. A shape with a zero axis returns an empty
+    /// vector without reading. Prefer [`Self::get`] in loops that touch few
+    /// entries.
+    ///
+    /// # Panics
+    /// Panics if the element count or its byte size is not representable
+    /// (`usize` / `isize::MAX` bytes), before allocating.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use fusion_symbols::category::{CgcBlock, FusionCategory, GroupRepresentations};
+    /// use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
+    ///
+    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
+    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// let c = su2.cgc(&half, &half, &su2.unit())?;
+    /// let dense = c.to_dense(); // [m₁, m₂, m₃, μ] = [2, 2, 1, 1]
+    /// assert_eq!(dense.len(), 4);
+    /// assert_eq!(dense[2], c.get([1, 0, 0, 0])); // ((1·2 + 0)·1 + 0)·1 + 0
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    fn to_dense(&self) -> Vec<f64> {
+        let dims = self.dims();
+        if dims.contains(&0) {
+            return Vec::new();
+        }
+        let count = dims
+            .into_iter()
+            .try_fold(1usize, usize::checked_mul)
+            .expect("dense CGC size overflow");
+        std::alloc::Layout::array::<f64>(count).expect("dense CGC byte size overflow");
+        let mut data = Vec::with_capacity(count);
+        let [da, db, dc, n] = dims;
+        for ma in 0..da {
+            for mb in 0..db {
+                for mc in 0..dc {
+                    for mu in 0..n {
+                        data.push(self.get([ma, mb, mc, mu]));
+                    }
+                }
+            }
+        }
+        data
+    }
 }
 
 /// A one-dimensional channel: nonzero means present, zero means absent.
@@ -1009,7 +1038,7 @@ impl CgcBlock for f64 {
     fn dims(&self) -> [usize; 4] {
         [1, 1, 1, usize::from(*self != 0.0)]
     }
-    fn at(&self, index: [usize; 4]) -> f64 {
+    fn get(&self, index: [usize; 4]) -> f64 {
         assert!(index == [0; 4] && *self != 0.0, "CGC index out of range");
         *self
     }
@@ -1032,7 +1061,7 @@ pub trait GroupRepresentations: FusionCategory {
     /// let half = su2.irrep_spin(HalfInt::half(1))?;
     /// let c = su2.cgc(&half, &half, &su2.unit())?; // axes [m₁, m₂, m₃, μ], m ascending
     /// let s = 0.5f64.sqrt(); // ⟨½ ±½; ½ ∓½ | 0 0⟩ = ±1/√2
-    /// assert!((c.at([1, 0, 0, 0]) - s).abs() < 1e-15 && (c.at([0, 1, 0, 0]) + s).abs() < 1e-15);
+    /// assert!((c.get([1, 0, 0, 0]) - s).abs() < 1e-15 && (c.get([0, 1, 0, 0]) + s).abs() < 1e-15);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     fn cgc(

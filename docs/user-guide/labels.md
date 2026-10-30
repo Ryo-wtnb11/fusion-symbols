@@ -142,11 +142,11 @@ are the E₇ irreps with odd a₂ + a₅ + a₇.
 use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieGroup}};
 
 let su3 = LieGroup::new(GroupId::su(3)?)?;
-assert_eq!(su3.dual(&su3.irrep(&[2, 0])?).dynkin(), [0, 2]);
+assert!(su3.dual(&su3.irrep(&[2, 0])?).dynkin().eq([0, 2]));
 
 let e6 = LieGroup::new(GroupId::e6())?;
 let v = e6.irrep(&[1, 0, 1, 0, 0, 0])?;
-assert_eq!(e6.dual(&v).dynkin(), [0, 0, 0, 0, 1, 1]);
+assert!(e6.dual(&v).dynkin().eq([0, 0, 0, 0, 1, 1]));
 
 let sp4 = LieGroup::new(GroupId::sp(4)?)?;
 assert_eq!(sp4.frobenius_schur_indicator(&sp4.irrep(&[1, 0])?), -1.0);
@@ -199,7 +199,7 @@ use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
 
 let su2 = LieGroup::new(GroupId::su(2)?)?;
 let three_halves = su2.irrep_spin(HalfInt::half(3))?;
-assert_eq!(three_halves.dynkin(), [3]);
+assert!(three_halves.dynkin().eq([3]));
 assert_eq!(three_halves.dim_exact(), 4u32);
 assert_eq!(three_halves.spin(), Some(HalfInt::half(3)));
 

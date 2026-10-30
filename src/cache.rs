@@ -88,7 +88,7 @@ use std::hash::Hash;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, OnceLock};
 
-use crate::category::{FBlock, RBlock};
+use crate::category::{FBlock, RBlock, SymbolBlock};
 use crate::exact::SignedSqrtRational;
 use crate::lie::general::cgc::{CgcChannel, Ladders};
 use crate::lie::general::roots::{Multiplicities, Product, ProductValue};
@@ -1025,8 +1025,8 @@ impl<const N: usize> LabelRef<'_, N> {
 impl CacheCharge for FBlock<f64> {
     fn value_bytes(&self) -> usize {
         std::mem::size_of::<FBlock<f64>>()
-            + if self.data().len() > 1 {
-                ARC_COUNTS_BYTES + std::mem::size_of_val(self.data())
+            + if self.as_slice().len() > 1 {
+                ARC_COUNTS_BYTES + std::mem::size_of_val(self.as_slice())
             } else {
                 0
             }
@@ -1036,8 +1036,8 @@ impl CacheCharge for FBlock<f64> {
 impl CacheCharge for RBlock<f64> {
     fn value_bytes(&self) -> usize {
         std::mem::size_of::<RBlock<f64>>()
-            + if self.data().len() > 1 {
-                ARC_COUNTS_BYTES + std::mem::size_of_val(self.data())
+            + if self.as_slice().len() > 1 {
+                ARC_COUNTS_BYTES + std::mem::size_of_val(self.as_slice())
             } else {
                 0
             }
@@ -2081,7 +2081,7 @@ mod tests {
             a.value_bytes(),
             std::mem::size_of::<FValue>()
                 + ARC_COUNTS_BYTES
-                + std::mem::size_of_val(block.data())
+                + std::mem::size_of_val(block.as_slice())
                 + std::mem::size_of::<FBlock<f64>>()
         );
         assert!(a.value_bytes() > b.value_bytes(), "2⁴ block > 1⁴ block");
@@ -2122,7 +2122,9 @@ mod tests {
         let b = fam.r_symbol([three, bar, e8]).unwrap();
         assert_eq!(
             a.value_bytes(),
-            ARC_COUNTS_BYTES + std::mem::size_of_val(a.data()) + std::mem::size_of::<RBlock<f64>>()
+            ARC_COUNTS_BYTES
+                + std::mem::size_of_val(a.as_slice())
+                + std::mem::size_of::<RBlock<f64>>()
         );
         assert_eq!(b.value_bytes(), std::mem::size_of::<RBlock<f64>>());
         let key = |parts| {

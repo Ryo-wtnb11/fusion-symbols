@@ -34,7 +34,7 @@ fn fermionic_closed_forms_and_complex_promotion() {
         fu1.fusion(&a, &b).unwrap().collect::<Vec<_>>(),
         [fu1.unit()]
     );
-    assert_eq!(fu1.r_symbol(&a, &b, &fu1.unit()).unwrap().at(0, 0), -1.0);
+    assert_eq!(fu1.r_symbol(&a, &b, &fu1.unit()).unwrap().get([0, 0]), -1.0);
     assert_eq!(fu1.twist(&a), -1.0);
     assert_eq!(fu1.frobenius_schur_indicator(&a), 0.0);
     let fsu2 = Product::new((su2(), FermionParity));
@@ -42,20 +42,22 @@ fn fermionic_closed_forms_and_complex_promotion() {
     let triplet = (fsu2.factors().0.irrep(&[2]).unwrap(), Parity::EVEN);
     // SU(2): R^{1/2,1/2}_{j}=(-1)^{1-j}; parity supplies one more minus sign.
     assert_eq!(
-        fsu2.r_symbol(&half, &half, &fsu2.unit()).unwrap().at(0, 0),
+        fsu2.r_symbol(&half, &half, &fsu2.unit())
+            .unwrap()
+            .get([0, 0]),
         1.0
     );
     assert_eq!(
-        fsu2.r_symbol(&half, &half, &triplet).unwrap().at(0, 0),
+        fsu2.r_symbol(&half, &half, &triplet).unwrap().get([0, 0]),
         -1.0
     );
-    assert_eq!(fsu2.frobenius_schur_phase(&half), -1.0);
+    assert_eq!(fsu2.frobenius_schur_phase(&half).unwrap(), -1.0);
     assert_eq!(fsu2.frobenius_schur_indicator(&half), -1.0);
     assert_eq!(fsu2.twist(&half), -1.0);
     close(
         fsu2.f_symbol(&half, &half, &half, &half, &fsu2.unit(), &fsu2.unit())
             .unwrap()
-            .at(0, 0, 0, 0),
+            .get([0, 0, 0, 0]),
         -0.5,
     );
     let ff = Product::new((FermionParity, FermionParity));
@@ -66,7 +68,7 @@ fn fermionic_closed_forms_and_complex_promotion() {
             &(Parity::ODD, Parity::ODD)
         )
         .unwrap()
-        .at(0, 0),
+        .get([0, 0]),
         1.0
     );
 
@@ -76,7 +78,7 @@ fn fermionic_closed_forms_and_complex_promotion() {
     let x = (tau, h);
     // Fibonacci: R^{ττ}_1 = exp(+4πi/5), θ_τ = exp(-4πi/5), F[1,1]=1/φ.
     complex_close(
-        fibsu2.r_symbol(&x, &x, &fibsu2.unit()).unwrap().at(0, 0),
+        fibsu2.r_symbol(&x, &x, &fibsu2.unit()).unwrap().get([0, 0]),
         -Complex64::from_polar(1.0, 4.0 * std::f64::consts::PI / 5.0),
     );
     complex_close(
@@ -87,7 +89,7 @@ fn fermionic_closed_forms_and_complex_promotion() {
         fibsu2
             .f_symbol(&x, &x, &x, &x, &fibsu2.unit(), &fibsu2.unit())
             .unwrap()
-            .at(0, 0, 0, 0),
+            .get([0, 0, 0, 0]),
         Complex64::new(-1.0 / (1.0 + 5.0_f64.sqrt()), 0.0),
     );
     // Both promotion directions, and a promoted value followed by a real factor.
@@ -139,21 +141,21 @@ fn fusion_first_factor_fastest_and_reassociation() {
         .f_symbol(&a, &a, &a, &a, &flat.unit(), &flat.unit())
         .unwrap();
     complex_close(
-        f.at(0, 0, 0, 0),
+        f.get([0, 0, 0, 0]),
         left.f_symbol(&l, &l, &l, &l, &left.unit(), &left.unit())
             .unwrap()
-            .at(0, 0, 0, 0),
+            .get([0, 0, 0, 0]),
     );
     complex_close(
-        f.at(0, 0, 0, 0),
+        f.get([0, 0, 0, 0]),
         right
             .f_symbol(&r, &r, &r, &r, &right.unit(), &right.unit())
             .unwrap()
-            .at(0, 0, 0, 0),
+            .get([0, 0, 0, 0]),
     );
     complex_close(
-        flat.r_symbol(&a, &a, &flat.unit()).unwrap().at(0, 0),
-        left.r_symbol(&l, &l, &left.unit()).unwrap().at(0, 0),
+        flat.r_symbol(&a, &a, &flat.unit()).unwrap().get([0, 0]),
+        left.r_symbol(&l, &l, &left.unit()).unwrap().get([0, 0]),
     );
     let flattened: Vec<_> = left
         .fusion(&l, &l)
@@ -182,7 +184,10 @@ fn identity_framing_and_arity() {
     assert_ne!(a, swapped);
     let max = Product::new((U1, U1, U1, U1, U1, U1, U1, U1, U1, U1, U1, U1));
     assert_eq!(max.fusion(&max.unit(), &max.unit()).unwrap().count(), 1);
-    assert_eq!(max.nsymbol(&max.unit(), &max.unit(), &max.unit()), 1);
+    assert_eq!(
+        max.nsymbol(&max.unit(), &max.unit(), &max.unit()).unwrap(),
+        1
+    );
     assert_eq!(
         max.f_symbol(
             &max.unit(),
@@ -236,6 +241,7 @@ struct Probe {
     fusion: FusionStyle,
     braiding: BraidingStyle,
     fail: bool,
+    phase_fail: bool,
 }
 impl PartialEq for Probe {
     fn eq(&self, other: &Self) -> bool {
@@ -253,6 +259,7 @@ impl PartialEq for Probe {
             && self.fusion == other.fusion
             && self.braiding == other.braiding
             && self.fail == other.fail
+            && self.phase_fail == other.phase_fail
     }
 }
 impl Eq for Probe {}
@@ -262,6 +269,7 @@ impl Hash for Probe {
         self.fusion.hash(h);
         self.braiding.hash(h);
         self.fail.hash(h);
+        self.phase_fail.hash(h);
         for x in self.f.iter().chain(self.r) {
             x.to_bits().hash(h);
         }
@@ -276,6 +284,7 @@ impl Default for Probe {
             fusion: FusionStyle::Unique,
             braiding: BraidingStyle::Bosonic,
             fail: false,
+            phase_fail: false,
         }
     }
 }
@@ -327,9 +336,13 @@ impl FusionCategory for Probe {
         self.dim(a);
         *a
     }
-    fn frobenius_schur_phase(&self, a: &u8) -> f64 {
+    fn frobenius_schur_phase(&self, a: &u8) -> Result<f64, Self::Error> {
         self.dim(a);
-        1.0
+        if self.phase_fail {
+            Err(std::io::Error::other("probe phase failure"))
+        } else {
+            Ok(1.0)
+        }
     }
     fn frobenius_schur_indicator(&self, a: &u8) -> f64 {
         self.dim(a);
@@ -350,16 +363,16 @@ impl FusionCategory for Probe {
             Ok([0, 1].into_iter().take(if self.n[0] == 0 { 0 } else { 2 }))
         }
     }
-    fn nsymbol(&self, a: &u8, b: &u8, c: &u8) -> u32 {
+    fn nsymbol(&self, a: &u8, b: &u8, c: &u8) -> Result<u32, Self::Error> {
         for x in [a, b, c] {
             self.dim(x);
         }
-        self.n[match (*a, *b, *c) {
+        Ok(self.n[match (*a, *b, *c) {
             (4, 2, 3) => 1,
             (1, 2, 5) => 2,
             (0, 5, 3) => 3,
             _ => 0,
-        }]
+        }])
     }
     fn f_symbol(
         &self,
@@ -444,8 +457,8 @@ fn multiplicity_axes_are_associative() {
     }
     // Row-major slices compare every multiplicity index after tuple relabeling.
     for (flat, left, right) in [
-        (flat_f.data(), left_f.data(), right_f.data()),
-        (flat_r.data(), left_r.data(), right_r.data()),
+        (flat_f.as_slice(), left_f.as_slice(), right_f.as_slice()),
+        (flat_r.as_slice(), left_r.as_slice(), right_r.as_slice()),
     ] {
         assert_eq!(flat.len(), 144);
         assert_eq!(left.len(), flat.len());
@@ -485,7 +498,7 @@ fn per_axis_kron_has_last_factor_fastest() {
             for k in 0..2 {
                 for l in 0..2 {
                     assert_eq!(
-                        f.at(i, j, k, l),
+                        f.get([i, j, k, l]),
                         [2., 3., 5., 7.][(i / 3) * 2 + k]
                             * [11., 13., 17., 19., 23., 29., 31., 37., 41., 43., 47., 53.]
                                 [(i % 3) * 4 + j * 2 + l]
@@ -507,11 +520,11 @@ fn per_axis_kron_has_last_factor_fastest() {
         },
     ));
     let r = cat.r_symbol(&(0, 0), &(0, 0), &(0, 0)).unwrap();
-    assert_eq!(r.dim(), 6);
+    assert_eq!(r.dims()[0], 6);
     for i in 0..6 {
         for j in 0..6 {
             assert_eq!(
-                r.at(i, j),
+                r.get([i, j]),
                 [2., 3., 5., 7.][(i / 3) * 2 + j / 3]
                     * [11., 13., 17., 19., 23., 29., 31., 37., 41.][(i % 3) * 3 + j % 3]
             );
@@ -603,16 +616,20 @@ fn every_factor_position_obeys_validation_and_overflow_precedence() {
         }
         let zero = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         let cat = cat!();
-        assert_eq!(cat.nsymbol(&zero, &zero, &zero), 0);
+        assert_eq!(cat.nsymbol(&zero, &zero, &zero).unwrap(), 0);
         let mut empty = cat.fusion(&zero, &zero).unwrap();
         assert_eq!(empty.next(), None);
         assert_eq!(empty.next(), None);
         assert!(cat
             .f_symbol(&zero, &zero, &zero, &zero, &zero, &zero)
             .unwrap()
-            .data()
+            .as_slice()
             .is_empty());
-        assert!(cat.r_symbol(&zero, &zero, &zero).unwrap().data().is_empty());
+        assert!(cat
+            .r_symbol(&zero, &zero, &zero)
+            .unwrap()
+            .as_slice()
+            .is_empty());
         factors[position].braiding = BraidingStyle::None;
         let cat = cat!();
         assert!(
@@ -622,11 +639,11 @@ fn every_factor_position_obeys_validation_and_overflow_precedence() {
         factors.iter_mut().for_each(|c| c.n = [u32::MAX; 4]);
         factors[position].n = [0; 4];
         let cat = cat!();
-        assert_eq!(cat.nsymbol(&zero, &zero, &zero), 0);
+        assert_eq!(cat.nsymbol(&zero, &zero, &zero).unwrap(), 0);
         assert!(cat
             .f_symbol(&zero, &zero, &zero, &zero, &zero, &zero)
             .unwrap()
-            .data()
+            .as_slice()
             .is_empty());
         // Every typed factor error retains its immediate index on each fallible query.
         factors.iter_mut().for_each(|c| {
@@ -654,7 +671,9 @@ fn every_factor_position_obeys_validation_and_overflow_precedence() {
         factors[position].n = [u32::MAX; 4];
         factors[(position + 1) % 12].n = [2; 4];
         let overflowing = cat!();
-        assert!(std::panic::catch_unwind(|| overflowing.nsymbol(&zero, &zero, &zero)).is_err());
+        assert!(
+            std::panic::catch_unwind(|| overflowing.nsymbol(&zero, &zero, &zero).unwrap()).is_err()
+        );
         assert!(matches!(
             overflowing.f_symbol(&zero, &zero, &zero, &zero, &zero, &zero),
             Err(ProductError::Overflow)
@@ -680,7 +699,7 @@ fn every_factor_position_obeys_validation_and_overflow_precedence() {
                     cat.dual(&bad);
                 }
                 2 => {
-                    cat.frobenius_schur_phase(&bad);
+                    cat.frobenius_schur_phase(&bad).unwrap();
                 }
                 3 => {
                     cat.frobenius_schur_indicator(&bad);
@@ -692,7 +711,7 @@ fn every_factor_position_obeys_validation_and_overflow_precedence() {
                     let _ = cat.fusion(&zero, &bad);
                 }
                 6 => {
-                    cat.nsymbol(&zero, &zero, &bad);
+                    cat.nsymbol(&zero, &zero, &bad).unwrap();
                 }
                 7..=12 => {
                     let mut args = [&zero; 6];
@@ -711,7 +730,7 @@ fn every_factor_position_obeys_validation_and_overflow_precedence() {
         ..Probe::default()
     };
     let cat = Product::new((huge.clone(), huge));
-    assert!(std::panic::catch_unwind(|| cat.nsymbol(&(0, 0), &(0, 0), &(0, 0))).is_err());
+    assert!(std::panic::catch_unwind(|| cat.nsymbol(&(0, 0), &(0, 0), &(0, 0)).unwrap()).is_err());
     assert!(matches!(
         cat.f_symbol(&(0, 0), &(0, 0), &(0, 0), &(0, 0), &(0, 0), &(0, 0)),
         Err(ProductError::Overflow)
@@ -759,9 +778,9 @@ fn empty_logical_axes_skip_errors_and_reject_real_foreign_objects() {
     assert!(cat
         .f_symbol(&a, &a, &a, &a, &c, &a)
         .unwrap()
-        .data()
+        .as_slice()
         .is_empty());
-    assert!(cat.r_symbol(&a, &a, &c).unwrap().data().is_empty());
+    assert!(cat.r_symbol(&a, &a, &c).unwrap().as_slice().is_empty());
     let reverse = Product::new((
         Probe {
             fail: true,
@@ -772,7 +791,7 @@ fn empty_logical_axes_skip_errors_and_reject_real_foreign_objects() {
     assert!(reverse
         .r_symbol(&(0, U1.unit()), &(0, U1.unit()), &(0, c.0))
         .unwrap()
-        .data()
+        .as_slice()
         .is_empty());
     let cat = Product::new((U1, ZN::new(2).unwrap()));
     let foreign = (U1.unit(), ZN::new(3).unwrap().unit());
@@ -807,7 +826,9 @@ fn left_fold_and_unbraided_table_preflight() {
     ));
     let z = (0, 0, 0);
     assert_eq!(
-        cat.f_symbol(&z, &z, &z, &z, &z, &z).unwrap().at(0, 0, 0, 0),
+        cat.f_symbol(&z, &z, &z, &z, &z, &z)
+            .unwrap()
+            .get([0, 0, 0, 0]),
         (1e308 * 1e-308) * 1e-308
     );
     let fib = TableCategory::fibonacci();
@@ -845,7 +866,7 @@ fn su3_octet_multiplicity_uses_independent_gauge_literals() {
     };
     let cat = Product::new((su3, literal));
     let a = (o, 0);
-    assert_eq!(cat.nsymbol(&a, &a, &a), 4);
+    assert_eq!(cat.nsymbol(&a, &a, &a).unwrap(), 4);
     let f = cat.f_symbol(&a, &a, &a, &a, &a, &a).unwrap();
     assert_eq!(f.dims(), [4; 4]);
     for (idx, value) in [
@@ -869,7 +890,7 @@ fn su3_octet_multiplicity_uses_independent_gauge_literals() {
         }
     }
     let r = cat.r_symbol(&a, &a, &a).unwrap();
-    assert_eq!(r.dim(), 4);
+    assert_eq!(r.dims()[0], 4);
     for (idx, value) in [
         ([0, 0], -0.285_714_285_714_285_3),
         ([1, 0], 0.958_314_847_499_908_9),
@@ -879,7 +900,7 @@ fn su3_octet_multiplicity_uses_independent_gauge_literals() {
         for i in 0..2 {
             for j in 0..2 {
                 close(
-                    r.at(idx[0] * 2 + i, idx[1] * 2 + j),
+                    r.get([idx[0] * 2 + i, idx[1] * 2 + j]),
                     value * [2., 3., 5., 7.][i * 2 + j],
                 );
             }
@@ -922,7 +943,7 @@ fn partial_zero_axes_use_logical_shapes_before_values() {
         .f_symbol(&args[0], &args[1], &args[2], &args[3], &args[4], &args[5])
         .unwrap();
     assert_eq!(f.dims(), [0, 3, 2, 2]);
-    assert!(f.data().is_empty());
+    assert!(f.as_slice().is_empty());
 }
 
 #[test]
@@ -947,7 +968,7 @@ fn u1_overflow_in_every_immediate_position() {
 }
 
 #[test]
-fn try_nsymbol_reports_overflow_and_zero_beats_it() {
+fn nsymbol_reports_overflow_and_zero_beats_it() {
     let probe = |n| Probe {
         n: [n; 4],
         ..Probe::default()
@@ -957,17 +978,17 @@ fn try_nsymbol_reports_overflow_and_zero_beats_it() {
     // Flat: u32::MAX * 2 overflows, unless a later factor is zero.
     let flat = Product::new((probe(u32::MAX), probe(2)));
     assert!(matches!(
-        flat.try_nsymbol(&z2, &z2, &z2),
+        flat.nsymbol(&z2, &z2, &z2),
         Err(ProductError::Overflow)
     ));
     let flat_zero = Product::new((probe(u32::MAX), probe(2), probe(0)));
-    assert_eq!(flat_zero.try_nsymbol(&z3, &z3, &z3).unwrap(), 0);
+    assert_eq!(flat_zero.nsymbol(&z3, &z3, &z3).unwrap(), 0);
     // Nested: the inner overflow keeps its immediate position, and every
     // F/R shape query returns it instead of panicking.
     let nested = Product::new((Product::new((probe(u32::MAX), probe(2))), probe(1)));
     let z = ((0, 0), 0);
     let inner_overflow = |e| matches!(e, ProductError::Factor0(ProductError::Overflow));
-    assert!(inner_overflow(nested.try_nsymbol(&z, &z, &z).unwrap_err()));
+    assert!(inner_overflow(nested.nsymbol(&z, &z, &z).unwrap_err()));
     assert!(inner_overflow(
         nested.f_symbol(&z, &z, &z, &z, &z, &z).unwrap_err()
     ));
@@ -975,7 +996,7 @@ fn try_nsymbol_reports_overflow_and_zero_beats_it() {
     let right = Product::new((probe(1), Product::new((probe(2), probe(u32::MAX)))));
     let z = (0, (0, 0));
     assert!(matches!(
-        right.try_nsymbol(&z, &z, &z),
+        right.nsymbol(&z, &z, &z),
         Err(ProductError::Factor1(ProductError::Overflow))
     ));
     assert!(matches!(
@@ -985,27 +1006,30 @@ fn try_nsymbol_reports_overflow_and_zero_beats_it() {
     // A zero after a nested overflow fixes N = 0 and empty F/R blocks.
     let nested_zero = Product::new((Product::new((probe(u32::MAX), probe(2))), probe(0)));
     let z = ((0, 0), 0);
-    assert_eq!(nested_zero.try_nsymbol(&z, &z, &z).unwrap(), 0);
+    assert_eq!(nested_zero.nsymbol(&z, &z, &z).unwrap(), 0);
     assert!(nested_zero
         .f_symbol(&z, &z, &z, &z, &z, &z)
         .unwrap()
-        .data()
+        .as_slice()
         .is_empty());
-    assert!(nested_zero.r_symbol(&z, &z, &z).unwrap().data().is_empty());
-    // Representable values equal nsymbol: 3 * 5 * 7 = 105, also nested.
+    assert!(nested_zero
+        .r_symbol(&z, &z, &z)
+        .unwrap()
+        .as_slice()
+        .is_empty());
+    // Representable values are the product: 3 * 5 * 7 = 105, also nested.
     let fits = Product::new((Product::new((probe(3), probe(5))), probe(7)));
-    assert_eq!(fits.try_nsymbol(&z, &z, &z).unwrap(), 105);
-    assert_eq!(fits.nsymbol(&z, &z, &z), 105);
+    assert_eq!(fits.nsymbol(&z, &z, &z).unwrap(), 105);
     let su2 = su2();
     let s = su2.irrep(&[1]).unwrap();
     let cat = Product::new((su2.clone(), U1));
     let a = (s.clone(), U1Irrep::new(1).unwrap());
     let c = (su2.irrep(&[2]).unwrap(), U1Irrep::new(2).unwrap());
-    assert_eq!(cat.try_nsymbol(&a, &a, &c).unwrap(), 1);
-    assert_eq!(cat.try_nsymbol(&a, &a, &cat.unit()).unwrap(), 0);
-    assert_eq!(su2.try_nsymbol(&s, &s, &su2.unit()).unwrap(), 1);
+    assert_eq!(cat.nsymbol(&a, &a, &c).unwrap(), 1);
+    assert_eq!(cat.nsymbol(&a, &a, &cat.unit()).unwrap(), 0);
+    assert_eq!(su2.nsymbol(&s, &s, &su2.unit()).unwrap(), 1);
     // Foreign objects still panic.
-    assert!(std::panic::catch_unwind(|| fits.try_nsymbol(&z, &z, &((0, 0), 255))).is_err());
+    assert!(std::panic::catch_unwind(|| fits.nsymbol(&z, &z, &((0, 0), 255))).is_err());
 }
 
 #[test]
@@ -1023,7 +1047,7 @@ fn runtime_checked_composition_and_initialized_iteration() {
     let cat = Product::new(factors.clone());
     // A factor failure wins over overflow in the preceding nonzero product.
     assert!(matches!(
-        cat.try_nsymbol(&a, &a, &a),
+        cat.nsymbol(&a, &a, &a),
         Err(ProductError::Factor {
             index: 2,
             source: ProductError::Overflow
@@ -1031,25 +1055,23 @@ fn runtime_checked_composition_and_initialized_iteration() {
     ));
     let zero = Product::new([factors, vec![Product::new((probe(0), probe(1)))]].concat());
     let z = vec![(0, 0); 4];
-    assert_eq!(zero.try_nsymbol(&z, &z, &z).unwrap(), 0);
+    assert_eq!(zero.nsymbol(&z, &z, &z).unwrap(), 0);
     assert!(zero
         .f_symbol(&z, &z, &z, &z, &z, &z)
         .unwrap()
-        .data()
+        .as_slice()
         .is_empty());
-    // Like tuple products, infallible N evaluates every factor: a factor's
-    // loud panic is not a typed failure that can be suppressed by a zero.
+    // A leading zero factor beats a later factor's overflow.
     let cat = Product::new(vec![
         Product::new((probe(0), probe(1))),
         Product::new((probe(u32::MAX), probe(2))),
     ]);
     let z = vec![(0, 0); 2];
-    assert_eq!(cat.try_nsymbol(&z, &z, &z).unwrap(), 0);
-    assert!(std::panic::catch_unwind(|| cat.nsymbol(&z, &z, &z)).is_err());
+    assert_eq!(cat.nsymbol(&z, &z, &z).unwrap(), 0);
     let overflowing = Product::new(vec![probe(u32::MAX), probe(2)]);
     let z = vec![0; 2];
     assert!(matches!(
-        overflowing.try_nsymbol(&z, &z, &z),
+        overflowing.nsymbol(&z, &z, &z),
         Err(ProductError::Overflow)
     ));
     assert!(matches!(
@@ -1109,8 +1131,8 @@ fn runtime_complex_scalars_and_enumeration_overflow() {
     let tuple = Product::new((fib.clone(), fib));
     let x = vec![tau, tau];
     assert_eq!(
-        runtime.frobenius_schur_phase(&x),
-        tuple.frobenius_schur_phase(&(tau, tau))
+        runtime.frobenius_schur_phase(&x).unwrap(),
+        tuple.frobenius_schur_phase(&(tau, tau)).unwrap()
     );
     assert_eq!(
         runtime.f_symbol(&x, &x, &x, &x, &x, &x).unwrap().as_slice(),
@@ -1385,5 +1407,64 @@ fn multiplicity_real_complex_product_symbols_are_bitwise_promoted_kronecker_prod
     assert_eq!(
         bits(frab_values(&p, [&x; 3], [&x; 6])),
         complex_real(&left, &real)
+    );
+}
+
+#[test]
+fn phase_failures_keep_factor_paths_and_reach_a() {
+    let ok = Probe::default();
+    let failing = Probe {
+        phase_fail: true,
+        ..Probe::default()
+    };
+    let is_probe = |e: &std::io::Error| e.to_string() == "probe phase failure";
+    // The leaf's default A propagates its phase failure; B has no phase.
+    assert!(is_probe(&failing.a_symbol(&0, &0, &0).unwrap_err()));
+    assert!(failing.b_symbol(&0, &0, &0).is_ok());
+    // Tuple: the first failing factor by position, not a substituted phase.
+    let tuple = Product::new((ok.clone(), failing.clone(), failing.clone()));
+    let u = (0, 0, 0);
+    assert!(matches!(
+        tuple.frobenius_schur_phase(&u),
+        Err(ProductError::Factor1(ref e)) if is_probe(e)
+    ));
+    assert!(matches!(
+        tuple.a_symbol(&u, &u, &u),
+        Err(ProductError::Factor1(ref e)) if is_probe(e)
+    ));
+    assert_eq!(tuple.frobenius_schur_indicator(&u), 1.0);
+    // Nested: the path keeps every level.
+    let nested = Product::new((ok.clone(), Product::new((ok.clone(), failing.clone()))));
+    let z = (0, (0, 0));
+    assert!(matches!(
+        nested.frobenius_schur_phase(&z),
+        Err(ProductError::Factor1(ProductError::Factor1(ref e))) if is_probe(e)
+    ));
+    assert!(matches!(
+        nested.a_symbol(&z, &z, &z),
+        Err(ProductError::Factor1(ProductError::Factor1(ref e))) if is_probe(e)
+    ));
+    // Vector: the first failing index; the empty product is the unit.
+    let vector = Product::new(vec![ok.clone(), ok.clone(), failing.clone(), failing]);
+    let v = vec![0; 4];
+    assert!(matches!(
+        vector.frobenius_schur_phase(&v),
+        Err(ProductError::Factor { index: 2, ref source }) if is_probe(source)
+    ));
+    assert!(matches!(
+        vector.a_symbol(&v, &v, &v),
+        Err(ProductError::Factor { index: 2, ref source }) if is_probe(source)
+    ));
+    assert_eq!(
+        Product::new(vec![ok.clone(); 2])
+            .frobenius_schur_phase(&vec![0; 2])
+            .unwrap(),
+        1.0
+    );
+    assert_eq!(
+        Product::new(Vec::<Probe>::new())
+            .frobenius_schur_phase(&vec![])
+            .unwrap(),
+        1.0
     );
 }

@@ -23,7 +23,7 @@ fn round_trip<C: FusionCategory>(cat: &C, n: u64) {
     }
 }
 fn zn(charge: u32, modulus: u32) -> ZNIrrep {
-    ZNIrrep::from_canonical(charge, modulus).unwrap()
+    ZNIrrep::new(i64::from(charge), modulus).unwrap()
 }
 fn q(charge: i32) -> U1Irrep {
     U1Irrep::new(charge).unwrap()
@@ -82,7 +82,12 @@ fn cu1_order_and_label_range() {
 
 #[test]
 fn rank_one_lie_groups_enumerate_admitted_doubled_spins() {
-    let dj = |g: &LieGroup, n| -> Vec<i64> { first(g, n).iter().map(|a| a.dynkin()[0]).collect() };
+    let dj = |g: &LieGroup, n| -> Vec<i64> {
+        first(g, n)
+            .iter()
+            .map(|a| a.dynkin().next().unwrap())
+            .collect()
+    };
     for group in [
         GroupId::su(2).unwrap(),
         GroupId::spin(3).unwrap(),
@@ -117,7 +122,10 @@ fn rank_one_lie_groups_enumerate_admitted_doubled_spins() {
 fn su_n_uses_total_grade_then_lexicographic_dynkin_order() {
     let su3 = lie(GroupId::su(3).unwrap());
     assert_eq!(su3.object_count(), Ok(None));
-    let labels: Vec<_> = first(&su3, 6).iter().map(|a| a.dynkin()).collect();
+    let labels: Vec<_> = first(&su3, 6)
+        .iter()
+        .map(|a| a.dynkin().collect::<Vec<_>>())
+        .collect();
     assert_eq!(
         labels,
         [[0, 0], [0, 1], [1, 0], [0, 2], [1, 1], [2, 0]].map(Vec::from)
@@ -128,7 +136,10 @@ fn su_n_uses_total_grade_then_lexicographic_dynkin_order() {
     round_trip(&su3, 60);
     // SU(4): shell 1 is (0,0,1), (0,1,0), (1,0,0).
     let su4 = lie(GroupId::su(4).unwrap());
-    let labels: Vec<_> = first(&su4, 5).iter().map(|a| a.dynkin()).collect();
+    let labels: Vec<_> = first(&su4, 5)
+        .iter()
+        .map(|a| a.dynkin().collect::<Vec<_>>())
+        .collect();
     assert_eq!(
         labels,
         [[0, 0, 0], [0, 0, 1], [0, 1, 0], [1, 0, 0], [0, 0, 2]].map(Vec::from)
@@ -136,7 +147,14 @@ fn su_n_uses_total_grade_then_lexicographic_dynkin_order() {
     round_trip(&su4, 60);
     // SU(3)/Z_1 is SU(3).
     let trivial_quotient = lie(GroupId::su_quotient(3, 1).unwrap());
-    assert_eq!(trivial_quotient.object_at(4).unwrap().dynkin(), vec![1, 1]);
+    assert_eq!(
+        trivial_quotient
+            .object_at(4)
+            .unwrap()
+            .dynkin()
+            .collect::<Vec<_>>(),
+        vec![1, 1]
+    );
 }
 
 #[cfg(feature = "lie-generated")]
@@ -395,7 +413,7 @@ impl<C: FusionCategory> FusionCategory for Forward<C> {
     fn dim(&self, a: &C::Object) -> f64 {
         self.0.dim(a)
     }
-    fn frobenius_schur_phase(&self, a: &C::Object) -> C::Scalar {
+    fn frobenius_schur_phase(&self, a: &C::Object) -> Result<C::Scalar, Self::Error> {
         self.0.frobenius_schur_phase(a)
     }
     fn frobenius_schur_indicator(&self, a: &C::Object) -> C::Scalar {
@@ -407,7 +425,7 @@ impl<C: FusionCategory> FusionCategory for Forward<C> {
     fn fusion<'a>(&'a self, a: &C::Object, b: &C::Object) -> Result<C::Fusion<'a>, C::Error> {
         self.0.fusion(a, b)
     }
-    fn nsymbol(&self, a: &C::Object, b: &C::Object, c: &C::Object) -> u32 {
+    fn nsymbol(&self, a: &C::Object, b: &C::Object, c: &C::Object) -> Result<u32, Self::Error> {
         self.0.nsymbol(a, b, c)
     }
     fn f_symbol(

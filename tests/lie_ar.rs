@@ -2,6 +2,7 @@
 #![cfg(feature = "lie-generated")]
 mod common;
 
+use fusion_symbols::category::SymbolBlock;
 use fusion_symbols::{
     cache::{self, CoefficientCacheTier as Tier},
     category::{CgcBlock, FusionCategory, FusionStyle, GroupRepresentations},
@@ -26,13 +27,13 @@ fn labels_zero_channels_and_warm_generation() {
     assert!(a1.unit().gt_patterns().is_none());
     assert_eq!(eight.weight_multiplicities()[&vec![0, 0]], 2);
     assert_eq!(cat.frobenius_schur_indicator(&three), 0.0);
-    assert_eq!(cat.nsymbol(&eight, &eight, &eight), 2);
+    assert_eq!(cat.nsymbol(&eight, &eight, &eight).unwrap(), 2);
     let block = cat
         .f_symbol(&three, &three, &three, &three, &unit, &unit)
         .unwrap();
     assert_eq!(block.dims(), [0, 1, 0, 1]);
-    assert!(block.data().is_empty());
-    assert_eq!(cat.r_symbol(&three, &three, &unit).unwrap().dim(), 0);
+    assert!(block.as_slice().is_empty());
+    assert_eq!(cat.r_symbol(&three, &three, &unit).unwrap().dims()[0], 0);
     assert_eq!(cat.cgc(&three, &three, &unit).unwrap().dims(), [3, 3, 1, 0]);
 
     cache::reset();

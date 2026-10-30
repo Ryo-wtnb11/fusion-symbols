@@ -11,6 +11,8 @@ use crate::common::a1;
 use crate::common::lie as lie_test;
 use a1::{exact_r, twist};
 use fusion_symbols::category::FusionCategory;
+#[cfg(feature = "lie-generated")]
+use fusion_symbols::category::SymbolBlock;
 
 #[cfg(feature = "lie-generated")]
 const TOL: f64 = 1e-10;
@@ -22,7 +24,7 @@ fn twist_matches_r_symbol_formula_up_to_j5() {
         let sum: f64 = a1::group()
             .fusion(&a, &a)
             .unwrap()
-            .map(|c| a1::group().dim(&c) * exact_r(dj, dj, c.dynkin()[0] as u32))
+            .map(|c| a1::group().dim(&c) * exact_r(dj, dj, c.dynkin().next().unwrap() as u32))
             .sum();
         let theta = sum / a1::group().dim(&a);
         // Integer-valued sum: exact, no tolerance needed.
@@ -58,8 +60,8 @@ fn sun_twist_matches_r_symbol_formula() {
         let mut sum = 0.0;
         for (c, n) in directproduct(&a, &a).unwrap() {
             let r = r_symbol(&a, &a, &c).unwrap();
-            assert_eq!(r.dim(), n as usize);
-            let tr: f64 = (0..r.dim()).map(|mu| r.at(mu, mu)).sum();
+            assert_eq!(r.dims()[0], n as usize);
+            let tr: f64 = (0..r.dims()[0]).map(|mu| r.get([mu, mu])).sum();
             sum += to_f64(c.dim_exact()) * tr;
         }
         let theta = sum / to_f64(a.dim_exact());
@@ -103,8 +105,8 @@ fn bcd_twist_matches_r_symbol_formula() {
         let mut sum = 0.0;
         for (c, n) in bcd_test::product(&cat, &a, &a).unwrap() {
             let r = cat.r_symbol(&a, &a, &c).unwrap();
-            assert_eq!(r.dim(), n as usize);
-            let tr: f64 = (0..r.dim()).map(|mu| r.at(mu, mu)).sum();
+            assert_eq!(r.dims()[0], n as usize);
+            let tr: f64 = (0..r.dims()[0]).map(|mu| r.get([mu, mu])).sum();
             sum += to_f64(c.dim_exact()) * tr;
         }
         let theta = sum / to_f64(a.dim_exact());

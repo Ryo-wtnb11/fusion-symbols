@@ -6,7 +6,7 @@
 | --- | --- |
 | Reference | TensorKitSectors.jl `0.3.9`, git `67d342a130bd9e31caf3eccbf9ca46ec8b088556` |
 | Z2, Z_N, U(1): `Nsymbol`, `Fsymbol`, `Rsymbol`, FS phase | `src/irreps/irreps.jl`: `Nsymbol` (l. 57), `Fsymbol` (l. 58), `frobenius_schur_phase(::AbelianIrrep)` (l. 62), `Rsymbol` (l. 65); `BraidingStyle(::AbstractIrrep) = Bosonic()` (l. 17) |
-| Z_N labels, dual, fusion | `src/irreps/znirrep.jl`: `ZNIrrep{N}(n) = mod(n, N)` (l. 24), `dual` (l. 82), `⊗` (l. 83). The modulus is a runtime `u32` carried by both `ZN` and `ZNIrrep`, not a type parameter. `new` reduces charges; `from_canonical` rejects noncanonical charges without reduction |
+| Z_N labels, dual, fusion | `src/irreps/znirrep.jl`: `ZNIrrep{N}(n) = mod(n, N)` (l. 24), `dual` (l. 82), `⊗` (l. 83). The modulus is a runtime `u32` carried by both `ZN` and `ZNIrrep`, not a type parameter. `new` reduces charges like `ZNIrrep{N}(n)` |
 | U(1) labels, dual, fusion | `src/irreps/u1irrep.jl`: `dual` (l. 30), `⊗` (l. 31). TKS stores a `HalfInt`; here integer `i32` charges without `i32::MIN`; half-integer charges are not representable |
 | U(1) and Z_N CGC | `src/irreps/irreps.jl`: `fusiontensor(::AbelianIrrep, …)` (l. 67) returns `fill(Nabc, (1, 1, 1, Nabc))`; `U1` and `ZN` expose scalar `f64` blocks, and `LieGroup` exposes `LieCgc` blocks through `CgcBlock`; an absent channel has shape `1x1x1x0` |
 | Fermion parity | `src/fermions.jl`: `dual` (l. 34), `dim` (l. 35), `BraidingStyle = Fermionic()` (l. 39), `⊗` (l. 43), `Nsymbol` (l. 45), `Fsymbol` (l. 48), `Rsymbol` (l. 51), `twist` (l. 54); FS phase from the generic `src/sectors.jl:frobenius_schur_phase_from_Fsymbol` (l. 461) |

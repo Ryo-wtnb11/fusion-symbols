@@ -23,17 +23,17 @@ another type is named.
 | An irrep from Dynkin labels | `LieGroup::irrep(&[1, 1])` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html#method.irrep) |
 | An irrep with torus charges (U(N), tori) | `LieGroup::irrep_with_charges(&[1], &[1])` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html#method.irrep_with_charges) |
 | An SU(2) or SO(3) irrep from a spin | `LieGroup::irrep_spin(HalfInt::half(1))` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html#method.irrep_spin) |
-| Read a label back | `LieIrrep::{dynkin, dynkin_labels, charges, spin}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieIrrep.html) |
+| Read a label back | `LieIrrep::{dynkin, charges, spin}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieIrrep.html) |
 | Dimension | `dim` (f64), `LieIrrep::dim_exact` (exact) | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.dim) |
 | Dual and Frobenius–Schur data | `dual`, `frobenius_schur_indicator`, `frobenius_schur_phase` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.dual) |
 | The unit object | `unit` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.unit) |
 | Fusion outcomes of `a ⊗ b` | `fusion(a, b)` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.fusion) |
-| Fusion multiplicity N | `nsymbol(a, b, c)`, `try_nsymbol` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.nsymbol) |
+| Fusion multiplicity N | `nsymbol(a, b, c)` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.nsymbol) |
 | F symbol | `f_symbol(a, b, c, d, e, f)` → `[μ,ν,κ,λ]` block | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.f_symbol) |
 | R symbol, twist | `r_symbol(a, b, c)`, `twist(a)` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.r_symbol) |
 | A and B symbols | `a_symbol`, `b_symbol` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#method.a_symbol) |
-| Read a symbol block | `FBlock::{dims, at}`, `RBlock::{dim, at}`, `SymbolBlock` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/struct.FBlock.html) |
-| Clebsch–Gordan coefficients | `GroupRepresentations::cgc`, read with `CgcBlock::{dims, at}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.GroupRepresentations.html#tymethod.cgc) |
+| Read a symbol block | `SymbolBlock::{dims, get, as_slice}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.SymbolBlock.html) |
+| Clebsch–Gordan coefficients | `GroupRepresentations::cgc`, read with `CgcBlock::{dims, get, to_dense}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.GroupRepresentations.html#tymethod.cgc) |
 | Exact SU(2) 3j, 6j, CG | `lie::su2::{wigner_3j, wigner_6j, clebsch_gordan}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/su2/index.html) |
 | U(1), Z_N, fermion parity, CU(1) | `U1` + `U1Irrep::new`, `ZN::new` + `ZNIrrep::new`, `FermionParity`, `CU1` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.U1.html) |
 | Fibonacci, Ising or another anyon table | `TableCategory::{fibonacci, ising, by_uuid, object}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/table/struct.TableCategory.html) |
@@ -124,7 +124,7 @@ let e8 = LieGroup::new(GroupId::e8())?;
 assert_eq!(e8.group_id(), &GroupId::cover(&[RootSystem::E8], 0)?);
 let e6 = LieGroup::new(GroupId::e6())?;
 let v = e6.irrep(&[1, 0, 0, 0, 0, 0])?;
-assert_eq!(e6.dual(&v).dynkin(), [0, 0, 0, 0, 0, 1]);
+assert!(e6.dual(&v).dynkin().eq([0, 0, 0, 0, 0, 1]));
 assert_eq!(e6.frobenius_schur_indicator(&v), 0.0);
 ```
 
@@ -153,7 +153,7 @@ use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieError, LieGroup
 
 let su3 = LieGroup::new(GroupId::su(3)?)?;
 let three = su3.irrep(&[1, 0])?;
-assert_eq!(su3.dual(&three).dynkin(), vec![0, 1]); // 3-bar
+assert!(su3.dual(&three).dynkin().eq([0, 1])); // 3-bar
 assert_eq!(three.dim_exact(), 3u32);
 
 let u2 = LieGroup::new(GroupId::u(2)?)?;
@@ -167,33 +167,35 @@ assert!(LieGroup::new(GroupId::spin(5)?)?.irrep(&spinor).is_ok());
 assert!(LieGroup::new(GroupId::so(5)?)?.irrep(&spinor).is_err());
 ```
 
-Read labels back with `dynkin_labels()` (allocation-free) or `dynkin()`, and
-charges with `charges()`. `dim_exact()` is the exact dimension;
+Read labels back with the allocation-free iterators `dynkin()` and
+`charges()`; collect them where an owned label is needed. `dim_exact()` is the exact dimension;
 `weight_multiplicities()` lists weights; `gt_patterns()` gives the
 Gelfand–Tsetlin basis of A-series groups of rank ≥ 2.
 
 ## Fusion and symbols
 
 ```rust
-use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
+use fusion_symbols::{category::{FusionCategory, SymbolBlock}, lie::{GroupId, HalfInt, LieGroup}};
 
 let su2 = LieGroup::new(GroupId::su(2)?)?;
 let half = su2.irrep_spin(HalfInt::half(1))?;
 let unit = su2.unit();
-let channels: Vec<i64> = su2.fusion(&half, &half)?.map(|c| c.dynkin()[0]).collect();
-assert_eq!(channels, vec![0, 2]); // spin 0 and spin 1
+let channels: Vec<Vec<i64>> = su2.fusion(&half, &half)?.map(|c| c.dynkin().collect()).collect();
+assert_eq!(channels, [[0], [2]]); // spin 0 and spin 1
 assert_eq!(su2.frobenius_schur_indicator(&half), -1.0); // pseudoreal
 
 let f = su2.f_symbol(&half, &half, &half, &half, &unit, &unit)?;
-assert_eq!(f.at(0, 0, 0, 0), -0.5);
+assert_eq!(f.get([0, 0, 0, 0]), -0.5);
 let r = su2.r_symbol(&half, &half, &unit)?;
-assert_eq!(r.at(0, 0), -1.0);
+assert_eq!(r.get([0, 0]), -1.0);
 ```
 
 - `fusion(a, b)` yields each outcome once; `nsymbol(a, b, c)` is its
-  multiplicity, zero when `c` does not occur.
+  multiplicity, `Ok(0)` when `c` does not occur. Its error is a genuine
+  failure, such as a product multiplicity beyond `u32`.
 - `dim`, `dual`, `frobenius_schur_phase`, `frobenius_schur_indicator` and
-  `twist` are per-object data.
+  `twist` are per-object data. `frobenius_schur_phase` returns a `Result`:
+  a complex irrep of a generated family may need its modules built.
 - `f_symbol`, `r_symbol`, `a_symbol` and `b_symbol` return blocks whose axes
   are vertex multiplicities (next section). An inadmissible vertex gives a
   zero block, not an error; errors mean a genuine failure or a missing
@@ -219,18 +221,18 @@ With multiplicities these are genuine blocks; for SU(3) `8 ⊗ 8 → 8` all four
 axes can have length 2:
 
 ```rust
-use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieGroup}};
+use fusion_symbols::{category::{FusionCategory, SymbolBlock}, lie::{GroupId, LieGroup}};
 
 let su3 = LieGroup::new(GroupId::su(3)?)?;
 let eight = su3.irrep(&[1, 1])?;
 let f = su3.f_symbol(&eight, &eight, &eight, &eight, &eight, &eight)?;
 assert_eq!(f.dims(), [2, 2, 2, 2]);
 let r = su3.r_symbol(&eight, &eight, &eight)?;
-assert_eq!(r.dim(), 2); // square: N(a,b,c) = N(b,a,c) = 2
+assert_eq!(r.dims(), [2, 2]); // square: N(a,b,c) = N(b,a,c) = 2
 ```
 
-All blocks implement `category::SymbolBlock` (`dims`, `get`, `as_slice`, row
-major). `category::FBlock` and `RBlock` add `at` and `data`. Scalar families
+Every block is read through `category::SymbolBlock` (`dims`, `get`,
+`as_slice`, row major), including `category::FBlock` and `RBlock`. Scalar families
 (U(1), Z_N, parity, tables) return a bare scalar whose storage axes are all one
 even when its logical value is zero; read the logical shape from N. A and B
 always return `RBlock` and need no braiding. The multiplicity copy order is
@@ -247,11 +249,14 @@ let su3 = LieGroup::new(GroupId::su(3)?)?;
 let eight = su3.irrep(&[1, 1])?;
 let c = su3.cgc(&eight, &eight, &eight)?;
 assert_eq!(c.dims(), [8, 8, 8, 2]); // [dim a, dim b, dim c, N(a,b,c)]
-assert!(c.at([0, 2, 0, 1]) < 0.0);
+assert!(c.get([0, 2, 0, 1]) < 0.0);
 ```
 
-`at([m1, m2, m3, mu])` reads one coefficient and panics outside the axes. An
-absent channel has a zero-length multiplicity axis. Magnetic indices: A1
+`get([m1, m2, m3, mu])` reads one coefficient and panics outside the axes.
+`to_dense()` materializes a fresh row-major vector over `[m1, m2, m3, mu]`
+(multiplicity fastest) on every call; it costs one read per entry and is
+meant for explicit dense consumers, not for loops that touch a few entries.
+An absent channel has a zero-length multiplicity axis. Magnetic indices: A1
 ascends from the lowest weight; higher A-series follow `gt_patterns()`;
 B, C, D and the exceptional types follow the depth order of
 [gauge_cartan.md §3.2](../gauge_cartan.md#32-b_re8-gramschmidt-basis-of-the-contravariant-form),
@@ -262,8 +267,7 @@ The exact SU(2) evaluators under `lie::su2` take doubled spins and doubled
 projections, in the argument order `(dj1, dm1, dj2, dm2, dj3, dm3)` for
 `clebsch_gordan`. They return `SignedSqrtRational` (`sign * sqrt(p/q)`);
 compare exactly with `signed_square()` or convert with `to_f64()`. A
-forbidden label set gives exact zero; the `*_checked` variants report it as
-`Su2Error::NotAdmissible` instead.
+forbidden label set gives exact zero, never an error or a panic.
 
 ```rust
 use fusion_symbols::lie::su2::clebsch_gordan;
@@ -287,8 +291,8 @@ let q = U1Irrep::new(2)?;
 assert_eq!(U1.dual(&q).charge(), -2);
 
 let z3 = ZN::new(3)?;
-let one = ZNIrrep::from_canonical(1, 3)?;
-assert_eq!(z3.fusion(&one, &one)?.next(), Some(ZNIrrep::from_canonical(2, 3)?));
+let one = ZNIrrep::new(1, 3)?;
+assert_eq!(z3.fusion(&one, &one)?.next(), Some(ZNIrrep::new(2, 3)?));
 
 assert_eq!(FermionParity.twist(&FermionParityIrrep::ODD), -1.0);
 
@@ -299,8 +303,9 @@ assert_eq!(channels, [CU1Irrep::VACUUM, CU1Irrep::PSEUDOSCALAR, CU1Irrep::from_t
 
 `U1` is the same group as `LieGroup::new(GroupId::u(1)?)`, with `Copy` labels
 and bitwise-identical symbols; use it, or a tuple `Product` of `U1`, on hot
-paths. `ZNIrrep::new` reduces any charge modulo N; `from_canonical` requires
-`0..N`.
+paths, and `LieGroup` where U(1) meets tori, products or quotients.
+`ZNIrrep::new` reduces any charge modulo N; check `charge < N` first where a
+noncanonical input must be rejected.
 
 ## Tables
 
@@ -312,7 +317,7 @@ use fusion_symbols::{category::FusionCategory, table::{TableCategory, TableError
 
 let fib = TableCategory::fibonacci();
 let tau = fib.object(2)?; // index 1 is the unit
-assert_eq!(fib.nsymbol(&tau, &tau, &tau), 1);
+assert_eq!(fib.nsymbol(&tau, &tau, &tau)?, 1);
 let golden = (1.0 + 5f64.sqrt()) / 2.0;
 assert!((fib.dim(&tau) - golden).abs() < 1e-12);
 let f = fib.f_symbol(&tau, &tau, &tau, &tau, &fib.unit(), &fib.unit())?;
@@ -375,17 +380,17 @@ Each category has one error type: `LieError`, `U1Error`, `CU1Error`,
 
 | Situation | Result |
 |---|---|
-| Vertex not allowed by fusion | `nsymbol` is 0; F/R/A/B/CGC return zero blocks |
+| Vertex not allowed by fusion | `nsymbol` is `Ok(0)`; F/R/A/B/CGC return zero blocks |
 | Object from another category value | panic (check first with `contains`) |
 | Wrong label lengths (including `irrep` on a group with a torus), negative Dynkin label, or `irrep_spin` outside SU(2) and SO(3) | `LieError::InvalidLabel` |
 | Label excluded by the global form | `LieError::NotAdmissible` |
-| Label, weight or multiplicity beyond its integer type | `LieError::LabelOverflow` (and `U1Error`/`CU1Error::LabelOverflow`) |
+| Label, weight or multiplicity beyond its integer type | `LieError::LabelOverflow` (and `U1Error`/`CU1Error::LabelOverflow`); a product multiplicity beyond `u32` is `ProductError::Overflow` |
 | E₆ irrep that is not self-dual, with dimension above `u32::MAX` (its Frobenius–Schur phase is generated in a basis with `u32` indices) | `LieError::LabelOverflow` from `irrep`, and from `fusion` when an outcome is such a label |
-| Z_N modulus zero, or `ZNIrrep::from_canonical` charge outside `0..N` | `ZNError::ZeroModulus`, `ZNError::NonCanonicalCharge` |
+| Z_N modulus zero | `ZNError::ZeroModulus` |
 | Invalid CU(1) label `(twice_charge, s)` | `CU1Error::InvalidLabel` |
 | Cache budgets configured after a cache operation or a second time | `CacheBudgetError::AlreadyInitialized` |
 | Group needs `lie-generated` | `LieError::Unsupported { requires }` |
-| Numerical generation failed its checks | `LieError::Generation` with an error source |
+| Numerical generation failed its checks (including a complex irrep's Frobenius–Schur phase) | `LieError::Generation` with an error source |
 | Invalid rank or lattice | `GroupError::UnsupportedRank`, `InvalidLattice`, `NotACenterSubgroup`, `SizeOverflow` |
 | R on a fusion-only table or product factor | `TableError::NoBraiding`, `ProductError::NoBraiding { factor }` |
 

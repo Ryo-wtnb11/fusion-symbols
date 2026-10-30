@@ -39,7 +39,11 @@ fn warm_generated_fusion_yields_labels_without_allocation() {
         let cat = LieGroup::new(id.clone()).unwrap();
         let a = cat.irrep(&a).unwrap();
         let b = cat.irrep(&b).unwrap();
-        let mut cold: Vec<Vec<i64>> = cat.fusion(&a, &b).unwrap().map(|c| c.dynkin()).collect();
+        let mut cold: Vec<Vec<i64>> = cat
+            .fusion(&a, &b)
+            .unwrap()
+            .map(|c| c.dynkin().collect::<Vec<_>>())
+            .collect();
         cold.sort();
         assert_eq!(cold, expected, "{id:?}");
         let mut sums = [0i64; 8];
@@ -47,7 +51,7 @@ fn warm_generated_fusion_yields_labels_without_allocation() {
         let mut channels = 0;
         for c in cat.fusion(&a, &b).unwrap() {
             let copy = c.clone();
-            for (i, x) in copy.dynkin_labels().enumerate() {
+            for (i, x) in copy.dynkin().enumerate() {
                 sums[i] += x;
             }
             channels += 1;

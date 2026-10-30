@@ -685,9 +685,9 @@ dense linear-algebra backend enters any value.
 Every generation performs these checks on the production path, in every
 build, before the value is stored in a cache or returned. A failure is a
 typed `LieError::Generation`; a value that failed a gate is never returned.
-Fallible operations propagate it; the infallible
-`FusionCategory::frobenius_schur_phase` panics instead and never substitutes
-a phase. The checks never alter a value.
+Every operation that can generate propagates it, including
+`FusionCategory::frobenius_schur_phase` and the A symbol through it; no
+phase is ever substituted. The checks never alter a value.
 
 Exact gates (rank decisions are made in exact arithmetic, so no tolerance
 enters them):

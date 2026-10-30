@@ -157,7 +157,7 @@ fn main() {
             );
             let query = || {
                 if name.ends_with("phase") {
-                    assert_eq!(black_box(g.frobenius_schur_phase(&a)), 1.0);
+                    assert_eq!(black_box(g.frobenius_schur_phase(&a).unwrap()), 1.0);
                 } else if name.ends_with("R") {
                     black_box(g.r_symbol(&a, &b, &c).unwrap());
                 } else if name.ends_with("F") {

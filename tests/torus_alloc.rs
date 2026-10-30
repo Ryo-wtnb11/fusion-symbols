@@ -1,4 +1,5 @@
 use crate::common::counting_alloc;
+use fusion_symbols::category::SymbolBlock;
 use fusion_symbols::{
     category::{CgcBlock, FusionCategory, GroupRepresentations},
     lie::{GroupId, LieGroup},
@@ -24,15 +25,17 @@ fn inline_torus_labels_and_queries_allocate_nothing() {
     assert_eq!(fusion.len(), 1);
     assert_eq!(fusion.next_back(), Some(c.clone()));
     assert_eq!(fusion.next(), None);
-    assert_eq!(g.nsymbol(&a, &b, &c), 1);
+    assert_eq!(g.nsymbol(&a, &b, &c).unwrap(), 1);
     assert_eq!(g.dim(&a), 1.0);
     assert_eq!(
-        g.f_symbol(&a, &b, &one, &c, &c, &b).unwrap().at(0, 0, 0, 0),
+        g.f_symbol(&a, &b, &one, &c, &c, &b)
+            .unwrap()
+            .get([0, 0, 0, 0]),
         1.0
     );
-    assert_eq!(g.r_symbol(&a, &b, &c).unwrap().at(0, 0), 1.0);
-    assert_eq!(g.a_symbol(&a, &b, &c).unwrap().at(0, 0), 1.0);
-    assert_eq!(g.b_symbol(&a, &b, &c).unwrap().at(0, 0), 1.0);
-    assert_eq!(g.cgc(&a, &b, &c).unwrap().at([0; 4]), 1.0);
+    assert_eq!(g.r_symbol(&a, &b, &c).unwrap().get([0, 0]), 1.0);
+    assert_eq!(g.a_symbol(&a, &b, &c).unwrap().get([0, 0]), 1.0);
+    assert_eq!(g.b_symbol(&a, &b, &c).unwrap().get([0, 0]), 1.0);
+    assert_eq!(g.cgc(&a, &b, &c).unwrap().get([0; 4]), 1.0);
     assert_eq!(counting_alloc::calls(), before);
 }

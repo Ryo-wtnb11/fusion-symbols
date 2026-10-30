@@ -108,8 +108,8 @@ each factor keeps its own gauge.
 
 `irrep_with_charges(dynkin, charges)` checks lengths and nonnegative Dynkin
 labels, then lattice admission, then engine integer limits. Charges outside
-`-i32::MAX..=i32::MAX` return `LabelOverflow`. `dynkin`/`dynkin_labels` read
-the semisimple coordinates and `charges` the torus coordinates.
+`-i32::MAX..=i32::MAX` return `LabelOverflow`. The allocation-free iterators
+`dynkin` and `charges` read the semisimple and torus coordinates.
 `dim_exact` returns `malachite_nz::natural::Natural`; the category's `dim` returns `f64`.
 `weight_multiplicities` uses Dynkin coordinates followed by torus charges.
 `gt_patterns` gives the Gelfand–Tsetlin (GT) basis for A-series rank ≥ 2, and
@@ -122,11 +122,15 @@ the semisimple coordinates and `charges` the torus coordinates.
 Use `contains` for a non-panicking membership check. Category equality and
 hashing represent mathematical identity.
 
-- `fusion` yields distinct outcomes in deterministic order; `nsymbol` gives
-  the exact `u32` multiplicity, including zero. `try_nsymbol` reports
-  unrepresentable multiplicities as errors where supported. On `LieGroup`, it
-  also propagates generated fusion arithmetic and generation failures;
-  infallible `nsymbol` panics with a clear diagnostic for those failures.
+- `fusion` yields distinct outcomes in deterministic order; `nsymbol` returns
+  the exact `u32` multiplicity, `Ok(0)` for an absent channel. Its errors are
+  genuine failures only: an unrepresentable product multiplicity, and on
+  `LieGroup` generated fusion arithmetic and generation failures.
+- `frobenius_schur_phase` returns a `Result`: closed forms and stored signs
+  are `Ok`, while a complex D(r) (r odd) or E₆ irrep propagates a failure to
+  generate its phase as `LieError::Generation`, never a substituted sign.
+  The default A symbol propagates N, phase and F errors; B propagates N and F.
+  `frobenius_schur_indicator` reads stored data and stays infallible.
 - Inadmissible F/R vertices give zero symbols. Logical axes come from N;
   scalar storage has all-one axes. Lie blocks have zero axes for absent
   channels. See [symbol layout](user-guide/README.md#symbol-layout).
@@ -142,14 +146,16 @@ hashing represent mathematical identity.
   overflow (`U1Error` on `U1`, `LieError::LabelOverflow` on `LieGroup`).
   CU(1) and rank-one Lie fusion also report label overflow. `ZN` and parity
   category errors are `Infallible`; their constructors validate labels.
-  `ZNIrrep::new` reduces charges, whereas `from_canonical` rejects them outside
-  `0..N`. CU(1) uses the full `u32` twice-charge range.
+  `ZNIrrep::new` reduces charges modulo N; an input boundary that must reject
+  a noncanonical charge checks `charge < N` first. CU(1) uses the full `u32`
+  twice-charge range.
 - Table lookup distinguishes unknown entries from known unsupported entries.
   Fusion-only tables return `TableError::NoBraiding` from R and panic on twist.
   Foreign objects are rejected first. Clones share parsed and derived data;
   categories with the same uuid accept the same objects.
-- The exact `lie::su2` evaluators return exact zero for forbidden labels;
-  their `*_checked` twins distinguish forbidden couplings from admissible zeros.
+- The exact `lie::su2` evaluators return exact zero for forbidden labels at
+  every `u32`/`i32` input, with projection sums and sign changes evaluated in
+  `i64`; a forbidden coupling and an accidental zero read the same.
 
 ## Numerical and capability contracts
 
@@ -229,7 +235,9 @@ one transient real buffer.
 All factors' objects are validated before capability or shape checks. R reports
 `ProductError::NoBraiding { factor }` even when N = 0; twist panics on absent
 braiding. Factor failures retain their immediate index. For N, a zero factor
-wins; otherwise overflow panics in `nsymbol` and is typed in `try_nsymbol`.
+wins over factor errors and overflow; otherwise `nsymbol` returns the first
+factor error by position, then `ProductError::Overflow`. A phase returns the
+first failing factor's error; it has no zero rule.
 F/R/A/B check their own multiplicities and layouts for typed overflow. Nested
 factor queries must themselves be representable. Fusion resets clone the
 initialized factor iterators; the higher-ranked iterator bound admits owned category types only.

@@ -2,6 +2,7 @@
 #![cfg(feature = "lie-generated")]
 
 use crate::common::counting_alloc;
+use fusion_symbols::category::SymbolBlock;
 use fusion_symbols::{
     cache,
     category::FusionCategory,
@@ -46,7 +47,7 @@ fn check<C: FusionCategory<Scalar = f64>>(
             .unwrap()
         };
         let cold = query();
-        elements = cold.data().len();
+        elements = cold.as_slice().len();
         let base = crate::common::stats_sum(&crate::common::BASE_TIERS);
         let generated = crate::common::stats_sum(crate::common::generated_tiers());
         let (allocation, warm) = measure(query);
@@ -69,9 +70,9 @@ fn check<C: FusionCategory<Scalar = f64>>(
         );
         assert_eq!(warm, cold);
         assert!(warm
-            .data()
+            .as_slice()
             .iter()
-            .zip(cold.data())
+            .zip(cold.as_slice())
             .all(|(a, b)| a.to_bits() == b.to_bits()));
         let base_warm = crate::common::stats_sum(&crate::common::BASE_TIERS);
         let generated_warm = crate::common::stats_sum(crate::common::generated_tiers());
@@ -87,12 +88,12 @@ fn check<C: FusionCategory<Scalar = f64>>(
     }
     for object in [a, b, c] {
         let ((calls, bytes), (dim, phase)) =
-            measure(|| (cat.dim(object), cat.frobenius_schur_phase(object)));
+            measure(|| (cat.dim(object), cat.frobenius_schur_phase(object).unwrap()));
         println!("{name} dim/FS: {calls}/{bytes}");
         assert_eq!((calls, bytes), (0, 0), "{name}: warm dimension and phase");
         assert_eq!(
             (dim, phase),
-            (cat.dim(object), cat.frobenius_schur_phase(object))
+            (cat.dim(object), cat.frobenius_schur_phase(object).unwrap())
         );
         assert_eq!(measure(|| cat.dual(object)).0, (0, 0), "{name}: dual");
     }
@@ -137,13 +138,13 @@ fn warm_ab_allocate_only_leaf_blocks_and_one_buffer_per_product_level() {
         let a = cat.irrep(labels).unwrap();
         let dual = cat.dual(&a);
         cat.dim(&a);
-        cat.frobenius_schur_phase(&a);
+        cat.frobenius_schur_phase(&a).unwrap();
         assert_eq!(measure(|| cat.dual(&a)).0, (0, 0));
         let (allocation, back) = measure(|| cat.dual(&dual));
         assert_eq!(allocation, (0, 0));
         assert_eq!(back, a);
         assert_eq!(
-            measure(|| (cat.dim(&a), cat.frobenius_schur_phase(&a))).0,
+            measure(|| (cat.dim(&a), cat.frobenius_schur_phase(&a).unwrap())).0,
             (0, 0)
         );
     }

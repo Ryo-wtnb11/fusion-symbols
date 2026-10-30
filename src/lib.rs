@@ -26,16 +26,17 @@
 //! adjoint 8. The [Dynkin labels] guide explains them and lists common irreps.
 //!
 //! ```
-//! use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
+//! use fusion_symbols::category::{FusionCategory, SymbolBlock};
+//! use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
 //!
 //! let su2 = LieGroup::new(GroupId::su(2)?)?;
 //! let half = su2.irrep_spin(HalfInt::half(1))?;
 //! let unit = su2.unit();
-//! assert_eq!(su2.nsymbol(&half, &half, &unit), 1);
+//! assert_eq!(su2.nsymbol(&half, &half, &unit)?, 1);
 //! let f = su2.f_symbol(&half, &half, &half, &half, &unit, &unit)?;
-//! assert_eq!(f.at(0, 0, 0, 0), -0.5);
+//! assert_eq!(f.get([0, 0, 0, 0]), -0.5);
 //! let r = su2.r_symbol(&half, &half, &unit)?;
-//! assert_eq!(r.at(0, 0), -1.0);
+//! assert_eq!(r.get([0, 0]), -1.0);
 //!
 //! // U(2): an SU(2) label followed by a U(1) charge of the same parity.
 //! let u2 = LieGroup::new(GroupId::u(2)?)?;

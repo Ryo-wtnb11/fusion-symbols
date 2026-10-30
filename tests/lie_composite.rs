@@ -70,8 +70,8 @@ fn d2_forms_admission_and_hand_values() {
                     continue;
                 }
                 let x = result.unwrap();
-                assert_eq!(x.dynkin(), [a, b]);
-                assert!(x.dynkin_labels().eq([a, b]));
+                assert_eq!(x.dynkin().collect::<Vec<_>>(), [a, b]);
+                assert!(x.dynkin().eq([a, b]));
                 assert_eq!(x.charges().len(), 0);
                 assert_eq!(x.dim_exact(), ((a + 1) * (b + 1)));
                 assert!(x.gt_patterns().is_none());
@@ -81,7 +81,7 @@ fn d2_forms_admission_and_hand_values() {
                     .collect();
                 assert_eq!(x.weight_multiplicities(), weights);
                 for y in cat.fusion(&x, &x).unwrap() {
-                    assert!(id.admits(&y.dynkin(), &[]));
+                    assert!(id.admits(&y.dynkin().collect::<Vec<_>>(), &[]));
                     assert!(cat.contains(&y));
                 }
             }
@@ -92,7 +92,7 @@ fn d2_forms_admission_and_hand_values() {
     assert_eq!(
         cat.fusion(&vector, &vector)
             .unwrap()
-            .map(|x| x.dynkin())
+            .map(|x| x.dynkin().collect::<Vec<_>>())
             .collect::<Vec<_>>(),
         [vec![0, 0], vec![2, 0], vec![0, 2], vec![2, 2]]
     );
@@ -119,7 +119,7 @@ fn d2_forms_admission_and_hand_values() {
     let cover = LieGroup::new(GroupId::spin(4).unwrap()).unwrap();
     let cv = label(&cover, &[1, 1]);
     for x in cat.fusion(&vector, &vector).unwrap() {
-        let cx = label(&cover, &x.dynkin());
+        let cx = label(&cover, &x.dynkin().collect::<Vec<_>>());
         same_block(
             cat.r_symbol(&vector, &vector, &x).unwrap(),
             cover.r_symbol(&cv, &cv, &cx).unwrap(),
@@ -141,7 +141,7 @@ fn d2_forms_admission_and_hand_values() {
         );
     }
     assert!(!cat.contains(&cover.unit()));
-    assert!(std::panic::catch_unwind(|| cat.try_nsymbol(&vector, &vector, &cover.unit())).is_err());
+    assert!(std::panic::catch_unwind(|| cat.nsymbol(&vector, &vector, &cover.unit())).is_err());
 }
 
 // Product is the composition reference; hand values above independently pin the gauge.
@@ -184,8 +184,8 @@ fn compare_product(id: GroupId, roots: &[fusion_symbols::lie::RootSystem], sampl
             (cat.inv_sqrt_dim(a), product.inv_sqrt_dim(pa)),
             (cat.twist(a), product.twist(pa)),
             (
-                cat.frobenius_schur_phase(a),
-                product.frobenius_schur_phase(pa),
+                cat.frobenius_schur_phase(a).unwrap(),
+                product.frobenius_schur_phase(pa).unwrap(),
             ),
             (
                 cat.frobenius_schur_indicator(a),
@@ -195,7 +195,7 @@ fn compare_product(id: GroupId, roots: &[fusion_symbols::lie::RootSystem], sampl
             assert_eq!(got.to_bits(), want.to_bits());
         }
         assert_eq!(
-            cat.dual(a).dynkin(),
+            cat.dual(a).dynkin().collect::<Vec<_>>(),
             product
                 .dual(pa)
                 .iter()
@@ -206,9 +206,12 @@ fn compare_product(id: GroupId, roots: &[fusion_symbols::lie::RootSystem], sampl
             let fusion: Vec<_> = cat.fusion(a, b).unwrap().collect();
             assert!(fusion
                 .iter()
-                .all(|x| cat.group_id().admits(&x.dynkin(), &[])));
+                .all(|x| cat.group_id().admits(&x.dynkin().collect::<Vec<_>>(), &[])));
             assert_eq!(
-                fusion.iter().map(LieIrrep::dynkin).collect::<Vec<_>>(),
+                fusion
+                    .iter()
+                    .map(|x| x.dynkin().collect::<Vec<_>>())
+                    .collect::<Vec<_>>(),
                 product
                     .fusion(pa, pb)
                     .unwrap()
@@ -221,8 +224,8 @@ fn compare_product(id: GroupId, roots: &[fusion_symbols::lie::RootSystem], sampl
             );
             for (c, pc) in labels.iter().zip(&parts) {
                 assert_eq!(
-                    cat.try_nsymbol(a, b, c).unwrap(),
-                    product.try_nsymbol(pa, pb, pc).unwrap()
+                    cat.nsymbol(a, b, c).unwrap(),
+                    product.nsymbol(pa, pb, pc).unwrap()
                 );
                 same_block(
                     cat.r_symbol(a, b, c).unwrap(),
@@ -253,8 +256,8 @@ fn compare_product(id: GroupId, roots: &[fusion_symbols::lie::RootSystem], sampl
                         for k in 0..dc {
                             for mu in 0..n {
                                 assert_eq!(
-                                    cg.at([i, j, k, mu]).to_bits(),
-                                    pg.at([i, j, k, mu]).to_bits()
+                                    cg.get([i, j, k, mu]).to_bits(),
+                                    pg.get([i, j, k, mu]).to_bits()
                                 );
                             }
                         }
@@ -266,7 +269,7 @@ fn compare_product(id: GroupId, roots: &[fusion_symbols::lie::RootSystem], sampl
                 for d in cat.fusion(&e, a).unwrap() {
                     for f in cat.fusion(b, a).unwrap() {
                         let split = |x: &LieIrrep| {
-                            let ds = x.dynkin();
+                            let ds = x.dynkin().collect::<Vec<_>>();
                             let mut offset = 0;
                             product
                                 .factors()
@@ -331,7 +334,7 @@ fn quotient_only_restricts_objects_and_enumeration() {
     for i in 0..32 {
         let x = cover.object_at(i).unwrap();
         assert_eq!(
-            x.dynkin(),
+            x.dynkin().collect::<Vec<_>>(),
             product
                 .object_at(i)
                 .unwrap()
@@ -398,11 +401,11 @@ fn checked_composite_n_overflow_and_zero_wins() {
     // Each SU3 adjoint product contains the adjoint twice: 2^32 does not fit u32.
     let cat = LieGroup::new(GroupId::cover(&[A(2); 32], 0).unwrap()).unwrap();
     let a = label(&cat, &[1; 64]);
-    assert_eq!(cat.try_nsymbol(&a, &a, &a), Err(LieError::LabelOverflow));
+    assert_eq!(cat.nsymbol(&a, &a, &a), Err(LieError::LabelOverflow));
     let mut absent = [1; 64];
     absent[62..].copy_from_slice(&[1, 0]); // triality excludes the fundamental from 8 x 8
     let absent = label(&cat, &absent);
-    assert_eq!(cat.try_nsymbol(&a, &a, &absent), Ok(0));
+    assert_eq!(cat.nsymbol(&a, &a, &absent), Ok(0));
 }
 
 /// The feature boundary precedes any root data.

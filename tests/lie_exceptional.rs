@@ -70,7 +70,7 @@ mod g2 {
         let mut out: Vec<(u64, u32)> = g
             .fusion(a, b)
             .unwrap()
-            .map(|c| (g.dim(&c) as u64, g.nsymbol(a, b, &c)))
+            .map(|c| (g.dim(&c) as u64, g.nsymbol(a, b, &c).unwrap()))
             .collect();
         out.sort_unstable();
         out
@@ -95,8 +95,8 @@ mod g2 {
             let a = g.irrep(&label).unwrap();
             assert_eq!(a.dim_exact(), Natural::from(dim as u64), "{label:?}");
             assert_eq!(g.dim(&a), f64::from(dim));
-            assert_eq!(a.dynkin(), label);
-            assert_eq!(a.dynkin_labels().collect::<Vec<_>>(), label);
+            assert_eq!(a.dynkin().collect::<Vec<_>>(), label);
+            assert_eq!(a.dynkin().collect::<Vec<_>>(), label);
             let weights = a.weight_multiplicities();
             assert_eq!(weights.values().sum::<u64>(), dim as u64);
         }
@@ -127,17 +127,21 @@ mod g2 {
                 (189, 1)
             ]
         );
-        let labels: Vec<Vec<i64>> = g.fusion(&v, &v).unwrap().map(|c| c.dynkin()).collect();
+        let labels: Vec<Vec<i64>> = g
+            .fusion(&v, &v)
+            .unwrap()
+            .map(|c| c.dynkin().collect::<Vec<_>>())
+            .collect();
         assert_eq!(labels, [[0, 0], [0, 1], [1, 0], [2, 0]]);
         let reversed: Vec<Vec<i64>> = g
             .fusion(&v, &v)
             .unwrap()
             .rev()
-            .map(|c| c.dynkin())
+            .map(|c| c.dynkin().collect::<Vec<_>>())
             .collect();
         assert_eq!(reversed, [[2, 0], [1, 0], [0, 1], [0, 0]]);
-        assert_eq!(g.nsymbol(&v, &v, &x), 1);
-        assert_eq!(g.nsymbol(&v, &v, &l(&g, 1, 1)), 0);
+        assert_eq!(g.nsymbol(&v, &v, &x).unwrap(), 1);
+        assert_eq!(g.nsymbol(&v, &v, &l(&g, 1, 1)).unwrap(), 0);
     }
 
     /// §6.2: every G2 irrep is self-dual and real.
@@ -149,7 +153,7 @@ mod g2 {
                 let x = l(&g, a, b);
                 assert_eq!(g.dual(&x), x);
                 assert_eq!(g.frobenius_schur_indicator(&x), 1.0, "{a},{b}");
-                assert_eq!(g.frobenius_schur_phase(&x), 1.0);
+                assert_eq!(g.frobenius_schur_phase(&x).unwrap(), 1.0);
                 assert_eq!(g.twist(&x), 1.0);
             }
         }
@@ -182,7 +186,7 @@ mod g2 {
     fn f_unitarity_through_a_multiplicity_two_vertex() {
         let g = g2();
         let (v, x) = (l(&g, 1, 0), l(&g, 2, 0));
-        assert_eq!(g.nsymbol(&x, &x, &x), 2);
+        assert_eq!(g.nsymbol(&x, &x, &x).unwrap(), 2);
         assert!(timed("F", || f_unitarity_residual(&g, &v, &x, &x, &x).unwrap()) <= TOL);
     }
 
@@ -192,7 +196,7 @@ mod g2 {
     fn gates_through_a_multiplicity_two_vertex() {
         let g = g2();
         let (v, x) = (l(&g, 1, 0), l(&g, 2, 0));
-        assert_eq!(g.nsymbol(&x, &x, &x), 2);
+        assert_eq!(g.nsymbol(&x, &x, &x).unwrap(), 2);
         assert!(timed("F", || f_unitarity_residual(&g, &v, &x, &x, &x).unwrap()) <= TOL);
         assert!(timed("H", || hexagon_residual(&g, &x, &x, &v).unwrap()) <= TOL);
         assert!(timed("P", || pentagon_residual(&g, &v, &v, &x, &x).unwrap()) <= TOL);
@@ -264,13 +268,16 @@ mod g2 {
         let got: Vec<(Vec<i64>, Vec<i64>)> = cat
             .fusion(&a, &b)
             .unwrap()
-            .map(|c| (c.dynkin(), c.charges().collect()))
+            .map(|c| (c.dynkin().collect::<Vec<_>>(), c.charges().collect()))
             .collect();
         let want: Vec<(Vec<i64>, Vec<i64>)> = product
             .fusion(&pa, &pb)
             .unwrap()
             .map(|c| {
-                let dynkin = c[..2].iter().flat_map(|x| x.dynkin()).collect();
+                let dynkin = c[..2]
+                    .iter()
+                    .flat_map(|x| x.dynkin().collect::<Vec<_>>())
+                    .collect();
                 (dynkin, c[2].charges().collect())
             })
             .collect();
@@ -296,7 +303,7 @@ mod g2 {
             for n in 0..14 {
                 let s: f64 = (0..7)
                     .flat_map(|i| (0..7).map(move |j| (i, j)))
-                    .map(|(i, j)| c.at([i, j, m, 0]) * c.at([i, j, n, 0]))
+                    .map(|(i, j)| c.get([i, j, m, 0]) * c.get([i, j, n, 0]))
                     .sum();
                 assert!((s - f64::from(u8::from(m == n))).abs() <= 1e-14);
             }
@@ -350,7 +357,7 @@ mod self_dual {
         let mut out: Vec<(u32, u32)> = g
             .fusion(a, a)
             .unwrap()
-            .map(|c| (g.dim(&c) as u32, g.nsymbol(a, a, &c)))
+            .map(|c| (g.dim(&c) as u32, g.nsymbol(a, a, &c).unwrap()))
             .collect();
         out.sort_unstable();
         out
@@ -371,7 +378,7 @@ mod self_dual {
             assert_eq!(g.dim(&a), f64::from(dim));
             assert_eq!(g.dual(&a), a);
             assert_eq!(g.frobenius_schur_indicator(&a), fs, "{label:?}");
-            assert_eq!(g.frobenius_schur_phase(&a), fs, "{label:?}");
+            assert_eq!(g.frobenius_schur_phase(&a).unwrap(), fs, "{label:?}");
             assert_eq!(g.twist(&a), 1.0);
         }
     }
@@ -480,12 +487,12 @@ mod self_dual {
         let got: Vec<(Vec<i64>, Vec<i64>)> = cat
             .fusion(&a, &b)
             .unwrap()
-            .map(|c| (c.dynkin(), c.charges().collect()))
+            .map(|c| (c.dynkin().collect::<Vec<_>>(), c.charges().collect()))
             .collect();
         let want: Vec<(Vec<i64>, Vec<i64>)> = product
             .fusion(&pa, &pb)
             .unwrap()
-            .map(|c| (c[0].dynkin(), c[1].charges().collect()))
+            .map(|c| (c[0].dynkin().collect::<Vec<_>>(), c[1].charges().collect()))
             .collect();
         assert_eq!(got, want);
         assert_eq!(got.len(), 5);
@@ -508,7 +515,7 @@ mod self_dual {
             for n in 0..52 {
                 let s: f64 = (0..26)
                     .flat_map(|i| (0..26).map(move |j| (i, j)))
-                    .map(|(i, j)| c.at([i, j, m, 0]) * c.at([i, j, n, 0]))
+                    .map(|(i, j)| c.get([i, j, m, 0]) * c.get([i, j, n, 0]))
                     .sum();
                 assert!((s - f64::from(u8::from(m == n))).abs() <= 1e-13);
             }
@@ -579,7 +586,12 @@ mod e6 {
         let (a, b) = (l(g, a), l(g, b));
         g.fusion(&a, &b)
             .unwrap()
-            .map(|c| (c.dynkin(), g.nsymbol(&a, &b, &c)))
+            .map(|c| {
+                (
+                    c.dynkin().collect::<Vec<_>>(),
+                    g.nsymbol(&a, &b, &c).unwrap(),
+                )
+            })
             .collect()
     }
 
@@ -620,9 +632,9 @@ mod e6 {
         assert_eq!(sorted(channels(&g, V27, V27B)), want(&[ONE, ADJ, V650]));
         assert_eq!(sorted(channels(&g, V27, ADJ)), want(&[V27, V351B, V1728]));
         let (v, w) = (l(&g, V27), l(&g, V27B));
-        assert_eq!(g.nsymbol(&v, &v, &w), 1);
-        assert_eq!(g.nsymbol(&v, &v, &v), 0);
-        assert_eq!(g.nsymbol(&v, &w, &g.unit()), 1);
+        assert_eq!(g.nsymbol(&v, &v, &w).unwrap(), 1);
+        assert_eq!(g.nsymbol(&v, &v, &v).unwrap(), 0);
+        assert_eq!(g.nsymbol(&v, &w, &g.unit()).unwrap(), 1);
     }
 
     /// §6.2–§6.3: the indicator is 0 on complex irreps and `+1` on self-dual
@@ -638,7 +650,7 @@ mod e6 {
             assert_eq!(g.frobenius_schur_indicator(&a), indicator, "{label:?}");
             // 7371's first phase query is `first_phase_query_report`'s (17 s release).
             if dim != 7371 {
-                assert_eq!(g.frobenius_schur_phase(&a), 1.0, "{label:?}");
+                assert_eq!(g.frobenius_schur_phase(&a).unwrap(), 1.0, "{label:?}");
             }
         }
     }
@@ -654,7 +666,11 @@ mod e6 {
             let f = g.f_symbol(&a, &dual, &a, &a, &one, &one).unwrap();
             let x = f.as_slice()[0] * g.dim(&a);
             assert!((x.abs() - 1.0).abs() <= 1e-12, "{label:?}: |d F| = {x}");
-            assert_eq!(x.signum(), g.frobenius_schur_phase(&a), "{label:?}");
+            assert_eq!(
+                x.signum(),
+                g.frobenius_schur_phase(&a).unwrap(),
+                "{label:?}"
+            );
         }
     }
 
@@ -677,7 +693,7 @@ mod e6 {
         ));
         let big = l(&g, [15, 0, 0, 0, 0, 15]);
         assert_eq!(big.dim_exact(), Natural::from(212_360_413_913_278_488u64));
-        assert_eq!(g.frobenius_schur_phase(&big), 1.0);
+        assert_eq!(g.frobenius_schur_phase(&big).unwrap(), 1.0);
     }
 
     fn timed(gate: &str, run: impl FnOnce() -> f64) -> f64 {
@@ -743,12 +759,12 @@ mod e6 {
         let got: Vec<(Vec<i64>, Vec<i64>)> = cat
             .fusion(&a, &b)
             .unwrap()
-            .map(|c| (c.dynkin(), c.charges().collect()))
+            .map(|c| (c.dynkin().collect::<Vec<_>>(), c.charges().collect()))
             .collect();
         let want: Vec<(Vec<i64>, Vec<i64>)> = product
             .fusion(&pa, &pb)
             .unwrap()
-            .map(|c| (c[0].dynkin(), c[1].charges().collect()))
+            .map(|c| (c[0].dynkin().collect::<Vec<_>>(), c[1].charges().collect()))
             .collect();
         assert_eq!(got, want);
         assert_eq!(got.len(), 3);
@@ -758,8 +774,8 @@ mod e6 {
             bits(product.f_symbol(&pa, &pb, &pa, &pa, &pe, &pe).unwrap())
         );
         assert_eq!(
-            cat.frobenius_schur_phase(&a),
-            product.frobenius_schur_phase(&pa)
+            cat.frobenius_schur_phase(&a).unwrap(),
+            product.frobenius_schur_phase(&pa).unwrap()
         );
     }
 
@@ -771,10 +787,10 @@ mod e6 {
             let g = e6();
             let a = l(&g, label);
             let t = Instant::now();
-            let kappa = g.frobenius_schur_phase(&a);
+            let kappa = g.frobenius_schur_phase(&a).unwrap();
             let first = t.elapsed();
             let t = Instant::now();
-            assert_eq!(g.frobenius_schur_phase(&g.dual(&a)), kappa);
+            assert_eq!(g.frobenius_schur_phase(&g.dual(&a)).unwrap(), kappa);
             assert_eq!(kappa, 1.0);
             println!(
                 "E6 {}: κ = {kappa}, first query {first:?}, dual query {:?}",

@@ -5,19 +5,16 @@
 //! `dm = 2m` as `i32`. So `2` is spin 1 and `1` is spin 1/2; every label stays
 //! an exact integer and every admissibility rule is integer arithmetic.
 //!
-//! # Two surfaces: infallible and checked
+//! # Exact zero for forbidden couplings
 //!
-//! The infallible functions ([`wigner_3j`], [`wigner_6j`], [`clebsch_gordan`]) return the exact zero value for a
-//! non-admissible label combination — never an error, never a panic — matching
-//! the reference-crate semantics. Values are computed as big-rational Racah
-//! sums and carried as [`SignedSqrtRational`] until a single final rounding to
-//! `f64`.
-//!
-//! The `*_checked` twins ([`wigner_3j_checked`] &c.) instead return
-//! `Err(`[`Su2Error::NotAdmissible`]`)` for a forbidden label set, so an
-//! *accidental* zero of an admissible coupling (`Ok(0)`) is finally
-//! distinguishable from a forbidden one. Both paths share one admissibility
-//! predicate and can never disagree.
+//! [`wigner_3j`], [`wigner_6j`] and [`clebsch_gordan`] return the exact zero
+//! value for a non-admissible label combination — never an error, never a
+//! panic, at every `u32`/`i32` input — matching the reference-crate semantics.
+//! Values are computed as big-rational Racah sums and carried as
+//! [`SignedSqrtRational`] until a single final rounding to `f64`. A forbidden
+//! coupling and an accidental zero of an admissible one both read as zero;
+//! the triangle, projection-range, parity and projection-sum rules are the
+//! ones documented on each function.
 //!
 //! See the [User Guide] for the task-oriented version of all of this.
 //!
@@ -49,43 +46,11 @@ fn delta_sq_pf(a: u32, b: u32, c: u32) -> (Pf, Pf) {
 /// `|a-b| <= c <= a+b` and `a+b+c` even.
 ///
 /// This is *the* triangle predicate: every admissibility rule in the crate
-/// (the infallible 3j/6j engines, the Regge canonicalizers, and the checked
-/// surface via [`check_triangle`]) reduces its triangle conditions to this one
-/// function, so the checked and unchecked paths cannot disagree.
+/// (the 3j/6j engines and the Regge canonicalizers) reduces its triangle
+/// conditions to this one function.
 pub(super) fn triangle_ok(a: u32, b: u32, c: u32) -> bool {
     let (a, b, c) = (a as i64, b as i64, c as i64);
     (a + b + c) % 2 == 0 && c >= (a - b).abs() && c <= a + b
-}
-
-/// Typed wrapper over [`triangle_ok`] for the checked surface: `Ok(())` when the
-/// triple is admissible, else the specific [`AdmissibilityViolation::Triangle`].
-/// Routes through the same [`triangle_ok`] the infallible engines use, so the
-/// admissibility logic is shared rather than duplicated.
-fn check_triangle(a: u32, b: u32, c: u32) -> Result<(), AdmissibilityViolation> {
-    if triangle_ok(a, b, c) {
-        Ok(())
-    } else {
-        Err(AdmissibilityViolation::Triangle { a, b, c })
-    }
-}
-
-/// The four triangle couplings a 6j `{dj1 dj2 dj3; dj4 dj5 dj6}` must satisfy,
-/// as the typed shared predicate for the checked surface. Mirrors exactly the
-/// set gated by [`wigner_6j_uncached`] and [`canonical_regge_6j`], each atom
-/// delegating to [`triangle_ok`].
-fn check_6j_admissible(
-    dj1: u32,
-    dj2: u32,
-    dj3: u32,
-    dj4: u32,
-    dj5: u32,
-    dj6: u32,
-) -> Result<(), AdmissibilityViolation> {
-    check_triangle(dj1, dj2, dj3)?;
-    check_triangle(dj1, dj5, dj6)?;
-    check_triangle(dj4, dj2, dj6)?;
-    check_triangle(dj4, dj5, dj3)?;
-    Ok(())
 }
 
 /// Wigner 6j symbol $\{dj_1\, dj_2\, dj_3;\, dj_4\, dj_5\, dj_6\}$ (doubled spins).
@@ -214,6 +179,20 @@ fn wigner_6j_uncached(
 /// phase moves between it and this input's value. A label too large to key or
 /// non-admissible falls through to the uncached engine.
 pub fn wigner_3j(dj1: u32, dj2: u32, dj3: u32, dm1: i32, dm2: i32, dm3: i32) -> SignedSqrtRational {
+    wigner_3j_wide(dj1, dj2, dj3, dm1.into(), dm2.into(), dm3.into())
+}
+
+/// [`wigner_3j`] with projections in `i64`, so that a transformed projection
+/// such as the CG's `-dm3` stays exact; admissibility bounds every projection
+/// of a nonzero symbol by its `u32` spin.
+fn wigner_3j_wide(
+    dj1: u32,
+    dj2: u32,
+    dj3: u32,
+    dm1: i64,
+    dm2: i64,
+    dm3: i64,
+) -> SignedSqrtRational {
     match canonical_regge_3j(dj1, dj2, dj3, dm1, dm2, dm3) {
         Ok((key, phase)) => {
             // Stored value is the representative's: value(rep) = phase.apply(value(input)).
@@ -232,16 +211,16 @@ fn wigner_3j_uncached(
     dj1: u32,
     dj2: u32,
     dj3: u32,
-    dm1: i32,
-    dm2: i32,
-    dm3: i32,
+    dm1: i64,
+    dm2: i64,
+    dm3: i64,
 ) -> SignedSqrtRational {
     if !admissible_3j(dj1, dj2, dj3, dm1, dm2, dm3) {
         return SignedSqrtRational::zero();
     }
 
     let (j1, j2, j3) = (dj1 as i64, dj2 as i64, dj3 as i64);
-    let (m1, m2, m3) = (dm1 as i64, dm2 as i64, dm3 as i64);
+    let (m1, m2, m3) = (dm1, dm2, dm3);
 
     // Radical: Delta^2(j1,j2,j3) * prod_i (j_i+m_i)! (j_i-m_i)!, all halved,
     // assembled in exponent space. splitsquare separates the perfect-square
@@ -309,8 +288,7 @@ fn wigner_3j_uncached(
 ///
 /// Argument order interleaves each factor with its projection:
 /// `(dj1, dm1, dj2, dm2, dj3, dm3)`, all doubled. Returns exact zero for a
-/// non-admissible coupling; see [`clebsch_gordan_checked`] to distinguish that
-/// from an accidental zero.
+/// non-admissible coupling, including `dm1 + dm2 ≠ dm3`.
 ///
 /// ```
 /// use fusion_symbols::lie::su2::clebsch_gordan;
@@ -327,12 +305,14 @@ pub fn clebsch_gordan(
     dj3: u32,
     dm3: i32,
 ) -> SignedSqrtRational {
-    let w3 = wigner_3j(dj1, dj2, dj3, dm1, dm2, -dm3);
+    // `-dm3` is formed in i64: negating `i32::MIN` is a valid projection, not
+    // an inadmissible one.
+    let w3 = wigner_3j_wide(dj1, dj2, dj3, dm1.into(), dm2.into(), -i64::from(dm3));
     if w3.sign() == 0 {
         return SignedSqrtRational::zero();
     }
     // sqrt(2 j3 + 1) folds into the radicand; the CS phase folds into the sign.
-    let cg = w3.times_sqrt_int((dj3 + 1) as u64);
+    let cg = w3.times_sqrt_int(u64::from(dj3) + 1);
     if phase_is_negative(((dj2 as i64) - (dj1 as i64) - (dm3 as i64)) / 2) {
         cg.neg_value()
     } else {
@@ -493,42 +473,16 @@ pub(crate) fn f_symbol(
     }
 }
 
-/// Typed 3j admissibility predicate — the single source of truth shared by the
-/// infallible engine ([`wigner_3j_uncached`] via [`admissible_3j`]) and the
-/// checked surface ([`wigner_3j_checked`], [`clebsch_gordan_checked`]). Keeping
-/// one predicate means the two paths can never drift: weakening it fails both an
-/// unchecked oracle test (a forbidden tuple stops returning zero) and a checked
-/// guard test (it stops returning `NotAdmissible`).
-///
-/// Returns the first violated rule as an [`AdmissibilityViolation`]; the order
-/// (m-sum, then per-column projection, then triangle) is an implementation
-/// detail callers must not depend on.
-fn check_3j_admissible(
-    dj1: u32,
-    dj2: u32,
-    dj3: u32,
-    dm1: i32,
-    dm2: i32,
-    dm3: i32,
-) -> Result<(), AdmissibilityViolation> {
-    if dm1 + dm2 + dm3 != 0 {
-        return Err(AdmissibilityViolation::ProjectionSum { dm1, dm2, dm3 });
-    }
-    for (dj, dm) in [(dj1, dm1), (dj2, dm2), (dj3, dm3)] {
-        let dji = dj as i64;
-        let dmi = dm as i64;
-        if dmi.abs() > dji || (dji + dmi) % 2 != 0 {
-            return Err(AdmissibilityViolation::Projection { dj, dm });
-        }
-    }
-    check_triangle(dj1, dj2, dj3)
-}
-
-/// Boolean 3j admissibility, byte-identical to the pre-checked-surface behavior
-/// the infallible engine relies on. Thin `.is_ok()` wrapper over the typed
-/// predicate so both share one implementation.
-fn admissible_3j(dj1: u32, dj2: u32, dj3: u32, dm1: i32, dm2: i32, dm3: i32) -> bool {
-    check_3j_admissible(dj1, dj2, dj3, dm1, dm2, dm3).is_ok()
+/// 3j admissibility: projections sum to zero, each `|dm| <= dj` with
+/// `dj + dm` even, and the spin triangle. The single predicate behind the 3j
+/// engine, its Regge canonicalizer and [`clebsch_gordan`]. Projections are
+/// `i64`, so every sum of `i32`-derived inputs is exact.
+fn admissible_3j(dj1: u32, dj2: u32, dj3: u32, dm1: i64, dm2: i64, dm3: i64) -> bool {
+    dm1 + dm2 + dm3 == 0
+        && [(dj1, dm1), (dj2, dm2), (dj3, dm3)]
+            .into_iter()
+            .all(|(dj, dm)| dm.abs() <= i64::from(dj) && (i64::from(dj) + dm) % 2 == 0)
+        && triangle_ok(dj1, dj2, dj3)
 }
 
 /// $(-1)^p < 0$, i.e. `p` odd.
@@ -820,18 +774,15 @@ pub(crate) fn canonical_regge_3j(
     dj1: u32,
     dj2: u32,
     dj3: u32,
-    dm1: i32,
-    dm2: i32,
-    dm3: i32,
+    dm1: i64,
+    dm2: i64,
+    dm3: i64,
 ) -> Result<(Regge3j, ReggePhase), ReggeError> {
     if !admissible_3j(dj1, dj2, dj3, dm1, dm2, dm3) {
         return Err(ReggeError::NonAdmissible);
     }
 
-    let (dj, dm, sign) = canonicalize3j(
-        [dj1 as i64, dj2 as i64, dj3 as i64],
-        [dm1 as i64, dm2 as i64, dm3 as i64],
-    );
+    let (dj, dm, sign) = canonicalize3j([dj1 as i64, dj2 as i64, dj3 as i64], [dm1, dm2, dm3]);
 
     // dj values only reorder under canonicalization, but widen with the same
     // checked u16 discipline as Regge6j. dm is bounded by dj (admissibility), so
@@ -852,18 +803,6 @@ pub(crate) fn canonical_regge_3j(
     };
     Ok((Regge3j { dj: dju, dm: dmi }, phase))
 }
-
-// ---------------------------------------------------------------------------
-// Checked SU(2) representation surface.
-//
-// Additive layer over the infallible functions above. The infallible functions
-// keep their zero convention unchanged (an inadmissible tuple returns exact
-// zero); the checked layer instead returns a typed [`Su2Error`], so a consumer
-// can finally distinguish a *structurally forbidden* coupling (`NotAdmissible`)
-// from an *accidental* zero of an admissible coupling (`Ok(zero)` — these exist
-// for 6j). Every checked function shares its admissibility predicate with the
-// infallible path (`check_triangle` / `check_3j_admissible`), never a copy.
-// ---------------------------------------------------------------------------
 
 /// An SU(2) irreducible representation, labeled by its doubled spin `dj = 2j`.
 ///
@@ -914,24 +853,21 @@ impl A1Irrep {
     /// Fusion decomposition `self ⊗ other`: the irreps `dj` in
     /// `|dj1 − dj2| ..= dj1 + dj2` in steps of 2 (each with multiplicity one).
     ///
-    /// Returns [`Su2Error::LabelOverflow`] when `dj1 + dj2` exceeds `u32`; the
-    /// returned [`A1Fusion`] is an allocation-free
+    /// Returns [`super::LieError::LabelOverflow`] when `dj1 + dj2` exceeds
+    /// `u32` or the channel count is unrepresentable; the returned
+    /// [`A1Fusion`] is an allocation-free
     /// [`ExactSizeIterator`]/[`DoubleEndedIterator`].
     ///
-    pub fn fusion(self, other: Self) -> Result<A1Fusion, Su2Error> {
-        let hi = self.0.checked_add(other.0).ok_or(Su2Error::LabelOverflow {
-            left: self.0,
-            right: other.0,
-        })?;
+    pub fn fusion(self, other: Self) -> Result<A1Fusion, super::LieError> {
+        let hi = self
+            .0
+            .checked_add(other.0)
+            .ok_or(super::LieError::LabelOverflow)?;
         let lo = self.0.abs_diff(other.0);
         // lo and hi always share parity (both congruent to dj1+dj2 mod 2), so
         // the half-open count is exact and the last step lands on hi.
-        let remaining = super::checked_dimension((hi - lo) / 2)
-            .and_then(|n| super::checked_count(n, 1))
-            .map_err(|_| Su2Error::LabelOverflow {
-                left: self.0,
-                right: other.0,
-            })?;
+        let remaining =
+            super::checked_dimension((hi - lo) / 2).and_then(|n| super::checked_count(n, 1))?;
         Ok(A1Fusion {
             front: lo,
             back: hi,
@@ -992,192 +928,6 @@ impl DoubleEndedIterator for A1Fusion {
 }
 
 impl ExactSizeIterator for A1Fusion {}
-
-/// The specific SU(2) admissibility rule a checked request violated.
-///
-/// Carried inside [`Su2Error::NotAdmissible`]. Marked `#[non_exhaustive]` so the
-/// checked layer can refine how it decomposes admissibility (adding a distinct
-/// reason) without that being a breaking change.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum AdmissibilityViolation {
-    /// The doubled-spin triple `(a, b, c)` fails the triangle condition
-    /// `|a − b| ≤ c ≤ a + b` with even perimeter `a + b + c`.
-    Triangle {
-        /// First doubled spin of the coupling.
-        a: u32,
-        /// Second doubled spin of the coupling.
-        b: u32,
-        /// Third doubled spin of the coupling.
-        c: u32,
-    },
-    /// A 3j column violates its projection constraint: either `|dm| > dj`, or
-    /// `dj + dm` is odd (projection off the spin's `m`-ladder).
-    Projection {
-        /// Doubled spin of the offending column.
-        dj: u32,
-        /// Doubled projection of the offending column.
-        dm: i32,
-    },
-    /// The 3j projections do not sum to zero (`dm1 + dm2 + dm3 ≠ 0`).
-    ProjectionSum {
-        /// First doubled projection.
-        dm1: i32,
-        /// Second doubled projection.
-        dm2: i32,
-        /// Third doubled projection.
-        dm3: i32,
-    },
-}
-
-impl std::fmt::Display for AdmissibilityViolation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AdmissibilityViolation::Triangle { a, b, c } => write!(
-                f,
-                "doubled-spin triple ({a}, {b}, {c}) violates the triangle condition"
-            ),
-            AdmissibilityViolation::Projection { dj, dm } => write!(
-                f,
-                "doubled projection {dm} is not on the ladder of doubled spin {dj}"
-            ),
-            AdmissibilityViolation::ProjectionSum { dm1, dm2, dm3 } => write!(
-                f,
-                "doubled projections {dm1} + {dm2} + {dm3} do not sum to zero"
-            ),
-        }
-    }
-}
-
-/// Error from a checked SU(2) representation or coefficient request.
-///
-/// Admissibility rule details live in the [`AdmissibilityViolation`] payload.
-/// Matches must include a fallback arm for future error cases.
-///
-/// * [`LabelOverflow`](Su2Error::LabelOverflow) — a doubled-spin label would
-///   exceed the `u32` label space (the private rank-one fusion iterator uses it).
-/// * [`NotAdmissible`](Su2Error::NotAdmissible) — the request is structurally
-///   forbidden. Distinct from an admissible request whose coefficient is an
-///   accidental zero, which the checked functions return as `Ok(zero)`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Su2Error {
-    /// The sum of two doubled spins overflows `u32`.
-    LabelOverflow {
-        /// Left doubled spin `dj1`.
-        left: u32,
-        /// Right doubled spin `dj2`.
-        right: u32,
-    },
-    /// The requested coupling is not admissible; the payload names the rule.
-    NotAdmissible(AdmissibilityViolation),
-}
-
-impl std::fmt::Display for Su2Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Su2Error::LabelOverflow { left, right } => write!(
-                f,
-                "doubled spins {left} + {right} overflow the u32 label space"
-            ),
-            Su2Error::NotAdmissible(v) => write!(f, "inadmissible SU(2) coupling: {v}"),
-        }
-    }
-}
-
-impl std::error::Error for Su2Error {}
-
-/// Checked [`wigner_6j`]: `Ok(value)` for an admissible label set (the value may
-/// be an accidental zero), else [`Su2Error::NotAdmissible`].
-///
-/// ```
-/// use fusion_symbols::lie::su2::{wigner_6j_checked, Su2Error};
-///
-/// assert!(wigner_6j_checked(2, 2, 2, 2, 2, 2).is_ok());
-/// assert!(matches!(
-///     wigner_6j_checked(2, 2, 20, 2, 2, 2),
-///     Err(Su2Error::NotAdmissible(_))
-/// ));
-/// ```
-///
-/// Admissibility is the same four-triangle predicate the infallible engine
-/// gates on (`check_6j_admissible`); on success the value is delegated to
-/// [`wigner_6j`] unchanged.
-pub fn wigner_6j_checked(
-    dj1: u32,
-    dj2: u32,
-    dj3: u32,
-    dj4: u32,
-    dj5: u32,
-    dj6: u32,
-) -> Result<SignedSqrtRational, Su2Error> {
-    check_6j_admissible(dj1, dj2, dj3, dj4, dj5, dj6).map_err(Su2Error::NotAdmissible)?;
-    Ok(wigner_6j(dj1, dj2, dj3, dj4, dj5, dj6))
-}
-
-/// Checked [`wigner_3j`]: `Ok(value)` for an admissible label set, else
-/// [`Su2Error::NotAdmissible`] naming the violated rule (m-sum, projection, or
-/// triangle). Shares `check_3j_admissible` with the infallible engine.
-pub fn wigner_3j_checked(
-    dj1: u32,
-    dj2: u32,
-    dj3: u32,
-    dm1: i32,
-    dm2: i32,
-    dm3: i32,
-) -> Result<SignedSqrtRational, Su2Error> {
-    check_3j_admissible(dj1, dj2, dj3, dm1, dm2, dm3).map_err(Su2Error::NotAdmissible)?;
-    Ok(wigner_3j(dj1, dj2, dj3, dm1, dm2, dm3))
-}
-
-/// Checked [`clebsch_gordan`]: `Ok(value)` for an admissible coupling, else
-/// [`Su2Error::NotAdmissible`].
-///
-/// The CG coefficient is composed from the 3j `(dj1 dj2 dj3; dm1 dm2 -dm3)`, so
-/// admissibility is exactly that 3j's — checked through the shared
-/// `check_3j_admissible` with `dm3` negated.
-pub fn clebsch_gordan_checked(
-    dj1: u32,
-    dm1: i32,
-    dj2: u32,
-    dm2: i32,
-    dj3: u32,
-    dm3: i32,
-) -> Result<SignedSqrtRational, Su2Error> {
-    check_3j_admissible(dj1, dj2, dj3, dm1, dm2, -dm3).map_err(Su2Error::NotAdmissible)?;
-    Ok(clebsch_gordan(dj1, dm1, dj2, dm2, dj3, dm3))
-}
-
-/// Checked [`f_symbol`]: `Ok(value)` for an admissible F-symbol, else
-/// [`Su2Error::NotAdmissible`].
-///
-/// The F-symbol evaluates the 6j `{dj1 dj2 dj5; dj3 dj4 dj6}`, so its
-/// admissibility is that 6j's four triangles — checked through the shared
-/// `check_6j_admissible` with the F-symbol's argument order.
-#[cfg(test)]
-fn f_symbol_checked(
-    dj1: u32,
-    dj2: u32,
-    dj3: u32,
-    dj4: u32,
-    dj5: u32,
-    dj6: u32,
-) -> Result<f64, Su2Error> {
-    check_6j_admissible(dj1, dj2, dj5, dj3, dj4, dj6).map_err(Su2Error::NotAdmissible)?;
-    Ok(f_symbol(dj1, dj2, dj3, dj4, dj5, dj6).expect("|F| <= 1 is finite"))
-}
-
-/// Checked [`r_symbol`]: `Ok(±1.0)` on an admissible fusion triangle, else
-/// [`Su2Error::NotAdmissible`]. Shares `check_triangle` with the infallible
-/// path.
-///
-/// (Frobenius–Schur has no checked counterpart: [`fs_phase`] is
-/// total — every `u32` doubled spin is a valid irrep — so it can never fail.)
-#[cfg(test)]
-fn r_symbol_checked(dj1: u32, dj2: u32, dj3: u32) -> Result<f64, Su2Error> {
-    check_triangle(dj1, dj2, dj3).map_err(Su2Error::NotAdmissible)?;
-    Ok(r_symbol(dj1, dj2, dj3))
-}
 
 #[cfg(test)]
 mod tests {
@@ -1335,8 +1085,15 @@ mod tests {
         let mut rep_value = None;
         let mut saw_negative_phase = false;
         for (pj, pm) in orbit_images(dj, dm) {
-            let (key, phase) =
-                canonical_regge_3j(pj[0], pj[1], pj[2], pm[0], pm[1], pm[2]).unwrap();
+            let (key, phase) = canonical_regge_3j(
+                pj[0],
+                pj[1],
+                pj[2],
+                pm[0].into(),
+                pm[1].into(),
+                pm[2].into(),
+            )
+            .unwrap();
             // All 12 images share the canonical key.
             match key0 {
                 None => key0 = Some(key),
@@ -1371,7 +1128,15 @@ mod tests {
         let dj = [2u32, 2, 4];
         let dm = [2i32, -2, 0];
         for (pj, pm) in orbit_images(dj, dm) {
-            let (_, phase) = canonical_regge_3j(pj[0], pj[1], pj[2], pm[0], pm[1], pm[2]).unwrap();
+            let (_, phase) = canonical_regge_3j(
+                pj[0],
+                pj[1],
+                pj[2],
+                pm[0].into(),
+                pm[1].into(),
+                pm[2].into(),
+            )
+            .unwrap();
             assert_eq!(phase, ReggePhase::Plus, "even-J phase must be Plus");
         }
     }
@@ -1407,7 +1172,14 @@ mod tests {
                     for dm1 in -4..=4i32 {
                         for dm2 in -4..=4i32 {
                             for dm3 in -4..=4i32 {
-                                let raw = wigner_3j_uncached(dj1, dj2, dj3, dm1, dm2, dm3);
+                                let raw = wigner_3j_uncached(
+                                    dj1,
+                                    dj2,
+                                    dj3,
+                                    dm1.into(),
+                                    dm2.into(),
+                                    dm3.into(),
+                                );
                                 let ctx = (dj1, dj2, dj3, dm1, dm2, dm3);
                                 assert_eq!(
                                     wigner_3j(dj1, dj2, dj3, dm1, dm2, dm3),
@@ -1670,10 +1442,7 @@ mod checked_tests {
         let a = A1Irrep::new(u32::MAX);
         assert!(matches!(
             a.fusion(A1Irrep::new(1)),
-            Err(Su2Error::LabelOverflow {
-                left: u32::MAX,
-                right: 1,
-            })
+            Err(super::super::LieError::LabelOverflow)
         ));
         // Exactly on the boundary is fine (sum == u32::MAX).
         assert!(A1Irrep::new(u32::MAX - 1).fusion(A1Irrep::new(1)).is_ok());
@@ -1722,202 +1491,145 @@ mod checked_tests {
         assert_eq!(got, vec![0, 2, 4]);
     }
 
-    // -- Guard inventory: one red-first typed-error test per rule ------------
+    // -- Guard inventory: each admissibility rule yields exact zero ---------
+
+    fn zero() -> SignedSqrtRational {
+        SignedSqrtRational::zero()
+    }
 
     #[test]
     fn guard_6j_triangle() {
         // (1,2,3) triangle inequality violated: dj3 = 20 with dj1=dj2=2.
-        assert_eq!(
-            wigner_6j_checked(2, 2, 20, 2, 2, 2),
-            Err(Su2Error::NotAdmissible(AdmissibilityViolation::Triangle {
-                a: 2,
-                b: 2,
-                c: 20,
-            }))
-        );
-        // A different triangle of the four: (4,2,6) = (7,3,2) parity/inequality.
-        assert!(matches!(
-            wigner_6j_checked(2, 3, 3, 7, 2, 100),
-            Err(Su2Error::NotAdmissible(
-                AdmissibilityViolation::Triangle { .. }
-            ))
-        ));
+        assert_eq!(wigner_6j(2, 2, 20, 2, 2, 2), zero());
+        // A different triangle of the four: (4,2,6) = (7,3,100) inequality.
+        assert_eq!(wigner_6j(2, 3, 3, 7, 2, 100), zero());
+        // A triangle-violating near-max 6j is zero cheaply (the predicate
+        // widens to i64), never overflowing or summing a huge series.
+        assert_eq!(wigner_6j(u32::MAX, 2, 0, 2, 2, 2), zero());
     }
 
     #[test]
     fn guard_3j_projection_sum() {
-        assert_eq!(
-            wigner_3j_checked(2, 2, 2, 2, 2, 2),
-            Err(Su2Error::NotAdmissible(
-                AdmissibilityViolation::ProjectionSum {
-                    dm1: 2,
-                    dm2: 2,
-                    dm3: 2,
-                }
-            ))
-        );
+        assert_eq!(wigner_3j(2, 2, 2, 2, 2, 2), zero());
+        // The sum i32::MAX + 1 overflows i32; it is still a nonzero sum.
+        assert_eq!(wigner_3j(0, 0, 0, i32::MAX, 1, 0), zero());
+        assert_eq!(wigner_3j(0, 0, 0, i32::MIN, -1, 0), zero());
     }
 
     #[test]
     fn guard_3j_projection_out_of_range() {
         // |dm1| = 4 > dj1 = 2 (m-sum still zero, so this rule is what fails).
-        assert_eq!(
-            wigner_3j_checked(2, 2, 2, 4, -2, -2),
-            Err(Su2Error::NotAdmissible(
-                AdmissibilityViolation::Projection { dj: 2, dm: 4 }
-            ))
-        );
+        assert_eq!(wigner_3j(2, 2, 2, 4, -2, -2), zero());
     }
 
     #[test]
     fn guard_3j_projection_parity() {
         // dj1 + dm1 = 2 + 1 = 3 is odd: projection off the ladder (m-sum zero).
-        assert_eq!(
-            wigner_3j_checked(2, 2, 2, 1, 1, -2),
-            Err(Su2Error::NotAdmissible(
-                AdmissibilityViolation::Projection { dj: 2, dm: 1 }
-            ))
-        );
+        assert_eq!(wigner_3j(2, 2, 2, 1, 1, -2), zero());
     }
 
     #[test]
     fn guard_3j_triangle() {
         // Projections all admissible (dm = 0 everywhere, even dj) and sum to
         // zero, but (2,2,8) fails the triangle inequality (8 > 2+2).
-        assert_eq!(
-            wigner_3j_checked(2, 2, 8, 0, 0, 0),
-            Err(Su2Error::NotAdmissible(AdmissibilityViolation::Triangle {
-                a: 2,
-                b: 2,
-                c: 8,
-            }))
-        );
+        assert_eq!(wigner_3j(2, 2, 8, 0, 0, 0), zero());
     }
 
     #[test]
     fn guard_cg_inadmissible() {
         // CG couples via the 3j (dj1 dj2 dj3; dm1 dm2 -dm3); m1+m2-m3 != 0.
-        assert!(matches!(
-            clebsch_gordan_checked(2, 2, 2, 2, 2, 0),
-            Err(Su2Error::NotAdmissible(
-                AdmissibilityViolation::ProjectionSum { .. }
-            ))
-        ));
+        assert_eq!(clebsch_gordan(2, 2, 2, 2, 2, 0), zero());
+        // -i32::MIN is not an i32; the coupling 0 + 0 -> (dj3 = 0, dm3 = i32::MIN)
+        // is forbidden by |dm3| > dj3 and by the projection sum.
+        assert_eq!(clebsch_gordan(0, 0, 0, 0, 0, i32::MIN), zero());
+    }
+
+    #[test]
+    fn cg_projection_beyond_i32_is_admissible_not_zeroed() {
+        // CG(J, i32::MIN, 0, 0, J, i32::MIN) with J = 2^31 is the stretched
+        // coupling m₁ = -j, j₂ = 0. Its 3j has projection -dm3 = 2^31, which
+        // i32 cannot hold; that is not inadmissibility. The key overflows u16
+        // instead (the value itself needs factorials of 2^31).
+        let j = 1u32 << 31;
+        let wide = [i64::from(i32::MIN), 0, -i64::from(i32::MIN)];
+        assert!(admissible_3j(j, 0, j, wide[0], wide[1], wide[2]));
+        assert_eq!(
+            canonical_regge_3j(j, 0, j, wide[0], wide[1], wide[2]),
+            Err(ReggeError::Overflow)
+        );
     }
 
     #[test]
     fn guard_f_symbol_triangle() {
         // F evaluates 6j {dj1 dj2 dj5 / dj3 dj4 dj6} = {1/2 1/2 1/2 / ...};
         // (1,1,1) parity-forbidden.
-        assert!(matches!(
-            f_symbol_checked(1, 1, 1, 1, 1, 1),
-            Err(Su2Error::NotAdmissible(
-                AdmissibilityViolation::Triangle { .. }
-            ))
-        ));
+        assert_eq!(f_symbol(1, 1, 1, 1, 1, 1), Ok(0.0));
     }
 
     #[test]
     fn guard_r_symbol_triangle() {
-        assert_eq!(
-            r_symbol_checked(1, 1, 1),
-            Err(Su2Error::NotAdmissible(AdmissibilityViolation::Triangle {
-                a: 1,
-                b: 1,
-                c: 1,
-            }))
-        );
-        assert_eq!(r_symbol_checked(1, 1, 2), Ok(1.0));
+        assert_eq!(r_symbol(1, 1, 1), 0.0);
+        assert_eq!(r_symbol(1, 1, 2), 1.0);
     }
 
-    #[test]
-    fn checked_value_near_u32_max_is_not_admissible_without_overflow() {
-        // A triangle-violating near-max 6j must return NotAdmissible cheaply
-        // (the predicate widens to i64), never overflow or hang.
-        assert!(matches!(
-            wigner_6j_checked(u32::MAX, 2, 0, 2, 2, 2),
-            Err(Su2Error::NotAdmissible(_))
-        ));
-    }
-
-    // -- Accidental zero vs structural forbiddance --------------------------
+    // -- Accidental zero of an admissible coupling ---------------------------
 
     #[test]
-    fn admissible_but_zero_6j_is_ok_not_err() {
+    fn admissible_but_zero_6j_is_exact_zero() {
         // {2 3 3; 7 6 6} passes all four triangles yet the 6j is exactly zero
-        // (an accidental zero). The checked layer must report Ok(zero), NOT
-        // NotAdmissible — the distinction that motivates the checked surface.
-        let v = wigner_6j_checked(2, 3, 3, 7, 6, 6).expect("admissible tuple");
-        assert_eq!(v, SignedSqrtRational::zero());
-        assert_eq!(wigner_6j(2, 3, 3, 7, 6, 6), SignedSqrtRational::zero());
+        // (an accidental zero), the same value as a forbidden coupling.
+        assert!(triangle_ok(2, 3, 3) && triangle_ok(2, 6, 6));
+        assert!(triangle_ok(7, 3, 6) && triangle_ok(7, 6, 3));
+        assert_eq!(wigner_6j(2, 3, 3, 7, 6, 6), zero());
     }
 
-    // -- Property: checked == unchecked on the admissible domain ------------
-
-    #[test]
-    fn property_checked_equals_unchecked_when_admissible() {
-        let mut rng = ChaCha8Rng::seed_from_u64(0xCA5C_ADE5_u64);
-        let mut tested_6j = 0;
-        let mut tested_3j = 0;
-        for _ in 0..20_000 {
-            // 6j
-            let d = [(); 6].map(|_| rng.gen_range(0..=10u32));
-            if let Ok(v) = wigner_6j_checked(d[0], d[1], d[2], d[3], d[4], d[5]) {
-                assert_eq!(v, wigner_6j(d[0], d[1], d[2], d[3], d[4], d[5]));
-                tested_6j += 1;
-            }
-            // 3j: bias toward the admissible domain by forcing m-sum = 0
-            // (dm3 = -(dm1+dm2)); triangle/projection filters still cull most.
-            let dj = [(); 3].map(|_| rng.gen_range(0..=8u32));
-            let dm1 = rng.gen_range(-(dj[0] as i32)..=dj[0] as i32);
-            let dm2 = rng.gen_range(-(dj[1] as i32)..=dj[1] as i32);
-            let dm = [dm1, dm2, -(dm1 + dm2)];
-            if let Ok(v) = wigner_3j_checked(dj[0], dj[1], dj[2], dm[0], dm[1], dm[2]) {
-                assert_eq!(v, wigner_3j(dj[0], dj[1], dj[2], dm[0], dm[1], dm[2]));
-                tested_3j += 1;
-            }
-        }
-        assert!(
-            tested_6j > 100,
-            "too few admissible 6j samples ({tested_6j})"
-        );
-        assert!(
-            tested_3j > 100,
-            "too few admissible 3j samples ({tested_3j})"
-        );
-    }
-
-    // -- Property: forbidden <=> unchecked zero AND checked NotAdmissible ----
+    // -- Property: forbidden (independent predicate) => exact zero ---------
 
     #[test]
     fn property_forbidden_is_zero_and_not_admissible() {
+        // Independent of the crate predicates: triangle and ladder rules
+        // spelled out in i64.
+        fn tri(a: u32, b: u32, c: u32) -> bool {
+            let (a, b, c) = (i64::from(a), i64::from(b), i64::from(c));
+            (a + b + c) % 2 == 0 && (a - b).abs() <= c && c <= a + b
+        }
+        fn on_ladder(dj: u32, dm: i32) -> bool {
+            let (dj, dm) = (i64::from(dj), i64::from(dm));
+            dm.abs() <= dj && (dj - dm).rem_euclid(2) == 0
+        }
         let mut rng = ChaCha8Rng::seed_from_u64(0xBEEF);
         let mut tested_6j = 0;
         let mut tested_3j = 0;
         for _ in 0..40_000 {
             let d = [(); 6].map(|_| rng.gen_range(0..=8u32));
-            match wigner_6j_checked(d[0], d[1], d[2], d[3], d[4], d[5]) {
-                Err(Su2Error::NotAdmissible(_)) => {
-                    assert_eq!(
-                        wigner_6j(d[0], d[1], d[2], d[3], d[4], d[5]),
-                        SignedSqrtRational::zero(),
-                        "structurally forbidden 6j must be an unchecked zero"
-                    );
-                    tested_6j += 1;
-                }
-                Err(Su2Error::LabelOverflow { .. }) => unreachable!("6j checked never overflows"),
-                Ok(_) => {}
+            let admissible = tri(d[0], d[1], d[2])
+                && tri(d[0], d[4], d[5])
+                && tri(d[3], d[1], d[5])
+                && tri(d[3], d[4], d[2]);
+            if !admissible {
+                assert_eq!(
+                    wigner_6j(d[0], d[1], d[2], d[3], d[4], d[5]),
+                    zero(),
+                    "structurally forbidden 6j must be exact zero"
+                );
+                tested_6j += 1;
             }
 
             let dj = [(); 3].map(|_| rng.gen_range(0..=6u32));
             let dm = [(); 3].map(|_| rng.gen_range(-6..=6i32));
-            if let Err(Su2Error::NotAdmissible(_)) =
-                wigner_3j_checked(dj[0], dj[1], dj[2], dm[0], dm[1], dm[2])
-            {
+            let admissible = dm.iter().map(|&m| i64::from(m)).sum::<i64>() == 0
+                && (0..3).all(|i| on_ladder(dj[i], dm[i]))
+                && tri(dj[0], dj[1], dj[2]);
+            if !admissible {
                 assert_eq!(
                     wigner_3j(dj[0], dj[1], dj[2], dm[0], dm[1], dm[2]),
-                    SignedSqrtRational::zero(),
-                    "structurally forbidden 3j must be an unchecked zero"
+                    zero(),
+                    "structurally forbidden 3j must be exact zero"
+                );
+                assert_eq!(
+                    clebsch_gordan(dj[0], dm[0], dj[1], dm[1], dj[2], -dm[2]),
+                    zero(),
+                    "forbidden CG must be exact zero"
                 );
                 tested_3j += 1;
             }
@@ -2075,7 +1787,7 @@ mod regge_orbit_tests {
         let mut rng = ChaCha8Rng::seed_from_u64(0x5EED_4E66);
         for _ in 0..2000 {
             let dj = |r: &mut ChaCha8Rng| r.gen_range(0u32..=40);
-            let dm = |r: &mut ChaCha8Rng| r.gen_range(-50i32..=50);
+            let dm = |r: &mut ChaCha8Rng| r.gen_range(-50i64..=50);
             let (a, b, c, d, e, f) = (
                 dj(&mut rng),
                 dj(&mut rng),

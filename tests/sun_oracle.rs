@@ -115,7 +115,11 @@ fn dimensions_and_duals_are_the_closed_forms() {
             let s = lie_test::irrep(&d).unwrap();
             assert_eq!(s.dim_exact(), weyl_dimension(&d), "{d:?}");
             let rev: Vec<i64> = d.iter().rev().copied().collect();
-            assert_eq!(lie_test::dual(&s).dynkin(), rev, "{d:?}");
+            assert_eq!(
+                lie_test::dual(&s).dynkin().collect::<Vec<_>>(),
+                rev,
+                "{d:?}"
+            );
         }
     }
     // Checked against SUNRepresentations.jl 0.4.0 (`dim`).
@@ -215,7 +219,7 @@ fn products_are_the_brauer_klimyk_decomposition() {
                 let got: BTreeMap<Vec<i64>, u32> = directproduct(&ia, &ib)
                     .unwrap()
                     .into_iter()
-                    .map(|(k, v)| (k.dynkin(), v))
+                    .map(|(k, v)| (k.dynkin().collect::<Vec<_>>(), v))
                     .collect();
                 assert_eq!(got, klimyk(a, b), "{a:?} ⊗ {b:?}");
                 pairs += 1;
@@ -230,7 +234,7 @@ fn products_are_the_brauer_klimyk_decomposition() {
     )
     .unwrap()
     .into_iter()
-    .map(|(k, v)| (k.dynkin(), v))
+    .map(|(k, v)| (k.dynkin().collect::<Vec<_>>(), v))
     .collect();
     let want: BTreeMap<Vec<i64>, u32> = [
         (vec![0, 0], 1),

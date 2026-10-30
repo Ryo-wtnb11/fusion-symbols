@@ -1,4 +1,5 @@
 use crate::common::counting_alloc;
+use fusion_symbols::category::SymbolBlock;
 use fusion_symbols::{
     category::FusionCategory,
     lie::{GroupId, LieGroup},
@@ -31,9 +32,9 @@ fn warm_product_composition_allocates_nothing() {
     let outcomes = cat.fusion(&half, &half).unwrap().count();
     let after = counting_alloc::calls();
     assert_eq!(after, before);
-    assert_eq!(f.at(0, 0, 0, 0), -0.5);
-    assert_eq!(r.at(0, 0), 1.0);
-    assert!(empty.data().is_empty());
+    assert_eq!(f.get([0, 0, 0, 0]), -0.5);
+    assert_eq!(r.get([0, 0]), 1.0);
+    assert!(empty.as_slice().is_empty());
     assert_eq!(outcomes, 2);
     let warm =
         fusion_symbols::cache::tier_stats(fusion_symbols::cache::CoefficientCacheTier::FSymbol);
@@ -45,7 +46,7 @@ fn warm_product_composition_allocates_nothing() {
 fn warm_d2_queries_allocate_only_as_much_as_product() {
     fn counts<C: FusionCategory>(cat: &C, a: &C::Object, zero: &C::Object) -> [usize; 3] {
         let f = || cat.f_symbol(a, a, a, a, zero, zero).unwrap();
-        let n = || cat.nsymbol(a, a, zero);
+        let n = || cat.nsymbol(a, a, zero).unwrap();
         let dim = || cat.dim(a);
         let _ = (f(), n(), dim());
         [

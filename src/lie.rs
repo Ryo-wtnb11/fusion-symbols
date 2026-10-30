@@ -17,7 +17,7 @@ pub use half_int::HalfInt;
 
 use crate::category::{
     sealed::Validated, BraidingStyle, CgcBlock, EnumerationError, FBlock, FusionCategory,
-    FusionStyle, GroupRepresentations, RBlock,
+    FusionStyle, GroupRepresentations, RBlock, SymbolBlock,
 };
 use crate::product::{Product, ProductError};
 use malachite_base::{
@@ -37,6 +37,8 @@ use std::sync::Arc;
 /// shared by every group value.
 /// Admissibility uses the caller's global form.
 /// Objects retain the full `GroupId` tag, including for isomorphic groups.
+/// [`U1`] is the same integer-charge U(1) as `LieGroup::new(GroupId::u(1)?)`,
+/// as a fixed category with `Copy` labels and scalar symbols.
 ///
 /// Enumeration (frozen), with an infinite count:
 ///
@@ -420,7 +422,10 @@ impl LieGroup {
             group: group.clone(),
             payload: LiePayload::Composite(Arc::new(factors)),
         };
-        debug_assert!(group.admits(&label.dynkin(), &label.charges().collect::<Vec<_>>()));
+        debug_assert!(group.admits(
+            &label.dynkin().collect::<Vec<_>>(),
+            &label.charges().collect::<Vec<_>>()
+        ));
         label
     }
     // Callers have checked the outward group; factor tags are private and immutable.
@@ -500,7 +505,7 @@ impl LieGroup {
     /// let u2 = LieGroup::new(GroupId::u(2)?)?;
     /// let fundamental = u2.irrep_with_charges(&[1], &[1])?;
     /// let det = u2.irrep_with_charges(&[0], &[2])?;
-    /// assert_eq!(u2.nsymbol(&fundamental, &fundamental, &det), 1); // Λ²(2) = det
+    /// assert_eq!(u2.nsymbol(&fundamental, &fundamental, &det)?, 1); // Λ²(2) = det
     /// assert_eq!(u2.irrep_with_charges(&[1], &[0]), Err(LieError::NotAdmissible));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -709,8 +714,11 @@ impl LieIrrep {
         )
     }
 
-    /// Highest weight in Dynkin coordinates, materialized in an owned allocation.
-    /// Use [`Self::dynkin_labels`] for allocation-free label reading on hot paths.
+    /// Iterate over every highest-weight Dynkin coordinate, including zeros.
+    /// Construction and consumption allocate nothing. Composite coordinates
+    /// follow factor order; torus and trivial labels yield none, and charges
+    /// are separate ([`Self::charges`]). `len()` reports the number of
+    /// remaining coordinates. Collect only where an owned label is needed.
     ///
     /// # Examples
     ///
@@ -719,33 +727,14 @@ impl LieIrrep {
     ///
     /// let u2 = LieGroup::new(GroupId::u(2)?)?;
     /// let x = u2.irrep_with_charges(&[2], &[4])?;
-    /// assert_eq!(x.dynkin(), [2]); // charges are separate
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn dynkin(&self) -> Vec<i64> {
-        if let Some(a) = self.simple() {
-            return a.dynkin().to_vec();
-        }
-        self.dynkin_labels().collect()
-    }
-
-    /// Iterate over every highest-weight Dynkin coordinate, including zeros,
-    /// in the same order as [`Self::dynkin`]. Construction and consumption
-    /// allocate nothing; composite coordinates follow factor order. `len()` reports
-    /// the number of remaining coordinates.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use fusion_symbols::lie::{GroupId, LieGroup};
-    ///
+    /// assert!(x.dynkin().eq([2])); // charges are separate
     /// let spin4 = LieGroup::new(GroupId::spin(4)?)?;
-    /// let x = spin4.irrep(&[2, 0])?;
-    /// assert_eq!(x.dynkin_labels().len(), 2);
-    /// assert!(x.dynkin_labels().eq([2, 0]));
+    /// let y = spin4.irrep(&[2, 0])?;
+    /// assert_eq!(y.dynkin().len(), 2);
+    /// assert_eq!(y.dynkin().collect::<Vec<_>>(), [2, 0]);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn dynkin_labels(&self) -> impl ExactSizeIterator<Item = i64> + '_ {
+    pub fn dynkin(&self) -> impl ExactSizeIterator<Item = i64> + '_ {
         DynkinLabels {
             irrep: self,
             indices: 0..self.group.semisimple_rank(),
@@ -855,9 +844,9 @@ impl CgcBlock for LieCgc {
     ///
     /// # Panics
     /// Panics if any index is outside its axis.
-    fn at(&self, [m1, m2, m3, mu]: [usize; 4]) -> f64 {
+    fn get(&self, [m1, m2, m3, mu]: [usize; 4]) -> f64 {
         if let Some(blocks) = &self.composite {
-            return blocks.at([m1, m2, m3, mu]);
+            return blocks.get([m1, m2, m3, mu]);
         }
         assert!(
             [m1, m2, m3, mu].iter().zip(self.dims).all(|(&i, n)| i < n),
@@ -977,31 +966,30 @@ impl FusionCategory for LieGroup {
         }
         self.dim(a).recip()
     }
-    fn frobenius_schur_phase(&self, a: &LieIrrep) -> f64 {
+    /// A complex A-series label has the closed form; a complex D(r) (r odd)
+    /// or E6 label generates σ_a σ_ā (`docs/gauge_cartan.md` §5.3), and a
+    /// failure there is the engine's typed [`LieError`], never a substituted
+    /// phase.
+    fn frobenius_schur_phase(&self, a: &LieIrrep) -> Result<f64, LieError> {
         self.label(a);
         if let Some(product) = &self.composite {
-            return product.frobenius_schur_phase(self.factor_labels(a));
+            return product
+                .frobenius_schur_phase(self.factor_labels(a))
+                .map_err(LieError::from);
         }
         if let Some(x) = a.simple() {
             if x.is_self_dual() {
-                return f64::from(x.sign());
+                return Ok(f64::from(x.sign()));
             }
-            // A complex A-series label has the closed form; a complex D(r)
-            // (r odd) or E6 label generates σ_a σ_ā (§5.3). Admission
-            // bounds its dimension (and its dual's) by `u32::MAX`, so building
-            // both modules cannot overflow, and §5.3 proves the principal
-            // ladder nonzero. What is left is an internal-invariant
-            // `Generation` failure, never a substituted phase.
-            let phase = self
+            return self
                 .engine()
-                .frobenius_schur_phase(x.dynkin(), x.dual().dynkin());
-            return f64::from(phase.expect(
-                "complex-irrep κ_a: admission bounds the dimension by u32::MAX and \
-                 §5.3 proves ⟨low|L^h|high⟩ ≠ 0; only an internal invariant can fail",
-            ));
+                .frobenius_schur_phase(x.dynkin(), x.dual().dynkin())
+                .map(f64::from);
         }
-        su2::fs_phase(a.dj())
+        Ok(su2::fs_phase(a.dj()))
     }
+    // Reads the stored self-dual sign (or the A1 formula) directly: a complex
+    // irrep's indicator is zero without generating its phase.
     fn frobenius_schur_indicator(&self, a: &LieIrrep) -> f64 {
         self.label(a);
         if let Some(product) = &self.composite {
@@ -1010,11 +998,14 @@ impl FusionCategory for LieGroup {
         if self.is_torus() {
             return U1.frobenius_schur_indicator(&a.torus_label());
         }
-        if *a == self.dual(a) {
-            self.frobenius_schur_phase(a)
-        } else {
-            0.0
+        if let Some(x) = a.simple() {
+            return if x.is_self_dual() {
+                f64::from(x.sign())
+            } else {
+                0.0
+            };
         }
+        su2::fs_phase(a.dj())
     }
     fn twist(&self, a: &LieIrrep) -> f64 {
         self.label(a);
@@ -1067,33 +1058,24 @@ impl FusionCategory for LieGroup {
             });
         }
         let (a, b) = (a.dj(), b.dj());
-        let inner = su2::A1Irrep::new(a)
-            .fusion(su2::A1Irrep::new(b))
-            .map_err(|_| LieError::LabelOverflow)?;
+        let inner = su2::A1Irrep::new(a).fusion(su2::A1Irrep::new(b))?;
         Ok(LieFusion {
             group: Some(self.group.clone()),
             inner: FusionInner::A1(inner),
         })
     }
-    /// Panics if fusion arithmetic overflows or generation fails.
-    /// Use [`Self::try_nsymbol`] to receive the typed error.
-    #[inline]
-    fn nsymbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> u32 {
-        self.try_nsymbol(a, b, c)
-            .expect("Lie fusion arithmetic failed; use try_nsymbol for a typed error")
-    }
     /// Generated fusion checks label/weight sums and multiplicities, returning
     /// [`LieError::LabelOverflow`] on overflow. Torus N is exact even when the
     /// sum is not a representable label. Rank-one N is always zero or one.
     #[inline]
-    fn try_nsymbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<u32, LieError> {
+    fn nsymbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<u32, LieError> {
         self.label(a);
         self.label(b);
         self.label(c);
-        self.__fusion_symbols_validated_try_nsymbol(a, b, c, Validated(()))
+        self.__fusion_symbols_validated_nsymbol(a, b, c, Validated(()))
     }
     #[inline(always)]
-    fn __fusion_symbols_validated_try_nsymbol(
+    fn __fusion_symbols_validated_nsymbol(
         &self,
         a: &LieIrrep,
         b: &LieIrrep,
@@ -1102,7 +1084,7 @@ impl FusionCategory for LieGroup {
     ) -> Result<u32, LieError> {
         if let Some(product) = &self.composite {
             return product
-                .__fusion_symbols_validated_try_nsymbol(
+                .__fusion_symbols_validated_nsymbol(
                     self.factor_labels(a),
                     self.factor_labels(b),
                     self.factor_labels(c),
@@ -1112,7 +1094,7 @@ impl FusionCategory for LieGroup {
         }
         match (&a.payload, &b.payload, &c.payload) {
             (LiePayload::Torus(a), LiePayload::Torus(b), LiePayload::Torus(c)) => {
-                return Ok(U1.nsymbol(a, b, c))
+                return Ok(u1::conserves(a, b, c))
             }
             (LiePayload::RankOne(a), LiePayload::RankOne(b), LiePayload::RankOne(c)) => {
                 return Ok(u32::from(su2::triangle_ok(*a, *b, *c)))
@@ -1154,7 +1136,7 @@ impl FusionCategory for LieGroup {
                 .iter_mut()
                 .zip([(a, b, e), (e, c, d), (b, c, f), (a, f, d)])
             {
-                *n = U1.nsymbol(&a.torus_label(), &b.torus_label(), &c.torus_label()) as usize;
+                *n = u1::conserves(&a.torus_label(), &b.torus_label(), &c.torus_label()) as usize;
             }
             return Ok(if dims.contains(&0) {
                 FBlock::zeros(dims)
@@ -1192,7 +1174,7 @@ impl FusionCategory for LieGroup {
     ) -> Result<crate::category::sealed::SymbolWithAxes<FBlock<f64>, 4>, LieError> {
         let block = self.f_symbol(a, b, c, d, e, f)?;
         // Keep Product's independent N-axis gate without validating each label again.
-        let n = |x, y, z| self.__fusion_symbols_validated_try_nsymbol(x, y, z, t);
+        let n = |x, y, z| self.__fusion_symbols_validated_nsymbol(x, y, z, t);
         Ok((block, [n(a, b, e)?, n(e, c, d)?, n(b, c, f)?, n(a, f, d)?]))
     }
     fn r_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock<f64>, LieError> {
@@ -1210,7 +1192,7 @@ impl FusionCategory for LieGroup {
         }
         if matches!(a.payload, LiePayload::Torus(_)) {
             return Ok(
-                if self.__fusion_symbols_validated_try_nsymbol(a, b, c, Validated(()))? == 0 {
+                if self.__fusion_symbols_validated_nsymbol(a, b, c, Validated(()))? == 0 {
                     RBlock::zeros(0)
                 } else {
                     RBlock::one(1.0)
@@ -1237,17 +1219,17 @@ impl FusionCategory for LieGroup {
             });
             return product.a_symbol(a, b, c).map_err(LieError::from);
         }
-        let n = checked_dimension(self.try_nsymbol(a, b, c)?)?;
+        let n = checked_dimension(self.nsymbol(a, b, c)?)?;
         checked_size([n, n])?;
         if n == 0 {
             return Ok(RBlock::zeros(0));
         }
         let f = self.f_symbol(&self.dual(a), a, b, b, &self.unit(), c)?;
-        let kappa = self.frobenius_schur_phase(a);
+        let kappa = self.frobenius_schur_phase(a)?;
         let scale = self.sqrt_dim(a) * self.sqrt_dim(b) / self.sqrt_dim(c);
         Ok(crate::category::rank2_block(
             n,
-            f.data().iter().map(|&x| scale * (kappa * x)),
+            f.as_slice().iter().map(|&x| scale * (kappa * x)),
         ))
     }
     fn b_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock<f64>, LieError> {
@@ -1258,7 +1240,7 @@ impl FusionCategory for LieGroup {
             });
             return product.b_symbol(a, b, c).map_err(LieError::from);
         }
-        let n = checked_dimension(self.try_nsymbol(a, b, c)?)?;
+        let n = checked_dimension(self.nsymbol(a, b, c)?)?;
         checked_size([n, n])?;
         if n == 0 {
             return Ok(RBlock::zeros(0));
@@ -1267,7 +1249,7 @@ impl FusionCategory for LieGroup {
         let scale = self.sqrt_dim(a) * self.sqrt_dim(b) / self.sqrt_dim(c);
         Ok(crate::category::rank2_block(
             n,
-            f.data().iter().map(|&x| scale * x),
+            f.as_slice().iter().map(|&x| scale * x),
         ))
     }
     /// Tori and the trivial group certify a trivial associator. Semisimple
@@ -1344,7 +1326,7 @@ impl FusionCategory for LieGroup {
             LieEnumeration::RankOne { stride } => Ok(u64::from(dj) / stride),
             LieEnumeration::Dynkin => {
                 let bounds = vec![None; self.group.semisimple_rank()];
-                let x: Vec<Integer> = a.dynkin_labels().map(Integer::from).collect();
+                let x: Vec<Integer> = a.dynkin().map(Integer::from).collect();
                 u64::try_from(&crate::category::rank(&bounds, &x))
                     .map_err(|_| EnumerationError::Overflow)
             }
@@ -1379,7 +1361,7 @@ impl GroupRepresentations for LieGroup {
                     1,
                     1,
                     1,
-                    self.__fusion_symbols_validated_try_nsymbol(a, b, c, Validated(()))? as usize,
+                    self.__fusion_symbols_validated_nsymbol(a, b, c, Validated(()))? as usize,
                 ],
                 entries: None,
             });
@@ -1715,18 +1697,18 @@ mod tests {
         let want = f_block_raw(&fam, [&v, &v, &v, &v, &adj, &adj]).unwrap();
         assert_eq!(got.dims(), want.dims());
         let bits = |x: &[f64]| x.iter().map(|y| y.to_bits()).collect::<Vec<_>>();
-        assert_eq!(bits(got.data()), bits(want.data()));
+        assert_eq!(bits(got.as_slice()), bits(want.as_slice()));
         let cgc = g.cgc(&lv, &lv, &ladj).unwrap();
         let entries = fam.cgc_entries(&v, &v, &adj).unwrap();
         for e in entries.iter() {
             let at = [e.m1, e.m2, e.m3, e.mu].map(|i| i as usize);
-            assert_eq!(cgc.at(at).to_bits(), e.value.to_bits());
+            assert_eq!(cgc.get(at).to_bits(), e.value.to_bits());
         }
         let [d1, d2, d3, n] = cgc.dims();
         let nonzero = (0..d1 * d2 * d3 * n)
             .filter(|i| {
                 let idx = [i / (d2 * d3 * n), i / (d3 * n) % d2, i / n % d3, i % n];
-                cgc.at(idx) != 0.0
+                cgc.get(idx) != 0.0
             })
             .count();
         assert_eq!(nonzero, entries.len());
@@ -1743,7 +1725,11 @@ mod tests {
         let x = g.irrep(&[2, 0]).unwrap();
         let f = |g: &LieGroup| {
             let block = g.f_symbol(&x, &x, &x, &x, &x, &x).unwrap();
-            block.data().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+            block
+                .as_slice()
+                .iter()
+                .map(|v| v.to_bits())
+                .collect::<Vec<_>>()
         };
         let before = f(&g);
         assert!(crate::cache::cgc_module_is_resident(
@@ -1785,11 +1771,11 @@ mod tests {
         assert_eq!(g.frobenius_schur_indicator(&big), 0.0);
         assert_eq!(builds(), start);
         let v = g.irrep(&[1, 0, 0, 0, 0, 0]).unwrap();
-        assert_eq!(g.frobenius_schur_phase(&v), 1.0);
+        assert_eq!(g.frobenius_schur_phase(&v).unwrap(), 1.0);
         let after = builds();
         assert!(after[0] - start[0] <= 2 && after[1] == start[1]);
-        assert_eq!(g.frobenius_schur_phase(&v), 1.0);
-        assert_eq!(g.frobenius_schur_phase(&g.dual(&v)), 1.0);
+        assert_eq!(g.frobenius_schur_phase(&v).unwrap(), 1.0);
+        assert_eq!(g.frobenius_schur_phase(&g.dual(&v)).unwrap(), 1.0);
         assert_eq!(builds(), after);
     }
 
@@ -1827,7 +1813,7 @@ mod tests {
         let g2 = LieGroup::new(GroupId::g2()).unwrap();
         let (a, b, c) = ([3i64, 1], [1i64, 0], [4i64, 1]);
         let [la, lb, lc] = [a, b, c].map(|l| g2.irrep(&l).unwrap());
-        assert_eq!(g2.nsymbol(&la, &lb, &lc), 1);
+        assert_eq!(g2.nsymbol(&la, &lb, &lc).unwrap(), 1);
         // Call 0 is the channel's own lookup; call 1 is its first module.
         run(1, &|| {
             g2.cgc(&la, &lb, &lc).unwrap();
@@ -1846,9 +1832,11 @@ mod tests {
         // A complex D5 phase: call 0 is its first module.
         let d5 = LieGroup::new(GroupId::spin(10).unwrap()).unwrap();
         let x = d5.irrep(&[2, 0, 0, 1, 0]).unwrap();
-        let (dx, dd) = (x.dynkin(), d5.dual(&x).dynkin());
+        // Owned cache keys; the dual is a temporary.
+        let dx: Vec<i64> = x.dynkin().collect();
+        let dd: Vec<i64> = d5.dual(&x).dynkin().collect();
         run(0, &|| {
-            d5.frobenius_schur_phase(&x);
+            d5.frobenius_schur_phase(&x).unwrap();
         });
         assert!(!cgc_phase_is_resident(
             RootSystem::D(5),
@@ -1859,7 +1847,7 @@ mod tests {
         // Without a reset the same queries retain their keys.
         run(usize::MAX, &|| {
             g2.cgc(&la, &lb, &lc).unwrap();
-            d5.frobenius_schur_phase(&x);
+            d5.frobenius_schur_phase(&x).unwrap();
         });
         assert!(cgc_channel_is_resident(RootSystem::G2, [&a, &b, &c]));
         assert!(cgc_phase_is_resident(
@@ -1890,7 +1878,7 @@ mod tests {
         let ld = g2
             .fusion(&le, &lb)
             .unwrap()
-            .find(|d| g2.nsymbol(&la, &lf, d) > 0)
+            .find(|d| g2.nsymbol(&la, &lf, d).unwrap() > 0)
             .unwrap();
         let resident = || {
             [
@@ -1998,6 +1986,44 @@ mod tests {
         let (p, b) = (products(), builds());
         assert_eq!(g.cgc(&eight, &eight, &eight).unwrap(), first);
         assert_eq!((products(), builds()), (p, b));
+        // Dense materialization reads the generated channel: no generation
+        // (thread-local counters, so parallel tests cannot interfere) and
+        // fresh owned storage per call.
+        let dense = first.to_dense();
+        let again = first.to_dense();
+        assert_eq!(dense.len(), 8 * 8 * 8 * 2);
+        assert_eq!(dense, again);
+        assert_ne!(dense.as_ptr(), again.as_ptr());
+        assert_eq!(dense[2 * 8 * 8 * 2 + 1], first.get([2, 0, 0, 1])); // ma = 2, mu = 1
+        assert_eq!((products(), builds()), (p, b));
+    }
+
+    /// A failure while generating a complex irrep's phase reaches the public
+    /// phase and the Lie A override as the same typed `Generation` error.
+    #[test]
+    fn phase_generation_failure_propagates_to_phase_and_a() {
+        fn injected() -> LieError {
+            LieError::Generation(GenerationError(Arc::new(std::io::Error::other(
+                "injected phase failure",
+            ))))
+        }
+        struct Reset;
+        impl Drop for Reset {
+            fn drop(&mut self) {
+                general::cgc::FAIL_PHASE.with(|f| f.set(None));
+            }
+        }
+        let g = LieGroup::new(GroupId::spin(10).unwrap()).unwrap();
+        let s = g.irrep(&[0, 0, 0, 1, 0]).unwrap(); // complex half-spinor 16
+        let dual = g.dual(&s);
+        assert_ne!(s, dual);
+        let _reset = Reset;
+        general::cgc::FAIL_PHASE.with(|f| f.set(Some(injected)));
+        assert_eq!(g.frobenius_schur_phase(&s), Err(injected()));
+        assert_eq!(g.a_symbol(&s, &dual, &g.unit()), Err(injected()));
+        // The indicator reads stored data; B has no phase multiplier.
+        assert_eq!(g.frobenius_schur_indicator(&s), 0.0);
+        assert!(g.b_symbol(&s, &dual, &g.unit()).is_ok());
     }
 
     /// `κ` of every A-series irrep is the closed form (§5.3): a complex
@@ -2010,7 +2036,7 @@ mod tests {
         for d in [[1, 0, 0, 0], [0, 1, 0, 0], [2, 1, 0, 0]] {
             let a = g.irrep(&d).unwrap();
             assert_ne!(a, g.dual(&a));
-            g.frobenius_schur_phase(&a);
+            g.frobenius_schur_phase(&a).unwrap();
         }
         assert_eq!(builds(), start);
     }
@@ -2027,7 +2053,7 @@ mod tests {
             let mut count = 0;
             for i in 0..d1 * d2 * d3 * n {
                 let idx = [i / (d2 * d3 * n), i / (d3 * n) % d2, i / n % d3, i % n];
-                count += usize::from(cgc.at(idx) != 0.0);
+                count += usize::from(cgc.get(idx) != 0.0);
             }
             (cgc.dims(), count)
         };
@@ -2052,7 +2078,7 @@ mod tests {
         let r = |id: GroupId| {
             let g = LieGroup::new(id).unwrap();
             let v = g.irrep(&[1, 0]).unwrap();
-            g.r_symbol(&v, &v, &g.unit()).unwrap().data()[0]
+            g.r_symbol(&v, &v, &g.unit()).unwrap().as_slice()[0]
         };
         // The B2 vector is real (R = +1); the C2 defining irrep is pseudo-real (R = −1).
         assert!((r(GroupId::spin(5).unwrap()) - 1.0).abs() < 1e-15);
@@ -2150,7 +2176,7 @@ mod arithmetic_tests {
         let a = cat.irrep(&[i64::from(u32::MAX)]).unwrap();
         let b = cat.irrep(&[1]).unwrap();
         let c = cat.irrep(&[i64::from(u32::MAX) - 1]).unwrap();
-        assert_eq!(cat.try_nsymbol(&a, &b, &c), Ok(1));
+        assert_eq!(cat.nsymbol(&a, &b, &c), Ok(1));
         assert!(matches!(cat.fusion(&a, &b), Err(LieError::LabelOverflow)));
         let a = cat.irrep(&[i64::from(i32::MAX)]).unwrap();
         assert!(matches!(

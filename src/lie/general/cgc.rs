@@ -800,6 +800,8 @@ thread_local! {
     pub(crate) static BEFORE_LOAD: Fault<fn()> = const { std::cell::Cell::new(None) };
     /// Fault injection on every completed F and R entry before its gate.
     pub(super) static CORRUPT_BLOCK: Fault<fn(f64) -> f64> = const { std::cell::Cell::new(None) };
+    /// Failure injected where a complex irrep's phase would be generated.
+    pub(crate) static FAIL_PHASE: Fault<fn() -> LieError> = const { std::cell::Cell::new(None) };
 }
 
 /// A completed, gated CGC channel: its outer multiplicity and its exactly
@@ -986,6 +988,10 @@ impl GeneralFamily {
         if dual == a || matches!(self.root(), RootSystem::A(_)) {
             return Ok(closed);
         }
+        #[cfg(test)]
+        if let Some(fail) = FAIL_PHASE.with(std::cell::Cell::get) {
+            return Err(fail());
+        }
         // κ_ā = κ_a (§5.3), so one generation answers both labels.
         crate::cache::cgc_phase(self.root(), a.min(dual), || {
             let sigma_a = self.module(a)?.principal_sign(a)?;
@@ -1000,10 +1006,13 @@ impl GeneralFamily {
             let block = f_block_raw(self, labels)?;
             #[cfg(test)]
             let block = match CORRUPT_BLOCK.with(std::cell::Cell::get) {
-                Some(fault) => FBlock::from_vec(
-                    block.dims(),
-                    block.data().iter().map(|&x| fault(x)).collect(),
-                ),
+                Some(fault) => {
+                    use crate::category::SymbolBlock;
+                    FBlock::from_vec(
+                        block.dims(),
+                        block.as_slice().iter().map(|&x| fault(x)).collect(),
+                    )
+                }
                 None => block,
             };
             check_f_block(&block)?;
@@ -1017,10 +1026,13 @@ impl GeneralFamily {
             let block = r_block_raw(self, labels)?;
             #[cfg(test)]
             let block = match CORRUPT_BLOCK.with(std::cell::Cell::get) {
-                Some(fault) => RBlock::from_vec(
-                    block.dim(),
-                    block.data().iter().map(|&x| fault(x)).collect(),
-                ),
+                Some(fault) => {
+                    use crate::category::SymbolBlock;
+                    RBlock::from_vec(
+                        block.dims()[0],
+                        block.as_slice().iter().map(|&x| fault(x)).collect(),
+                    )
+                }
                 None => block,
             };
             check_r_block(&block)?;

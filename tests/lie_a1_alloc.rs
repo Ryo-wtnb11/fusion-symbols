@@ -1,4 +1,5 @@
 use crate::common::counting_alloc;
+use fusion_symbols::category::SymbolBlock;
 use fusion_symbols::{
     category::{FBlock, FusionCategory, RBlock},
     lie::{GroupId, LieGroup},
@@ -34,9 +35,9 @@ fn inline_blocks_and_warm_a1_symbols_allocate_nothing() {
     let after = counting_alloc::calls();
     assert_eq!(after, before);
     assert_eq!(f, expected);
-    assert_eq!(r.at(0, 0), -1.0);
-    assert!(empty_f.data().is_empty());
-    assert!(empty_r.data().is_empty());
+    assert_eq!(r.get([0, 0]), -1.0);
+    assert!(empty_f.as_slice().is_empty());
+    assert!(empty_r.as_slice().is_empty());
     assert_eq!(fusion_count, 2);
     let warm =
         fusion_symbols::cache::tier_stats(fusion_symbols::cache::CoefficientCacheTier::FSymbol);

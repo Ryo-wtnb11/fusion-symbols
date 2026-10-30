@@ -8,6 +8,7 @@
 #![cfg(feature = "lie-generated")]
 
 use crate::common::lie as lie_test;
+use fusion_symbols::category::SymbolBlock;
 fn irr(d: &[i64]) -> Irrep {
     lie_test::irrep(d).unwrap()
 }
@@ -43,7 +44,7 @@ fn f_symbols_checked_against_sunrepresentations() {
         let [a, b, c, d, e, f] = l.map(irr);
         let block = f_symbol(&a, &b, &c, &d, &e, &f).unwrap();
         assert_eq!(block.dims(), [1, 1, 1, 1], "{l:?}");
-        assert!((block.at(0, 0, 0, 0) - want).abs() < 1e-12, "{l:?}");
+        assert!((block.get([0, 0, 0, 0]) - want).abs() < 1e-12, "{l:?}");
     }
     // `F^{888}_8[8, 8]`, a 2×2×2×2 block over `(μ, ν, κ, λ)`.
     let o = irr(OCT);
@@ -61,7 +62,7 @@ fn f_symbols_checked_against_sunrepresentations() {
         ([0, 1, 1, 1], x),
         ([1, 1, 1, 1], 0.628_571_428_571_427_4),
     ] {
-        let got = block.at(idx[0], idx[1], idx[2], idx[3]);
+        let got = block.get([idx[0], idx[1], idx[2], idx[3]]);
         assert!((got - want).abs() < 1e-12, "F888 {idx:?}: {got}");
     }
 }
@@ -76,20 +77,23 @@ fn r_symbols_checked_against_sunrepresentations() {
         (OCT, OCT, ONE, 1.0),
     ] {
         let block = r_symbol(&irr(a), &irr(b), &irr(c)).unwrap();
-        assert_eq!(block.dim(), 1);
-        assert!((block.at(0, 0) - want).abs() < 1e-12, "R {a:?}{b:?}{c:?}");
+        assert_eq!(block.dims()[0], 1);
+        assert!(
+            (block.get([0, 0]) - want).abs() < 1e-12,
+            "R {a:?}{b:?}{c:?}"
+        );
     }
     // `R^{88}_8`, 2×2 over the multiplicity axes.
     let o = irr(OCT);
     let block = r_symbol(&o, &o, &o).unwrap();
-    assert_eq!(block.dim(), 2);
+    assert_eq!(block.dims()[0], 2);
     for (idx, want) in [
         ([0, 0], -0.285_714_285_714_285_3),
         ([1, 0], 0.958_314_847_499_908_9),
         ([0, 1], 0.958_314_847_499_908_8),
         ([1, 1], 0.285_714_285_714_285_5),
     ] {
-        let got = block.at(idx[0], idx[1]);
+        let got = block.get([idx[0], idx[1]]);
         assert!((got - want).abs() < 1e-12, "R888 {idx:?}: {got}");
     }
 }

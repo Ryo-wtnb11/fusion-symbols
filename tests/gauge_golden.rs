@@ -60,7 +60,7 @@ fn cgc_rows(
         for m3 in 0..d3.min(2) {
             for m1 in 0..d1 {
                 for m2 in 0..d2 {
-                    let x = cgc.at([m1, m2, m3, mu]);
+                    let x = cgc.get([m1, m2, m3, mu]);
                     if x != 0.0 {
                         nonzero.push((format!("C {mu},{m3},{m1},{m2}"), x.to_bits()));
                     }
@@ -228,11 +228,11 @@ fn n2_golden_channels_are_certified() {
         let case = CASES.iter().find(|c| c.name == name).unwrap();
         let g = LieGroup::new((case.group)()).unwrap();
         let [a, b, c] = [case.a, case.b, case.c].map(|l| g.irrep(l).unwrap());
-        assert_eq!(g.nsymbol(&a, &b, &c), n, "{name}");
+        assert_eq!(g.nsymbol(&a, &b, &c).unwrap(), n, "{name}");
         let total: f64 = g
             .fusion(&a, &b)
             .unwrap()
-            .map(|x| f64::from(g.nsymbol(&a, &b, &x)) * g.dim(&x))
+            .map(|x| f64::from(g.nsymbol(&a, &b, &x).unwrap()) * g.dim(&x))
             .sum();
         assert_eq!(total, g.dim(&a) * g.dim(&b), "{name}: sum rule");
     }
@@ -267,7 +267,7 @@ fn print_golden() {
 fn e8_n2_golden() {
     let g = LieGroup::new(GroupId::e8()).unwrap();
     let [a, b] = [[1, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 1, 0]].map(|l| g.irrep(&l).unwrap());
-    assert_eq!(g.nsymbol(&a, &b, &b), 2);
+    assert_eq!(g.nsymbol(&a, &b, &b).unwrap(), 2);
     let mut got = cgc_rows(&g, &a, &b, &b, 4);
     block_rows(&mut got, "R", g.r_symbol(&a, &b, &b).unwrap().as_slice());
     compare("E8 3875x30380->30380 N=2", &got, E8_N2);
@@ -304,14 +304,14 @@ fn a1_condon_shortley() {
     let ir = |dj| g.irrep(&[dj]).unwrap();
     let half = 0.5f64.sqrt();
     let singlet = g.cgc(&ir(1), &ir(1), &ir(0)).unwrap();
-    assert_eq!(singlet.at([0, 1, 0, 0]).to_bits(), (-half).to_bits());
-    assert_eq!(singlet.at([1, 0, 0, 0]).to_bits(), half.to_bits());
-    assert_eq!(singlet.at([0, 0, 0, 0]), 0.0);
+    assert_eq!(singlet.get([0, 1, 0, 0]).to_bits(), (-half).to_bits());
+    assert_eq!(singlet.get([1, 0, 0, 0]).to_bits(), half.to_bits());
+    assert_eq!(singlet.get([0, 0, 0, 0]), 0.0);
     let triplet = g.cgc(&ir(1), &ir(1), &ir(2)).unwrap();
-    assert_eq!(triplet.at([1, 1, 2, 0]), 1.0);
+    assert_eq!(triplet.get([1, 1, 2, 0]), 1.0);
     let one = g.cgc(&ir(2), &ir(2), &ir(2)).unwrap();
-    assert_eq!(one.at([1, 2, 2, 0]).to_bits(), (-half).to_bits());
-    assert_eq!(one.at([2, 1, 2, 0]).to_bits(), half.to_bits());
+    assert_eq!(one.get([1, 2, 2, 0]).to_bits(), (-half).to_bits());
+    assert_eq!(one.get([2, 1, 2, 0]).to_bits(), half.to_bits());
 }
 
 // ---------------------------------------------------------------------------
@@ -342,8 +342,11 @@ mod sun_oracle {
         let cgc = g.cgc(&a, &b, &c).unwrap();
         for &(m1, m2, m3, mu, want) in rows {
             close(
-                &format!("SU({n}) {:?} [{m1},{m2},{m3},{mu}]", c.dynkin()),
-                cgc.at([m1, m2, m3, mu]),
+                &format!(
+                    "SU({n}) {:?} [{m1},{m2},{m3},{mu}]",
+                    c.dynkin().collect::<Vec<_>>()
+                ),
+                cgc.get([m1, m2, m3, mu]),
                 want,
             );
         }
@@ -393,7 +396,7 @@ mod sun_oracle {
         assert_eq!(block.dims(), [1, 1, 1, 1]);
         close(
             "SU(3) F 3,3,3->1",
-            block.at(0, 0, 0, 0),
+            block.get([0, 0, 0, 0]),
             0.999_999_999_999_999_9,
         );
     }

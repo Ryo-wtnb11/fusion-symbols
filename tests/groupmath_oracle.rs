@@ -75,7 +75,7 @@ fn racah_side(group: &str, a: &[i64], b: &[i64]) -> (Natural, Natural, Channels)
         let ch = bcd_test::product(&bcd_test::group(series, a.len()).unwrap(), &ia, &ib)
             .unwrap()
             .into_iter()
-            .map(|(k, v)| (k.dynkin(), v))
+            .map(|(k, v)| (k.dynkin().collect::<Vec<_>>(), v))
             .collect();
         return (ia.dim_exact(), ib.dim_exact(), ch);
     }
@@ -87,7 +87,7 @@ fn racah_side(group: &str, a: &[i64], b: &[i64]) -> (Natural, Natural, Channels)
     let ch = sdp(&ia, &ib)
         .unwrap()
         .into_iter()
-        .map(|(k, v)| (k.dynkin(), v))
+        .map(|(k, v)| (k.dynkin().collect::<Vec<_>>(), v))
         .collect();
     (ia.dim_exact(), ib.dim_exact(), ch)
 }

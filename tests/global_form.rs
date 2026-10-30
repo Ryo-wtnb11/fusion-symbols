@@ -7,6 +7,8 @@
 
 #[cfg(feature = "lie-generated")]
 use crate::common::lie as lie_test;
+#[cfg(feature = "lie-generated")]
+use fusion_symbols::category::SymbolBlock;
 
 use fusion_symbols::lie::{GroupError, GroupId, RootSystem};
 
@@ -344,9 +346,9 @@ mod against_bcd {
                         .keys()
                     {
                         assert!(
-                            group.admits(&c.dynkin(), &[]),
+                            group.admits(&c.dynkin().collect::<Vec<_>>(), &[]),
                             "{series:?} r={r}: {a:?} ⊗ {b:?} produced {:?}",
-                            c.dynkin()
+                            c.dynkin().collect::<Vec<_>>()
                         );
                     }
                 }
@@ -378,9 +380,9 @@ mod against_bcd {
                         .keys()
                     {
                         assert!(
-                            group.admits(&c.dynkin(), &[]),
+                            group.admits(&c.dynkin().collect::<Vec<_>>(), &[]),
                             "{group:?}: {a:?} ⊗ {b:?} produced {:?}",
-                            c.dynkin()
+                            c.dynkin().collect::<Vec<_>>()
                         );
                     }
                 }
@@ -584,7 +586,10 @@ mod sun_forms {
                 let b = lie_test::irrep_in(&su, &label).unwrap();
                 assert_eq!(a, b);
                 assert_eq!(a.dim_exact(), b.dim_exact());
-                assert_eq!(a.dynkin(), b.dynkin());
+                assert_eq!(
+                    a.dynkin().collect::<Vec<_>>(),
+                    b.dynkin().collect::<Vec<_>>()
+                );
                 assert_eq!(a.dynkin().len() + 1, n);
             }
         }
@@ -612,11 +617,12 @@ mod sun_forms {
             assert_ne!(cover, quotient);
             assert_eq!(cover.dim_exact(), quotient.dim_exact());
             assert_eq!(
-                lie_test::dual(&cover).dynkin(),
+                lie_test::dual(&cover).dynkin().collect::<Vec<_>>(),
                 fusion_symbols::lie::LieGroup::new(psu3.clone())
                     .unwrap()
                     .dual(&quotient)
                     .dynkin()
+                    .collect::<Vec<_>>()
             );
             assert_eq!(cover.gt_patterns(), quotient.gt_patterns());
         }
@@ -825,7 +831,7 @@ mod cross_form_coefficients {
             for j in 0..d1 {
                 for k in 0..d2 {
                     for l in 0..d3 {
-                        assert_eq!(fc.at(i, j, k, l), fq.at(i, j, k, l));
+                        assert_eq!(fc.get([i, j, k, l]), fq.get([i, j, k, l]));
                     }
                 }
             }

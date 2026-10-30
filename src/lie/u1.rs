@@ -2,6 +2,8 @@
 //!
 //! Labels exclude `i32::MIN` so every dual is representable. Symbols are
 //! exact `f64` zeros and ones; inadmissible vertices give zero, not errors.
+//! The general path for the same group is [`super::LieGroup`] with
+//! [`super::GroupId::u`]`(1)`.
 
 use crate::category::{
     BraidingStyle, EnumerationError, FusionCategory, FusionStyle, GroupRepresentations, RBlock,
@@ -69,6 +71,13 @@ impl U1Irrep {
     }
 }
 
+// N(a, b, c): charge conservation decided exactly in `i64`, so a sum outside
+// the label range is a zero channel rather than an error.
+#[inline]
+pub(super) fn conserves(a: &U1Irrep, b: &U1Irrep, c: &U1Irrep) -> u32 {
+    u32::from(i64::from(a.charge) + i64::from(b.charge) == i64::from(c.charge))
+}
+
 /// Integer-charge U(1), with validated labels and checked fusion arithmetic.
 ///
 /// Enumeration (frozen): charges `0, 1, −1, 2, −2, …`; charge `q > 0` has
@@ -86,6 +95,21 @@ impl U1Irrep {
 /// let q = |c| U1Irrep::new(c).unwrap();
 /// assert_eq!(U1.cgc(&q(2), &q(-5), &q(-3)), Ok(1.0));
 /// assert_eq!(U1.cgc(&q(2), &q(-5), &q(3)), Ok(0.0));
+/// ```
+///
+/// `U1` is the fixed `Copy`-label, scalar-symbol provider for this group. The
+/// same integer-charge U(1) is also [`LieGroup`](super::LieGroup) with
+/// [`GroupId::u`](super::GroupId::u)`(1)`, which integrates with tori,
+/// products and quotients and carries charges as [`LieIrrep`](super::LieIrrep)
+/// labels:
+///
+/// ```
+/// use fusion_symbols::lie::{GroupId, LieGroup};
+///
+/// let general = LieGroup::new(GroupId::u(1)?)?;
+/// let q = general.irrep_with_charges(&[], &[3])?;
+/// assert!(q.charges().eq([3]));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct U1;
@@ -124,8 +148,8 @@ impl FusionCategory for U1 {
     fn dim(&self, _a: &U1Irrep) -> f64 {
         1.0
     }
-    fn frobenius_schur_phase(&self, _a: &U1Irrep) -> f64 {
-        1.0
+    fn frobenius_schur_phase(&self, _a: &U1Irrep) -> Result<f64, U1Error> {
+        Ok(1.0)
     }
     fn frobenius_schur_indicator(&self, a: &U1Irrep) -> f64 {
         f64::from(u8::from(*a == self.dual(a)))
@@ -138,8 +162,10 @@ impl FusionCategory for U1 {
             i64::from(a.charge) + i64::from(b.charge),
         )?))
     }
-    fn nsymbol(&self, a: &U1Irrep, b: &U1Irrep, c: &U1Irrep) -> u32 {
-        u32::from(i64::from(a.charge) + i64::from(b.charge) == i64::from(c.charge))
+    /// Always `Ok`: charge conservation is decided exactly, even when the
+    /// sum is not a representable label.
+    fn nsymbol(&self, a: &U1Irrep, b: &U1Irrep, c: &U1Irrep) -> Result<u32, U1Error> {
+        Ok(conserves(a, b, c))
     }
     fn f_symbol(
         &self,
@@ -151,26 +177,23 @@ impl FusionCategory for U1 {
         f: &U1Irrep,
     ) -> Result<f64, Self::Error> {
         Ok(f64::from(
-            self.nsymbol(a, b, e)
-                * self.nsymbol(e, c, d)
-                * self.nsymbol(b, c, f)
-                * self.nsymbol(a, f, d),
+            conserves(a, b, e) * conserves(e, c, d) * conserves(b, c, f) * conserves(a, f, d),
         ))
     }
     fn r_symbol(&self, a: &U1Irrep, b: &U1Irrep, c: &U1Irrep) -> Result<f64, Self::Error> {
-        Ok(f64::from(self.nsymbol(a, b, c)))
+        Ok(f64::from(conserves(a, b, c)))
     }
     // TensorKitSectors `irreps.jl` (AbelianIrrep): A and B are N, since every
     // admissible F and every dimension is one.
     fn a_symbol(&self, a: &U1Irrep, b: &U1Irrep, c: &U1Irrep) -> Result<RBlock<f64>, Self::Error> {
-        Ok(if self.nsymbol(a, b, c) == 0 {
+        Ok(if conserves(a, b, c) == 0 {
             RBlock::zeros(0)
         } else {
             RBlock::one(1.0)
         })
     }
     fn b_symbol(&self, a: &U1Irrep, b: &U1Irrep, c: &U1Irrep) -> Result<RBlock<f64>, Self::Error> {
-        Ok(if self.nsymbol(a, b, c) == 0 {
+        Ok(if conserves(a, b, c) == 0 {
             RBlock::zeros(0)
         } else {
             RBlock::one(1.0)
@@ -208,7 +231,7 @@ impl FusionCategory for U1 {
 impl GroupRepresentations for U1 {
     type Cgc = f64;
     fn cgc(&self, a: &U1Irrep, b: &U1Irrep, c: &U1Irrep) -> Result<f64, U1Error> {
-        Ok(f64::from(self.nsymbol(a, b, c)))
+        Ok(f64::from(conserves(a, b, c)))
     }
 }
 
@@ -250,7 +273,10 @@ mod tests {
             for &b in &charges {
                 for &c in &charges {
                     let (a, b, c) = (q(a), q(b), q(c));
-                    assert_eq!(U1.cgc(&a, &b, &c), Ok(f64::from(U1.nsymbol(&a, &b, &c))));
+                    assert_eq!(
+                        U1.cgc(&a, &b, &c),
+                        Ok(f64::from(U1.nsymbol(&a, &b, &c).unwrap()))
+                    );
                 }
             }
         }

@@ -59,7 +59,7 @@ fn labels_forms_and_rank_one_isomorphisms() {
             cat.r_symbol(&one, &one, &unit).unwrap(),
             su.r_symbol(&su_one, &su_one, &su.unit()).unwrap()
         );
-        assert_eq!(cat.frobenius_schur_phase(&one), 1.0);
+        assert_eq!(cat.frobenius_schur_phase(&one).unwrap(), 1.0);
         assert_eq!(cat.twist(&one), 1.0);
         assert!(std::panic::catch_unwind(|| cat.dim(&su_one)).is_err());
     }
@@ -85,7 +85,7 @@ fn dense_cgc_matches_exact_in_ascending_magnetic_order() {
             for c in 0..=a + b + 1 {
                 let [ia, ib, ic] = [a, b, c].map(|dj| cat.irrep(&[i64::from(dj)]).unwrap());
                 let tensor = cat.cgc(&ia, &ib, &ic).unwrap();
-                let n = cat.nsymbol(&ia, &ib, &ic) as usize;
+                let n = cat.nsymbol(&ia, &ib, &ic).unwrap() as usize;
                 assert_eq!(
                     tensor.dims(),
                     [a as usize + 1, b as usize + 1, c as usize + 1, n]
@@ -106,7 +106,9 @@ fn dense_cgc_matches_exact_in_ascending_magnetic_order() {
                             )
                             .to_f64();
                             assert_eq!(
-                                tensor.at([x as usize, y as usize, z as usize, 0]).to_bits(),
+                                tensor
+                                    .get([x as usize, y as usize, z as usize, 0])
+                                    .to_bits(),
                                 exact.to_bits(),
                                 "{a} {b} {c} [{x},{y},{z}]"
                             );
