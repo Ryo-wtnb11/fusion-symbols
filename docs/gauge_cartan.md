@@ -796,8 +796,17 @@ weight `w`, `N` outer multiplicity, `deg ≤ r·max m` nonzeros per ladder
 column.
 
 - **Irrep basis.** §3.1: closed form, `O(d·r)` nonzero ladder entries per
-  generator family, no linear algebra. §3.2: per weight a candidate Gram matrix
-  and exact Gram–Schmidt, `O(Σ_μ r² m_μ³)` rational operations.
+  generator family, no linear algebra. §3.2: with `M = max_ν m_ν`, per
+  weight exact Gram–Schmidt over `C_μ = Σ_j m_{μ+α_j} ≤ r·M` candidates with
+  the form evaluated lazily: every candidate's diagonal, and the row to later
+  candidates only of the `m_μ` kept ones, at most `C_μ + Σ_l (C_μ − t_l)` form
+  evaluations (`t_l` the kept positions) instead of `C_μ(C_μ+1)/2`. Each
+  evaluation scans at most `M` coordinates, and projecting a kept row, its
+  recipe and its lowering column costs `O(C_μ m_μ)`, so the form and
+  Gram–Schmidt phase is `O(M Σ_μ C_μ (1 + m_μ))` rational operations, which
+  is `O(r M³)` per weight in the uniform dense bound. No `C_μ × C_μ` matrix is
+  formed: the working set is one `C_μ`-slot row per kept candidate, which
+  Gram–Schmidt and the lowering matrices read.
 - **CGC per channel** is the highest-weight elimination plus the descent:
   - *Elimination* (§4.2–§4.3): exact echelon reduction of at most
     `r·|P_{λ_c}|` constraint rows over `|P_{λ_c}|` columns, dense worst case
