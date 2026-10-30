@@ -71,8 +71,47 @@ value/gauge rule noted below.
   `SignedSqrtRational` exposes `Rational`. Users name the types through
   `malachite_nz` / `malachite_q` directly; there are no re-exports.
 
+- One public entry per operation (no value changes):
+  - `FusionCategory::nsymbol` returns `Result<u32, Self::Error>`; an absent
+    channel is `Ok(0)`, and errors are genuine failures (product overflow,
+    generated arithmetic). `try_nsymbol` is removed; replace it with
+    `nsymbol`, and add `?` to former infallible calls. Product keeps its
+    precedence: a zero factor wins, then the first factor error, then
+    `ProductError::Overflow`.
+  - `FusionCategory::frobenius_schur_phase` returns
+    `Result<Self::Scalar, Self::Error>`. A complex D(r) (r odd) or E₆ irrep
+    propagates a phase-generation failure as `LieError::Generation` instead of
+    panicking; products report the first failing factor. The default A symbol
+    now propagates N and phase errors as well as F errors; B propagates N
+    and F. `frobenius_schur_indicator` and `twist` keep their signatures.
+  - Remove `lie::su2::{wigner_3j_checked, wigner_6j_checked,
+    clebsch_gordan_checked}`, `Su2Error` and `AdmissibilityViolation`. The
+    retained `wigner_3j`, `wigner_6j` and `clebsch_gordan` return exact zero
+    for every forbidden coupling.
+  - Remove the inherent block readers `FBlock::{dims, data, at}` and
+    `RBlock::{dim, data, at}`; read F, R, A and B through
+    `category::SymbolBlock::{dims, as_slice, get}` (import the trait).
+    `RBlock::dim()` becomes `dims()[0]`, `at(μ, ν)` becomes `get([μ, ν])`.
+  - Rename `CgcBlock::at` to `CgcBlock::get`, and add `CgcBlock::to_dense`, an
+    explicit uncached materialization into a fresh row-major vector over
+    `[m₁, m₂, m₃, μ]` (multiplicity fastest); it panics if the element count
+    or byte size is unrepresentable. `f64` implements both block traits, so a
+    scalar CGC read in a scope importing both uses `CgcBlock::get(&x, index)`.
+  - `LieIrrep::dynkin` returns the allocation-free `ExactSizeIterator`
+    formerly named `dynkin_labels`, which is removed; collect where an owned
+    label is needed.
+  - Remove `TableCategory::objects`; enumerate with `object_count` and
+    `object_at`. Remove `ZNIrrep::from_canonical` and the then-unproduced
+    `ZNError::NonCanonicalCharge`; use `ZNIrrep::new` and check `charge < N`
+    first where a noncanonical input must be rejected.
+
 ### Fixed
 
+- `lie::su2::{wigner_3j, clebsch_gordan}` returned by overflow panic, instead
+  of exact zero, for forbidden projections at the `i32` boundary (for
+  example `wigner_3j(0, 0, 0, i32::MAX, 1, 0)` and
+  `clebsch_gordan(0, 0, 0, 0, 0, i32::MIN)`); projection sums and the CG
+  sign change are now evaluated in `i64`.
 - `category::hexagon_residual`: the second hexagon applies the adjoint of
   each R block for the inverse braiding. The former elementwise conjugate
   (as in TensorKitSectors `hexagon_equation`) reported residuals of order one

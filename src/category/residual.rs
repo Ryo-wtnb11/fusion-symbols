@@ -15,7 +15,7 @@ fn multiplicity<C: FusionCategory>(
     b: &C::Object,
     c: &C::Object,
 ) -> Result<usize, C::Error> {
-    Ok(cat.nsymbol(a, b, c) as usize)
+    Ok(cat.nsymbol(a, b, c)? as usize)
 }
 fn intersect_products<C: FusionCategory>(
     cat: &C,
@@ -89,8 +89,12 @@ impl<C: FusionCategory> BlockMemo<C> {
         if let Some(block) = self.f.get(&key) {
             return Ok(block.clone());
         }
-        let dims = [(a, b, e), (e, c, d), (b, c, f), (a, f, d)]
-            .map(|(x, y, z)| cat.nsymbol(x, y, z) as usize);
+        let dims = [
+            multiplicity(cat, a, b, e)?,
+            multiplicity(cat, e, c, d)?,
+            multiplicity(cat, b, c, f)?,
+            multiplicity(cat, a, f, d)?,
+        ];
         let block = LogicalBlock::new(cat.f_symbol(a, b, c, d, e, f)?, dims);
         self.f.insert(key, block.clone());
         Ok(block)
@@ -106,7 +110,7 @@ impl<C: FusionCategory> BlockMemo<C> {
         if let Some(block) = self.r.get(&key) {
             return Ok(block.clone());
         }
-        let dims = [cat.nsymbol(a, b, c) as usize, cat.nsymbol(b, a, c) as usize];
+        let dims = [multiplicity(cat, a, b, c)?, multiplicity(cat, b, a, c)?];
         let block = LogicalBlock::new(cat.r_symbol(a, b, c)?, dims);
         self.r.insert(key, block.clone());
         Ok(block)

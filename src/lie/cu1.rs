@@ -165,6 +165,20 @@ impl ExactSizeIterator for CU1Fusion {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct CU1;
 
+// N(a, b, c) ∈ {0, 1}; the charge sum is compared in `u64`.
+fn n(a: &CU1Irrep, b: &CU1Irrep, c: &CU1Irrep) -> u32 {
+    let admissible = match c.s {
+        // `(a.s == b.s == 2) | (a.s == b.s)` is `a.s == b.s`.
+        0 => a.twice_charge == b.twice_charge && a.s == b.s,
+        1 => a.twice_charge == b.twice_charge && ((a.s == 2 && b.s == 2) || a.s != b.s),
+        _ => {
+            u64::from(c.twice_charge) == u64::from(a.twice_charge) + u64::from(b.twice_charge)
+                || c.twice_charge == a.twice_charge.abs_diff(b.twice_charge)
+        }
+    };
+    u32::from(admissible)
+}
+
 impl FusionCategory for CU1 {
     type Object = CU1Irrep;
     type Scalar = f64;
@@ -194,8 +208,8 @@ impl FusionCategory for CU1 {
             2.0
         }
     }
-    fn frobenius_schur_phase(&self, _a: &CU1Irrep) -> f64 {
-        1.0
+    fn frobenius_schur_phase(&self, _a: &CU1Irrep) -> Result<f64, CU1Error> {
+        Ok(1.0)
     }
     fn frobenius_schur_indicator(&self, _a: &CU1Irrep) -> f64 {
         1.0
@@ -258,17 +272,8 @@ impl FusionCategory for CU1 {
     /// Fusion multiplicity `N^{ab}_c ∈ {0, 1}` (`cu1irrep.jl:Nsymbol`), exact for
     /// every label triple: the charge sum is compared in `u64`, so a fusion that
     /// [`CU1::fusion`] cannot represent still has `N = 0` here.
-    fn nsymbol(&self, a: &CU1Irrep, b: &CU1Irrep, c: &CU1Irrep) -> u32 {
-        let admissible = match c.s {
-            // `(a.s == b.s == 2) | (a.s == b.s)` is `a.s == b.s`.
-            0 => a.twice_charge == b.twice_charge && a.s == b.s,
-            1 => a.twice_charge == b.twice_charge && ((a.s == 2 && b.s == 2) || a.s != b.s),
-            _ => {
-                u64::from(c.twice_charge) == u64::from(a.twice_charge) + u64::from(b.twice_charge)
-                    || c.twice_charge == a.twice_charge.abs_diff(b.twice_charge)
-            }
-        };
-        u32::from(admissible)
+    fn nsymbol(&self, a: &CU1Irrep, b: &CU1Irrep, c: &CU1Irrep) -> Result<u32, CU1Error> {
+        Ok(n(a, b, c))
     }
 
     /// F-symbol `F^{abc}_d[e, f]`; exact `0.0` when a vertex is inadmissible.
@@ -287,7 +292,7 @@ impl FusionCategory for CU1 {
     ) -> Result<f64, CU1Error> {
         if [(a, b, e), (e, c, d), (b, c, f), (a, f, d)]
             .iter()
-            .any(|&(a, b, c)| self.nsymbol(a, b, c) == 0)
+            .any(|&(a, b, c)| n(a, b, c) == 0)
         {
             return Ok(0.0);
         }
@@ -376,7 +381,7 @@ impl FusionCategory for CU1 {
     /// charged, `1.0` otherwise when admissible, exact `0.0` when not
     /// (`cu1irrep.jl:Rsymbol`).
     fn r_symbol(&self, a: &CU1Irrep, b: &CU1Irrep, c: &CU1Irrep) -> Result<f64, CU1Error> {
-        if self.nsymbol(a, b, c) == 0 {
+        if n(a, b, c) == 0 {
             return Ok(0.0);
         }
         Ok(if c.s == 1 && a.twice_charge > 0 {
@@ -480,10 +485,10 @@ mod tests {
             );
         }
         // The difference channels exist although the sum does not.
-        assert_eq!(CU1.nsymbol(&max, &j(1), &j(u32::MAX - 1)), 1);
-        assert_eq!(CU1.nsymbol(&max, &max, &OP), 1);
-        assert_eq!(CU1.nsymbol(&max, &max, &OM), 1);
-        assert_eq!(CU1.nsymbol(&max, &max, &max), 0);
+        assert_eq!(CU1.nsymbol(&max, &j(1), &j(u32::MAX - 1)).unwrap(), 1);
+        assert_eq!(CU1.nsymbol(&max, &max, &OP).unwrap(), 1);
+        assert_eq!(CU1.nsymbol(&max, &max, &OM).unwrap(), 1);
+        assert_eq!(CU1.nsymbol(&max, &max, &max).unwrap(), 0);
         assert_eq!(CU1.r_symbol(&max, &max, &OM).unwrap(), -1.0);
     }
 
@@ -494,7 +499,7 @@ mod tests {
                 let channels: Vec<_> = CU1.fusion(&a, &b).unwrap().collect();
                 assert_eq!(CU1.fusion(&a, &b).unwrap().len(), channels.len());
                 for c in labels() {
-                    assert_eq!(CU1.nsymbol(&a, &b, &c) == 1, channels.contains(&c));
+                    assert_eq!(CU1.nsymbol(&a, &b, &c).unwrap() == 1, channels.contains(&c));
                 }
                 let dims: f64 = channels.iter().map(|c| CU1.dim(c)).sum();
                 assert_eq!(dims, CU1.dim(&a) * CU1.dim(&b));
@@ -518,7 +523,7 @@ mod tests {
                 .sum();
             assert_eq!(CU1.twist(&a), twist);
             assert_eq!(
-                CU1.frobenius_schur_phase(&a),
+                CU1.frobenius_schur_phase(&a).unwrap(),
                 CU1.f_symbol(&a, &CU1.dual(&a), &a, &a, &OP, &OP)
                     .unwrap()
                     .signum()
@@ -531,12 +536,18 @@ mod tests {
                         let es: Vec<_> = wide
                             .iter()
                             .copied()
-                            .filter(|&e| CU1.nsymbol(&a, &b, &e) * CU1.nsymbol(&e, &c, &d) == 1)
+                            .filter(|&e| {
+                                CU1.nsymbol(&a, &b, &e).unwrap() * CU1.nsymbol(&e, &c, &d).unwrap()
+                                    == 1
+                            })
                             .collect();
                         let fs: Vec<_> = wide
                             .iter()
                             .copied()
-                            .filter(|&f| CU1.nsymbol(&b, &c, &f) * CU1.nsymbol(&a, &f, &d) == 1)
+                            .filter(|&f| {
+                                CU1.nsymbol(&b, &c, &f).unwrap() * CU1.nsymbol(&a, &f, &d).unwrap()
+                                    == 1
+                            })
                             .collect();
                         assert_eq!(es.len(), fs.len());
                         for &e1 in &es {

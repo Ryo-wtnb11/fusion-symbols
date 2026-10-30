@@ -1,6 +1,12 @@
 use super::provenance::fnv1a64;
 use super::*;
 
+// Every object in the frozen enumeration order (zero-based `object_at`).
+fn objects(cat: &TableCategory) -> impl Iterator<Item = TableObject> + '_ {
+    let count = cat.object_count().unwrap().expect("finite table");
+    (0..count).map(|i| cat.object_at(i).unwrap())
+}
+
 const UNITARY: bool = cfg!(feature = "anyonwiki-unitary");
 // 74 entries of rank <= 4 (58 braided) by default; the feature adds the 303 of
 // rank 5-7 (212 braided).
@@ -47,12 +53,11 @@ fn index_and_shipped_agree() {
 fn fusion_iterator_matches_source_order_for_every_shipped_table() {
     for uuid in TableCategory::shipped_uuids() {
         let category = TableCategory::by_uuid(uuid).unwrap();
-        for a in category.objects() {
-            for b in category.objects() {
+        for a in objects(&category) {
+            for b in objects(&category) {
                 assert!(
-                    category.fusion(&a, &b).unwrap().eq(category
-                        .objects()
-                        .filter(|c| category.nsymbol(&a, &b, c) > 0)),
+                    category.fusion(&a, &b).unwrap().eq(objects(&category)
+                        .filter(|c| category.nsymbol(&a, &b, c).unwrap() > 0)),
                     "{uuid}: {a:?} x {b:?}"
                 );
             }
@@ -616,10 +621,8 @@ fn category_identity_shared_clone_and_styles() {
     }
     for uuid in TableCategory::shipped_uuids() {
         let cat = TableCategory::by_uuid(uuid).unwrap();
-        let unique = cat.objects().all(|a| {
-            cat.objects()
-                .all(|b| cat.fusion(&a, &b).unwrap().count() == 1)
-        });
+        let unique =
+            objects(&cat).all(|a| objects(&cat).all(|b| cat.fusion(&a, &b).unwrap().count() == 1));
         assert_eq!(
             cat.fusion_style(),
             if unique {

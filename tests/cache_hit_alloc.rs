@@ -73,7 +73,7 @@ fn every_coefficient_tier_has_zero_allocation_warm_hits() {
             let a = g.irrep(&label).unwrap();
             let b = g.dual(&a);
             let one = g.unit();
-            check(Tier::Product, || g.try_nsymbol(&a, &b, &one).unwrap());
+            check(Tier::Product, || g.nsymbol(&a, &b, &one).unwrap());
             check(Tier::Product, || g.fusion(&a, &b).unwrap().count());
         }
         for id in [

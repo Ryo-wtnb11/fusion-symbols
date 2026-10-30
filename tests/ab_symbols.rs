@@ -10,6 +10,7 @@
 //! value `±1` is written. Unitarity of A and B is checked separately as a
 //! formula-independent structural property.
 
+use fusion_symbols::category::SymbolBlock;
 use fusion_symbols::{
     category::{BraidingStyle, FusionCategory, RBlock, Scalar},
     finite::{ZNIrrep, ZN},
@@ -27,8 +28,8 @@ fn su2() -> LieGroup {
 
 /// The single entry of a `1 × 1` block.
 fn entry<S: Scalar>(block: RBlock<S>) -> S {
-    assert_eq!(block.dim(), 1);
-    block.at(0, 0)
+    assert_eq!(block.dims()[0], 1);
+    block.get([0, 0])
 }
 
 /// Worst `|M M† − I|` over a row-major `n × n` block.
@@ -53,18 +54,18 @@ fn assert_unitary<C: FusionCategory>(cat: &C, objects: &[C::Object]) {
     for a in objects {
         for b in objects {
             for c in objects {
-                let n = cat.nsymbol(a, b, c) as usize;
+                let n = cat.nsymbol(a, b, c).unwrap() as usize;
                 for block in [
                     cat.a_symbol(a, b, c).unwrap(),
                     cat.b_symbol(a, b, c).unwrap(),
                 ] {
-                    assert_eq!(block.dim(), n, "{a:?} {b:?} {c:?}");
+                    assert_eq!(block.dims()[0], n, "{a:?} {b:?} {c:?}");
                     if n == 0 {
-                        assert!(block.data().is_empty(), "{a:?} {b:?} {c:?}");
+                        assert!(block.as_slice().is_empty(), "{a:?} {b:?} {c:?}");
                         continue;
                     }
                     assert!(
-                        unitarity(n, block.data()) < TOL,
+                        unitarity(n, block.as_slice()) < TOL,
                         "{a:?} {b:?} {c:?}: not unitary"
                     );
                 }
@@ -77,7 +78,7 @@ fn assert_unitary<C: FusionCategory>(cat: &C, objects: &[C::Object]) {
 fn su2_matches_tensorkitsectors_including_negative_frobenius_schur() {
     let cat = su2();
     let j = |twice: i64| cat.irrep(&[twice]).unwrap();
-    assert_eq!(cat.frobenius_schur_phase(&j(1)), -1.0);
+    assert_eq!(cat.frobenius_schur_phase(&j(1)).unwrap(), -1.0);
     // (2a, 2b, 2c, A, B).
     for (a, b, c, want_a, want_b) in [
         (1, 1, 0, 1.0, -1.0),
@@ -90,14 +91,20 @@ fn su2_matches_tensorkitsectors_including_negative_frobenius_schur() {
         let (a, b, c) = (j(a), j(b), j(c));
         let got_a = cat.a_symbol(&a, &b, &c).unwrap();
         let got_b = cat.b_symbol(&a, &b, &c).unwrap();
-        assert_eq!((got_a.dim(), got_b.dim()), (1, 1));
-        assert!((got_a.at(0, 0) - want_a).abs() < TOL, "A {a:?} {b:?} {c:?}");
-        assert!((got_b.at(0, 0) - want_b).abs() < TOL, "B {a:?} {b:?} {c:?}");
+        assert_eq!((got_a.dims()[0], got_b.dims()[0]), (1, 1));
+        assert!(
+            (got_a.get([0, 0]) - want_a).abs() < TOL,
+            "A {a:?} {b:?} {c:?}"
+        );
+        assert!(
+            (got_b.get([0, 0]) - want_b).abs() < TOL,
+            "B {a:?} {b:?} {c:?}"
+        );
     }
     // Absent channel: the empty `0 × 0` block.
     let absent = cat.a_symbol(&j(1), &j(1), &j(4)).unwrap();
-    assert_eq!((absent.dim(), absent.data()), (0, &[][..]));
-    assert_eq!(cat.b_symbol(&j(1), &j(1), &j(4)).unwrap().dim(), 0);
+    assert_eq!((absent.dims()[0], absent.as_slice()), (0, &[][..]));
+    assert_eq!(cat.b_symbol(&j(1), &j(1), &j(4)).unwrap().dims()[0], 0);
     assert_unitary(&cat, &(0..=6).map(j).collect::<Vec<_>>());
 }
 
@@ -117,7 +124,7 @@ fn cu1_charged_sectors_match_tensorkitsectors() {
         assert!((entry(CU1.a_symbol(&a, &b, &c).unwrap()) - want_a).abs() < TOL);
         assert!((entry(CU1.b_symbol(&a, &b, &c).unwrap()) - want_b).abs() < TOL);
     }
-    assert_eq!(CU1.a_symbol(&j(1), &j(1), &j(4)).unwrap().dim(), 0);
+    assert_eq!(CU1.a_symbol(&j(1), &j(1), &j(4)).unwrap().dims()[0], 0);
     let objects: Vec<_> = [zp, zm].into_iter().chain((1..=4).map(j)).collect();
     assert_unitary(&CU1, &objects);
 }
@@ -128,7 +135,7 @@ fn abelian_groups_return_n() {
     let q = |c| U1Irrep::new(c).unwrap();
     assert_eq!(entry(U1.a_symbol(&q(2), &q(-3), &q(-1)).unwrap()), 1.0);
     assert_eq!(entry(U1.b_symbol(&q(2), &q(-3), &q(-1)).unwrap()), 1.0);
-    assert_eq!(U1.a_symbol(&q(2), &q(-3), &q(1)).unwrap().dim(), 0);
+    assert_eq!(U1.a_symbol(&q(2), &q(-3), &q(1)).unwrap().dims()[0], 0);
     let z3 = ZN::new(3).unwrap();
     let objects: Vec<_> = (0..3).map(|k| ZNIrrep::new(k, 3).unwrap()).collect();
     assert_unitary(&z3, &objects);
@@ -149,7 +156,7 @@ fn fibonacci_matches_tensorkitsectors_in_the_same_gauge() {
         assert!((entry(fib.a_symbol(&a, &b, &c).unwrap()) - want).norm() < TOL);
         assert!((entry(fib.b_symbol(&a, &b, &c).unwrap()) - want).norm() < TOL);
     }
-    assert_eq!(fib.a_symbol(&one, &tau, &one).unwrap().dim(), 0);
+    assert_eq!(fib.a_symbol(&one, &tau, &one).unwrap().dims()[0], 0);
 }
 
 #[test]
@@ -200,7 +207,7 @@ fn every_shipped_table_including_fusion_only_has_unitary_a_and_b() {
     for uuid in TableCategory::shipped_uuids() {
         let cat = TableCategory::by_uuid(uuid).unwrap();
         fusion_only += usize::from(cat.braiding_style() == BraidingStyle::None);
-        let objects: Vec<_> = cat.objects().collect();
+        let objects: Vec<_> = crate::common::objects(&cat).collect();
         assert_unitary(&cat, &objects);
     }
     assert!(fusion_only > 0);
@@ -217,9 +224,9 @@ fn fibonacci_times_su2_promotes_to_complex() {
     let (x, y) = ((tau, half.clone()), (tau, one));
     let a = cat.a_symbol(&x, &x, &y).unwrap();
     let b = cat.b_symbol(&x, &x, &y).unwrap();
-    assert_eq!((a.dim(), b.dim()), (1, 1));
-    assert!((a.at(0, 0) - Complex64::new(-1.0, 0.0)).norm() < TOL);
-    assert!((b.at(0, 0) - Complex64::new(1.0, 0.0)).norm() < TOL);
+    assert_eq!((a.dims()[0], b.dims()[0]), (1, 1));
+    assert!((a.get([0, 0]) - Complex64::new(-1.0, 0.0)).norm() < TOL);
+    assert!((b.get([0, 0]) - Complex64::new(1.0, 0.0)).norm() < TOL);
 }
 
 #[test]
@@ -230,8 +237,8 @@ fn absent_channels_and_foreign_objects() {
     let half = su2.irrep(&[1]).unwrap();
     let x = (tau, half.clone());
     let absent = (one, half.clone());
-    assert_eq!(cat.a_symbol(&x, &x, &absent).unwrap().dim(), 0);
-    assert!(cat.b_symbol(&x, &x, &absent).unwrap().data().is_empty());
+    assert_eq!(cat.a_symbol(&x, &x, &absent).unwrap().dims()[0], 0);
+    assert!(cat.b_symbol(&x, &x, &absent).unwrap().as_slice().is_empty());
 
     let ising = TableCategory::ising();
     let foreign = ising.object(3).unwrap();
@@ -330,7 +337,7 @@ mod su3 {
         fn dim(&self, a: &LieIrrep) -> f64 {
             self.0.dim(a)
         }
-        fn frobenius_schur_phase(&self, a: &LieIrrep) -> f64 {
+        fn frobenius_schur_phase(&self, a: &LieIrrep) -> Result<f64, Self::Error> {
             self.0.frobenius_schur_phase(a)
         }
         fn frobenius_schur_indicator(&self, a: &LieIrrep) -> f64 {
@@ -343,7 +350,7 @@ mod su3 {
         fn fusion<'a>(&'a self, a: &LieIrrep, b: &LieIrrep) -> Result<Self::Fusion<'a>, LieError> {
             self.0.fusion(a, b)
         }
-        fn nsymbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> u32 {
+        fn nsymbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<u32, Self::Error> {
             self.0.nsymbol(a, b, c)
         }
         fn f_symbol(
@@ -357,11 +364,11 @@ mod su3 {
         ) -> Result<Dense<4>, LieError> {
             let block = self.0.f_symbol(a, b, c, d, e, f)?;
             let dims = [(a, b, e), (e, c, d), (b, c, f), (a, f, d)]
-                .map(|(x, y, z)| self.nsymbol(x, y, z) as usize);
+                .map(|(x, y, z)| self.nsymbol(x, y, z).unwrap() as usize);
             let mut data = if dims.contains(&0) {
                 Vec::new()
             } else {
-                block.data().to_vec()
+                block.as_slice().to_vec()
             };
             for (axis, (x, y, z)) in [(a, b, e), (e, c, d), (b, c, f), (a, f, d)]
                 .into_iter()
@@ -382,7 +389,7 @@ mod su3 {
             Ok(Dense { dims, data })
         }
         fn r_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<Dense<2>, LieError> {
-            self.nsymbol(a, b, c);
+            self.nsymbol(a, b, c).unwrap();
             panic!("no braiding in the rotated gauge")
         }
     }
@@ -395,12 +402,12 @@ mod su3 {
         let irr = |d: &[i64]| cat.0.irrep(d).unwrap();
         let (f15, f15b, s27) = (irr(&[2, 1]), irr(&[1, 2]), irr(&[2, 2]));
         let a = cat.a_symbol(&f15, &f15b, &s27).unwrap();
-        assert_eq!(a.dim(), 2);
-        assert_block(a.data(), &J, "A rotated");
+        assert_eq!(a.dims()[0], 2);
+        assert_block(a.as_slice(), &J, "A rotated");
         // B reads the rotated vertex on its row axis: B' = Uᵀ B = J · B_15.
         let b = cat.b_symbol(&f15, &f15b, &s27).unwrap();
         let jb = [-B_15[2], -B_15[3], B_15[0], B_15[1]];
-        assert_block(b.data(), &jb, "B rotated");
+        assert_block(b.as_slice(), &jb, "B rotated");
         // The gauge change keeps the rotated F unitary.
         assert!(
             fusion_symbols::category::f_unitarity_residual(&cat, &f15b, &f15, &f15b, &f15b)
@@ -408,8 +415,12 @@ mod su3 {
                 < TOL
         );
         // Absent channel (15 ∉ 15 ⊗ 15̄): the empty block, without F.
-        assert_eq!(cat.a_symbol(&f15, &f15b, &f15).unwrap().dim(), 0);
-        assert!(cat.b_symbol(&f15, &f15b, &f15).unwrap().data().is_empty());
+        assert_eq!(cat.a_symbol(&f15, &f15b, &f15).unwrap().dims()[0], 0);
+        assert!(cat
+            .b_symbol(&f15, &f15b, &f15)
+            .unwrap()
+            .as_slice()
+            .is_empty());
         let foreign = super::su2().irrep(&[1]).unwrap();
         assert!(std::panic::catch_unwind(|| cat.a_symbol(&foreign, &f15b, &s27)).is_err());
     }
@@ -451,17 +462,17 @@ mod su3 {
         ] {
             let got_a = cat.a_symbol(a, b, c).unwrap();
             let got_b = cat.b_symbol(a, b, c).unwrap();
-            assert_eq!((got_a.dim(), got_b.dim()), (2, 2));
-            assert_block(got_a.data(), &want_a, &format!("A {a:?} {b:?} {c:?}"));
-            assert_block(got_b.data(), &want_b, &format!("B {a:?} {b:?} {c:?}"));
+            assert_eq!((got_a.dims()[0], got_b.dims()[0]), (2, 2));
+            assert_block(got_a.as_slice(), &want_a, &format!("A {a:?} {b:?} {c:?}"));
+            assert_block(got_b.as_slice(), &want_b, &format!("B {a:?} {b:?} {c:?}"));
         }
         for (a, b, c, want_a, want_b) in [
             (&three, &three, &bar, -1.0, -1.0),
             (&three, &bar, &oct, 1.0, -1.0),
             (&oct, &three, &three, 1.0, -1.0),
         ] {
-            assert_block(cat.a_symbol(a, b, c).unwrap().data(), &[want_a], "A");
-            assert_block(cat.b_symbol(a, b, c).unwrap().data(), &[want_b], "B");
+            assert_block(cat.a_symbol(a, b, c).unwrap().as_slice(), &[want_a], "A");
+            assert_block(cat.b_symbol(a, b, c).unwrap().as_slice(), &[want_b], "B");
         }
         let objects = [&[0, 0], &[1, 0], &[0, 1], &[1, 1], &[2, 0], &[2, 1]]
             .map(|d: &[i64; 2]| irr(d))
@@ -500,8 +511,8 @@ mod su3 {
                 &(s27.clone(), oct.clone()),
             )
             .unwrap();
-        assert_eq!(b.dim(), 4);
-        assert_block(b.data(), &left, "B (15,8)");
+        assert_eq!(b.dims()[0], 4);
+        assert_block(b.as_slice(), &left, "B (15,8)");
         // Mirrored factors: kron(I, B_15).
         let b = p
             .b_symbol(
@@ -510,7 +521,7 @@ mod su3 {
                 &(oct.clone(), s27.clone()),
             )
             .unwrap();
-        assert_block(b.data(), &right, "B (8,15)");
+        assert_block(b.as_slice(), &right, "B (8,15)");
         let a = p
             .a_symbol(
                 &(f15.clone(), oct.clone()),
@@ -525,7 +536,7 @@ mod su3 {
             0.0, 0.0, 1.0, 0.0,
             0.0, 0.0, 0.0, 1.0,
         ];
-        assert_block(a.data(), &id4, "A (15,8)");
+        assert_block(a.as_slice(), &id4, "A (15,8)");
 
         // A distinguishes factor order with the rotated gauge, whose
         // A^{15,15̄}_{27} = J, against the octet A^{88}_8 ≈ I₂ (no SU(3) A is
@@ -552,7 +563,7 @@ mod su3 {
                 &(s27.clone(), oct.clone()),
             )
             .unwrap();
-        assert_block(a.data(), &j_i, "A (15,8) rotated");
+        assert_block(a.as_slice(), &j_i, "A (15,8) rotated");
         let pr = Product::new((cat.clone(), Rotated::new()));
         let a = pr
             .a_symbol(
@@ -561,7 +572,7 @@ mod su3 {
                 &(oct.clone(), s27.clone()),
             )
             .unwrap();
-        assert_block(a.data(), &i_j, "A (8,15) rotated");
+        assert_block(a.as_slice(), &i_j, "A (8,15) rotated");
 
         // SU(3) × U(1): the U(1) factor contributes a 1 × 1 one.
         let q = Product::new((cat.clone(), U1));
@@ -572,6 +583,6 @@ mod su3 {
                 &(s27.clone(), U1Irrep::new(0).unwrap()),
             )
             .unwrap();
-        assert_block(b.data(), &B_15, "B (15,1)");
+        assert_block(b.as_slice(), &B_15, "B (15,1)");
     }
 }

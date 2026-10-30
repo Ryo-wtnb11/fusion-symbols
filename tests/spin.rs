@@ -130,13 +130,13 @@ fn spinor_frobenius_schur_is_the_n_mod_8_reality_type() {
 fn half_spinor_duality_follows_the_d_series_chirality_rule() {
     let s = ir(6, &[0, 0, 1]);
     assert_eq!(
-        spin_group(6).dual(&s).dynkin(),
+        spin_group(6).dual(&s).dynkin().collect::<Vec<_>>(),
         vec![0, 1, 0],
         "Spin(6) 4* = 4bar"
     );
     let s8 = ir(8, &[0, 0, 0, 1]);
     assert_eq!(
-        spin_group(8).dual(&s8).dynkin(),
+        spin_group(8).dual(&s8).dynkin().collect::<Vec<_>>(),
         vec![0, 0, 0, 1],
         "Spin(8) 8_s self-dual"
     );
@@ -150,7 +150,7 @@ fn spinor_fusion_matches_the_textbook_products() {
         let mut v: Vec<(Vec<i64>, u32)> = bcd_test::product(&spin_group(n), a, b)
             .unwrap()
             .into_iter()
-            .map(|(k, m)| (k.dynkin(), m))
+            .map(|(k, m)| (k.dynkin().collect::<Vec<_>>(), m))
             .collect();
         v.sort();
         v
@@ -216,9 +216,9 @@ fn spinor_cgc_columns_are_orthonormal() {
                 assert!(
                     residual < 1e-10,
                     "Spin({n}) {:?}⊗{:?}→{:?} is not an isometry: {residual:e}",
-                    s.dynkin(),
-                    partner.dynkin(),
-                    c.dynkin()
+                    s.dynkin().collect::<Vec<_>>(),
+                    partner.dynkin().collect::<Vec<_>>(),
+                    c.dynkin().collect::<Vec<_>>()
                 );
             }
         }

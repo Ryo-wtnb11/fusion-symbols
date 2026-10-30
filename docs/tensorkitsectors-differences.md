@@ -21,7 +21,9 @@ API and convention differences, not a claim of complete feature parity.
 | Resource control | Bounded coefficient caches and explicit application-owned policy |
 | Hexagon check | `hexagon_residual`'s second hexagon uses the adjoint of each R block for the inverse braiding; TKS `hexagon_equation` uses the elementwise `conj`, which equals the adjoint only for symmetric blocks and so rejects valid data with `N ≥ 2` vertices between different irreps |
 
-Exact SU(2) evaluators retain infallible and `*_checked` entry points. All
+Exact SU(2) evaluators return exact zero for forbidden labels, as in
+WignerSymbols.jl. N and the Frobenius–Schur phase return `Result`: N = 0 is
+`Ok(0)`, and only genuine computation failures are errors. All
 category operations use `FusionCategory`; braiding capability errors apply
 even to absent channels. See [validation](overview.md#validation-and-errors).
 
@@ -30,7 +32,7 @@ even to absent channels. See [validation](overview.md#validation-and-errors).
 | Family | Encoding difference |
 |---|---|
 | Rank-one Lie | The label is the `u32` Dynkin label `dj = 2j`; `HalfInt` spins only through `LieGroup::irrep_spin` and `LieIrrep::spin` on SU(2) and SO(3) (any rank-one presentation); projections doubled too |
-| Z_N | Runtime modulus in category and label, rather than a type parameter; `new` reduces charges, `from_canonical` validates |
+| Z_N | Runtime modulus in category and label, rather than a type parameter; `new` reduces charges like `ZNIrrep{N}(n)` |
 | U(1) | Integer `i32` charges, excluding `i32::MIN`; half-integer charges cannot be represented |
 | CU(1) | `twice_charge: u32` and validated `s`; full `u32` range, separate category provider |
 | Tables | Validated one-based source indices with a private catalog tag, rather than named TKS objects |

@@ -52,8 +52,8 @@ fn compare<C, T>(
             (runtime.inv_dim(&va), tuple.inv_dim(a)),
             (runtime.inv_sqrt_dim(&va), tuple.inv_sqrt_dim(a)),
             (
-                runtime.frobenius_schur_phase(&va),
-                tuple.frobenius_schur_phase(a),
+                runtime.frobenius_schur_phase(&va).unwrap(),
+                tuple.frobenius_schur_phase(a).unwrap(),
             ),
             (
                 runtime.frobenius_schur_indicator(&va),
@@ -75,10 +75,9 @@ fn compare<C, T>(
             );
             for c in &labels {
                 let vc = flatten(c);
-                assert_eq!(runtime.nsymbol(&va, &vb, &vc), tuple.nsymbol(a, b, c));
                 assert_eq!(
-                    runtime.try_nsymbol(&va, &vb, &vc).unwrap(),
-                    tuple.try_nsymbol(a, b, c).unwrap()
+                    runtime.nsymbol(&va, &vb, &vc).unwrap(),
+                    tuple.nsymbol(a, b, c).unwrap()
                 );
                 assert_eq!(
                     bits(runtime.r_symbol(&va, &vb, &vc).unwrap()),
@@ -102,16 +101,18 @@ fn compare<C, T>(
     for &a in &f_labels {
         for &b in &f_labels {
             for &e in &f_labels {
-                if tuple.nsymbol(a, b, e) == 0 {
+                if tuple.nsymbol(a, b, e).unwrap() == 0 {
                     continue;
                 }
                 for &c in &f_labels {
                     for &d in &f_labels {
-                        if tuple.nsymbol(e, c, d) == 0 {
+                        if tuple.nsymbol(e, c, d).unwrap() == 0 {
                             continue;
                         }
                         for &f in &f_labels {
-                            if tuple.nsymbol(b, c, f) == 0 || tuple.nsymbol(a, f, d) == 0 {
+                            if tuple.nsymbol(b, c, f).unwrap() == 0
+                                || tuple.nsymbol(a, f, d).unwrap() == 0
+                            {
                                 continue;
                             }
                             let [va, vb, vc, vd, ve, vf] = [a, b, c, d, e, f].map(&flatten);
@@ -151,7 +152,7 @@ fn compare_cgc(a: &impl CgcBlock, b: &impl CgcBlock) {
             for k in 0..dc {
                 for mu in 0..n {
                     let index = [i, j, k, mu];
-                    assert_eq!(a.at(index).to_bits(), b.at(index).to_bits(), "{index:?}");
+                    assert_eq!(a.get(index).to_bits(), b.get(index).to_bits(), "{index:?}");
                 }
             }
         }
@@ -243,7 +244,7 @@ fn runtime_matches_tuples() {
     let cgc = runtime.cgc(&a, &a, &c).unwrap();
     // Last-fastest [3,2,1,0] decodes as [1,0,1,0] x [0,2,0,0].
     // Triplet m=0 has 1/sqrt(2); spin-one singlet (+1,-1) has 1/sqrt(3).
-    assert!((cgc.at([3, 2, 1, 0]) - 1.0 / 6.0_f64.sqrt()).abs() < 1e-14);
+    assert!((cgc.get([3, 2, 1, 0]) - 1.0 / 6.0_f64.sqrt()).abs() < 1e-14);
 }
 
 #[cfg(feature = "lie-generated")]
@@ -254,7 +255,7 @@ fn runtime_generated_multiplicity_matches_tuple() {
     let a = (s.irrep(&[1, 1]).unwrap(), t.irrep(&[2]).unwrap());
     let runtime = Product::new(vec![s.clone(), t.clone()]);
     let va = vec![a.0.clone(), a.1.clone()];
-    assert_eq!(runtime.nsymbol(&va, &va, &va), 2);
+    assert_eq!(runtime.nsymbol(&va, &va, &va).unwrap(), 2);
     let u = (s.unit(), t.unit());
     compare(
         &runtime,
@@ -280,14 +281,13 @@ fn empty_and_singleton() {
         empty.sqrt_dim(&u),
         empty.inv_dim(&u),
         empty.inv_sqrt_dim(&u),
-        empty.frobenius_schur_phase(&u),
+        empty.frobenius_schur_phase(&u).unwrap(),
         empty.frobenius_schur_indicator(&u),
         empty.twist(&u),
     ] {
         assert_eq!(v, 1.0);
     }
-    assert_eq!(empty.nsymbol(&u, &u, &u), 1);
-    assert_eq!(empty.try_nsymbol(&u, &u, &u), Ok(1));
+    assert_eq!(empty.nsymbol(&u, &u, &u).unwrap(), 1);
     assert_eq!(
         empty.fusion(&u, &u).unwrap().collect::<Vec<_>>(),
         std::slice::from_ref(&u)
@@ -305,8 +305,8 @@ fn empty_and_singleton() {
     }
     let cgc = empty.cgc(&u, &u, &u).unwrap();
     assert_eq!(cgc.dims(), [1; 4]);
-    assert_eq!(cgc.at([0; 4]), 1.0);
-    assert!(std::panic::catch_unwind(|| cgc.at([1, 0, 0, 0])).is_err());
+    assert_eq!(cgc.get([0; 4]), 1.0);
+    assert!(std::panic::catch_unwind(|| cgc.get([1, 0, 0, 0])).is_err());
     let s = su(2);
     let a = s.irrep(&[1]).unwrap();
     let u = s.unit();

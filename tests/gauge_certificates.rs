@@ -42,14 +42,14 @@ fn table(
     Vec<<TableCategory as FusionCategory>::Object>,
 ) {
     let cat = TableCategory::by_code(code).unwrap();
-    let objects = cat.objects().collect();
+    let objects = crate::common::objects(&cat).collect();
     (cat, objects)
 }
 
 fn admissible<C: FusionCategory>(cat: &C, [a, b, c, d, e, f]: [&C::Object; 6]) -> bool {
     [(a, b, e), (e, c, d), (b, c, f), (a, f, d)]
         .iter()
-        .all(|&(x, y, z)| cat.nsymbol(x, y, z) > 0)
+        .all(|&(x, y, z)| cat.nsymbol(x, y, z).unwrap() > 0)
 }
 
 /// Every admissible F over `objects` is the 1x1x1x1 block holding exactly 1.
@@ -92,8 +92,8 @@ fn assert_canonical_unit<C: FusionCategory>(cat: &C, objects: &[C::Object], tol:
             cat.fusion(a, &one).unwrap().collect::<Vec<_>>(),
             std::slice::from_ref(a)
         );
-        assert_eq!(cat.nsymbol(&one, a, a), 1);
-        assert_eq!(cat.nsymbol(a, &one, a), 1);
+        assert_eq!(cat.nsymbol(&one, a, a).unwrap(), 1);
+        assert_eq!(cat.nsymbol(a, &one, a).unwrap(), 1);
     }
     let mut checked = 0;
     for a in objects {
@@ -228,7 +228,7 @@ fn generated_canonical_units_hold_in_f_to_rounding() {
 fn tables_certificates_hold_in_f() {
     for uuid in TableCategory::shipped_uuids() {
         let cat = TableCategory::by_uuid(uuid).unwrap();
-        let objects: Vec<_> = cat.objects().collect();
+        let objects: Vec<_> = crate::common::objects(&cat).collect();
         assert!(cat.has_canonical_unit(), "{uuid}");
         assert_canonical_unit(&cat, &objects, 0.0);
         if cat.has_trivial_associator_gauge() {
@@ -402,7 +402,7 @@ fn product_certificates_hold_in_f() {
     let cat = Product::new((CU1, fib.clone()));
     let objects: Vec<_> = cu1_irreps()[..3]
         .iter()
-        .flat_map(|&a| fib.objects().map(move |t| (a, t)))
+        .flat_map(|&a| crate::common::objects(&fib).map(move |t| (a, t)))
         .collect();
     assert!(assert_canonical_unit(&cat, &objects, 0.0) > 0);
 }

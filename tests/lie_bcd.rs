@@ -2,7 +2,7 @@
 mod common;
 
 #[cfg(feature = "lie-generated")]
-use fusion_symbols::category::FusionCategory;
+use fusion_symbols::category::{FusionCategory, SymbolBlock};
 use fusion_symbols::lie::{GroupId, LieError, LieGroup};
 
 #[test]
@@ -55,7 +55,7 @@ fn labels_weights_zero_blocks_and_shared_cgc() {
         cat.f_symbol(&v, &v, &v, &v, &v, &adj).unwrap().dims(),
         [0, 0, 1, 1]
     );
-    assert_eq!(cat.r_symbol(&v, &v, &v).unwrap().dim(), 0);
+    assert_eq!(cat.r_symbol(&v, &v, &v).unwrap().dims()[0], 0);
     assert_eq!(cat.cgc(&v, &v, &v).unwrap().dims(), [5, 5, 5, 0]);
     assert_eq!(adj.weight_multiplicities()[&vec![0, 0]], 2);
 
@@ -105,15 +105,15 @@ fn labels_weights_zero_blocks_and_shared_cgc() {
         let f = group
             .f_symbol(&a, &dual, &a, &a, &unit, &unit)
             .unwrap()
-            .at(0, 0, 0, 0);
-        assert!((group.frobenius_schur_phase(&a) - f / f.abs()).abs() < 1e-12);
+            .get([0, 0, 0, 0]);
+        assert!((group.frobenius_schur_phase(&a).unwrap() - f / f.abs()).abs() < 1e-12);
     }
     cache::reset();
     let product = cat.fusion(&s, &s).unwrap().collect::<Vec<_>>();
     let before = cache::tier_stats(cache::CoefficientCacheTier::Product);
     assert_eq!(cat.fusion(&s, &s).unwrap().collect::<Vec<_>>(), product);
     for c in product {
-        assert_eq!(cat.nsymbol(&s, &s, &c), 1);
+        assert_eq!(cat.nsymbol(&s, &s, &c).unwrap(), 1);
     }
     let warm = cache::tier_stats(cache::CoefficientCacheTier::Product);
     assert_eq!(warm.misses, before.misses);

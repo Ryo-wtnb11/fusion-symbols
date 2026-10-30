@@ -19,7 +19,7 @@ fn assert_orthonormal(block: &impl CgcBlock) {
                     let mut dot = 0.0;
                     for a in 0..da {
                         for b in 0..db {
-                            dot += block.at([a, b, c, mu]) * block.at([a, b, other_c, other_mu]);
+                            dot += block.get([a, b, c, mu]) * block.get([a, b, other_c, other_mu]);
                         }
                     }
                     let want = f64::from(c == other_c && mu == other_mu);
@@ -53,7 +53,7 @@ fn assert_f_from_cgc<C: GroupRepresentations<Scalar = f64>>(cat: &C, labels: [&C
                 let left: Vec<f64> = (0..nmu * nnu)
                     .map(|i| {
                         (0..de)
-                            .map(|me| ab.at([ma, mb, me, i / nnu]) * ec.at([me, mc, 0, i % nnu]))
+                            .map(|me| ab.get([ma, mb, me, i / nnu]) * ec.get([me, mc, 0, i % nnu]))
                             .sum()
                     })
                     .collect();
@@ -61,7 +61,7 @@ fn assert_f_from_cgc<C: GroupRepresentations<Scalar = f64>>(cat: &C, labels: [&C
                     .map(|i| {
                         (0..df)
                             .map(|mf| {
-                                bc.at([mb, mc, mf, i / nlambda]) * af.at([ma, mf, 0, i % nlambda])
+                                bc.get([mb, mc, mf, i / nlambda]) * af.get([ma, mf, 0, i % nlambda])
                             })
                             .sum()
                     })
@@ -115,7 +115,7 @@ fn su2_zn_isometry_and_f() {
     assert_f_from_cgc(&cat, [&a, &a, &a, &d, &e, &e]);
     let absent = cat.cgc(&a, &a, &a).unwrap();
     assert_eq!(absent.dims()[3], 0);
-    assert!(std::panic::catch_unwind(|| absent.at([0; 4])).is_err());
+    assert!(std::panic::catch_unwind(|| absent.get([0; 4])).is_err());
 }
 
 #[cfg(feature = "lie-generated")]
@@ -148,17 +148,17 @@ fn last_factor_fastest_and_nested_products() {
     let half_half_to_one = spin.cgc(&half, &half, &one).unwrap();
     let one_one_to_unit = spin.cgc(&one, &one, &unit).unwrap();
     let combined = [3, 2, 1, 0]; // [1*3+0, 0*3+2, 1*1+0, 0*1+0]
-    let want = half_half_to_one.at([1, 0, 1, 0]) * one_one_to_unit.at([0, 2, 0, 0]);
+    let want = half_half_to_one.get([1, 0, 1, 0]) * one_one_to_unit.get([0, 2, 0, 0]);
     assert!(want.abs() > 0.1);
-    assert_eq!(block.at(combined), want);
-    assert!(std::panic::catch_unwind(|| block.at([6, 0, 0, 0])).is_err());
+    assert_eq!(block.get(combined), want);
+    assert!(std::panic::catch_unwind(|| block.get([6, 0, 0, 0])).is_err());
     let nested = Product::new((cat, ZN::new(3).unwrap()));
     let charge = ZNIrrep::new(0, 3).unwrap();
     let nested_block = nested
         .cgc(&(a.clone(), charge), &(a, charge), &(c, charge))
         .unwrap();
     assert_eq!(nested_block.dims(), block.dims());
-    assert_eq!(nested_block.at(combined), want);
+    assert_eq!(nested_block.get(combined), want);
     // The arity-12 implementation remains lazy, including explicitly nested tuples.
     let z = ZN::new(3).unwrap();
     let twelve = Product::new((z, z, z, z, z, z, z, z, z, z, z, z));
@@ -166,7 +166,7 @@ fn last_factor_fastest_and_nested_products() {
         twelve
             .cgc(&twelve.unit(), &twelve.unit(), &twelve.unit())
             .unwrap()
-            .at([0; 4]),
+            .get([0; 4]),
         1.0
     );
 }
@@ -181,13 +181,13 @@ fn su3_su3_multiplicity_last_factor_fastest() {
     let a = (eight.clone(), eight);
     let block = cat.cgc(&a, &a, &a).unwrap();
     assert_eq!(block.dims(), [64, 64, 64, 4]);
-    let want_10 = c.at([0, 2, 0, 1]) * c.at([2, 0, 0, 0]);
-    let want_01 = c.at([0, 2, 0, 0]) * c.at([2, 0, 0, 1]);
+    let want_10 = c.get([0, 2, 0, 1]) * c.get([2, 0, 0, 0]);
+    let want_01 = c.get([0, 2, 0, 0]) * c.get([2, 0, 0, 1]);
     assert!((want_10 - want_01).abs() > 0.1);
     // Last factor fastest: magnetic [0*8+2, 2*8+0, 0*8+0], mu = mu0*2+mu1.
     let [i, j, k] = [2, 16, 0];
-    assert_eq!(block.at([i, j, k, 2]), want_10); // 1*2+0
-    assert_eq!(block.at([i, j, k, 1]), want_01); // 0*2+1
+    assert_eq!(block.get([i, j, k, 2]), want_10); // 1*2+0
+    assert_eq!(block.get([i, j, k, 1]), want_01); // 0*2+1
 }
 
 #[test]
@@ -200,12 +200,13 @@ fn zn_scalar_channels_and_bounds() {
     assert_eq!(absent, 0.0);
     assert_eq!(CgcBlock::dims(&present), [1; 4]);
     assert_eq!(CgcBlock::dims(&absent), [1, 1, 1, 0]);
-    assert_eq!(present.at([0; 4]), 1.0);
-    assert!(std::panic::catch_unwind(|| absent.at([0; 4])).is_err());
+    // `f64` is also a scalar `SymbolBlock`; name the CGC reader explicitly.
+    assert_eq!(CgcBlock::get(&present, [0; 4]), 1.0);
+    assert!(std::panic::catch_unwind(|| CgcBlock::get(&absent, [0; 4])).is_err());
     for axis in 0..4 {
         let mut index = [0; 4];
         index[axis] = 1;
-        assert!(std::panic::catch_unwind(|| present.at(index)).is_err());
+        assert!(std::panic::catch_unwind(|| CgcBlock::get(&present, index)).is_err());
     }
     assert!(
         std::panic::catch_unwind(|| cat.cgc(&z(1), &z(1), &ZNIrrep::new(2, 4).unwrap())).is_err()
@@ -267,4 +268,127 @@ fn a1_a2_isometry_and_f() {
     let e = cat.irrep(&[2, 1, 1]).unwrap();
     assert_orthonormal(&cat.cgc(&a, &a, &e).unwrap());
     assert_f_from_cgc(&cat, [&a, &a, &a, &a, &e, &e]);
+}
+
+// Coordinate-coded synthetic block: the value names its own index.
+struct Coded([usize; 4]);
+impl CgcBlock for Coded {
+    fn dims(&self) -> [usize; 4] {
+        self.0
+    }
+    fn get(&self, index: [usize; 4]) -> f64 {
+        assert!(index.iter().zip(self.0).all(|(&i, n)| i < n));
+        let [a, b, c, mu] = index.map(|i| i as f64);
+        1000.0 * a + 100.0 * b + 10.0 * c + mu
+    }
+}
+
+// A block whose reads must never happen.
+struct Unread([usize; 4]);
+impl CgcBlock for Unread {
+    fn dims(&self) -> [usize; 4] {
+        self.0
+    }
+    fn get(&self, _: [usize; 4]) -> f64 {
+        panic!("read")
+    }
+}
+
+fn panic_message(f: impl FnOnce() + std::panic::UnwindSafe) -> String {
+    let payload = std::panic::catch_unwind(f).unwrap_err();
+    payload
+        .downcast_ref::<&str>()
+        .map(|s| s.to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap()
+}
+
+#[test]
+fn to_dense_is_row_major_multiplicity_fastest() {
+    let dense = Coded([2, 3, 2, 2]).to_dense();
+    assert_eq!(dense.len(), 24);
+    assert_eq!(&dense[..5], &[0.0, 1.0, 10.0, 11.0, 100.0]);
+    assert_eq!(dense[23], 1211.0);
+    // Decode each flat position independently: mu fastest, then mc, mb, ma.
+    for (flat, &value) in dense.iter().enumerate() {
+        let (mu, rest) = (flat % 2, flat / 2);
+        let (mc, rest) = (rest % 2, rest / 2);
+        let (mb, ma) = (rest % 3, rest / 3);
+        assert_eq!(value, (1000 * ma + 100 * mb + 10 * mc + mu) as f64);
+    }
+}
+
+#[test]
+fn to_dense_capacity_and_empty_shapes() {
+    // A zero axis returns before multiplying the other axes or reading.
+    for axis in 0..4 {
+        let mut dims = [usize::MAX; 4];
+        dims[axis] = 0;
+        assert!(Unread(dims).to_dense().is_empty());
+    }
+    // Unrepresentable element or byte counts panic before any read or allocation.
+    let elements = panic_message(|| drop(Unread([usize::MAX, 2, 1, 1]).to_dense()));
+    assert!(elements.starts_with("dense CGC size overflow"));
+    let bytes = panic_message(|| drop(Unread([usize::MAX / 8 + 1, 1, 1, 1]).to_dense()));
+    assert!(bytes.starts_with("dense CGC byte size overflow"));
+    // Scalars: a present abelian channel is [1.0], an absent one is empty;
+    // the empty vector product is the trivial one-entry CGC.
+    assert_eq!(CgcBlock::to_dense(&1.0f64), [1.0]);
+    assert!(CgcBlock::to_dense(&0.0f64).is_empty());
+    assert_eq!(Vec::<f64>::new().to_dense(), [1.0]);
+}
+
+#[test]
+fn to_dense_products_expand_factors_last_fastest() {
+    let spin = su2();
+    let half = spin.irrep(&[1]).unwrap();
+    let one = spin.irrep(&[2]).unwrap();
+    let c0 = spin.cgc(&half, &half, &one).unwrap(); // [2, 2, 3, 1]
+    let c1 = spin.cgc(&one, &half, &half).unwrap(); // [3, 2, 2, 1]
+                                                    // Independent Kronecker expansion over factor indices.
+    let [a0, b0, e0, n0] = c0.dims();
+    let [a1, b1, e1, n1] = c1.dims();
+    let (db, de, dn) = (b0 * b1, e0 * e1, n0 * n1);
+    let mut expected = vec![f64::NAN; a0 * a1 * db * de * dn];
+    for i0 in 0..a0 {
+        for j0 in 0..b0 {
+            for k0 in 0..e0 {
+                for i1 in 0..a1 {
+                    for j1 in 0..b1 {
+                        for k1 in 0..e1 {
+                            let (ma, mb, mc) = (i0 * a1 + i1, j0 * b1 + j1, k0 * e1 + k1);
+                            expected[((ma * db + mb) * de + mc) * dn] =
+                                c0.get([i0, j0, k0, 0]) * c1.get([i1, j1, k1, 0]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let cat = Product::new((spin.clone(), spin.clone()));
+    let (a, b, c) = (
+        (half.clone(), one.clone()),
+        (half.clone(), half.clone()),
+        (one.clone(), half.clone()),
+    );
+    let tuple = cat.cgc(&a, &b, &c).unwrap();
+    assert_eq!(tuple.to_dense(), expected);
+    let vector = Product::new(vec![spin.clone(); 2])
+        .cgc(
+            &vec![half.clone(), one.clone()],
+            &vec![half.clone(), half.clone()],
+            &vec![one.clone(), half.clone()],
+        )
+        .unwrap();
+    assert_eq!(vector.to_dense(), expected);
+    // A trivial ZN factor nested on the right changes no value.
+    let z = ZN::new(3).unwrap();
+    let nested = Product::new((cat, z));
+    let q = ZNIrrep::new(0, 3).unwrap();
+    let block = nested.cgc(&(a, q), &(b, q), &(c, q)).unwrap();
+    let mut first = block.to_dense();
+    assert_eq!(first, expected);
+    // Each call returns independent owned storage.
+    first[0] = 7.0;
+    assert_eq!(block.to_dense(), expected);
 }

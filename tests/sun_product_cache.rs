@@ -60,8 +60,8 @@ fn product_cache_contract() {
     let shared: Vec<_> = cat.fusion(&a, &b).unwrap().collect();
     assert_eq!(shared, cold);
     let channel = cold.first().unwrap();
-    assert_eq!(cat.nsymbol(&a, &b, channel), 1);
-    assert_eq!(cat.nsymbol(&a, &b, &irr(&[99, 0])), 0);
+    assert_eq!(cat.nsymbol(&a, &b, channel).unwrap(), 1);
+    assert_eq!(cat.nsymbol(&a, &b, &irr(&[99, 0])).unwrap(), 0);
     assert_eq!(cat.fusion(&b, &a).unwrap().collect::<Vec<_>>(), shared);
     let after_shared = cache::tier_stats(cache::CoefficientCacheTier::Product);
     assert_eq!(after_shared.hits, 5);
@@ -142,11 +142,11 @@ fn product_cache_contract() {
         let a = g.irrep(&label).unwrap();
         let b = g.dual(&a);
         let one = g.unit();
-        assert_eq!(g.try_nsymbol(&a, &b, &one).unwrap(), 1);
+        assert_eq!(g.nsymbol(&a, &b, &one).unwrap(), 1);
         let cold = cache::tier_stats(cache::CoefficientCacheTier::Product);
         assert_eq!((cold.entries, cold.misses), (1, 1));
         assert!(g.fusion(&b, &a).unwrap().any(|c| c == one));
-        assert_eq!(g.try_nsymbol(&a, &b, &one).unwrap(), 1);
+        assert_eq!(g.nsymbol(&a, &b, &one).unwrap(), 1);
         let warm = cache::tier_stats(cache::CoefficientCacheTier::Product);
         assert_eq!((warm.entries, warm.misses, warm.hits), (2, 2, 2));
         cache::trim_to(cache::CoefficientCacheTier::Product, 0);
@@ -162,7 +162,7 @@ fn product_cache_contract() {
     let channels = a1::group()
         .fusion(&a1::ir(3), &a1::ir(2))
         .unwrap()
-        .map(|s| s.dynkin()[0] as u32)
+        .map(|s| s.dynkin().next().unwrap() as u32)
         .collect::<Vec<_>>();
     assert_eq!(channels, [1, 3, 5]);
     assert_eq!(

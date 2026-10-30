@@ -29,6 +29,7 @@ pub(crate) fn a1() -> &'static GeneralFamily {
 mod tests {
     use super::cgc::BUILDS;
     use super::*;
+    use crate::category::SymbolBlock;
     #[cfg(feature = "lie-generated")]
     use crate::category::{f_unitarity_residual, FusionCategory};
     #[cfg(feature = "lie-generated")]
@@ -64,7 +65,11 @@ mod tests {
         assert_eq!(builds(), warm, "warm calls must not regenerate");
         for n in 1..=600 {
             // Absent R channels request no CGC and build no module.
-            assert!(fam.r_symbol([one, &[n, 0], one]).unwrap().data().is_empty());
+            assert!(fam
+                .r_symbol([one, &[n, 0], one])
+                .unwrap()
+                .as_slice()
+                .is_empty());
         }
         assert_eq!(builds(), warm, "absent channels must not build modules");
         let limit = crate::cache::cache_budgets().limit(crate::cache::CoefficientCacheTier::Cgc);
@@ -73,9 +78,9 @@ mod tests {
         let symbols = || {
             let f = fam.f_symbol([a, a, a, a, b, b]).unwrap();
             let r = fam.r_symbol([a, a, b]).unwrap();
-            f.data()
+            f.as_slice()
                 .iter()
-                .chain(r.data())
+                .chain(r.as_slice())
                 .map(|x| x.to_bits())
                 .collect::<Vec<_>>()
         };
@@ -119,7 +124,7 @@ mod tests {
                 let a = g.irrep(&label).unwrap();
                 let query = || {
                     if label.len() == 6 {
-                        assert_eq!(g.frobenius_schur_phase(&a), 1.0);
+                        assert_eq!(g.frobenius_schur_phase(&a).unwrap(), 1.0);
                     } else {
                         std::hint::black_box(g.r_symbol(&a, &a, &g.unit()).unwrap());
                     }
@@ -145,7 +150,7 @@ mod product_contract_tests {
     use super::*;
     use crate::{
         cache,
-        category::FusionCategory,
+        category::{FusionCategory, SymbolBlock},
         lie::{GroupId, LieError, LieGroup},
     };
     use std::sync::atomic::Ordering;
@@ -172,15 +177,19 @@ mod product_contract_tests {
             let absent = g.irrep(&absent).unwrap();
             cache::reset();
             let before = builds();
-            assert_eq!(g.try_nsymbol(&a, &b, &one).unwrap(), 1);
+            assert_eq!(g.nsymbol(&a, &b, &one).unwrap(), 1);
             assert_eq!(builds() - before, 1);
-            assert_eq!(g.try_nsymbol(&a, &b, &absent).unwrap(), 0);
-            assert_eq!(h.try_nsymbol(&b, &a, &one).unwrap(), 1);
+            assert_eq!(g.nsymbol(&a, &b, &absent).unwrap(), 0);
+            assert_eq!(h.nsymbol(&b, &a, &one).unwrap(), 1);
             let channels = g.fusion(&a, &b).unwrap().collect::<Vec<_>>();
             assert!(channels.contains(&one));
             let fam = GeneralFamily::new(root);
             let zero = vec![0; label.len()];
-            assert_eq!(fam.mult(&label, &b.dynkin(), &zero).unwrap(), 1);
+            assert_eq!(
+                fam.mult(&label, &b.dynkin().collect::<Vec<_>>(), &zero)
+                    .unwrap(),
+                1
+            );
             assert_eq!(
                 builds() - before,
                 1,
@@ -198,7 +207,7 @@ mod product_contract_tests {
             let before = builds();
             // Four validated N prechecks contain two distinct unordered pairs: (a,b), (one,a).
             let f = g.f_symbol(&a, &b, &a, &a, &one, &one).unwrap();
-            assert!(!f.data().is_empty());
+            assert!(!f.as_slice().is_empty());
             assert_eq!(builds() - before, 2);
             assert_eq!(g.f_symbol(&a, &b, &a, &a, &one, &one).unwrap(), f);
             assert_eq!(

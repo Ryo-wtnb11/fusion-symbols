@@ -613,12 +613,14 @@ impl FusionCategory for Cat {
     fn dim(&self, a: &Vec<i64>) -> f64 {
         u64::try_from(&self.fam.data().weyl_dimension(a).unwrap()).unwrap() as f64
     }
-    fn frobenius_schur_phase(&self, a: &Vec<i64>) -> f64 {
-        f64::from(self.fam.frobenius_schur_phase(a, &self.dual(a)).unwrap())
+    fn frobenius_schur_phase(&self, a: &Vec<i64>) -> Result<f64, LieError> {
+        self.fam
+            .frobenius_schur_phase(a, &self.dual(a))
+            .map(f64::from)
     }
     fn frobenius_schur_indicator(&self, a: &Vec<i64>) -> f64 {
         if &self.dual(a) == a {
-            self.frobenius_schur_phase(a)
+            self.frobenius_schur_phase(a).unwrap()
         } else {
             0.0
         }
@@ -635,8 +637,8 @@ impl FusionCategory for Cat {
             .collect::<Vec<_>>()
             .into_iter())
     }
-    fn nsymbol(&self, a: &Vec<i64>, b: &Vec<i64>, c: &Vec<i64>) -> u32 {
-        self.fam.mult(a, b, c).unwrap() as u32
+    fn nsymbol(&self, a: &Vec<i64>, b: &Vec<i64>, c: &Vec<i64>) -> Result<u32, LieError> {
+        Ok(self.fam.mult(a, b, c)? as u32)
     }
     fn f_symbol(
         &self,
@@ -680,7 +682,7 @@ fn g2_gates_through_frcore() {
 fn g2_multiplicity_two_gates_through_frcore() {
     let cat = Cat::new(RootSystem::G2);
     let (v, x) = (G7.to_vec(), G27.to_vec());
-    assert_eq!(cat.nsymbol(&x, &x, &x), 2);
+    assert_eq!(cat.nsymbol(&x, &x, &x).unwrap(), 2);
     assert!(timed("F", || f_unitarity_residual(&cat, &v, &x, &x, &x)) <= TOL);
     assert!(timed("H", || hexagon_residual(&cat, &x, &x, &v)) <= TOL);
     assert!(timed("P", || pentagon_residual(&cat, &v, &v, &x, &x)) <= TOL);
@@ -748,11 +750,14 @@ fn frobenius_schur_phase_literals() {
 fn frobenius_schur_phase_matches_f_sign() {
     let g2 = Cat::new(RootSystem::G2);
     for l in [G7, G14] {
-        assert_eq!(kappa_from_f(&g2, &l), g2.frobenius_schur_phase(&l.to_vec()));
+        assert_eq!(
+            kappa_from_f(&g2, &l),
+            g2.frobenius_schur_phase(&l.to_vec()).unwrap()
+        );
     }
     let e6 = Cat::new(RootSystem::E6);
     for l in [unit(6, 0), unit(6, 5)] {
-        assert_eq!(kappa_from_f(&e6, &l), e6.frobenius_schur_phase(&l));
+        assert_eq!(kappa_from_f(&e6, &l), e6.frobenius_schur_phase(&l).unwrap());
         assert_eq!(e6.frobenius_schur_indicator(&l), 0.0);
     }
 }
@@ -1216,10 +1221,10 @@ fn failed_block_gates_are_not_retained() {
         Err(LieError::from(GateError::NonFinite { gate: "F" }))
     );
     let good_r = fam.r_symbol(r).unwrap();
-    assert_eq!(good_r.data(), [1.0]);
+    assert_eq!(good_r.as_slice(), [1.0]);
     let good_f = fam.f_symbol(f).unwrap();
     assert!(good_f
-        .data()
+        .as_slice()
         .iter()
         .all(|x| x.is_finite() && x.abs() <= 1.0));
 }

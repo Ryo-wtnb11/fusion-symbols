@@ -173,7 +173,7 @@ fn cartan_workload(pass: &str) {
         }
     };
     let phase = |g: &LieGroup, a: &[i64]| {
-        black_box(g.frobenius_schur_phase(&g.irrep(a).unwrap()));
+        black_box(g.frobenius_schur_phase(&g.irrep(a).unwrap()).unwrap());
     };
     cartan_query(&format!("{pass} G2 27x27 all"), || {
         all(&g2, &[2, 0], &[2, 0])
@@ -241,8 +241,12 @@ fn cgc_d4_350_working_set() {
     let g = LieGroup::new(GroupId::spin(8).unwrap()).unwrap();
     let a = g.irrep(&[1, 0, 1, 1]).unwrap();
     for c in g.fusion(&a, &a).unwrap() {
-        let n = g.nsymbol(&a, &a, &c);
-        let label = format!("D4 350x350 -> {:?} (dim {}, N {n})", c.dynkin(), g.dim(&c));
+        let n = g.nsymbol(&a, &a, &c).unwrap();
+        let label = format!(
+            "D4 350x350 -> {:?} (dim {}, N {n})",
+            c.dynkin().collect::<Vec<_>>(),
+            g.dim(&c)
+        );
         cartan_query(&label, || {
             black_box(g.cgc(&a, &a, &c).unwrap());
         });

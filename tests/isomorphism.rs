@@ -111,7 +111,7 @@ fn bcd_channels(g: GroupId, a: &Bcd, b: &Bcd) -> BTreeMap<Vec<i64>, u32> {
     bcd_test::product(&LieGroup::new(g).unwrap(), a, b)
         .unwrap()
         .into_iter()
-        .map(|(k, v)| (k.dynkin(), v))
+        .map(|(k, v)| (k.dynkin().collect::<Vec<_>>(), v))
         .collect()
 }
 
@@ -121,7 +121,7 @@ fn sun_channels(a: &Sun, b: &Sun) -> BTreeMap<Vec<i64>, u32> {
     sdp(a, b)
         .unwrap()
         .into_iter()
-        .map(|(k, v)| (k.dynkin(), v))
+        .map(|(k, v)| (k.dynkin().collect::<Vec<_>>(), v))
         .collect()
 }
 
@@ -171,7 +171,7 @@ fn so6_su4_products_agree() {
             // Remap each SU(4) summand label to its D_3 image and compare.
             let s_mapped: BTreeMap<Vec<i64>, u32> = s
                 .into_iter()
-                .map(|(k, v)| (su4_to_so6(&k).dynkin(), v))
+                .map(|(k, v)| (su4_to_so6(&k).dynkin().collect::<Vec<_>>(), v))
                 .collect();
             assert_eq!(
                 s_mapped, d,
@@ -206,7 +206,7 @@ fn sp4_so5_products_agree() {
             let bb = bcd_channels(GroupId::so(5).unwrap(), &sp4_to_so5(a), &sp4_to_so5(b));
             let c_mapped: BTreeMap<Vec<i64>, u32> = cc
                 .into_iter()
-                .map(|(k, v)| (sp4_to_so5(&k).dynkin(), v))
+                .map(|(k, v)| (sp4_to_so5(&k).dynkin().collect::<Vec<_>>(), v))
                 .collect();
             assert_eq!(
                 c_mapped, bb,
@@ -297,7 +297,7 @@ fn spin6_su4_dimensions_agree_including_spinors() {
     assert_eq!(su4_to_spin6(&[1, 0, 0]).dim_exact(), 4u32);
     assert!(!GroupId::so(6)
         .unwrap()
-        .admits(&su4_to_spin6(&[1, 0, 0]).dynkin(), &[]));
+        .admits(&su4_to_spin6(&[1, 0, 0]).dynkin().collect::<Vec<_>>(), &[]));
 }
 
 /// `Spin(6) ≅ SU(4)`: every ordered product agrees channel-for-channel and
@@ -315,7 +315,7 @@ fn spin6_su4_products_agree_including_spinors() {
             );
             let s_mapped: BTreeMap<Vec<i64>, u32> = s
                 .into_iter()
-                .map(|(k, v)| (su4_to_spin6(&k).dynkin(), v))
+                .map(|(k, v)| (su4_to_spin6(&k).dynkin().collect::<Vec<_>>(), v))
                 .collect();
             assert_eq!(
                 s_mapped, d,
@@ -332,11 +332,14 @@ fn spin6_su4_duals_agree_including_spinors() {
     for a in SPIN6_LABELS {
         let s = lie_test::irrep(a).unwrap();
         assert_eq!(
-            su4_to_spin6(&lie_test::dual(&s).dynkin()).dynkin(),
+            su4_to_spin6(&lie_test::dual(&s).dynkin().collect::<Vec<_>>())
+                .dynkin()
+                .collect::<Vec<_>>(),
             LieGroup::new(GroupId::spin(6).unwrap())
                 .unwrap()
                 .dual(&su4_to_spin6(a))
-                .dynkin(),
+                .dynkin()
+                .collect::<Vec<_>>(),
             "dual mismatch SU(4) {a:?} vs Spin(6)"
         );
     }
@@ -358,7 +361,7 @@ fn spin5_sp4_dimensions_agree_including_spinors() {
     assert_eq!(sp4_to_spin5(&[1, 0]).dim_exact(), 4u32);
     assert!(!GroupId::so(5)
         .unwrap()
-        .admits(&sp4_to_spin5(&[1, 0]).dynkin(), &[]));
+        .admits(&sp4_to_spin5(&[1, 0]).dynkin().collect::<Vec<_>>(), &[]));
 }
 
 /// `Spin(5) ≅ Sp(4)`: every ordered product agrees, spinor channels included.
@@ -379,7 +382,7 @@ fn spin5_sp4_products_agree_including_spinors() {
             );
             let c_mapped: BTreeMap<Vec<i64>, u32> = cc
                 .into_iter()
-                .map(|(k, v)| (sp4_to_spin5(&k).dynkin(), v))
+                .map(|(k, v)| (sp4_to_spin5(&k).dynkin().collect::<Vec<_>>(), v))
                 .collect();
             assert_eq!(
                 c_mapped, bb,

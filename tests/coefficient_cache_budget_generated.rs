@@ -10,7 +10,7 @@ use fusion_symbols::cache::{
     cache_budgets, configure_cache_budgets, tier_stats, CoefficientCacheBudgets,
     CoefficientCacheTier,
 };
-use fusion_symbols::category::FusionCategory;
+use fusion_symbols::category::{FusionCategory, SymbolBlock};
 
 #[test]
 fn disabled_policy_preserves_product_value_without_retention() {
@@ -38,7 +38,7 @@ fn disabled_policy_preserves_product_value_without_retention() {
     // A zero R budget still returns the 2×2 octet block, retaining nothing;
     // with no retention, R and its two channels each regenerate.
     let octet = lie_test::irrep(&[1, 1]).unwrap();
-    assert_eq!(cat.r_symbol(&octet, &octet, &octet).unwrap().dim(), 2);
+    assert_eq!(cat.r_symbol(&octet, &octet, &octet).unwrap().dims()[0], 2);
     let stats = tier_stats(CoefficientCacheTier::RSymbol);
     assert_eq!((stats.entries, stats.bytes, stats.misses), (0, 0, 1));
     assert_eq!(stats.evictions, 1);
@@ -57,7 +57,7 @@ fn disabled_policy_preserves_product_value_without_retention() {
     assert_eq!(stats.evictions, before + 2);
     // A zero B/C/D R budget still returns 4⊗4→10, retaining nothing.
     let adjoint = bcd.irrep(&[2, 0]).unwrap();
-    assert_eq!(bcd.r_symbol(&v, &v, &adjoint).unwrap().dim(), 1);
+    assert_eq!(bcd.r_symbol(&v, &v, &adjoint).unwrap().dims()[0], 1);
     let stats = tier_stats(CoefficientCacheTier::RSymbol);
     assert_eq!((stats.entries, stats.bytes, stats.misses), (0, 0, 2));
     assert_eq!(stats.evictions, 2);

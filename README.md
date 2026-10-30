@@ -64,7 +64,7 @@ use fusion_symbols::lie::{GroupId, LieGroup};
 
 let su3 = LieGroup::new(GroupId::su(3)?)?;
 let eight = su3.irrep(&[1, 1])?; // adjoint, Dynkin labels (1,1)
-assert_eq!(su3.nsymbol(&eight, &eight, &eight), 2);
+assert_eq!(su3.nsymbol(&eight, &eight, &eight)?, 2);
 let cgc = su3.cgc(&eight, &eight, &eight)?;
 assert_eq!(cgc.dims(), [8, 8, 8, 2]); // [dim a, dim b, dim c, N]
 

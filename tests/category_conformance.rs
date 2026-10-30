@@ -26,10 +26,10 @@ fn outcomes<C: FusionCategory>(cat: &C, a: &C::Object, b: &C::Object) -> Vec<C::
 fn f<C: FusionCategory>(cat: &C, [a, b, c, d, e, f]: [&C::Object; 6]) -> C::Scalar {
     let block = cat.f_symbol(a, b, c, d, e, f).unwrap();
     let shape = [
-        cat.nsymbol(a, b, e),
-        cat.nsymbol(e, c, d),
-        cat.nsymbol(b, c, f),
-        cat.nsymbol(a, f, d),
+        cat.nsymbol(a, b, e).unwrap(),
+        cat.nsymbol(e, c, d).unwrap(),
+        cat.nsymbol(b, c, f).unwrap(),
+        cat.nsymbol(a, f, d).unwrap(),
     ];
     if shape.contains(&0) {
         assert!(block.as_slice().iter().all(|&x| x == C::Scalar::zero()));
@@ -50,16 +50,16 @@ fn conformance<C: FusionCategory>(cat: C, labels: Vec<C::Object>) {
         assert_eq!(outcomes(&cat, &unit, a), std::slice::from_ref(a));
         assert_eq!(outcomes(&cat, a, &unit), std::slice::from_ref(a));
         assert_eq!(cat.dual(&cat.dual(a)), *a);
-        assert_eq!(cat.nsymbol(a, &cat.dual(a), &unit), 1);
+        assert_eq!(cat.nsymbol(a, &cat.dual(a), &unit).unwrap(), 1);
         let phase_f = f(&cat, [a, &cat.dual(a), a, a, &unit, &unit]);
         close(
-            cat.frobenius_schur_phase(a),
+            cat.frobenius_schur_phase(a).unwrap(),
             phase_f * C::Scalar::from_f64(1.0 / phase_f.abs()),
         );
         close(
             cat.frobenius_schur_indicator(a),
             if *a == cat.dual(a) {
-                cat.frobenius_schur_phase(a)
+                cat.frobenius_schur_phase(a).unwrap()
             } else {
                 zero
             },
@@ -68,7 +68,7 @@ fn conformance<C: FusionCategory>(cat: C, labels: Vec<C::Object>) {
             let mut twist = zero;
             for b in outcomes(&cat, a, a) {
                 let block = cat.r_symbol(a, a, &b).unwrap();
-                for mu in 0..cat.nsymbol(a, a, &b) as usize {
+                for mu in 0..cat.nsymbol(a, a, &b).unwrap() as usize {
                     twist =
                         twist + C::Scalar::from_f64(cat.dim(&b) / cat.dim(a)) * block.get([mu, mu]);
                 }
@@ -78,11 +78,11 @@ fn conformance<C: FusionCategory>(cat: C, labels: Vec<C::Object>) {
         for b in &labels {
             let dimension_sum: f64 = outcomes(&cat, a, b)
                 .iter()
-                .map(|c| f64::from(cat.nsymbol(a, b, c)) * cat.dim(c))
+                .map(|c| f64::from(cat.nsymbol(a, b, c).unwrap()) * cat.dim(c))
                 .sum();
             close(cat.dim(a) * cat.dim(b), dimension_sum);
             for c in outcomes(&cat, a, b) {
-                let n = cat.nsymbol(a, b, &c) as usize;
+                let n = cat.nsymbol(a, b, &c).unwrap() as usize;
                 let blocks = [
                     (cat.f_symbol(&unit, a, b, &c, a, &c).unwrap(), 0),
                     (cat.f_symbol(a, &unit, b, &c, a, b).unwrap(), 1),
@@ -106,8 +106,8 @@ fn conformance<C: FusionCategory>(cat: C, labels: Vec<C::Object>) {
                     cat.braiding_style(),
                     BraidingStyle::Bosonic | BraidingStyle::Fermionic
                 ) {
-                    let n = cat.nsymbol(a, b, c) as usize;
-                    assert_eq!(n, cat.nsymbol(b, a, c) as usize);
+                    let n = cat.nsymbol(a, b, c).unwrap() as usize;
+                    assert_eq!(n, cat.nsymbol(b, a, c).unwrap() as usize);
                     if n != 0 {
                         let ab = cat.r_symbol(a, b, c).unwrap();
                         let ba = cat.r_symbol(b, a, c).unwrap();
@@ -156,7 +156,7 @@ fn category_identities() {
         conformance(
             ZN::new(n).unwrap(),
             (0..n)
-                .map(|q| ZNIrrep::from_canonical(q, n).unwrap())
+                .map(|q| ZNIrrep::new(i64::from(q), n).unwrap())
                 .collect(),
         );
     }
@@ -224,7 +224,7 @@ fn cu1_identities() {
 fn shipped_table_identities() {
     for uuid in TableCategory::shipped_uuids() {
         let cat = TableCategory::by_uuid(uuid).unwrap();
-        let labels = cat.objects().collect();
+        let labels = crate::common::objects(&cat).collect();
         conformance(cat, labels);
     }
 }
@@ -304,7 +304,7 @@ mod bcd_conformance {
         let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
         let a = cat.irrep(&[2, 0]).unwrap();
         let b = cat.irrep(&[1, 1]).unwrap();
-        assert_eq!(cat.nsymbol(&a, &b, &b), 2);
+        assert_eq!(cat.nsymbol(&a, &b, &b).unwrap(), 2);
         // Unit associativity and symmetric braiding on that multiplicity space.
         let f = cat.f_symbol(&cat.unit(), &a, &b, &b, &a, &b).unwrap();
         let r = cat.r_symbol(&a, &b, &b).unwrap();
@@ -312,9 +312,11 @@ mod bcd_conformance {
         assert_eq!(f.dims(), [1, 2, 2, 1]);
         for mu in 0..2 {
             for nu in 0..2 {
-                close(f.at(0, mu, nu, 0), if mu == nu { 1.0 } else { 0.0 });
+                close(f.get([0, mu, nu, 0]), if mu == nu { 1.0 } else { 0.0 });
                 close(
-                    (0..2).map(|k| r.at(mu, k) * reverse.at(k, nu)).sum::<f64>(),
+                    (0..2)
+                        .map(|k| r.get([mu, k]) * reverse.get([k, nu]))
+                        .sum::<f64>(),
                     if mu == nu { 1.0 } else { 0.0 },
                 );
             }
@@ -363,7 +365,8 @@ fn product_multiplicity_residuals() {
     let o = (octet, FermionParityIrrep::ODD);
     let u = cat.unit();
     assert_eq!(
-        cat.nsymbol(&o, &o, &(o.0.clone(), FermionParityIrrep::EVEN)),
+        cat.nsymbol(&o, &o, &(o.0.clone(), FermionParityIrrep::EVEN))
+            .unwrap(),
         2
     );
     close(

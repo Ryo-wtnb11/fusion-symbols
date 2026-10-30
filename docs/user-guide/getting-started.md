@@ -53,7 +53,7 @@ assert_eq!(doublet.charges().collect::<Vec<_>>(), [-1]);
 ## Fusion and N
 
 `fusion(a, b)` yields each irrep in `a ⊗ b` once; `nsymbol(a, b, c)` is the
-number of times `c` occurs, zero when it does not occur.
+number of times `c` occurs, `Ok(0)` when it does not occur.
 
 ```rust
 use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
@@ -66,12 +66,13 @@ assert_eq!(spins, expected); // 1 ⊗ 1 = 0 ⊕ 1 ⊕ 2
 
 let su3 = LieGroup::new(GroupId::su(3)?)?;
 let eight = su3.irrep(&[1, 1])?;
-assert_eq!(su3.nsymbol(&eight, &eight, &eight), 2); // the 8 occurs twice in 8 ⊗ 8
+assert_eq!(su3.nsymbol(&eight, &eight, &eight)?, 2); // the 8 occurs twice in 8 ⊗ 8
+
 // Dimensions add up: Σ_c N(8,8,c) dim(c) = 8 · 8.
-let total: f64 = su3
-    .fusion(&eight, &eight)?
-    .map(|c| f64::from(su3.nsymbol(&eight, &eight, &c)) * su3.dim(&c))
-    .sum();
+let mut total = 0.0;
+for c in su3.fusion(&eight, &eight)? {
+    total += f64::from(su3.nsymbol(&eight, &eight, &c)?) * su3.dim(&c);
+}
 assert_eq!(total, 64.0);
 ```
 
@@ -88,7 +89,7 @@ use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}
 let su3 = LieGroup::new(GroupId::su(3)?)?;
 let three = su3.irrep(&[1, 0])?;
 assert_eq!(su3.dim(&three), 3.0);
-assert_eq!(su3.dual(&three).dynkin(), [0, 1]); // the 3̄
+assert!(su3.dual(&three).dynkin().eq([0, 1])); // the 3̄
 assert_eq!(su3.frobenius_schur_indicator(&three), 0.0);
 
 let su2 = LieGroup::new(GroupId::su(2)?)?;
@@ -106,23 +107,24 @@ assert_eq!(su2.frobenius_schur_indicator(&half), -1.0); // pseudoreal
 Each vertex can occur several times, so both return blocks. An F block has
 axes `[μ, ν, κ, λ]` labeling the four vertices, with lengths
 `[N(a,b,e), N(e,c,d), N(b,c,f), N(a,f,d)]`; an R block has axes `[μ, ν]` with
-lengths `[N(a,b,c), N(b,a,c)]`. Read an entry with `at`. For SU(2) every
-length is 1 and the value is `at(0, 0, 0, 0)`.
+lengths `[N(a,b,c), N(b,a,c)]`. Read an entry with `get` from
+`category::SymbolBlock`. For SU(2) every length is 1 and the value is
+`get([0, 0, 0, 0])`.
 
 ```rust
-use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieGroup}};
+use fusion_symbols::{category::{FusionCategory, SymbolBlock}, lie::{GroupId, LieGroup}};
 
 let su3 = LieGroup::new(GroupId::su(3)?)?;
 let eight = su3.irrep(&[1, 1])?;
 let unit = su3.unit();
 let (a, b, c, d, e, f) = (&eight, &eight, &eight, &eight, &unit, &eight);
 let block = su3.f_symbol(a, b, c, d, e, f)?;
-let n = |x, y, z| su3.nsymbol(x, y, z) as usize;
-let axes = [n(a, b, e), n(e, c, d), n(b, c, f), n(a, f, d)];
+let n = |x, y, z| su3.nsymbol(x, y, z).map(|n| n as usize);
+let axes = [n(a, b, e)?, n(e, c, d)?, n(b, c, f)?, n(a, f, d)?];
 assert_eq!(block.dims(), axes);
 assert_eq!(axes, [1, 1, 2, 2]); // N(8,8,1) = N(1,8,8) = 1, N(8,8,8) = 2
 let r = su3.r_symbol(&eight, &eight, &eight)?;
-assert_eq!(r.dim(), 2); // a 2 × 2 block: R(μ, ν) = r.at(μ, ν)
+assert_eq!(r.dims(), [2, 2]); // R(μ, ν) = r.get([μ, ν])
 ```
 
 A vertex that fusion forbids gives a zero-length axis, not an error.
@@ -162,7 +164,7 @@ This is an orthogonal matrix, as F must be. The exact evaluator
 `lie::su2::wigner_6j` takes doubled spins:
 
 ```rust
-use fusion_symbols::{category::FusionCategory, lie::{su2::wigner_6j, GroupId, HalfInt, LieGroup}};
+use fusion_symbols::{category::{FusionCategory, SymbolBlock}, lie::{su2::wigner_6j, GroupId, HalfInt, LieGroup}};
 
 assert!((wigner_6j(1, 1, 2, 1, 1, 2).to_f64() - 1.0 / 6.0).abs() < 1e-15);
 
@@ -173,7 +175,7 @@ let r3 = 3f64.sqrt() / 2.0;
 let expected = [[-0.5, r3], [r3, 0.5]];
 for (i, e) in inner.iter().enumerate() {
     for (j, f) in inner.iter().enumerate() {
-        let x = su2.f_symbol(&h, &h, &h, &h, e, f)?.at(0, 0, 0, 0);
+        let x = su2.f_symbol(&h, &h, &h, &h, e, f)?.get([0, 0, 0, 0]);
         assert!((x - expected[i][j]).abs() < 1e-15);
     }
 }
@@ -184,7 +186,7 @@ for (i, e) in inner.iter().enumerate() {
 `cgc(a, b, c)` returns axes `[m₁, m₂, m₃, μ]`
 ([layout](README.md#clebschgordan-coefficients)). For SU(2), the magnetic
 index is `m + j`, from the lowest weight up. The entry
-`at([m₁ + j₁, m₂ + j₂, m₃ + j₃, 0])` is the Condon–Shortley coefficient
+`get([m₁ + j₁, m₂ + j₂, m₃ + j₃, 0])` is the Condon–Shortley coefficient
 `⟨j₁ m₁; j₂ m₂ | j₃ m₃⟩`.
 
 For `1 ⊗ ½ → ½`, the standard `j₁ ⊗ ½` formulas in the Condon–Shortley
@@ -204,15 +206,16 @@ let one = su2.irrep_spin(HalfInt::half(2))?;
 let half = su2.irrep_spin(HalfInt::half(1))?;
 let c = su2.cgc(&one, &half, &half)?;
 assert_eq!(c.dims(), [3, 2, 2, 1]);
-assert!((c.at([2, 0, 1, 0]) - (2.0f64 / 3.0).sqrt()).abs() < 1e-15);
-assert!((c.at([1, 1, 1, 0]) + (1.0f64 / 3.0).sqrt()).abs() < 1e-15);
-assert_eq!(c.at([2, 1, 1, 0]), 0.0); // m₁ + m₂ ≠ m₃
+assert!((c.get([2, 0, 1, 0]) - (2.0f64 / 3.0).sqrt()).abs() < 1e-15);
+assert!((c.get([1, 1, 1, 0]) + (1.0f64 / 3.0).sqrt()).abs() < 1e-15);
+assert_eq!(c.get([2, 1, 1, 0]), 0.0); // m₁ + m₂ ≠ m₃
 ```
 
 ## Products with U(1)
 
 `Product::new` combines categories; objects are tuples. Symbols are products
-of the factor symbols. `lie::U1` is U(1) with `Copy` labels.
+of the factor symbols. `lie::U1` is U(1) with `Copy` labels; the same group
+is `LieGroup::new(GroupId::u(1)?)`, which also forms tori, U(N) and quotients.
 
 ```rust
 use fusion_symbols::{category::FusionCategory,
@@ -250,7 +253,7 @@ let so3 = LieGroup::new(GroupId::so(3)?)?;
 assert_eq!(so3.irrep(&[1]), Err(LieError::NotAdmissible)); // spin ½ is not an SO(3) irrep
 
 let three = su3.irrep(&[1, 0])?;
-assert_eq!(su3.nsymbol(&three, &three, &su3.unit()), 0); // not an error
+assert_eq!(su3.nsymbol(&three, &three, &su3.unit())?, 0); // not an error
 ```
 
 - `LieError::InvalidLabel`: wrong label or charge count, or a negative label.
@@ -258,7 +261,7 @@ assert_eq!(su3.nsymbol(&three, &three, &su3.unit()), 0); // not an error
 - `LieError::Unsupported { requires: "lie-generated" }`: a needed feature is off.
 - A panic: an object from another category value; check with `contains`.
 
-A forbidden vertex is not an error: `nsymbol` is 0 and F, R and CGC return
+A forbidden vertex is not an error: `nsymbol` is `Ok(0)` and F, R and CGC return
 zero-length blocks. Every case is in the guide's [errors table](README.md#errors).
 
 ## Where to go next

@@ -9,21 +9,6 @@
 - [Tools](../../tools/README.md): independent test oracles and table generation.
 - [Cache ownership](../user-guide/resources.md): application policy and tier budgets.
 
-## Pending public API cleanup
-
-Every simple Lie factor now uses the Cartan engine of
-[`gauge_cartan.md`](../gauge_cartan.md); authority fingerprints, the B/C/D
-generator catalogs, the numerical SU(N) pipeline and the dense backend are
-gone. The same breaking release still owes these public API changes:
-
-- `FusionCategory::nsymbol` returns `Result`; `try_nsymbol` is removed.
-- Remove `su2::*_checked`, `Su2Error` and `AdmissibilityViolation`.
-- F, R, A and B blocks are read only through the `SymbolBlock` trait
-  (`dims`, `as_slice`, `get`); CGC through `CgcBlock::{dims, get}`.
-- `LieIrrep::dynkin()` returns an iterator; `dynkin_labels()` is removed.
-- Remove `TableCategory::objects()` and `ZNIrrep::from_canonical`.
-- Keep `U1`, and point to it from the `LieGroup` rustdoc.
-
 ## Checks
 
 [CI](../../.github/workflows/ci.yml) checks formatting, clippy, documentation,
@@ -115,13 +100,13 @@ and `sectors.jl` style `&` methods. Their relevant guards and assumptions map as
 | `_kron` assumes matching ranks and valid Cartesian indices | Fixed block ranks; each level expands in place with per-axis digit countdowns, last factor fastest; shape/count/byte overflow is a typed `Overflow`. |
 | Julia product iteration can restart each component | Clone initialized iterators; nonempty reset is a documented loud-panic invariant. A valid clone preserves the initialized iterator sequence. |
 | Styles restrict braiding and symbol availability | R capability errors and twist panic after full preflight; no special-case branch bypasses validation. |
-| Julia multiplicity/product arithmetic fits its representation | Checked Rust arithmetic, zero-wins N, documented `nsymbol` panic or typed `try_nsymbol`/F/R `Overflow`. |
+| Julia multiplicity/product arithmetic fits its representation | Checked Rust arithmetic, zero-wins N, typed `nsymbol`/F/R `Overflow`. |
 | Single-sector symbol base cases | Singleton vectors delegate symbols to the factor authority; the empty vector supplies the scalar identity. Tuples accept 2..=12 factors. |
 
 No reference assertions are present on these product-symbol paths. TKS
 generic units and flattening are outside the approved port;
 CGC value indexing follows `auxiliary.jl::_kron`: the last factor varies fastest
-on every axis. `CgcBlock::at` panics for out-of-range indices, and product CGC
+on every axis. `CgcBlock::get` panics for out-of-range indices, and product CGC
 queries check combined axis lengths for typed `Overflow` before returning.
 The scalar abelian case maps an absent channel to a zero multiplicity axis. Factor generation retains its own verification
 gates; composition only consumes those authorities. Independent indexed
@@ -158,8 +143,8 @@ The arithmetic authority is `src/lie/u1.rs::{U1Irrep::from_exact,U1::fusion,U1::
 The adapters `src/lie.rs::{LieGroup::irrep_with_charges,LieGroup::fusion}` map invalid
 charges and unrepresentable fusion outcomes to typed `LieError::LabelOverflow`.
 `src/lie/u1.rs::U1Irrep::new` rejects `i32::MIN` with `U1Error`, proving dual
-negation safe. `src/lie/u1.rs::U1::nsymbol` decides the vertex condition exactly
-in `i64`; `try_nsymbol` uses the infallible default. An unrepresentable sum
+negation safe. `src/lie/u1.rs::conserves` decides the vertex condition exactly
+in `i64`, and `U1::nsymbol` always returns it as `Ok`. An unrepresentable sum
 cannot equal a representable output charge, so every symbol returns an exact
 zero channel. `tests/lie_torus.rs::typed_u1_matches_liegroup_bitwise` checks
 both paths, including boundaries and the independent dual oracle.

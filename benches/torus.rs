@@ -18,7 +18,10 @@ fn torus(c: &mut Criterion) {
     });
     let sum = g.irrep_with_charges(&[], &[-2]).unwrap();
     c.bench_function("torus/nsymbol", |bench| {
-        bench.iter(|| g.nsymbol(black_box(&a), black_box(&b), black_box(&sum)))
+        bench.iter(|| {
+            g.nsymbol(black_box(&a), black_box(&b), black_box(&sum))
+                .unwrap()
+        })
     });
     c.bench_function("torus/f_symbol", |bench| {
         bench.iter(|| {
@@ -42,7 +45,10 @@ fn torus(c: &mut Criterion) {
     });
     let sum = U1Irrep::new(-2).unwrap();
     c.bench_function("u1/nsymbol", |bench| {
-        bench.iter(|| g.nsymbol(black_box(&a), black_box(&b), black_box(&sum)))
+        bench.iter(|| {
+            g.nsymbol(black_box(&a), black_box(&b), black_box(&sum))
+                .unwrap()
+        })
     });
     c.bench_function("u1/f_symbol", |bench| {
         bench.iter(|| {
@@ -57,7 +63,10 @@ fn torus(c: &mut Criterion) {
     let one = g.unit();
     c.bench_function("su2/clone", |b| b.iter(|| black_box(&half).clone()));
     c.bench_function("su2/nsymbol", |bench| {
-        bench.iter(|| g.nsymbol(black_box(&half), black_box(&half), black_box(&one)))
+        bench.iter(|| {
+            g.nsymbol(black_box(&half), black_box(&half), black_box(&one))
+                .unwrap()
+        })
     });
     c.bench_function("su2/f_symbol", |bench| {
         bench.iter(|| {
@@ -94,7 +103,10 @@ fn torus(c: &mut Criterion) {
         })
     });
     c.bench_function("u2/nsymbol", |bench| {
-        bench.iter(|| g.nsymbol(black_box(&a), black_box(&b), black_box(&one)))
+        bench.iter(|| {
+            g.nsymbol(black_box(&a), black_box(&b), black_box(&one))
+                .unwrap()
+        })
     });
     c.bench_function("u2/f_symbol", |bench| {
         bench.iter(|| g.f_symbol(black_box(&a), &b, &a, &a, &one, &one).unwrap())

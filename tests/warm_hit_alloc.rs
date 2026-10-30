@@ -12,7 +12,7 @@ use bcd_test::Series;
 use crate::common::counting_alloc;
 
 use counting_alloc::measure;
-use fusion_symbols::category::{FusionCategory, GroupRepresentations};
+use fusion_symbols::category::{FusionCategory, GroupRepresentations, SymbolBlock};
 
 /// Measurements count only this thread; the guard isolates shared caches.
 #[test]
@@ -25,7 +25,7 @@ fn warm_hits_do_not_copy_coefficients() {
     let f = || group.f_symbol(&e8, &e8, &e8, &e8, &e8, &e8).unwrap();
     let cold = f();
     let (calls, bytes, largest, warm) = measure(f);
-    let buffer = std::mem::size_of_val(warm.data());
+    let buffer = std::mem::size_of_val(warm.as_slice());
     println!("sun F warm hit: {calls} allocs, {bytes} B, largest {largest} B, data {buffer} B");
     assert_eq!(warm, cold);
     assert!(
@@ -50,7 +50,7 @@ fn warm_hits_do_not_copy_coefficients() {
     let f = || bcd_test::f_symbol(&cat, &adj, &adj, &adj, &adj, &adj, &adj).unwrap();
     let cold = f();
     let (calls, bytes, largest, warm) = measure(f);
-    let buffer = std::mem::size_of_val(warm.data());
+    let buffer = std::mem::size_of_val(warm.as_slice());
     println!("bcd F warm hit: {calls} allocs, {bytes} B, largest {largest} B, data {buffer} B");
     assert_eq!(warm, cold);
     assert!(

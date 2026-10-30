@@ -48,7 +48,7 @@ fn derived_dimensions_are_the_perron_frobenius_dimensions() {
     let mut entries = 0;
     for p in shipped() {
         let uuid = p.uuid();
-        let objects: Vec<TableObject> = p.objects().collect();
+        let objects: Vec<TableObject> = crate::common::objects(&p).collect();
         assert_eq!(p.dim(&p.unit()), 1.0, "{uuid}");
         for &a in &objects {
             assert!(p.dim(&a) >= 1.0 - FP_BOUND, "{uuid} {a:?}");
@@ -97,10 +97,10 @@ fn check_symbols(category: &TableCategory, symbols: &[Symbol]) {
 
 fn check_dims_and_twists(category: &TableCategory, dims: &[f64], twists: &[(f64, f64)]) {
     let uuid = category.uuid();
-    for (a, &want) in category.objects().zip(dims) {
+    for (a, &want) in crate::common::objects(category).zip(dims) {
         assert!((category.dim(&a) - want).abs() <= FP_BOUND * want, "{uuid}");
     }
-    for (a, &(re, im)) in category.objects().zip(twists) {
+    for (a, &(re, im)) in crate::common::objects(category).zip(twists) {
         let got = category.twist(&a);
         assert!((got - Complex64::new(re, im)).norm() <= FP_BOUND, "{uuid}");
     }

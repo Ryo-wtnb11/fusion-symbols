@@ -9,17 +9,10 @@ use crate::category::{
 };
 use std::{convert::Infallible, num::NonZeroU32};
 
-/// An invalid cyclic modulus or noncanonical charge.
+/// An invalid cyclic modulus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ZNError {
-    /// A charge outside the canonical range `0..modulus`.
-    NonCanonicalCharge {
-        /// Requested charge (never reduced).
-        charge: u32,
-        /// Requested modulus.
-        modulus: u32,
-    },
     /// A `Z_N` modulus of zero.
     ZeroModulus,
 }
@@ -27,9 +20,6 @@ pub enum ZNError {
 impl std::fmt::Display for ZNError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ZNError::NonCanonicalCharge { charge, modulus } => {
-                write!(f, "charge {charge} is outside 0..{modulus}")
-            }
             ZNError::ZeroModulus => write!(f, "Z_N modulus must be nonzero"),
         }
     }
@@ -60,22 +50,6 @@ impl ZNIrrep {
         let modulus = NonZeroU32::new(modulus).ok_or(ZNError::ZeroModulus)?;
         // rem_euclid of an i64 by a positive u32 lies in 0..modulus.
         let charge = charge.rem_euclid(i64::from(modulus.get())) as u32;
-        Ok(Self { modulus, charge })
-    }
-
-    /// Construct a canonical charge without reduction.
-    ///
-    /// # Errors
-    /// Returns `ZeroModulus` for zero modulus, otherwise `NonCanonicalCharge`
-    /// when `charge >= modulus`.
-    pub fn from_canonical(charge: u32, modulus: u32) -> Result<Self, ZNError> {
-        let modulus = NonZeroU32::new(modulus).ok_or(ZNError::ZeroModulus)?;
-        if charge >= modulus.get() {
-            return Err(ZNError::NonCanonicalCharge {
-                charge,
-                modulus: modulus.get(),
-            });
-        }
         Ok(Self { modulus, charge })
     }
 
@@ -142,6 +116,15 @@ impl ZN {
             assert_eq!(a.modulus, self.modulus, "foreign cyclic object");
         }
     }
+
+    // N(a, b, c) after validating all three objects.
+    fn n(&self, a: &ZNIrrep, b: &ZNIrrep, c: &ZNIrrep) -> u32 {
+        self.validate(&[a, b, c]);
+        u32::from(
+            (u64::from(a.charge) + u64::from(b.charge)) % u64::from(self.modulus())
+                == u64::from(c.charge),
+        )
+    }
 }
 
 impl FusionCategory for ZN {
@@ -175,9 +158,9 @@ impl FusionCategory for ZN {
         self.validate(&[a]);
         1.0
     }
-    fn frobenius_schur_phase(&self, a: &ZNIrrep) -> f64 {
+    fn frobenius_schur_phase(&self, a: &ZNIrrep) -> Result<f64, Infallible> {
         self.validate(&[a]);
-        1.0
+        Ok(1.0)
     }
     fn frobenius_schur_indicator(&self, a: &ZNIrrep) -> f64 {
         f64::from(u8::from(*a == self.dual(a)))
@@ -192,12 +175,8 @@ impl FusionCategory for ZN {
             a.with_charge(u64::from(a.charge) + u64::from(b.charge)),
         ))
     }
-    fn nsymbol(&self, a: &ZNIrrep, b: &ZNIrrep, c: &ZNIrrep) -> u32 {
-        self.validate(&[a, b, c]);
-        u32::from(
-            (u64::from(a.charge) + u64::from(b.charge)) % u64::from(self.modulus())
-                == u64::from(c.charge),
-        )
+    fn nsymbol(&self, a: &ZNIrrep, b: &ZNIrrep, c: &ZNIrrep) -> Result<u32, Infallible> {
+        Ok(self.n(a, b, c))
     }
     fn f_symbol(
         &self,
@@ -210,26 +189,23 @@ impl FusionCategory for ZN {
     ) -> Result<f64, Self::Error> {
         self.validate(&[a, b, c, d, e, f]);
         Ok(f64::from(
-            self.nsymbol(a, b, e)
-                * self.nsymbol(e, c, d)
-                * self.nsymbol(b, c, f)
-                * self.nsymbol(a, f, d),
+            self.n(a, b, e) * self.n(e, c, d) * self.n(b, c, f) * self.n(a, f, d),
         ))
     }
     fn r_symbol(&self, a: &ZNIrrep, b: &ZNIrrep, c: &ZNIrrep) -> Result<f64, Self::Error> {
-        Ok(f64::from(self.nsymbol(a, b, c)))
+        Ok(f64::from(self.n(a, b, c)))
     }
     // TensorKitSectors `irreps.jl` (AbelianIrrep): A and B are N, since every
     // admissible F and every dimension is one.
     fn a_symbol(&self, a: &ZNIrrep, b: &ZNIrrep, c: &ZNIrrep) -> Result<RBlock<f64>, Self::Error> {
-        Ok(if self.nsymbol(a, b, c) == 0 {
+        Ok(if self.n(a, b, c) == 0 {
             RBlock::zeros(0)
         } else {
             RBlock::one(1.0)
         })
     }
     fn b_symbol(&self, a: &ZNIrrep, b: &ZNIrrep, c: &ZNIrrep) -> Result<RBlock<f64>, Self::Error> {
-        Ok(if self.nsymbol(a, b, c) == 0 {
+        Ok(if self.n(a, b, c) == 0 {
             RBlock::zeros(0)
         } else {
             RBlock::one(1.0)
@@ -264,7 +240,7 @@ impl FusionCategory for ZN {
 impl GroupRepresentations for ZN {
     type Cgc = f64;
     fn cgc(&self, a: &ZNIrrep, b: &ZNIrrep, c: &ZNIrrep) -> Result<f64, Infallible> {
-        Ok(f64::from(self.nsymbol(a, b, c)))
+        Ok(f64::from(self.n(a, b, c)))
     }
 }
 
@@ -285,22 +261,6 @@ mod tests {
     fn constructors_and_integer_extremes() {
         assert_eq!(ZN::new(0), Err(ZNError::ZeroModulus));
         assert_eq!(ZNIrrep::new(3, 0), Err(ZNError::ZeroModulus));
-        assert_eq!(ZNIrrep::from_canonical(0, 0), Err(ZNError::ZeroModulus));
-        assert_eq!(
-            ZNIrrep::from_canonical(3, 3),
-            Err(ZNError::NonCanonicalCharge {
-                charge: 3,
-                modulus: 3
-            })
-        );
-        assert_eq!(
-            ZNIrrep::from_canonical(u32::MAX, 3),
-            Err(ZNError::NonCanonicalCharge {
-                charge: u32::MAX,
-                modulus: 3
-            })
-        );
-        assert_eq!(ZNIrrep::from_canonical(2, 3), Ok(zn(2, 3)));
         assert_eq!(zn(-1, 3).charge(), 2);
         assert_eq!(zn(i64::MIN, 7).charge(), i64::MIN.rem_euclid(7) as u32);
         assert_eq!(
@@ -346,11 +306,11 @@ mod tests {
         assert_eq!(U1.fusion(&max, &min).unwrap().next(), Some(U1Irrep::UNIT));
         assert_eq!(U1.fusion(&max, &U1Irrep::UNIT).unwrap().next(), Some(max));
         for c in [min, U1Irrep::UNIT, max] {
-            assert_eq!(U1.nsymbol(&max, &max, &c), 0);
+            assert_eq!(U1.nsymbol(&max, &max, &c).unwrap(), 0);
             assert_eq!(U1.r_symbol(&max, &max, &c), Ok(0.0));
             assert_eq!(U1.f_symbol(&max, &max, &c, &c, &c, &c), Ok(0.0));
         }
-        assert_eq!(U1.nsymbol(&max, &min, &U1Irrep::UNIT), 1);
+        assert_eq!(U1.nsymbol(&max, &min, &U1Irrep::UNIT).unwrap(), 1);
     }
 
     #[test]
@@ -387,14 +347,14 @@ mod tests {
                     );
                     assert_eq!(
                         ZN::new(2).unwrap().r_symbol(&x, &y, &z),
-                        Ok(f64::from(ZN::new(2).unwrap().nsymbol(&x, &y, &z)))
+                        Ok(f64::from(ZN::new(2).unwrap().nsymbol(&x, &y, &z).unwrap()))
                     );
                     let (x, y, z) = (
                         FermionParityIrrep::new(a),
                         FermionParityIrrep::new(b),
                         FermionParityIrrep::new(c),
                     );
-                    let n = f64::from(FermionParity.nsymbol(&x, &y, &z));
+                    let n = f64::from(FermionParity.nsymbol(&x, &y, &z).unwrap());
                     assert_eq!(
                         FermionParity.r_symbol(&x, &y, &z),
                         Ok(if a && b && n != 0.0 { -n } else { n })
@@ -431,7 +391,10 @@ mod tests {
     #[test]
     #[should_panic(expected = "foreign cyclic object")]
     fn foreign_n_panics() {
-        ZN::new(3).unwrap().nsymbol(&zn(1, 3), &zn(1, 4), &zn(2, 3));
+        ZN::new(3)
+            .unwrap()
+            .nsymbol(&zn(1, 3), &zn(1, 4), &zn(2, 3))
+            .unwrap();
     }
 
     #[test]
@@ -458,7 +421,11 @@ mod tests {
             for (a, &dual) in labels.iter().zip(duals) {
                 assert_eq!(cat.dual(a).charge(), dual);
                 assert_eq!(
-                    (cat.dim(a), cat.frobenius_schur_phase(a), cat.twist(a)),
+                    (
+                        cat.dim(a),
+                        cat.frobenius_schur_phase(a).unwrap(),
+                        cat.twist(a)
+                    ),
                     (1.0, 1.0, 1.0)
                 );
             }
@@ -468,16 +435,16 @@ mod tests {
                     for &c in &labels {
                         assert_eq!(
                             cat.r_symbol(&a, &b, &c).unwrap(),
-                            f64::from(cat.nsymbol(&a, &b, &c))
+                            f64::from(cat.nsymbol(&a, &b, &c).unwrap())
                         );
                         for &d in &labels {
                             for &e in &labels {
                                 for &f in &labels {
                                     // `irreps.jl:Fsymbol` for abelian irreps.
-                                    let n = cat.nsymbol(&a, &b, &e)
-                                        * cat.nsymbol(&e, &c, &d)
-                                        * cat.nsymbol(&b, &c, &f)
-                                        * cat.nsymbol(&a, &f, &d);
+                                    let n = cat.nsymbol(&a, &b, &e).unwrap()
+                                        * cat.nsymbol(&e, &c, &d).unwrap()
+                                        * cat.nsymbol(&b, &c, &f).unwrap()
+                                        * cat.nsymbol(&a, &f, &d).unwrap();
                                     assert_eq!(
                                         cat.f_symbol(&a, &b, &c, &d, &e, &f).unwrap(),
                                         f64::from(n)
@@ -499,8 +466,8 @@ mod tests {
         );
         assert_eq!(
             (
-                FermionParity.frobenius_schur_phase(&e),
-                FermionParity.frobenius_schur_phase(&o)
+                FermionParity.frobenius_schur_phase(&e).unwrap(),
+                FermionParity.frobenius_schur_phase(&o).unwrap()
             ),
             (1.0, 1.0)
         );
@@ -508,7 +475,7 @@ mod tests {
         for a in [e, o] {
             for b in [e, o] {
                 for c in [e, o] {
-                    let n = f64::from(FermionParity.nsymbol(&a, &b, &c));
+                    let n = f64::from(FermionParity.nsymbol(&a, &b, &c).unwrap());
                     let tks = if (a, b, c) == (o, o, e) { -1.0 } else { n };
                     assert_eq!(FermionParity.r_symbol(&a, &b, &c).unwrap(), tks);
                     for d in [e, o] {
@@ -533,7 +500,7 @@ mod tests {
             assert_eq!(
                 (
                     U1.dim(&u1(q)),
-                    U1.frobenius_schur_phase(&u1(q)),
+                    U1.frobenius_schur_phase(&u1(q)).unwrap(),
                     U1.twist(&u1(q))
                 ),
                 (1.0, 1.0, 1.0)

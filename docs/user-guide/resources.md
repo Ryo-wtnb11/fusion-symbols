@@ -197,7 +197,8 @@ The Frobenius–Schur phase of a complex D(r) (r odd) or E₆ irrep is derived
 from the gauge (`docs/gauge_cartan.md` §5.3), so its first
 `frobenius_schur_phase` call (or first A symbol) builds the exact modules of
 the irrep and its dual and retains the sign for both; later calls on either
-label are hits. Admission, the indicator (`0` for complex irreps), self-dual
+label are hits. A failure there is returned as `LieError::Generation`, never
+a substituted sign. Admission, the indicator (`0` for complex irreps), self-dual
 phases and every A-series phase build nothing. `irrep` rejects such complex
 labels above `u32::MAX` dimensions with `LieError::LabelOverflow`; below that
 bound the first phase query is unbounded in the same way as F or R.

@@ -39,14 +39,12 @@ fn leaf_categories_accept_own_and_reject_foreign_objects() {
 
     let fib = TableCategory::fibonacci();
     let ising = TableCategory::ising();
-    assert!(fib.objects().all(|a| fib.contains(&a)));
+    assert!(crate::common::objects(&fib).all(|a| fib.contains(&a)));
     // Ising has rank 3, so its third object is also outside Fibonacci's index range.
-    assert!(ising.objects().all(|a| !fib.contains(&a)));
-    assert!(fib.objects().all(|a| !ising.contains(&a)));
+    assert!(crate::common::objects(&ising).all(|a| !fib.contains(&a)));
+    assert!(crate::common::objects(&fib).all(|a| !ising.contains(&a)));
     // Another value of the same table shares its identity and objects.
-    assert!(fib
-        .objects()
-        .all(|a| TableCategory::fibonacci().contains(&a)));
+    assert!(crate::common::objects(&fib).all(|a| TableCategory::fibonacci().contains(&a)));
 }
 
 #[cfg(feature = "lie-generated")]
