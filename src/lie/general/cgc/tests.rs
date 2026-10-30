@@ -1369,6 +1369,278 @@ fn ladder_gate_rejects_a_broken_first_descent() {
     }
 }
 
+/// A rounded entry of one column at engine indices: `(m_a, m_b, value)`.
+type PairEntry = (usize, usize, f64);
+
+/// The former gate loop, which first copied every entry into per-weight
+/// blocks: the oracle for gate decisions and residuals of [`check_rounded`].
+fn check_rounded_copying(
+    data: &CartanData,
+    a: &Ladders,
+    b: &Ladders,
+    c: &Ladders,
+    n: usize,
+    entries: &[MEntry],
+) -> Result<(), GateError> {
+    let (ea, eb, ec) = (a.engine(), b.engine(), c.engine());
+    // Each entry at its engine indices `(m_a, m_b, m_c)`.
+    let mut blocks: Vec<Vec<BlockEntry>> = vec![Vec::new(); c.module.weights.len()];
+    for e in entries {
+        let (m1, m2, m3, mu) = (e.m1 as usize, e.m2 as usize, e.m3 as usize, e.mu as usize);
+        if m1 >= a.dim() || m2 >= b.dim() || m3 >= c.dim() || mu >= n {
+            return Err(GateError::Support);
+        }
+        if !e.value.is_finite() {
+            return Err(GateError::NonFinite { gate: "isometry" });
+        }
+        let (pa, pb, pc) = (ea[m1], eb[m2], ec[m3]);
+        let on_weight = a
+            .weight(pa)
+            .iter()
+            .zip(b.weight(pb))
+            .zip(c.weight(pc))
+            .all(|((x, y), z)| x.checked_add(*y) == Some(*z));
+        if !on_weight {
+            return Err(GateError::Support);
+        }
+        let w = c.space[pc];
+        let col = (pc - c.module.weights[w].offset) * n + mu;
+        blocks[w].push(((e.m1, e.m2), col, e.value));
+    }
+
+    for (w, block) in blocks.iter_mut().enumerate() {
+        let k = c.module.weights[w].norms.len() * n;
+        let mut gram = vec![0.0f64; k * k];
+        block.sort_unstable_by_key(|&(row, col, _)| (row, col));
+        for run in block.chunk_by(|x, y| x.0 == y.0) {
+            for (i, &(_, ci, vi)) in run.iter().enumerate() {
+                for &(_, cj, vj) in &run[i..] {
+                    gram[ci * k + cj] += vi * vj;
+                }
+            }
+        }
+        worst(
+            "isometry",
+            (0..k).flat_map(|i| {
+                let gram = &gram;
+                (i..k).map(move |j| gram[i * k + j] - f64::from(u8::from(i == j)))
+            }),
+        )?;
+    }
+
+    // First descent: f_j u_top lies in the weight space λ_c − α_j, which
+    // exists exactly when (λ_c)_j > 0 (an unbroken α_j-string).
+    let top = &c.module.weights[0].mu;
+    let mut descents: Vec<(usize, Vec<(usize, f64)>)> = Vec::new();
+    for j in 0..top.len() {
+        if top[j] <= 0 {
+            continue;
+        }
+        let nu = (0..top.len())
+            .map(|i| top[i].checked_sub(data.c(j, i)))
+            .collect::<Option<Vec<i64>>>();
+        let Some(w) = nu.and_then(|nu| c.module.weight_index(&nu)) else {
+            return Err(GateError::Support);
+        };
+        let space = &c.module.weights[w];
+        let ladder = (space.offset..space.offset + space.norms.len())
+            .map(|m| {
+                let x = c.lower[j][0].iter().find(|(t, _)| *t == m);
+                (m, x.map_or(0.0, |(_, x)| c.rounded_lower(0, m, x)))
+            })
+            .collect();
+        descents.push((j, ladder));
+    }
+    if descents.is_empty() {
+        return Ok(());
+    }
+    let mut columns: HashMap<(usize, usize), Vec<PairEntry>> = HashMap::new();
+    let wanted = |m: usize| m == 0 || descents.iter().any(|(_, l)| l.iter().any(|x| x.0 == m));
+    for e in entries {
+        let mc = ec[e.m3 as usize];
+        if wanted(mc) {
+            columns.entry((mc, e.mu as usize)).or_default().push((
+                ea[e.m1 as usize],
+                eb[e.m2 as usize],
+                e.value,
+            ));
+        }
+    }
+    let empty = Vec::new();
+    for (j, ladder) in &descents {
+        for mu in 0..n {
+            let mut diff: HashMap<(usize, usize), f64> = HashMap::new();
+            for &(pa, pb, v) in columns.get(&(0, mu)).unwrap_or(&empty) {
+                for (pa2, x) in &a.lower[*j][pa] {
+                    *diff.entry((*pa2, pb)).or_default() += a.rounded_lower(pa, *pa2, x) * v;
+                }
+                for (pb2, x) in &b.lower[*j][pb] {
+                    *diff.entry((pa, *pb2)).or_default() += b.rounded_lower(pb, *pb2, x) * v;
+                }
+            }
+            for &(m, l) in ladder {
+                for &(pa, pb, v) in columns.get(&(m, mu)).unwrap_or(&empty) {
+                    *diff.entry((pa, pb)).or_default() -= l * v;
+                }
+            }
+            worst("ladder", diff.into_values())?;
+        }
+    }
+    Ok(())
+}
+
+/// Every gate decision and residual of [`check_rounded`] equals the former
+/// copying loop, on valid channels and on column-contiguous corruptions:
+/// rescaled, missing, duplicated and sign-flipped columns, a dropped entry,
+/// off-weight and out-of-range indices, finite overflow, nonfinite values and
+/// a reversed entry list, and a duplicated entry.
+#[test]
+fn rounded_gates_match_the_copying_loop() {
+    type Corruption = fn(&mut Vec<MEntry>, u32);
+    let corruptions: [(&str, Corruption); 13] = [
+        ("none", |_, _| {}),
+        ("scale", |e, m| {
+            e.iter_mut()
+                .filter(|x| (x.m3, x.mu) == (m, 0))
+                .for_each(|x| x.value *= 1.01)
+        }),
+        ("missing", |e, m| e.retain(|x| (x.m3, x.mu) != (m, 0))),
+        ("equal", |e, m| {
+            let copy: Vec<_> = e
+                .iter()
+                .filter(|x| (x.m3, x.mu) == (m, 0))
+                .map(|x| MEntry { mu: 1, ..*x })
+                .collect();
+            e.retain(|x| (x.m3, x.mu) != (m, 1));
+            e.extend(copy);
+        }),
+        ("flip", |e, m| {
+            e.iter_mut()
+                .filter(|x| x.m3 == m)
+                .for_each(|x| x.value = -x.value)
+        }),
+        ("drop", |e, _| {
+            e.remove(e.len() / 2);
+        }),
+        ("perturb", |e, _| e[3].value += 1e-6),
+        ("off-weight", |e, _| {
+            e[0].m1 = if e[0].m1 == 0 { 1 } else { 0 }
+        }),
+        ("range", |e, _| e[1].m3 = u32::MAX),
+        ("overflow", |e, _| e[5].value = 1e200),
+        ("nan", |e, _| e[2].value = f64::NAN),
+        ("reverse", |e, _| e.reverse()),
+        ("duplicate", |e, m| {
+            if let Some(i) = e.iter().position(|x| (x.m3, x.mu) == (m, 0)) {
+                e.insert(
+                    i,
+                    MEntry {
+                        value: 1e-9,
+                        ..e[i]
+                    },
+                );
+            }
+        }),
+    ];
+    // Ok, support, nonfinite, isometry residual, ladder residual.
+    let mut seen = [false; 5];
+    for (root, a, b, c) in [
+        (RootSystem::G2, G27.to_vec(), G27.to_vec(), G27.to_vec()),
+        (RootSystem::G2, G7.to_vec(), G14.to_vec(), G64.to_vec()),
+        (RootSystem::G2, G27.to_vec(), G27.to_vec(), G64.to_vec()),
+        (RootSystem::A(2), vec![1, 1], vec![1, 1], vec![1, 1]),
+        (RootSystem::F4, unit(4, 3), unit(4, 3), unit(4, 3)),
+    ] {
+        let (good, l, n) = rounded(root, &a, &b, &c);
+        let data = CartanData::new(root);
+        // Columns at the highest weight, a first-descent weight and mid-module.
+        let descent = (0..l[2].dim()).find(|&m| l[2].space[m] == 1);
+        let ms: Vec<u32> = [Some(0), descent, Some(l[2].dim() / 2)]
+            .into_iter()
+            .flatten()
+            .map(|m| l[2].public[m])
+            .collect();
+        for &m in &ms {
+            for (name, corrupt) in corruptions {
+                let mut e = good.clone();
+                corrupt(&mut e, m);
+                let got = check_rounded(&data, &l[0], &l[1], &l[2], n, &e);
+                assert_eq!(
+                    got,
+                    check_rounded_copying(&data, &l[0], &l[1], &l[2], n, &e),
+                    "{root:?} {a:?} {b:?} {c:?} {name} m = {m}"
+                );
+                seen[match got {
+                    Ok(()) => 0,
+                    Err(GateError::Support) => 1,
+                    Err(GateError::NonFinite { .. }) => 2,
+                    Err(GateError::Residual {
+                        gate: "isometry", ..
+                    }) => 3,
+                    Err(GateError::Residual { .. }) => 4,
+                }] = true;
+            }
+        }
+    }
+    assert_eq!(seen, [true; 5], "every decision kind is compared");
+}
+
+/// A duplicated `(row, column)` key reaches the Gram sums in the former
+/// encounter order, so the gate keeps the copying loop's decision.
+#[test]
+fn duplicate_entry_keeps_the_old_gate_decision() {
+    let root = RootSystem::G2;
+    let (mut entries, l, n) = rounded(root, &G27, &G27, &G27);
+    let duplicate = MEntry {
+        value: f64::from_bits(13704939826885392905),
+        ..entries[168]
+    };
+    entries.insert(168, duplicate);
+    let data = CartanData::new(root);
+    assert_eq!(
+        check_rounded(&data, &l[0], &l[1], &l[2], n, &entries),
+        check_rounded_copying(&data, &l[0], &l[1], &l[2], n, &entries),
+    );
+}
+
+/// A column split into two runs violates the §4.7 grouping the gates read
+/// through, and is a support failure.
+#[test]
+fn split_column_is_a_support_failure() {
+    let (good, l, n) = rounded(RootSystem::G2, &G27, &G27, &G27);
+    let mut e = good.clone();
+    let first = e.remove(0);
+    e.push(first);
+    assert_eq!(gate(RootSystem::G2, &l, n, &e), Err(GateError::Support));
+}
+
+/// The isometry gate holds one weight block of entries at a time: its peak
+/// is the largest block, not the whole channel.
+#[test]
+fn rounded_gate_holds_one_weight_block() {
+    for (root, a, b) in [
+        (RootSystem::G2, G27.to_vec(), G27.to_vec()),
+        (RootSystem::F4, unit(4, 3), unit(4, 3)),
+    ] {
+        let fam = GeneralFamily::new(root);
+        for (c, _) in fam.product(&a, &b).unwrap().iter() {
+            let (e, l, n) = rounded(root, &a, &b, c.dynkin());
+            let mut per_weight = vec![0usize; l[2].module.weights.len()];
+            for x in &e {
+                let pc = l[2].public.iter().position(|&p| p == x.m3).unwrap();
+                per_weight[l[2].space[pc]] += 1;
+            }
+            let largest = per_weight.iter().copied().max().unwrap();
+            GATE_BLOCK.with(|x| x.set(0));
+            gate(root, &l, n, &e).unwrap();
+            assert_eq!(GATE_BLOCK.with(std::cell::Cell::get), largest);
+            if per_weight.iter().filter(|&&k| k > 0).count() > 1 {
+                assert!(largest < e.len());
+            }
+        }
+    }
+}
+
 /// A channel failing a gate is never retained, its error is a typed
 /// generation failure, and a valid retry builds and retains it once. The
 /// channel is used by no other test, so no concurrent test publishes it.

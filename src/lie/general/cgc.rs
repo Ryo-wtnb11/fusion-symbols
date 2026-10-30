@@ -707,8 +707,6 @@ impl ExactChannel {
 
 /// A rounded entry in one output weight block: `((m_a, m_b), column, value)`.
 type BlockEntry = ((u32, u32), usize, f64);
-/// A rounded entry of one column at engine indices: `(m_a, m_b, value)`.
-type PairEntry = (usize, usize, f64);
 
 /// Verification tolerance of the isometry and ladder gates (not value-fixing).
 const TOL_ROUNDED: f64 = 1e-9;
@@ -743,6 +741,11 @@ fn worst(gate: &'static str, residuals: impl Iterator<Item = f64>) -> Result<(),
 /// - ladder consistency at the highest weight: for each `μ` and each `j` with
 ///   `λ_c − α_j` a weight, `Δ(f_j) C[·, ·, top, μ] = Σ_m ⟨u_m, f_j u_top⟩
 ///   C[·, ·, m, μ]` within `1e-9`, with correctly rounded ladder entries.
+///
+/// Each column `(m_c, μ)` must be one contiguous run of `entries`, as the
+/// §4.7 order makes it; a split column is a support failure. The gates then
+/// read the entries in place through those runs: one weight block of
+/// `BlockEntry` at a time, so no copy of the whole channel is made.
 pub(super) fn check_rounded(
     data: &CartanData,
     a: &Ladders,
@@ -752,9 +755,11 @@ pub(super) fn check_rounded(
     entries: &[MEntry],
 ) -> Result<(), GateError> {
     let (ea, eb, ec) = (a.engine(), b.engine(), c.engine());
-    // Each entry at its engine indices `(m_a, m_b, m_c)`.
-    let mut blocks: Vec<Vec<BlockEntry>> = vec![Vec::new(); c.module.weights.len()];
-    for e in entries {
+    // `runs[m_c·n + μ]` (engine `m_c`) is the column's `entries[start..end]`;
+    // `end == 0` marks a column not yet seen.
+    let mut runs = vec![(0usize, 0usize); c.dim() * n];
+    let mut prev = usize::MAX;
+    for (i, e) in entries.iter().enumerate() {
         let (m1, m2, m3, mu) = (e.m1 as usize, e.m2 as usize, e.m3 as usize, e.mu as usize);
         if m1 >= a.dim() || m2 >= b.dim() || m3 >= c.dim() || mu >= n {
             return Err(GateError::Support);
@@ -772,13 +777,44 @@ pub(super) fn check_rounded(
         if !on_weight {
             return Err(GateError::Support);
         }
-        let w = c.space[pc];
-        let col = (pc - c.module.weights[w].offset) * n + mu;
-        blocks[w].push(((e.m1, e.m2), col, e.value));
+        let col = pc * n + mu;
+        if col != prev {
+            if runs[col].1 != 0 {
+                return Err(GateError::Support);
+            }
+            runs[col].0 = i;
+            prev = col;
+        }
+        runs[col].1 = i + 1;
     }
+    let column = |m: usize, mu: usize| {
+        let (s, t) = runs[m * n + mu];
+        &entries[s..t]
+    };
 
-    for (w, block) in blocks.iter_mut().enumerate() {
-        let k = c.module.weights[w].norms.len() * n;
+    let mut block: Vec<BlockEntry> = Vec::new();
+    let mut order: Vec<(usize, usize, usize)> = Vec::new();
+    for space in &c.module.weights {
+        let k = space.norms.len() * n;
+        let cols = &runs[space.offset * n..space.offset * n + k];
+        // Columns are gathered in their order in `entries`, so the unstable
+        // sort below sees the same sequence as a scan of the whole list: a
+        // duplicated (row, column) key then sums in the same order.
+        order.clear();
+        order.extend(
+            cols.iter()
+                .enumerate()
+                .filter(|(_, &(s, t))| t > s)
+                .map(|(col, &(s, t))| (s, t, col)),
+        );
+        order.sort_unstable();
+        block.clear();
+        block.reserve_exact(order.iter().map(|&(s, t, _)| t - s).sum());
+        for &(s, t, col) in &order {
+            block.extend(entries[s..t].iter().map(|e| ((e.m1, e.m2), col, e.value)));
+        }
+        #[cfg(test)]
+        GATE_BLOCK.with(|x| x.set(x.get().max(block.capacity())));
         let mut gram = vec![0.0f64; k * k];
         block.sort_unstable_by_key(|&(row, col, _)| (row, col));
         for run in block.chunk_by(|x, y| x.0 == y.0) {
@@ -796,6 +832,7 @@ pub(super) fn check_rounded(
             }),
         )?;
     }
+    drop(block);
 
     // First descent: f_j u_top lies in the weight space λ_c − α_j, which
     // exists exactly when (λ_c)_j > 0 (an unbroken α_j-string).
@@ -820,26 +857,11 @@ pub(super) fn check_rounded(
             .collect();
         descents.push((j, ladder));
     }
-    if descents.is_empty() {
-        return Ok(());
-    }
-    let mut columns: HashMap<(usize, usize), Vec<PairEntry>> = HashMap::new();
-    let wanted = |m: usize| m == 0 || descents.iter().any(|(_, l)| l.iter().any(|x| x.0 == m));
-    for e in entries {
-        let mc = ec[e.m3 as usize];
-        if wanted(mc) {
-            columns.entry((mc, e.mu as usize)).or_default().push((
-                ea[e.m1 as usize],
-                eb[e.m2 as usize],
-                e.value,
-            ));
-        }
-    }
-    let empty = Vec::new();
     for (j, ladder) in &descents {
         for mu in 0..n {
             let mut diff: HashMap<(usize, usize), f64> = HashMap::new();
-            for &(pa, pb, v) in columns.get(&(0, mu)).unwrap_or(&empty) {
+            for e in column(0, mu) {
+                let (pa, pb, v) = (ea[e.m1 as usize], eb[e.m2 as usize], e.value);
                 for (pa2, x) in &a.lower[*j][pa] {
                     *diff.entry((*pa2, pb)).or_default() += a.rounded_lower(pa, *pa2, x) * v;
                 }
@@ -848,8 +870,10 @@ pub(super) fn check_rounded(
                 }
             }
             for &(m, l) in ladder {
-                for &(pa, pb, v) in columns.get(&(m, mu)).unwrap_or(&empty) {
-                    *diff.entry((pa, pb)).or_default() -= l * v;
+                for e in column(m, mu) {
+                    *diff
+                        .entry((ea[e.m1 as usize], eb[e.m2 as usize]))
+                        .or_default() -= l * e.value;
                 }
             }
             worst("ladder", diff.into_values())?;
@@ -967,6 +991,8 @@ thread_local! {
     pub(crate) static BUILDS: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
     /// Live exact slots of [`descend`] on this thread: `[current, maximum]`.
     pub(super) static LIVE_EXACT: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
+    /// Largest weight block of entries [`check_rounded`] held, as capacity.
+    pub(super) static GATE_BLOCK: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// Row-start slots written by [`RowScratch::rows`].
     pub(super) static ROW_WRITES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// Fault injection between rounding and the gates.

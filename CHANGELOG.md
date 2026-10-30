@@ -142,6 +142,16 @@ value/gauge rule noted below.
 
 ### Performance
 
+- The rounded CGC gates read the entries in place through one run per
+  column `(m_c, μ)` and group one output weight block at a time, instead of
+  first copying the whole channel into per-weight blocks; the extra entry
+  storage falls from `nnz` to the largest weight block. Every coefficient
+  bit is unchanged, and so are gate decisions and residuals, except that a
+  column split into two runs of the entry list (never produced by the
+  published §4.7 order) is now a support failure. Sequential release cold
+  `cgc`, peak memory footprint: F4 `1274² → 29172` 5.0–5.2 → 3.2–3.5 GB,
+  E7 `1539² → 40755` 2.3–2.7 → 2.0 GB; time unchanged within noise.
+
 - The Cartan CGC descent streams its exact vectors: each coupled state is
   rounded once when it completes and its exact coordinates are kept only
   until its last lowered child has read them, so at most two depth layers

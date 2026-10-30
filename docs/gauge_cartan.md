@@ -883,9 +883,13 @@ column.
        end, `O(nnz + N d_c)` with no sort; that final copy briefly holds the
        rounded entries twice;
      - *verification*, after the rational channel is released: the rounded
-       entries and their full copy grouped by output weight, one
-       `(N m_c(w))²` Gram matrix at a time, and the first-descent columns and
-       residual map.
+       entries, read in place through one `(start, end)` run per column
+       `(m_c, μ)` (`N d_c` pairs; a column split into two runs is a support
+       failure), plus one weight block at a time: its `nnz_w` entries
+       grouped by pair row and its `(N m_c(w))²` Gram matrix, so
+       `O(N d_c + max_w (nnz_w + N² m_c(w)²))` beyond the entries instead of
+       a second copy of the channel; then the residual map of one
+       first-descent column at a time.
 - **No catalog.** There is no generator catalog, catalog budget or catalog
   error for any simple type.
 
