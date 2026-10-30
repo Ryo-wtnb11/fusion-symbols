@@ -946,6 +946,24 @@ mod tests {
         assert!(!triangle_ok(2, 2, 6)); // out of range
     }
 
+    /// A stretched coupling, `j3 = j1 + j2` with `m1 = -j1`, `m2 = j2`, is
+    /// `sqrt(1 / binomial(2 j3, j3 + m3))`; here `1/binomial(2050, 1015)` lies
+    /// below 2^-1022. Before #262 the subnormal result was rounded twice and
+    /// returned `0x000f_d1dc_1567_2826`, one subnormal step above the nearest.
+    #[test]
+    fn subnormal_cgc_rounds_once() {
+        let cg = clebsch_gordan(1035, -1035, 1015, 1015, 2050, -20);
+        let binom = (1..=1015u32).fold(Integer::from(1), |acc, i| {
+            acc * Integer::from(1035 + i) / Integer::from(i)
+        });
+        assert_eq!(cg.sign(), 1);
+        assert_eq!(
+            *cg.radicand(),
+            Rational::from_integers(Integer::from(1), binom)
+        );
+        assert_eq!(cg.to_f64().to_bits(), 0x000f_d1dc_1567_2825);
+    }
+
     #[test]
     fn six_j_known_value() {
         // {1/2 1/2 1; 1/2 1/2 1} = 1/6, so signed_square = 1/36.
