@@ -1,8 +1,8 @@
 //! Isolated process: exact generated reset/counter assertions exclude unrelated cache traffic.
 //! Generated-tier coefficient-cache resource contract.
 //!
-//! The `lie-generated` analogue of `tests/base_cache_contract.rs`: the seven generated
-//! tiers (SU(N) product, SU(N) CGC, SU(N) F, SU(N) R, B/C/D CGC, B/C/D F, B/C/D R) are process-global and
+//! The `lie-generated` analogue of `tests/base_cache_contract.rs`: the Product,
+//! CGC, F and R tiers, shared by every root system, are process-global and
 //! `cache::reset()`/`cache::tier_stats()` act on shared state, so this is
 //! kept in one `#[test]` (splitting into parallel tests would race the shared
 //! counters — same reasoning as `tests/sun_cgc_cache.rs`).
@@ -37,18 +37,31 @@ fn bcd_irr(s: Series, d: &[i64]) -> fusion_symbols::lie::LieIrrep {
 
 #[test]
 fn generated_cache_resource_contract() {
-    // ---- the const is the documented sum of the seven tier caps ----
-    // (The compile-time assertion in src/cache.rs is the real drift guard; this
-    // pins the human-facing value.)
+    // ---- the consts are the documented sums of the tier caps ----
+    // (The compile-time assertions in src/cache.rs are the real drift guard;
+    // these pin the human-facing values.)
     assert_eq!(
         GENERATED_CACHE_MAX_BYTES,
-        ((256 + 64 + 64 + 256 + 64 + 64) << 20) + (128 << 10),
-        "768 MiB + 128 KiB = SU(N) product + CGC/F/R + BCD CGC/F/R"
+        (64 << 20) + (128 << 10),
+        "64 MiB + 128 KiB = R + Product"
+    );
+    assert_eq!(
+        fusion_symbols::cache::BASE_CACHE_MAX_BYTES,
+        (64 + 64 + 64 + 256) << 20,
+        "448 MiB = Wigner 3j + 6j + F + CGC"
+    );
+    let all: usize = Tier::ALL
+        .iter()
+        .map(|&t| fusion_symbols::cache::cache_budgets().limit(t))
+        .sum();
+    assert_eq!(
+        all,
+        fusion_symbols::cache::BASE_CACHE_MAX_BYTES + GENERATED_CACHE_MAX_BYTES
     );
 
     // ---- per-tier hit/miss accounting on deterministic accesses ----
     cache::reset();
-    for &tier in common::generated_tiers() {
+    for &tier in Tier::ALL {
         assert_eq!(
             tier_stats(tier),
             TierStats::default(),
@@ -56,25 +69,25 @@ fn generated_cache_resource_contract() {
         );
     }
 
-    // SU(N) CGC tier: `lie_test::cgc` owns it. Miss then hit on the same channel.
+    // CGC tier: `lie_test::cgc` owns it here. Miss then hit on the same channel.
     let (s1, s2, s3) = (sun_irr(&[1, 0]), sun_irr(&[0, 1]), sun_irr(&[1, 1])); // 3⊗3̄→8
     let first = lie_test::cgc(&s1, &s2, &s3).unwrap();
     assert!(
         tier_stats(Tier::Product).misses >= 1 && tier_stats(Tier::Product).entries >= 1,
-        "CGC multiplicity lookup populates the SU(N) product tier"
+        "the CGC multiplicity lookup populates the product tier"
     );
     assert!(
-        tier_stats(Tier::SunCgc).misses >= 1,
+        tier_stats(Tier::Cgc).misses >= 1,
         "first sun cgc call is a miss"
     );
     assert!(
-        tier_stats(Tier::SunCgc).entries >= 1 && tier_stats(Tier::SunCgc).bytes > 0,
+        tier_stats(Tier::Cgc).entries >= 1 && tier_stats(Tier::Cgc).bytes > 0,
         "entry retained"
     );
     let again = lie_test::cgc(&s1, &s2, &s3).unwrap();
     assert_eq!(first, again, "warm hit returns the identical CGC");
     assert!(
-        tier_stats(Tier::SunCgc).hits >= 1,
+        tier_stats(Tier::Cgc).hits >= 1,
         "second sun cgc call is a hit"
     );
 
@@ -83,40 +96,39 @@ fn generated_cache_resource_contract() {
     let _ = lie_test::f_symbol(&e8, &e8, &e8, &e8, &e8, &e8).unwrap(); // miss
     let _ = lie_test::f_symbol(&e8, &e8, &e8, &e8, &e8, &e8).unwrap(); // hit
     assert!(
-        tier_stats(Tier::SunF).misses >= 1 && tier_stats(Tier::SunF).hits >= 1,
+        tier_stats(Tier::FSymbol).misses >= 1 && tier_stats(Tier::FSymbol).hits >= 1,
         "sun F miss + hit"
     );
 
-    // SU(N) R tier: exact miss then hit on the 2×2 octet block.
+    // R tier: exact miss then hit on the 2×2 octet block.
     let r = lie_test::r_symbol(&e8, &e8, &e8).unwrap();
-    let g = tier_stats(Tier::SunR);
+    let g = tier_stats(Tier::RSymbol);
     assert_eq!((g.misses, g.hits, g.entries), (1, 0, 1));
     assert!(g.bytes > 0);
     assert_eq!(lie_test::r_symbol(&e8, &e8, &e8).unwrap(), r);
-    assert_eq!(tier_stats(Tier::SunR).hits, 1, "sun R hit");
+    assert_eq!(tier_stats(Tier::RSymbol).hits, 1, "sun R hit");
 
-    // B/C/D CGC + F tiers: the public `bcd_test::f_symbol` owns the BCD F tier and
-    // its CGC materialization owns the BCD CGC tier. Sextet from the crate's own
-    // doctest (Sp(4), F = 1×1×1×1 identity). Miss then hit.
+    // B/C/D blocks share the same F, R and CGC tiers. Sextet from the crate's
+    // own doctest (Sp(4), F = 1×1×1×1 identity). Miss then hit.
     let cat = bcd_test::group(Series::C, 2).unwrap();
     let triv = bcd_test::trivial(Series::C, 2).unwrap();
     let v = bcd_irr(Series::C, &[0, 1]);
     let adj = bcd_irr(Series::C, &[2, 0]);
     let _ = bcd_test::f_symbol(&cat, &triv, &v, &v, &adj, &v, &adj).unwrap(); // miss
     assert!(
-        tier_stats(Tier::BcdCgc).entries >= 1 && tier_stats(Tier::BcdF).entries >= 1,
-        "an F block populates both BCD tiers"
+        tier_stats(Tier::Cgc).entries >= 1 && tier_stats(Tier::FSymbol).entries >= 1,
+        "an F block populates the CGC and F tiers"
     );
     let _ = bcd_test::f_symbol(&cat, &triv, &v, &v, &adj, &v, &adj).unwrap(); // hit
     assert!(
-        tier_stats(Tier::BcdF).hits >= 1,
+        tier_stats(Tier::FSymbol).hits >= 1,
         "second F block hits the BCD F tier"
     );
     let r = bcd_test::r_symbol(&cat, &v, &v, &adj).unwrap();
-    let g = tier_stats(Tier::BcdR);
-    assert_eq!((g.misses, g.hits, g.entries), (1, 0, 1));
+    let g = tier_stats(Tier::RSymbol);
+    assert_eq!((g.misses, g.hits, g.entries), (2, 1, 2));
     assert_eq!(bcd_test::r_symbol(&cat, &v, &v, &adj).unwrap(), r);
-    assert_eq!(tier_stats(Tier::BcdR).hits, 1, "BCD R hit");
+    assert_eq!(tier_stats(Tier::RSymbol).hits, 2, "BCD R hit");
 
     // Product only assembles handles/blocks: warm factor queries must not sweep.
     use fusion_symbols::{
@@ -137,7 +149,7 @@ fn generated_cache_resource_contract() {
         runtime.cgc(&a, &a, &a).unwrap();
     };
     query();
-    let sun = [Tier::Product, Tier::SunCgc, Tier::SunF, Tier::SunR];
+    let sun = [Tier::Product, Tier::Cgc, Tier::FSymbol, Tier::RSymbol];
     let cold = sun.map(tier_stats);
     query();
     let warm = sun.map(tier_stats);
@@ -158,17 +170,16 @@ fn generated_cache_resource_contract() {
         "the product tier is over its 128 KiB retained-charge backstop"
     );
     assert!(
-        tier_stats(Tier::SunCgc).bytes <= (256 << 20)
-            && tier_stats(Tier::BcdCgc).bytes <= (256 << 20),
-        "a CGC tier is over its 256 MiB cap"
+        tier_stats(Tier::Cgc).bytes <= (256 << 20),
+        "the CGC tier is over its 256 MiB cap"
     );
     assert!(
-        tier_stats(Tier::SunF).bytes <= (64 << 20) && tier_stats(Tier::BcdF).bytes <= (64 << 20),
-        "an F tier is over its 64 MiB cap"
+        tier_stats(Tier::FSymbol).bytes <= (64 << 20),
+        "the F tier is over its 64 MiB cap"
     );
     assert!(
-        tier_stats(Tier::SunR).bytes <= (64 << 20) && tier_stats(Tier::BcdR).bytes <= (64 << 20),
-        "an R tier is over its 64 MiB cap"
+        tier_stats(Tier::RSymbol).bytes <= (64 << 20),
+        "the R tier is over its 64 MiB cap"
     );
     assert!(
         total.bytes <= GENERATED_CACHE_MAX_BYTES,
@@ -178,9 +189,9 @@ fn generated_cache_resource_contract() {
     );
     assert!(total.entries > 0, "the accesses retained entries");
 
-    // ---- reset zeroing: every field of every generated tier ----
+    // ---- reset zeroing: every field of every tier ----
     cache::reset();
-    for &tier in common::generated_tiers() {
+    for &tier in Tier::ALL {
         assert_eq!(tier_stats(tier), TierStats::default(), "{tier} not cleared");
     }
 }

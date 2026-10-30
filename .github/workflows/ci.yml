@@ -74,13 +74,65 @@ jobs:
       - if: matrix.name == 'default'
         run: cargo test ${{ matrix.args }} --lib lie::general::product_contract_tests::exceptional_product_cache_counted -- --ignored --exact --test-threads=1
 
+  # Release-only category identities and regressions, selected by exact name
+  # (never a blanket --ignored, which would also run timing reports).
+  release_checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install stable --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+          cache-targets: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Category identities through N >= 2 vertices (lib)
+        run: >
+          cargo test --release --all-features --lib --
+          --ignored --exact
+          lie::general::cgc::tests::g2_multiplicity_two_gates_through_frcore
+          lie::general::cgc::tests::f4_26_unitarity_and_hexagon_through_frcore
+          lie::general::cgc::tests::e6_27_unitarity_and_hexagon_through_frcore
+      - name: Category identities and regressions (integration)
+        run: >
+          cargo test --release --all-features --test integration --
+          --ignored --exact
+          bcd_fr::d3_adjoint_om2_hexagon_closes
+          bcd_fr::c2_35_multiplicity_three_f_unitarity_closes
+          bcd_fr::sp4_81x81_every_channel
+          lie_exceptional::g2::gates_through_a_multiplicity_two_vertex
+
+  # Bitwise goldens and cross-process bytes on two architectures (x86_64 Linux,
+  # arm64 macOS): values must not depend on the platform.
+  bit_identity:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install stable --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: bits-${{ matrix.os }}
+          cache-targets: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: >
+          cargo test --release --all-features --test integration --
+          --include-ignored --skip print_golden --skip e8_n2_golden bit_identity:: gauge_golden::
+
   # Keep the required check name; failed, cancelled or skipped suites must fail it.
   test:
     if: always()
-    needs: test_suites
+    needs: [test_suites, release_checks, bit_identity]
     runs-on: ubuntu-latest
     steps:
       - run: test '${{ needs.test_suites.result }}' = success
+      - run: test '${{ needs.release_checks.result }}' = success
+      - run: test '${{ needs.bit_identity.result }}' = success
 
   doc:
     runs-on: ubuntu-latest

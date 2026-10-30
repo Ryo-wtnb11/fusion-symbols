@@ -369,3 +369,28 @@ fn recipe_solve_literal() {
         )
     );
 }
+
+/// The direct `A_1` chain is the module the pattern enumeration builds:
+/// identical weights, depths, offsets, norms, candidates, recipes, lowering
+/// matrices and public indices, including the trivial irrep.
+#[test]
+fn rank_one_chain_is_the_enumerated_module() {
+    let data = CartanData::new(RootSystem::A(1));
+    for dj in 0..=12 {
+        let weyl = (dj + 1) as usize;
+        let (direct, dp) = rank_one(dj, weyl);
+        let (general, gp) = from_enumeration(&data, &[dj], weyl).unwrap();
+        assert_eq!(dp, gp, "public {dj}");
+        assert_eq!(direct.dim, general.dim);
+        assert_eq!(direct.weights.len(), general.weights.len());
+        for (x, y) in direct.weights.iter().zip(&general.weights) {
+            assert_eq!((&x.mu, &x.k, x.offset), (&y.mu, &y.k, y.offset), "{dj}");
+            assert_eq!(
+                (&x.norms, &x.kept, &x.recipe),
+                (&y.norms, &y.kept, &y.recipe)
+            );
+            assert_eq!(x.lower, y.lower, "{dj} {:?}", x.mu);
+            assert_eq!(direct.weight_index(&x.mu), general.weight_index(&x.mu));
+        }
+    }
+}

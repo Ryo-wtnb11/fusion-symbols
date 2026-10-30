@@ -72,7 +72,7 @@ fn f_symbol_cache_hit_reset_stats_and_concurrency() {
     for h in handles {
         h.join().unwrap();
     }
-    let stats = cache::tier_stats(cache::CoefficientCacheTier::SunF);
+    let stats = cache::tier_stats(cache::CoefficientCacheTier::FSymbol);
     assert_eq!(stats.entries, 1, "one F entry survives the race");
     assert_eq!(
         stats.misses, 1,
@@ -100,7 +100,7 @@ fn f_symbol_cache_hit_reset_stats_and_concurrency() {
     for h in handles {
         h.join().unwrap();
     }
-    let stats = cache::tier_stats(cache::CoefficientCacheTier::SunR);
+    let stats = cache::tier_stats(cache::CoefficientCacheTier::RSymbol);
     assert_eq!(stats.entries, 1, "one R entry survives the race");
     assert_eq!(
         stats.misses, 1,

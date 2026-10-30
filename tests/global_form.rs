@@ -485,7 +485,7 @@ fn sweep(r: usize, cap: i64) -> Vec<Vec<i64>> {
 // `sun` in the global-form model
 // ---------------------------------------------------------------------------
 
-/// The A-series form-aware constructor, mirroring `bcd::Irrep::from_dynkin_in`.
+/// The A-series form-aware constructor.
 #[cfg(feature = "lie-generated")]
 mod sun_forms {
     use super::*;

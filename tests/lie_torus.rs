@@ -15,12 +15,11 @@ fn charge(g: &LieGroup, q: i64) -> LieIrrep {
 }
 
 #[test]
-fn u1_values_bounds_and_fingerprint() {
+fn u1_values_and_bounds() {
     let g = group(GroupId::u(1).unwrap());
     let q = |n| charge(&g, n);
     assert_eq!(g.fusion_style(), FusionStyle::Unique);
     assert!(g.has_trivial_associator_gauge() && g.has_canonical_unit());
-    assert_eq!(g.authority_fingerprint(), b"fusion-symbols:abelian-u1:labels=i32-integer-no-min:n=exact:f=tks-irreps:r=tks-irreps:dim=one:fs=tks-irreps-one:twist=one:scalar=f64:epoch=1");
     for n in [-i64::from(i32::MAX), -5, 0, 3, i64::from(i32::MAX)] {
         let a = q(n);
         assert!(a.dynkin().is_empty());
@@ -126,7 +125,6 @@ fn typed_u1_matches_liegroup_bitwise() {
         g.has_trivial_associator_gauge()
     );
     assert_eq!(U1.has_canonical_unit(), g.has_canonical_unit());
-    assert_eq!(U1.authority_fingerprint(), g.authority_fingerprint());
     assert_eq!(U1.object_count(), g.object_count());
     for index in (0..100).chain([4_294_967_293, 4_294_967_294, 4_294_967_295, u64::MAX]) {
         assert_eq!(
@@ -336,7 +334,6 @@ fn torus_composites_equal_product() {
             .into_iter()
             .map(|(a, q)| g.irrep_with_charges(&[a], &[q]).unwrap())
             .collect();
-        assert_eq!(g.authority_fingerprint(), product.authority_fingerprint());
         for a in &labels {
             for b in &labels {
                 let (pa, pb) = (split(a), split(b));

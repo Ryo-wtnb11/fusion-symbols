@@ -5,8 +5,8 @@ lib `fusion_symbols`). The public modules follow the mathematical classification
 `category` (shared contract), `lie` (positive-dimensional compact Lie groups,
 including U(1) and CU(1)), `finite` (finite groups, currently Z_N), `fermion`, `table`,
 `product` (ordered Deligne products), and `cache` (resource controls).
-The rules below apply to every family; the `lie-generated` and dense-backend sections
-concern the Lie-group generation path.
+The rules below apply to every family; the `lie-generated` rules concern the
+Lie-group generation path.
 
 Design authority: the architecture, acceptance criteria, and reference-role
 map recorded in the upstream design discussion. Read them before any
@@ -28,10 +28,11 @@ non-trivial change.
   closed-form U(1)/CU(1) in `lie`, `finite`, `fermion`, tabulated `table`, `product`, and `cache`.
   Dependencies stay minimal (big-integer arithmetic and `num-complex`).
 - `lie-generated` feature (enabled by default; opt out with
-  `default-features = false`): all runtime generation (SU(N)/SO(N)/Sp(2N)) and every
-  dense-kernel dependency live behind this feature. Factorizations
-  (nullspace/QR/least-squares) and CGC contractions route through the
-  selected dense backend; hand-rolled numeric kernels are not accepted.
+  `default-features = false`): the capability switch for higher-rank simple
+  Lie types (A_r with r ≥ 2, B–G). The shared exact Cartan core and the A1
+  basis provider compile in every build. Coefficient generation is exact
+  rational arithmetic rounded once; no dense floating-point backend enters
+  coefficient generation.
 - CGC are a legitimate public output of this crate; recoupling (F/R)
   derivation and its caches live here, next to the gauge contract.
 
@@ -43,15 +44,17 @@ non-trivial change.
 3. Gauge fixing deterministic: pivot rules and sign conventions are part of
    the specification; discrete gauge flips across runs/backends are defects.
 4. The gauge is a **frozen normative specification** (`docs/gauge.md`,
-   `docs/gauge_soN.md`): the documents are the authority, the code implements
-   them. A change that moves a coefficient value is a bug unless it ships as a
-   specification correction — spec edit, fingerprint `epoch` bump, CHANGELOG
-   breaking-change entry, regenerated `tests/gauge_golden.rs` values, one PR
-   (`docs/gauge.md`, "Status"). Fingerprint strings keep their `racah:` prefix
-   permanently (identifiers); never rename it.
-5. Floating-point stages verification-gated: orthogonality, unitarity,
-   pentagon/hexagon checks run at generation time; violations are typed
-   errors, never silently degraded coefficients.
+   `docs/gauge_cartan.md`): the documents are the authority, the code
+   implements them. A change that moves a coefficient value is a bug unless it
+   ships as a specification correction — spec edit, CHANGELOG breaking-change
+   entry, regenerated `tests/gauge_golden.rs` values and a semver-breaking
+   release, one PR (`docs/gauge.md`, "Status").
+5. Floating-point stages verification-gated at generation time
+   (`docs/gauge_cartan.md` §7): CGC isometry and ladder consistency, per-block
+   R unitarity, and F finiteness. Violations are typed errors, never silently
+   degraded or repaired coefficients. F-unitarity, pentagon and hexagon are
+   category-level identities verified through `category::residual` by
+   callers and CI.
 
 ## Guard inventory (every port PR)
 
@@ -66,16 +69,6 @@ constraints, and unreachable-by-construction assumptions). Every port PR must:
    or an explicit N/A with justification. An unmapped guard blocks merge.
 3. Ensure every fast-path / special-case branch runs the same verification
    gates as the general path, or prove those gates vacuous for that branch.
-
-## t4a-faer dependency (lie-generated)
-
-The `lie-generated` feature uses the crates.io semver range `t4a-faer = "0.25"`,
-with default features disabled and only `std` enabled. Scratch queries use
-`ParShape::Seq`. No `rayon`: dense
-operations are sequential, and the caller owns parallelism. Use explicit
-`Par::Seq` for APIs taking `Par`; never set or rely on global parallelism.
-Backend updates are ordinary reviewed changes and must satisfy the gauge
-value and structural-identity gates below.
 
 ## Verification
 

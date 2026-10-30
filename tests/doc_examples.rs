@@ -269,7 +269,7 @@ fn guide_caches_1() {
     use fusion_symbols::cache::{tier_stats, CoefficientCacheTier};
 
     let _ = fusion_symbols::lie::su2::wigner_6j(2, 2, 2, 2, 2, 2);
-    let six_j = tier_stats(CoefficientCacheTier::SixJ);
+    let six_j = tier_stats(CoefficientCacheTier::Wigner6j);
     println!(
         "{} entries, {} bytes, {} hits",
         six_j.entries, six_j.bytes, six_j.hits
@@ -1099,7 +1099,7 @@ fn resources_coefficient_caches_1() {
         configure_cache_budgets, CoefficientCacheBudgets, CoefficientCacheTier,
     };
     let budgets =
-        CoefficientCacheBudgets::default().with_limit(CoefficientCacheTier::SixJ, 1 << 20);
+        CoefficientCacheBudgets::default().with_limit(CoefficientCacheTier::Wigner6j, 1 << 20);
     if let Err(err) = configure_cache_budgets(budgets) {
         eprintln!("cache budgets were already fixed: {err}");
     }

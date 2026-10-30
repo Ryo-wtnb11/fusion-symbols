@@ -118,3 +118,40 @@ fn phase_is_sign_of_f_symbol() {
         }
     }
 }
+
+/// `docs/gauge_cartan.md` §8 oracle 8 beyond the A series: `κ_a` equals
+/// `sign(d_a F^{a ā a}_a[𝟙, 𝟙])` for complex D(r) (r odd) and E6 irreps, with
+/// the literals of §5.3: the D3 half-spinors have `κ = −1` (the parity
+/// `⟨λ, 2ρ∨⟩ = 3` survives), the D5 half-spinors `κ = +1`; the E7 56 and 912
+/// and the Sp(4) 4 are pseudo-real.
+#[test]
+fn kappa_beyond_the_a_series() {
+    use fusion_symbols::lie::{GroupId, LieGroup};
+    let kappa = |id: GroupId, d: &[i64]| {
+        let g = LieGroup::new(id).unwrap();
+        let a = g.irrep(d).unwrap();
+        let f = g
+            .f_symbol(&a, &g.dual(&a), &a, &a, &g.unit(), &g.unit())
+            .unwrap()
+            .at(0, 0, 0, 0);
+        let k = g.frobenius_schur_phase(&a);
+        assert_eq!(k, f.signum(), "{d:?}: κ against sign(F)");
+        (k, g.frobenius_schur_indicator(&a))
+    };
+    let spin6 = || GroupId::spin(6).unwrap();
+    let spin10 = || GroupId::spin(10).unwrap();
+    assert_eq!(kappa(spin6(), &[0, 0, 1]), (-1.0, 0.0));
+    assert_eq!(kappa(spin6(), &[0, 1, 0]), (-1.0, 0.0));
+    assert_eq!(kappa(spin10(), &[0, 0, 0, 0, 1]), (1.0, 0.0));
+    assert_eq!(kappa(spin10(), &[0, 0, 0, 1, 0]), (1.0, 0.0));
+    // Nonminuscule odd-D and complex E6 labels follow the computed rule.
+    for d in [[1, 0, 1], [0, 0, 2], [1, 1, 0]] {
+        assert_eq!(kappa(spin6(), &d).1, 0.0);
+    }
+    for d in [[1, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 1], [0, 0, 0, 0, 1, 0]] {
+        assert_eq!(kappa(GroupId::e6(), &d), (1.0, 0.0));
+    }
+    assert_eq!(kappa(GroupId::e7(), &[0, 0, 0, 0, 0, 0, 1]), (-1.0, -1.0));
+    assert_eq!(kappa(GroupId::e7(), &[0, 1, 0, 0, 0, 0, 0]), (-1.0, -1.0));
+    assert_eq!(kappa(GroupId::sp(4).unwrap(), &[1, 0]), (-1.0, -1.0));
+}

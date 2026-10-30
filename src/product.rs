@@ -42,7 +42,7 @@ use std::{
     fmt,
     hash::{Hash, Hasher},
     iter::Fuse,
-    sync::{Arc, OnceLock},
+    sync::Arc,
 };
 
 /// A product retaining the ordered values and nesting of its factors.
@@ -54,7 +54,6 @@ use std::{
 #[derive(Clone)]
 pub struct Product<C> {
     factors: C,
-    fingerprint: OnceLock<Arc<[u8]>>,
 }
 impl<C> Product<C> {
     /// Construct a tuple product (2..=12 factors) or a homogeneous vector product (any length).
@@ -95,10 +94,7 @@ impl<C> Product<C> {
     where
         Self: FusionCategory,
     {
-        Self {
-            factors,
-            fingerprint: OnceLock::new(),
-        }
+        Self { factors }
     }
     /// The ordered immediate factors.
     pub fn factors(&self) -> &C {
@@ -478,20 +474,6 @@ fn cgc_dims(factors: impl IntoIterator<IntoIter: Clone, Item = [usize; 4]>) -> O
     Some(dims)
 }
 
-fn fingerprint<'a>(
-    factors: impl IntoIterator<Item = &'a [u8], IntoIter: ExactSizeIterator>,
-) -> Arc<[u8]> {
-    let factors = factors.into_iter();
-    let mut bytes =
-        b"fusion-symbols:product:epoch=1:axes=last-fastest:fusion=first-fastest;".to_vec();
-    bytes.extend_from_slice(&(factors.len() as u32).to_le_bytes());
-    for fp in factors {
-        bytes.extend_from_slice(&(fp.len() as u64).to_le_bytes());
-        bytes.extend_from_slice(fp);
-    }
-    bytes.into()
-}
-
 fn product_unrank(factors: &[ExactCount], index: u64) -> Result<Vec<Integer>, EnumerationError> {
     // The zero-coordinate product has exactly one object. The general unrank
     // routine requires at least one coordinate.
@@ -866,11 +848,6 @@ macro_rules! impl_product {
                 let (dims, data) = Self::compose((Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_b_symbol(&a.0,&b.0,&c.0,t).map_err(ProductError::Factor0)?)?,
                     $(Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_b_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?)?,)+));
                 Ok((RBlock::from_storage(dims[0], data), axes(dims).ok_or(ProductError::Overflow)?))
-            }
-            fn authority_fingerprint(&self) -> &[u8] {
-                self.fingerprint.get_or_init(|| {
-                    fingerprint([self.factors.0.authority_fingerprint(), $(self.factors.$i.authority_fingerprint()),+])
-                })
             }
         }
         impl<$C0, $($C, $S),+> Product<($C0, $($C,)+)>
@@ -1259,15 +1236,6 @@ where
         t: Validated,
     ) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
         self.shaped_b([a, b, c], None, t)
-    }
-    fn authority_fingerprint(&self) -> &[u8] {
-        self.fingerprint.get_or_init(|| {
-            fingerprint(
-                self.factors
-                    .iter()
-                    .map(FusionCategory::authority_fingerprint),
-            )
-        })
     }
 }
 
@@ -1670,9 +1638,6 @@ mod tests {
         }
         fn b_symbol(&self, a: &(), b: &(), c: &()) -> Result<RBlock<f64>, Infallible> {
             self.a_symbol(a, b, c)
-        }
-        fn authority_fingerprint(&self) -> &[u8] {
-            b"malformed-blocks-test"
         }
     }
 

@@ -84,12 +84,12 @@
 //!   values, all closed-form families, rank ≤ 4 [`table`] categories (74),
 //!   products and caches. Exact arithmetic uses required Malachite 0.14
 //!   dependencies (LGPL-3.0-only); there is no dense linear algebra.
-//! - **`lie-generated`** (default): runtime coefficient generation for A, B, C
-//!   factors of rank ≥ 2, D factors of rank ≥ 3 and the exceptional types,
-//!   that is SU(N ≥ 3), SO(N ≥ 5), Spin(N ≥ 5), Sp(2r ≥ 4), U(N ≥ 3), G₂, F₄,
-//!   E₆, E₇, E₈ and products containing them.
-//!   Dense kernels run sequentially through `t4a-faer`; the caller owns
-//!   parallelism.
+//! - **`lie-generated`** (default): admits A, B, C factors of rank ≥ 2, D
+//!   factors of rank ≥ 3 and the exceptional types, that is SU(N ≥ 3),
+//!   SO(N ≥ 5), Spin(N ≥ 5), Sp(2r ≥ 4), U(N ≥ 3), G₂, F₄, E₆, E₇, E₈ and
+//!   products containing them. Every build compiles the same exact Cartan
+//!   engine, so the feature selects capability, never a value. Generation is
+//!   sequential; the caller owns parallelism.
 //! - **`anyonwiki-unitary`**: the 303 rank 5–7 [`table`] categories (embedded
 //!   data only).
 //!
@@ -102,16 +102,16 @@
 //!
 //! Labels, dimensions, duals, Frobenius–Schur indicators and fusion
 //! multiplicities are exact. SU(2) values are exact rationals under a square
-//! root, rounded once to `f64`. Exceptional coefficients are exact until one
-//! rounding to `f64`. SU(N) and B/C/D CGC/F/R values are `f64`, checked by
-//! numerical gates that return typed errors on failure. Closed-form
+//! root, rounded once to `f64`. Every simple Lie factor's CGC is exact until
+//! one rounding to `f64`, and its F and R follow a fixed floating-point
+//! evaluation order, so they are bit-identical across builds; generation-time
+//! gates return typed errors on failure and never alter a value. Closed-form
 //! families use `f64`; [`table`] uses [`num_complex::Complex64`]. Index order
 //! follows TensorKitSectors.jl (`F^{abc}_d[e, f]` with `e ∈ a ⊗ b`,
 //! `f ∈ b ⊗ c`; `R^{ab}_c`). Closed forms use TensorKitSectors' gauge;
 //! [`table`] keeps AnyonWiki's; generated Lie coefficients follow the frozen
-//! gauge specifications. Each category publishes an opaque
-//! [`category::FusionCategory::authority_fingerprint`]: persist it next to
-//! derived data and compare bytes on load.
+//! gauge specifications. A value change is a breaking release, announced in
+//! the CHANGELOG.
 //!
 //! # Documentation
 //!
@@ -120,20 +120,19 @@
 //! - [Dynkin labels]: numbering, common irreps, dimensions, duals and U(N) charges.
 //! - [`docs/overview.md`]: capability boundaries and contracts.
 //! - [Caches and reproducibility][guide-resources].
-//! - [`docs/gauge.md`] / [`docs/gauge_soN.md`] / [`docs/gauge_exceptional.md`]:
-//!   the frozen gauge specifications.
+//! - [`docs/gauge.md`] / [`docs/gauge_cartan.md`]: the frozen gauge
+//!   specifications.
 //! - [`docs/references.md`] and [`docs/references_categories.md`]: algorithm
 //!   and data provenance.
 //!
 //! [User guide]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/user-guide/README.md
 //! [Dynkin labels]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/user-guide/labels.md
-//! [`docs/gauge_exceptional.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/gauge_exceptional.md
+//! [`docs/gauge_cartan.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/gauge_cartan.md
 //! [guide-resources]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/user-guide/resources.md
 //! [`docs/overview.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/overview.md
 //! [`docs/references.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/references.md
 //! [`docs/references_categories.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/references_categories.md
 //! [`docs/gauge.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/gauge.md
-//! [`docs/gauge_soN.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/gauge_soN.md
 #![warn(missing_docs)]
 
 // The audit harness measures only allocations routed through Rust's System
@@ -232,8 +231,7 @@ mod cache_budget_pressure;
 #[cfg(all(test, feature = "lie-generated"))]
 mod cache_trim_pressure;
 
-// Family-neutral contractions for generated Lie coefficients.
-#[cfg(feature = "lie-generated")]
+// F and R contractions and block gates of the Cartan engine.
 mod frcore;
 
 // Module docs are the files' inner `//!` docs: an outer `///` here would make

@@ -40,7 +40,7 @@ fn bench_generation(c: &mut Criterion) {
     for (label, s1, s2, s3) in cases() {
         g.bench_function(label, |b| {
             b.iter(|| {
-                // Reset so every iteration pays the full SVD/QR/descent cost
+                // Reset so every iteration pays the full module/nullspace/descent cost
                 // (a warm hit would otherwise be measured after the first).
                 cache::reset();
                 black_box(cgc(black_box(&s1), black_box(&s2), black_box(&s3)).unwrap())

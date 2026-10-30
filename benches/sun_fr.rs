@@ -1,9 +1,10 @@
 //! SU(N) F-symbol generation cost across representative families, cold (full
-//! four-CGC contraction, CGC caches cleared) and warm (derived-f64 F and R cache
-//! hits). Not a CI gate; run with `cargo bench --features lie-generated`.
+//! four-CGC contraction, every cache cleared) and warm (F and R tier hits).
+//! Not a CI gate; run with `cargo bench --features lie-generated`.
 //!
 //! The cached-CGC cases isolate F and R recomputation from CGC generation by
-//! trimming only the `SunF` or `SunR` tier before each query.
+//! trimming only the `FSymbol` or `RSymbol` tier before each query, keeping the
+//! CGC tier warm.
 
 #[path = "../tests/common/lie.rs"]
 mod lie_test;
@@ -138,7 +139,7 @@ fn bench_cached_cgc(c: &mut Criterion) {
         let _ = f_symbol(&s[0], &s[1], &s[2], &s[3], &s[4], &s[5]).unwrap();
         f_group.bench_function(label, |b| {
             b.iter(|| {
-                cache::trim_to(CoefficientCacheTier::SunF, 0);
+                cache::trim_to(CoefficientCacheTier::FSymbol, 0);
                 black_box(f_symbol(&s[0], &s[1], &s[2], &s[3], &s[4], &s[5]).unwrap())
             })
         });
@@ -151,7 +152,7 @@ fn bench_cached_cgc(c: &mut Criterion) {
         let _ = r_symbol(&s, &s, &s).unwrap();
         r_group.bench_function(label, |b| {
             b.iter(|| {
-                cache::trim_to(CoefficientCacheTier::SunR, 0);
+                cache::trim_to(CoefficientCacheTier::RSymbol, 0);
                 black_box(r_symbol(black_box(&s), &s, &s).unwrap())
             })
         });

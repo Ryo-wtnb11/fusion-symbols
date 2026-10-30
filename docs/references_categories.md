@@ -11,7 +11,7 @@
 | U(1) and Z_N CGC | `src/irreps/irreps.jl`: `fusiontensor(::AbelianIrrep, …)` (l. 67) returns `fill(Nabc, (1, 1, 1, Nabc))`; `U1` and `ZN` expose scalar `f64` blocks, and `LieGroup` exposes `LieCgc` blocks through `CgcBlock`; an absent channel has shape `1x1x1x0` |
 | Fermion parity | `src/fermions.jl`: `dual` (l. 34), `dim` (l. 35), `BraidingStyle = Fermionic()` (l. 39), `⊗` (l. 43), `Nsymbol` (l. 45), `Fsymbol` (l. 48), `Rsymbol` (l. 51), `twist` (l. 54); FS phase from the generic `src/sectors.jl:frobenius_schur_phase_from_Fsymbol` (l. 461) |
 | `dim`, bosonic twist | generic `src/sectors.jl:dim_from_Fsymbol` (UniqueFusion → 1, l. 429) and `twist_from_Rsymbol` (l. 646) |
-| Scalars | `f64` (exact ±1, 0); TKS declares `Int`. TKS values checked by hand in `src/finite.rs::tests::matches_measured_tensorkitsectors_values` (Z2, Z_N) and `tests/lie_torus.rs::u1_values_bounds_and_fingerprint` (U(1)) |
+| Scalars | `f64` (exact ±1, 0); TKS declares `Int`. TKS values checked by hand in `src/finite.rs::tests::matches_measured_tensorkitsectors_values` (Z2, Z_N) and `tests/lie_torus.rs::u1_values_and_bounds` (U(1)) |
 | Overflow | U(1) symbols test charge conservation exactly in `i64`; only fusion, which must produce a label, reports an unrepresentable sum (`U1Error` or `LieError::LabelOverflow`) |
 
 U(1) uses `lie::U1` or `lie::LieGroup` and the shared `category::FusionCategory` surface,
@@ -21,7 +21,7 @@ implement `category::GroupRepresentations`. The parity label is
 computation. Inadmissible symbols are zero; `Error` is `Infallible` for ZN
 and parity, while U(1) fusion reports label overflow. FS indicator is the FS
 phase for self-dual objects and zero otherwise
-(`src/sectors.jl::frobenius_schur_indicator`). U(1) values are checked in `tests/lie_torus.rs::u1_values_bounds_and_fingerprint` and `src/finite.rs::tests::matches_measured_tensorkitsectors_values`;
+(`src/sectors.jl::frobenius_schur_indicator`). U(1) values are checked in `tests/lie_torus.rs::u1_values_and_bounds` and `src/finite.rs::tests::matches_measured_tensorkitsectors_values`;
 identities use `tests/category_conformance.rs::conformance`.
 
 ## CU(1) = U(1) ⋊ C (`lie` module)
@@ -45,7 +45,7 @@ only fusion may fail on label overflow. The constructor still reports
 ## Pinned tables (`table` module)
 
 Tables are loaded without regauging. Source selection and binary64 projection
-are part of the authority fingerprint (`src/table/provenance.rs::TableProvenance`).
+are recorded in each entry's provenance (`src/table/provenance.rs::TableProvenance`).
 
 ### Authority — AnyonWiki database (exact symbols)
 
@@ -96,12 +96,12 @@ the source numeric data. It writes shortest round-trip decimals to
 Perron–Frobenius dimensions and pins representative exact algebraic symbols.
 `tests/tables_reference.rs` checks structural identities over every shipped entry.
 
-### The `Complex64` projection epoch
+### The `Complex64` projection epoch (`PROJECTION_EPOCH`)
 
-Epoch identifier:
+Projection epoch:
 **`fusion-symbols/tables/anyonwiki-badbfe2/projection/2026-10-16`**. The
-entry selection and file layout are recorded in each entry's provenance and
-fingerprint, not in the epoch.
+entry selection and file layout are recorded in each entry's provenance, not
+in this epoch.
 
 1. Each exact symbol is rounded correctly to binary64 offline (above).
 2. At load, split each record on ASCII whitespace; the trailing two fields
@@ -110,17 +110,15 @@ fingerprint, not in the epoch.
 3. Pair them as `Complex64 { re, im }`. No re-normalisation, no gauge fixing.
 4. Unlisted `N`/`F`/`R` records are exact zeros.
 
-Changing any step is a new epoch identifier, and therefore a new authority
-fingerprint.
+Changing any step is a new projection epoch.
 
-### Identity, ordering, gauge, fingerprint
+### Identity, ordering, gauge
 
 | Field | Value |
 | --- | --- |
 | Object ordering | Validated by `TableCategory::object(index)`, with a private catalog tag; `TableObject::index()` returns the source index. Fusion-ring element order, one-based, `1` = unit. Frozen; not re-sorted |
 | Gauge | Source gauge, loaded verbatim (unitary), named constructors included. No conversion to TensorKitSectors' gauge |
 | Provenance | One generated `TableProvenance` per entry (uuid and fusion-ring uuid in `source_entry`, code in `category_key`) |
-| Fingerprint | Canonical provenance bytes, then the N, F and R texts verbatim (a fusion-only entry has an empty R section). Prehashes and file digests are pinned in `src/table/tests.rs::shipped_tables_and_fingerprints_are_pinned` |
 | Braiding | `FusionCategory::braiding_style` (`BraidingStyle::None` on fusion-only entries); `FusionCategory::r_symbol` returns `TableError::NoBraiding` on fusion-only entries; `twist` panics. Foreign objects panic before either capability check |
 
 ### Named constructors and TensorKitSectors 0.3.9

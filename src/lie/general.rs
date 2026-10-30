@@ -1,258 +1,78 @@
-//! The exceptional Lie engine (`docs/gauge_exceptional.md`): generic
-//! Cartan-matrix machinery and its binding to `LieGroup`. Crate-private.
+//! The Cartan engine (`docs/gauge_cartan.md`): one exact highest-weight
+//! nullspace and intertwiner pipeline for every simple root system, whose only
+//! per-type input is the irrep basis of §3. Crate-private.
 
 pub(crate) mod cgc;
-#[cfg(test)]
 mod gt;
 pub(crate) mod module;
 mod rational;
 pub(crate) mod roots;
 
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::LazyLock;
 
-use self::cgc::GeneralFamily;
+pub(crate) use self::cgc::GeneralFamily;
 use self::roots::CartanData;
-use crate::category::{FBlock, RBlock};
-use crate::frcore::{f_block_raw, r_block_raw, Family};
-use crate::lie::{checked_dimension, checked_size, LieError, RootSystem};
-
-/// The exceptional root systems whose coefficients this engine serves: all
-/// five. E6 is the only one with complex irreps, whose `κ_a` is generated
-/// (§6.3).
-pub(crate) fn serves(root: RootSystem) -> bool {
-    matches!(
-        root,
-        RootSystem::G2 | RootSystem::F4 | RootSystem::E6 | RootSystem::E7 | RootSystem::E8
-    )
-}
-
-/// `docs/gauge_exceptional.md` §8. Bump the trailing `epoch=N` (and the
-/// literal in `tests/exceptional_fingerprint.rs`) only when that document is
-/// corrected under the four-step rule of `docs/gauge.md`, "Status".
-pub(crate) fn fingerprint() -> &'static [u8] {
-    b"fusion-symbols:lie-exceptional:ref=gauge-exceptional-spec:input=bourbaki-cartan:order=depth-rootlex-asc:basis=greedy-rank-gs-own-positive:kron=a-fast:mult=rcef-pivot-gs:descent=intertwiner-own-basis:sign=own-candidate-and-pivot-positive:round=once-correct:fs=gauge-derived:fr=frcore:twist=one:scalar=f64:epoch=1"
-}
-
-/// Memo entries (modules + channels + phases) retained after a query.
-/// A pentagon through the G2 vertex `27 ⊗ 27 → 27` fits; at 256 it ran twice as long.
-const MEMO_ENTRIES: usize = 512;
-
-/// Estimated retained memo bytes (see [`GeneralFamily::memo_bytes`]).
-/// Every exceptional group value and composite factor owns its own memo, so this is per factor. 256 MiB is the
-/// default per-group B/C/D catalog budget, and it holds the whole working set
-/// of a pentagon through the G2 `N = 2` vertex `27 ⊗ 27 → 27` (about 150 MiB
-/// estimated); at 64 MiB that pentagon reset repeatedly and ran 3.5× longer.
-/// One entry for an irrep of a few hundred dimensions can be tens of MiB, and
-/// one query may exceed the cap transiently: it is enforced between queries.
-const MEMO_BYTES: usize = 256 << 20;
-
-/// One exceptional simple factor: its root data and the memo of exact
-/// modules, channels and complex-irrep phases, owned by the group value and bounded by
-/// [`MEMO_ENTRIES`] and [`MEMO_BYTES`]. Values are exact, so the memo state
-/// never changes a bit. Fusion and N share Product and never take the family memo lock.
-pub(crate) struct Engine {
-    data: Arc<CartanData>,
-    family: Mutex<GeneralFamily>,
-}
-
-impl Engine {
-    pub(crate) fn new(root: RootSystem) -> Self {
-        let data = CartanData::new(root);
-        Self {
-            data: data.clone(),
-            family: Mutex::new(GeneralFamily::with_data(data)),
-        }
-    }
-
-    pub(super) fn family(&self) -> MutexGuard<'_, GeneralFamily> {
-        // A panic mid-query can leave a memo without its partner entries;
-        // starting over is always valid.
-        self.family.lock().unwrap_or_else(|poisoned| {
-            self.family.clear_poison();
-            let mut fam = poisoned.into_inner();
-            *fam = GeneralFamily::with_data(self.data.clone());
-            fam
-        })
-    }
-
-    fn query<T>(&self, query: impl FnOnce(&mut GeneralFamily) -> T) -> T {
-        let mut fam = self.family();
-        let result = query(&mut fam);
-        fam.trim(MEMO_ENTRIES, MEMO_BYTES);
-        #[cfg(test)]
-        assert!(fam.memo_len() <= MEMO_ENTRIES && fam.memo_bytes() <= MEMO_BYTES);
-        result
-    }
-
-    /// `(entries, estimated bytes)` currently retained.
-    #[cfg(test)]
-    pub(crate) fn memo_stats(&self) -> (usize, usize) {
-        let fam = self.family.lock().unwrap();
-        (fam.memo_len(), fam.memo_bytes())
-    }
-
-    /// Drop every memoized module, channel and phase.
-    pub(crate) fn reset(&self) {
-        // Poison recovery already starts over; only the healthy case needs it.
-        *self.family() = GeneralFamily::with_data(self.data.clone());
-    }
-
-    /// A validated label: nonnegative, of this rank, with an exact dimension.
-    /// A complex irrep (and so its dual) must have dimension at most
-    /// `u32::MAX`: its `κ_a` is generated in the module basis (§6.3), whose
-    /// magnetic index is `u32`, and `frobenius_schur_phase` is infallible.
-    pub(crate) fn irrep(&self, dynkin: &[i64]) -> Result<Irrep, LieError> {
-        let irrep = self.data.irrep(dynkin)?;
-        self.validate_output(&irrep)?;
-        Ok(irrep)
-    }
-    fn validate_output(&self, irrep: &Irrep) -> Result<(), LieError> {
-        if !irrep.public_coefficient_label_ok() {
-            return Err(LieError::LabelOverflow);
-        }
-        Ok(())
-    }
-    pub(crate) fn product(&self, a: &Irrep, b: &Irrep) -> Result<roots::Product, LieError> {
-        let product = self.data.product(a, b)?;
-        for (c, _) in product.iter() {
-            self.validate_output(c)?;
-        }
-        Ok(product)
-    }
-    pub(crate) fn nsymbol(&self, a: &Irrep, b: &Irrep, c: &Irrep) -> Result<u32, LieError> {
-        self.data.multiplicity(a, b, c)
-    }
-
-    /// `κ_a` (§6.3): the stored closed form for a self-dual irrep, otherwise
-    /// the gauge-derived `σ_a σ_ā`, generated on first use under the memo
-    /// lock and then memoized for `a` and `ā`.
-    pub(crate) fn frobenius_schur_phase(&self, a: &Irrep) -> Result<i8, LieError> {
-        if a.is_self_dual() {
-            return Ok(a.sign());
-        }
-        self.query(|fam| fam.frobenius_schur_phase(a.dynkin()))
-    }
-
-    pub(crate) fn f_symbol(
-        &self,
-        [a, b, c, d, e, f]: [&Irrep; 6],
-    ) -> Result<FBlock<f64>, LieError> {
-        let [a, b, c, d, e, f] = [a, b, c, d, e, f].map(|x| x.dynkin().to_vec());
-        self.query(|fam| f_block_raw(fam, &a, &b, &c, &d, &e, &f))
-    }
-
-    pub(crate) fn r_symbol(
-        &self,
-        a: &Irrep,
-        b: &Irrep,
-        c: &Irrep,
-    ) -> Result<RBlock<f64>, LieError> {
-        self.query(|fam| {
-            r_block_raw(
-                fam,
-                &a.dynkin().to_vec(),
-                &b.dynkin().to_vec(),
-                &c.dynkin().to_vec(),
-            )
-        })
-    }
-
-    /// The CGC as dims `[d_a, d_b, d_c, N]` and a dense row-major buffer
-    /// (empty for an absent channel).
-    pub(crate) fn cgc(
-        &self,
-        a: &Irrep,
-        b: &Irrep,
-        c: &Irrep,
-    ) -> Result<([usize; 4], Vec<f64>), LieError> {
-        self.query(|fam| {
-            let [da, db, dc] = [a, b, c].map(|x| checked_dimension(x.dim()));
-            let dims = [
-                da?,
-                db?,
-                dc?,
-                crate::lie::checked_dimension(self.data.multiplicity(a, b, c)?)?,
-            ];
-            if dims[3] == 0 {
-                return Ok((dims, Vec::new()));
-            }
-            let mut data = vec![0.0; checked_size(dims)?];
-            for e in fam.cgc_entries(
-                &a.dynkin().to_vec(),
-                &b.dynkin().to_vec(),
-                &c.dynkin().to_vec(),
-            )? {
-                let [m1, m2, m3, mu] = [e.m1, e.m2, e.m3, e.mu].map(|i| i as usize);
-                data[((m1 * dims[1] + m2) * dims[2] + m3) * dims[3] + mu] = e.value;
-            }
-            Ok((dims, data))
-        })
-    }
-}
+use crate::lie::RootSystem;
 
 pub(crate) use roots::RootIrrep as Irrep;
 
+/// The `A_1` root data shared by every rank-one presentation (SU(2), SO(3),
+/// Sp(2), PSU(2), `B_1`, `C_1` and each factor of `D_2`, §1), built on the
+/// first block-CGC request.
+pub(crate) fn a1() -> &'static GeneralFamily {
+    static A1: LazyLock<GeneralFamily> =
+        LazyLock::new(|| GeneralFamily::with_data(CartanData::new(RootSystem::A(1))));
+    &A1
+}
+
 #[cfg(test)]
 mod tests {
+    use super::cgc::BUILDS;
     use super::*;
+    #[cfg(feature = "lie-generated")]
     use crate::category::{f_unitarity_residual, FusionCategory};
+    #[cfg(feature = "lie-generated")]
     use crate::lie::{GroupId, LieGroup};
+    #[cfg(feature = "lie-generated")]
     use std::time::Instant;
 
-    /// A hot completed channel survives a product working set larger than the
-    /// public entry limit; eviction and reset never change coefficient bits.
+    fn builds() -> [usize; 2] {
+        BUILDS.with(std::cell::Cell::get)
+    }
+
+    /// A hot completed channel survives a working set of many absent R
+    /// queries; warm calls build nothing on this thread and the tier stays
+    /// within its process-wide limit. Retention never changes a bit.
     #[test]
-    fn memo_pressure_retains_completed_channels() {
-        let engine = Engine::new(RootSystem::G2);
-        let a = engine.irrep(&[1, 0]).unwrap();
-        let b = engine.irrep(&[0, 1]).unwrap();
-        let one = engine.irrep(&[0, 0]).unwrap();
+    fn pressure_retains_completed_channels() {
+        // Resetting tests hold this lock; warm-build checks must not overlap them.
+        let _guard = crate::cache::TEST_CACHE_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let fam = GeneralFamily::new(RootSystem::G2);
+        let (a, b, one): (&[i64], &[i64], &[i64]) = (&[1, 0], &[0, 1], &[0, 0]);
         let bits = || {
-            engine
-                .cgc(&a, &a, &b)
+            fam.cgc_entries(a, a, b)
                 .unwrap()
-                .1
                 .iter()
-                .map(|x| x.to_bits())
+                .map(|e| e.value.to_bits())
                 .collect::<Vec<_>>()
         };
         let expected = bits();
-        let builds = engine.family().builds;
+        let warm = builds();
         assert_eq!(bits(), expected);
-        assert_eq!(
-            engine.family().builds,
-            builds,
-            "warm calls must not regenerate"
-        );
-        for _ in 0..3 {
-            for n in 1..=MEMO_ENTRIES + 16 {
-                let label = engine.irrep(&[n as i64, 0]).unwrap();
-                // Absent R channels fill products without building large modules.
-                assert!(engine
-                    .r_symbol(&one, &label, &one)
-                    .unwrap()
-                    .data()
-                    .is_empty());
-                let (entries, bytes) = engine.memo_stats();
-                assert!(entries <= MEMO_ENTRIES && bytes <= MEMO_BYTES);
-            }
-            assert_eq!(bits(), expected);
-            assert_eq!(
-                engine.family().builds,
-                builds,
-                "pressure must not rebuild a retained channel"
-            );
+        assert_eq!(builds(), warm, "warm calls must not regenerate");
+        for n in 1..=600 {
+            // Absent R channels request no CGC and build no module.
+            assert!(fam.r_symbol([one, &[n, 0], one]).unwrap().data().is_empty());
         }
-        engine.family().trim(0, 0);
-        assert_eq!(engine.memo_stats(), (0, 0));
-        assert_eq!(bits(), expected);
-        assert_eq!(engine.family().builds, [2 * builds[0], 2 * builds[1]]);
-        engine.reset();
-        assert_eq!(engine.memo_stats(), (0, 0));
+        assert_eq!(builds(), warm, "absent channels must not build modules");
+        let limit = crate::cache::cache_budgets().limit(crate::cache::CoefficientCacheTier::Cgc);
+        assert!(crate::cache::tier_stats(crate::cache::CoefficientCacheTier::Cgc).bytes <= limit);
         assert_eq!(bits(), expected);
         let symbols = || {
-            let f = engine.f_symbol([&a, &a, &a, &a, &b, &b]).unwrap();
-            let r = engine.r_symbol(&a, &a, &b).unwrap();
+            let f = fam.f_symbol([a, a, a, a, b, b]).unwrap();
+            let r = fam.r_symbol([a, a, b]).unwrap();
             f.data()
                 .iter()
                 .chain(r.data())
@@ -260,37 +80,41 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let expected = symbols();
-        engine.family().trim(0, 0);
+        let warm = builds();
         assert_eq!(symbols(), expected);
+        assert_eq!(builds(), warm, "warm F/R must not rebuild channels");
     }
 
+    #[cfg(feature = "lie-generated")]
     #[test]
     #[ignore = "release timing and generation-count report"]
-    fn e8_memo_workload_report() {
+    fn e8_workload_report() {
         let g = LieGroup::new(GroupId::e8()).unwrap();
         let a = g.irrep(&[0, 0, 0, 0, 0, 0, 0, 1]).unwrap();
         let t = Instant::now();
         let residual = f_unitarity_residual(&g, &a, &a, &a, &a).unwrap();
         assert!(residual < 1e-12);
-        let fam = g.general.as_ref().unwrap().family.lock().unwrap();
+        let cgc = crate::cache::tier_stats(crate::cache::CoefficientCacheTier::Cgc);
         eprintln!(
             "E8: {:?}, residual {residual:e}, module/channel builds {:?}, retained ({}, {})",
             t.elapsed(),
-            fam.builds,
-            fam.memo_len(),
-            fam.memo_bytes()
+            builds(),
+            cgc.entries,
+            cgc.bytes
         );
     }
 
+    #[cfg(feature = "lie-generated")]
     #[test]
     #[ignore = "release cold/warm timing report"]
-    fn small_memo_workload_report() {
+    fn small_workload_report() {
         for (id, label) in [
             (GroupId::g2(), vec![1, 0]),
             (GroupId::f4(), vec![0, 0, 0, 1]),
             (GroupId::e6(), vec![1, 0, 0, 0, 0, 0]),
         ] {
             for _ in 0..5 {
+                crate::cache::reset();
                 let g = LieGroup::new(id.clone()).unwrap();
                 let a = g.irrep(&label).unwrap();
                 let query = || {
@@ -303,29 +127,26 @@ mod tests {
                 let t = Instant::now();
                 query();
                 let cold = t.elapsed();
-                let builds = g.general.as_ref().unwrap().family.lock().unwrap().builds;
+                let before = builds();
                 let t = Instant::now();
                 for _ in 0..128 {
                     query();
                 }
                 let warm = t.elapsed() / 128;
-                assert_eq!(
-                    g.general.as_ref().unwrap().family.lock().unwrap().builds,
-                    builds
-                );
-                eprintln!("{label:?}: cold {cold:?}, warm {warm:?}, builds {builds:?}");
+                assert_eq!(builds(), before);
+                eprintln!("{label:?}: cold {cold:?}, warm {warm:?}, builds {before:?}");
             }
         }
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "lie-generated"))]
 mod product_contract_tests {
     use super::*;
     use crate::{
         cache,
         category::FusionCategory,
-        lie::{GroupId, LieGroup},
+        lie::{GroupId, LieError, LieGroup},
     };
     use std::sync::atomic::Ordering;
 
@@ -340,6 +161,7 @@ mod product_contract_tests {
             (GroupId::e7(), vec![0, 0, 0, 0, 0, 0, 1]),
             (GroupId::e8(), vec![0, 0, 0, 0, 0, 0, 0, 1]),
         ] {
+            let root = id.root_systems()[0];
             let g = LieGroup::new(id.clone()).unwrap();
             let h = LieGroup::new(id).unwrap();
             let a = g.irrep(&label).unwrap();
@@ -356,29 +178,20 @@ mod product_contract_tests {
             assert_eq!(h.try_nsymbol(&b, &a, &one).unwrap(), 1);
             let channels = g.fusion(&a, &b).unwrap().collect::<Vec<_>>();
             assert!(channels.contains(&one));
-            g.reset_catalog().unwrap();
-            let fam = g.engine().family();
-            assert_eq!(
-                fam.product(
-                    a.exceptional().unwrap().dynkin(),
-                    b.exceptional().unwrap().dynkin()
-                )
-                .unwrap()
-                .multiplicity(one.exceptional().unwrap()),
-                1
-            );
-            drop(fam);
+            let fam = GeneralFamily::new(root);
+            let zero = vec![0; label.len()];
+            assert_eq!(fam.mult(&label, &b.dynkin(), &zero).unwrap(), 1);
             assert_eq!(
                 builds() - before,
                 1,
-                "N, fusion, equal groups and GeneralFamily must share Product"
+                "N, fusion, equal groups and the engine must share Product"
             );
             assert_eq!(
                 cache::tier_stats(cache::CoefficientCacheTier::Product).entries,
                 2
             );
             assert_eq!(
-                cache::tier_stats(cache::CoefficientCacheTier::BcdCgc).entries,
+                cache::tier_stats(cache::CoefficientCacheTier::Cgc).entries,
                 0
             );
             cache::reset();
@@ -402,16 +215,15 @@ mod product_contract_tests {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         cache::reset();
-        let e = Engine::new(RootSystem::E6);
-        let big = e.data.irrep(&[20, 0, 0, 0, 0, 0]).unwrap();
+        let g = LieGroup::new(GroupId::e6()).unwrap();
+        let data = CartanData::new(RootSystem::E6);
+        let big = data.irrep(&[20, 0, 0, 0, 0, 0]).unwrap();
         assert!(u32::try_from(big.dim()).is_err());
         assert!(!big.is_self_dual());
-        let one = e.irrep(&[0; 6]).unwrap();
-        assert_eq!(e.nsymbol(&one, &big, &big).unwrap(), 1);
-        assert!(matches!(
-            e.product(&one, &big),
-            Err(LieError::LabelOverflow)
-        ));
+        assert!(!big.public_coefficient_label_ok());
+        let one = data.irrep(&[0; 6]).unwrap();
+        assert_eq!(data.multiplicity(&one, &big, &big).unwrap(), 1);
+        assert_eq!(g.irrep(&[20, 0, 0, 0, 0, 0]), Err(LieError::LabelOverflow));
         cache::reset();
     }
 }

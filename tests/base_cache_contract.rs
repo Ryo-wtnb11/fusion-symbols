@@ -1,7 +1,7 @@
 //! Isolated process: exact reset/counter assertions require no unrelated cache traffic.
 //! Base SU(2) coefficient-cache resource contract.
 //!
-//! Kept in one `#[test]`: the 3j/6j/derived-F tiers are process-global and
+//! Kept in one `#[test]`: the 3j/6j/F/CGC tiers are process-global and
 //! `cache::reset()`/`cache::tier_stats()` act on shared state, so splitting into
 //! several parallel tests would race the shared counters (same reasoning as
 //! `tests/sun_cgc_cache.rs`).
@@ -19,19 +19,18 @@ mod common;
 use crate::common::a1;
 use a1::exact_f;
 use fusion_symbols::cache::{self, CoefficientCacheTier, TierStats, BASE_CACHE_MAX_BYTES};
+use fusion_symbols::category::GroupRepresentations;
 use fusion_symbols::lie::su2::{wigner_3j, wigner_6j};
 
 #[test]
 fn base_cache_resource_contract() {
-    let per_tier_cap = BASE_CACHE_MAX_BYTES / 3;
-
     // ---- hit/miss accounting on a deterministic per-tier pattern ----
     cache::reset();
 
     // 3j: only `wigner_3j` touches this tier, so its counters are exact.
     let _ = wigner_3j(2, 2, 2, 0, 0, 0); // miss
     let _ = wigner_3j(2, 2, 2, 0, 0, 0); // hit
-    let s = cache::tier_stats(CoefficientCacheTier::ThreeJ);
+    let s = cache::tier_stats(CoefficientCacheTier::Wigner3j);
     assert_eq!(
         (s.misses, s.hits),
         (1, 1),
@@ -42,16 +41,24 @@ fn base_cache_resource_contract() {
     // assert monotone accounting rather than exact deltas.
     let _ = wigner_6j(2, 2, 2, 2, 2, 2); // miss
     let _ = wigner_6j(2, 2, 2, 2, 2, 2); // hit
-    let s = cache::tier_stats(CoefficientCacheTier::SixJ);
+    let s = cache::tier_stats(CoefficientCacheTier::Wigner6j);
     assert!(s.misses >= 1 && s.hits >= 1, "6j miss+hit");
 
-    // derived-F: `exact_f` owns this tier.
+    // F: only `exact_f` touches this tier here.
     let _ = exact_f(2, 2, 2, 2, 2, 2); // miss
     let _ = exact_f(2, 2, 2, 2, 2, 2); // hit
-    let s = cache::tier_stats(CoefficientCacheTier::DerivedF);
+    let s = cache::tier_stats(CoefficientCacheTier::FSymbol);
     assert!(s.misses >= 1 && s.hits >= 1, "F miss+hit");
 
-    // ---- fill all three tiers with a spread of small labels ----
+    // CGC: an A(1) block is built once, then shared.
+    let su2 = a1::group();
+    let block = |a, b, c| su2.cgc(&a1::ir(a), &a1::ir(b), &a1::ir(c)).unwrap();
+    let first = block(4, 2, 2);
+    assert_eq!(block(4, 2, 2), first);
+    let s = cache::tier_stats(CoefficientCacheTier::Cgc);
+    assert!(s.misses >= 1 && s.hits >= 1, "CGC miss+hit");
+
+    // ---- fill all four tiers with a spread of small labels ----
     cache::reset();
     for a in 0..12u32 {
         for b in 0..12u32 {
@@ -59,8 +66,9 @@ fn base_cache_resource_contract() {
                 // 3j and 6j direct fills.
                 let _ = wigner_3j(a, b, c, 0, 0, 0);
                 let _ = wigner_6j(a, b, c, a, b, c);
-                // derived-F sweep.
+                // F sweep and A(1) CGC blocks.
                 let _ = exact_f(a, b, c, a, b, c);
+                let _ = block(a, b, c);
             }
         }
     }
@@ -68,7 +76,8 @@ fn base_cache_resource_contract() {
     // Per-tier conservative retained-charge cap.
     for tier in common::BASE_TIERS {
         let bytes = cache::tier_stats(tier).bytes;
-        assert!(bytes <= per_tier_cap, "{tier} over cap: {bytes}");
+        let cap = cache::cache_budgets().limit(tier);
+        assert!(bytes <= cap, "{tier} over cap: {bytes}");
     }
 
     // Aggregate charged-entry cap — the documented per-tier corollary.
@@ -81,12 +90,11 @@ fn base_cache_resource_contract() {
     );
     assert!(total.entries > 0, "the fill retained entries");
 
-    // `ALL` lists every compiled tier once, base tiers first.
-    assert_eq!(CoefficientCacheTier::ALL[..3], common::BASE_TIERS);
-    #[cfg(not(feature = "lie-generated"))]
-    assert_eq!(CoefficientCacheTier::ALL.len(), 3);
-    #[cfg(feature = "lie-generated")]
-    assert_eq!(CoefficientCacheTier::ALL.len(), 10);
+    // `ALL` lists every tier once in every build; the base tiers are among them.
+    assert_eq!(CoefficientCacheTier::ALL.len(), 6);
+    assert!(common::BASE_TIERS
+        .iter()
+        .all(|t| CoefficientCacheTier::ALL.contains(t)));
     for (i, tier) in CoefficientCacheTier::ALL.iter().enumerate() {
         assert!(
             !CoefficientCacheTier::ALL[..i].contains(tier),

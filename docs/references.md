@@ -12,25 +12,23 @@ provenance is in [category conventions](references_categories.md).
 |---|---|---|
 | `lie/su2.rs::{wigner_3j,wigner_6j,clebsch_gordan}`; `exact.rs::SignedSqrtRational`; `primefactor.rs` | [WignerSymbols.jl 2.0.0](https://github.com/Jutho/WignerSymbols.jl/tree/v2.0.0), `src/WignerSymbols.jl::{_wigner3j,_wigner6j,compute6jseries}` and `src/primefactorization.jl` | Exact Racah sums; one final rounding |
 | `lie/su2.rs::{canonical_regge_3j,canonical_regge_6j}`; `cache.rs::CoefficientCache` | WignerSymbols.jl `reorder3j`, per-kind Wigner caches | Complete deterministic tie-breaking; byte-weighted sharded Clock-PRO rather than LRU |
-| `lie/su2.rs::{f_symbol_exact,r_symbol,fs_phase}` | TensorKitSectors `src/irreps/su2irrep.jl::{Fsymbol,Rsymbol}` | Phase, normalization and argument order fixed in [gauge §12](gauge.md#12-the-base-su2-family) |
-| `lie/general/roots.rs::CartanData::gt_product`; `lie/gt.rs::gt_enumerate`; `lie/sun.rs::Irrep` | [SUNRepresentations.jl 0.4.0](https://github.com/QuantumKitHub/SUNRepresentations.jl/tree/v0.4.0), `src/gtpatterns.jl::{GTPatternIterator,creation,directproduct}` | Exact structure and index-for-index GT basis order |
-| `lie/sun/cgc.rs::{cgc,highest_weight_cgc,lower_weight_cgc,cref,purge}` | SUNRepresentations.jl `src/clebschgordan.jl::{_CGC,highest_weight_CGC,lower_weight_CGC!,cref!,purge!}` | Joint nullspace gauge, descent and cuts fixed in [gauge](gauge.md) |
-| `lie/sun/linalg.rs::{nullspace,qr_positive_q,LeastSquares}` | SUNRepresentations.jl `_nullspace!`, `qrpos!`, QR least squares | Sequential t4a-faer dense kernels |
-| `lie/general/roots.rs::CartanData`; `lie/general/roots/classical.rs`; `lie/bcd.rs::Irrep` | Fulton–Harris; Humphreys; QSpace `Source/clebsch_aux.cc::{wdim_B,wdim_C,wdim_D,findMaxWeight}` | Exact Weyl/Freudenthal/Brauer–Klimyk structure; low-rank redirects |
-| `lie/bcd/seeds.rs::{defining_seed,check_commutators}` | QSpace v4 `dd2cc7e`, `Source/clebsch.cc::{Setup_SpN,Setup_SON,Setup_SEN,initCommRel,checkCommRel}` | QSpace generator normalization, not Chevalley coroots |
-| `lie/bcd/sweep.rs::decompose` | QSpace `Source/clebsch_aux.cc::getSymmetryStates` | Exact multiplicity gate added; unconditional block sign and independent-column positive-diagonal QR; [B/C/D specification](gauge_soN.md) |
-| `lie/bcd/catalog.rs::{canonical_parent,build_into}`; `lie/bcd/sweep.rs::align_block` | QSpace cross-copy `normDiff`, `Source/clebsch.cc:6710-6718` | Canonical parent instead of dimension-capped passes or error-driven replacement; alignment before coherence gate |
+| `lie/su2.rs::{f_symbol_exact,r_symbol,fs_phase}` | TensorKitSectors `src/irreps/su2irrep.jl::{Fsymbol,Rsymbol}` | Phase, normalization and argument order fixed in [gauge §1](gauge.md#1-su2-closed-forms) |
+| `lie/general/roots.rs::CartanData::gt_product`; `lie/gt.rs::gt_enumerate`; `lie/general/gt.rs::module` | [SUNRepresentations.jl 0.4.0](https://github.com/QuantumKitHub/SUNRepresentations.jl/tree/v0.4.0), `src/gtpatterns.jl::{GTPatternIterator,creation,directproduct}`; Molev, arXiv:math/0211289, Theorem 2.3 and Proposition 2.4 | Exact structure and index-for-index GT basis order; ladder entries equal `creation` in square and sign |
+| `lie/general/roots.rs::CartanData`; `lie/general/roots/classical.rs` | Fulton–Harris; Humphreys; QSpace `Source/clebsch_aux.cc::{wdim_B,wdim_C,wdim_D,findMaxWeight}` | Exact Weyl/Freudenthal/Brauer–Klimyk structure; low-rank redirects |
+| `lie/general/module.rs::IrrepModule`; `lie/general/cgc.rs::{Ladders,Channel,GeneralFamily}` | SUNRepresentations.jl `src/clebschgordan.jl::{highest_weight_CGC,lower_weight_CGC!}` (the highest-weight nullspace and descent structure) | One exact pipeline for every simple type ([Cartan engine](gauge_cartan.md)): rational nullspace with a reduced-echelon multiplicity basis instead of `qrpos!`/`cref!`, intertwiner descent instead of least squares, one rounding |
 
-SU(N) uses GT ladder matrix elements and a highest-weight nullspace solve.
-B/C/D uses defining and spinor seeds, tensor-product decomposition and a
-canonical generator catalog. The algorithm sources are Alex et al. and
-Weichselbaum below; the library-specific choices are in the gauge specifications.
+Every simple type uses the Cartan engine: an exact highest-weight nullspace in
+the a-slow coupling-pair order and an intertwiner descent through the irrep
+basis, the Gelfand–Tsetlin basis for `A_r` and a contravariant Gram–Schmidt
+basis otherwise. The library-specific choices are in the gauge
+specifications; Alex et al. and Weichselbaum below describe the numerical
+algorithms that preceded it.
 
-## Family-generic F/R core and gates
+## F/R contraction and gates
 
 `src/frcore.rs::{f_block_raw,r_block_raw}` implements the contraction wiring
-shared by `src/lie/sun/fr.rs::{f_symbol,r_symbol}` and
-`src/lie/bcd/fr.rs::{f_symbol,r_symbol}`. The references are
+of every Cartan-engine F and R block, and `frcore::{check_f_block,
+check_r_block}` the block gates. The references are
 SUNRepresentations.jl 0.4.0 `src/sector.jl::{_Fsymbol,_Rsymbol}` and
 TensorKitSectors `src/sectors.jl::Fsymbol_from_fusiontensor`.
 Public blocks live in `src/category.rs::{FBlock,RBlock}`; axis order is in
@@ -63,9 +61,9 @@ Representative sources in the tests are:
 | Family | Local evidence |
 |---|---|
 | SU(2) | `tests/oracle.rs`, `tests/fixtures_large.rs`, `tests/fr_oracle.rs`: closed forms, orthogonality, TensorKitSectors F/R |
-| SU(N) | `tests/sun_oracle.rs`, `tests/sun_cgc_gauge.rs`, `tests/sun_fr_su3_values.rs`: independent GT enumeration and signed SUNRepresentations values; GroupMath product rows |
-| B/C/D | `src/lie/bcd/tests.rs`, `src/lie/bcd/intertwiner_tests.rs`: exact decomposition, Oscar rows, generator identities and isotypic projectors |
-| Gauge drift | `tests/gauge_golden.rs`: signed values; `tests/*_fingerprint.rs`: authority epochs |
+| SU(N) | `tests/sun_oracle.rs`, `tests/sun_cgc_gauge.rs`, `tests/sun_fr_su3_values.rs`, `tests/gauge_golden.rs::sun_oracle`: independent GT enumeration and signed SUNRepresentations values; GroupMath product rows |
+| Every simple type | `src/lie/general/{cgc,module,gt}/tests.rs`: exact isometry, intertwining and generator relations, Molev formulas; `tests/bcd_fr.rs`, `tests/lie_exceptional.rs`: category identities |
+| Gauge drift | `tests/gauge_golden.rs`: bitwise values; `tests/bit_identity.rs`: separate-process bytes |
 
 ## Bibliography
 
@@ -80,6 +78,12 @@ conventions and gates.
   2972–3047 (2012), [doi:10.1016/j.aop.2012.07.009](https://doi.org/10.1016/j.aop.2012.07.009);
   *QSpace*, SciPost Phys. Codebases 40 (2024),
   [doi:10.21468/SciPostPhysCodeb.40](https://doi.org/10.21468/SciPostPhysCodeb.40).
+- A. I. Molev, *Gelfand–Tsetlin bases for classical Lie algebras*, Handbook of
+  Algebra 4 (2006) 109–170, [arXiv:math/0211289](https://arxiv.org/abs/math/0211289),
+  Theorem 2.3 and Proposition 2.4: rational Gelfand–Tsetlin matrix elements and
+  norms used by [gauge_cartan §3.1](gauge_cartan.md#31-a_r-gelfandtsetlin-basis).
+- V. G. Kac, *Infinite-Dimensional Lie Algebras*, 3rd ed., Cambridge (1990),
+  Thm. 11.7: positivity of the contravariant form.
 - G. Racah, *Theory of Complex Spectra. II*, Phys. Rev. 62, 438 (1942),
   [doi:10.1103/PhysRev.62.438](https://doi.org/10.1103/PhysRev.62.438).
 - W. Fulton and J. Harris, *Representation Theory*, Springer (1991), §§18, 24,

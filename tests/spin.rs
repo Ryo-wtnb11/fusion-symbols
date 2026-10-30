@@ -12,18 +12,12 @@
 //! Each public operation gets its own focused test rather than one umbrella
 //! run, so a regression names the operation that broke.
 //!
-//! # Base-case frame
+//! # Recoupling through the defining channel
 //!
 //! The recoupling gates (`check_f_unitarity` / `check_pentagon` /
 //! `check_hexagon`) on spinor channels that route through a *defining*-rep
-//! coupled channel are sensitive to the frame of the defining seed: a
-//! QSpace-seeded defining rep stored in `Setup_*` order, but rediscovered in
-//! the sweep's descending-weight order, makes them fail (and the *tensor* `B_2`
-//! and `D_3` vector pentagons too, with residuals `0.285_239_560_970_874_6` and
-//! `0.129_099_444_873_580_7`). `docs/gauge_soN.md` §14.2 "Base-case frame"
-//! puts the defining seed through the same sweep pass as the spinor seeds, so
-//! the gates below — including the ones that route through the defining rep —
-//! close.
+//! coupled channel cross several CGC bases, so they check the consistency of
+//! the spinor and defining bases, which single CGC values cannot.
 
 #![cfg(feature = "lie-generated")]
 
@@ -184,7 +178,7 @@ fn spinor_fusion_matches_the_textbook_products() {
 }
 
 // ---------------------------------------------------------------------------
-// The catalog and the CGC.
+// The CGC.
 // ---------------------------------------------------------------------------
 
 /// Worst `|(CᵀC − I)|` over the outer-multiplicity copies of a CGC block.
@@ -205,7 +199,7 @@ fn isometry_residual(c: &LieCgc) -> f64 {
 }
 
 /// Every spinor CGC is an isometry — orthonormality asserted on the returned
-/// coefficients rather than only inside the sweep.
+/// coefficients rather than only inside the generation gate.
 #[test]
 fn spinor_cgc_columns_are_orthonormal() {
     for &(_, r, n) in FAMILIES {
@@ -268,10 +262,8 @@ fn spinor_hexagon_closes_on_spin6() {
 }
 
 /// The `Spin(6)` `4 ⊗ 4 = 6 + 1̄0` family routes through the **defining**-rep
-/// coupled channel, so it detects a base-case frame mismatch: with a mismatched
-/// defining seed this pentagon fails at residual `0.750_000_000_000_000_4` and
-/// the hexagon at `0.75`. With the defining seed framed in the sweep order
-/// (`docs/gauge_soN.md` §14.2) both close.
+/// coupled channel, so its pentagon and hexagon cross the spinor and defining
+/// bases; both close.
 #[test]
 fn spinor_recoupling_closes_through_the_defining_channel_on_spin6() {
     let s = ir(6, &[0, 0, 1]);

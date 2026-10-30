@@ -37,6 +37,18 @@ pub(super) fn module(
     lambda: &[i64],
 ) -> Result<(IrrepModule, Vec<u32>), LieError> {
     let weyl = checked_weyl(data, lambda)?;
+    if let [dj] = *lambda {
+        return Ok(rank_one(dj, weyl));
+    }
+    from_enumeration(data, lambda, weyl)
+}
+
+/// The module from its enumerated patterns.
+fn from_enumeration(
+    data: &CartanData,
+    lambda: &[i64],
+    weyl: usize,
+) -> Result<(IrrepModule, Vec<u32>), LieError> {
     let patterns = data.gt_patterns(lambda)?;
     let weights = patterns
         .iter()
@@ -48,6 +60,38 @@ pub(super) fn module(
     }
     let order = DepthOrder::new(data, lambda, mult, weyl);
     from_patterns(data, order, &patterns, weights)
+}
+
+/// The same module for `A_1`, `λ = (dj)`, without enumerating patterns: the
+/// pattern `(dj, 0; dj − t)` is the weight space at depth `t`, of weight
+/// `dj − 2t` and public index `dj − t`. Its only lowering candidate is
+/// `f ξ_{t−1}`, and (2.7) is `B = 1`, so `ξ_t = f ξ_{t−1}` (recipe 1) and
+/// contravariance gives `n_t = t (dj − t + 1) n_{t−1}`, `n_0 = 1`. This is the
+/// data `from_patterns` builds, without its maps and eliminations.
+fn rank_one(dj: i64, weyl: usize) -> (IrrepModule, Vec<u32>) {
+    let one = Q::from(1);
+    let mut norm = Q::from(1);
+    let mut weights = Vec::with_capacity(weyl);
+    let mut index = HashMap::with_capacity(weyl);
+    for t in 0..=dj {
+        if t > 0 {
+            norm *= Q::from(t * (dj - t + 1));
+        }
+        let first = t == 0;
+        let space = WeightSpace {
+            mu: vec![dj - 2 * t],
+            k: vec![t],
+            offset: t as usize,
+            norms: vec![norm.clone()],
+            kept: if first { Vec::new() } else { vec![(0, 0)] },
+            recipe: vec![if first { Vec::new() } else { vec![one.clone()] }],
+            lower: vec![(!first).then(|| (t as usize - 1, vec![vec![one.clone()]]))],
+        };
+        index.insert(space.mu.clone(), t as usize);
+        weights.push(space);
+    }
+    let public = (0..=dj).rev().map(|x| x as u32).collect();
+    (IrrepModule::assembled(weights, index, weyl), public)
 }
 
 fn l(p: &GtPattern, k: usize, i: usize) -> Result<i64, LieError> {

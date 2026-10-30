@@ -1,26 +1,32 @@
 //! Exact Clebsch–Gordan coefficients of `a ⊗ b → c`
-//! (`docs/gauge_exceptional.md` §5), the [`Family`] binding of the exceptional
-//! engine to `frcore` (§7) and the Frobenius–Schur phase `κ_a` (§6.3).
+//! (`docs/gauge_cartan.md` §4), the F and R contractions of §6 and the
+//! Frobenius–Schur phase `κ_a` of §5.3, for every simple root system.
 //!
 //! Everything is computed in the rational coordinates `b^a_{m_a} ⊗ b^b_{m_b}`
-//! of §4.5, whose metric is `diag(n^a_{m_a} n^b_{m_b})`. Each lowered vector
+//! of §3.3, whose metric is `diag(n^a_{m_a} n^b_{m_b})`. Each lowered vector
 //! is `√N_μ Φ_μ(b^c_{m_c})`, so a CGC entry is its rational coordinate `x`
 //! times `√(n^a n^b / (N_μ n^c))`: one signed square root, rounded once.
 //!
 //! Before a rounded channel is retained or returned it passes two
-//! verification gates, which never change a value: an isometry check over
-//! every expected column within each output weight block, and a first-descent
-//! ladder check for every applicable simple generator.
+//! verification gates (§7, gates 4 and 5), which never change a value: an
+//! isometry check over every expected column within each output weight block,
+//! and a first-descent ladder check for every applicable simple generator.
+//! Completed F and R blocks pass gates 7 and 6 before they are retained or
+//! returned.
+//!
+//! Every retained module, channel and phase lives in the process-wide CGC
+//! tier of [`crate::cache`]; [`GeneralFamily`] is a query context over one
+//! root system and owns no state of its own.
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
-use super::module::{labels_bytes, q_heap, qs_bytes, IrrepModule, Q};
+use super::module::{q_heap, qs_bytes, IrrepModule, Q};
 use super::roots::CartanData;
+use crate::category::{FBlock, RBlock};
 use crate::exact::SignedSqrtRational;
-use crate::frcore::{Family, GateError, MEntry};
-#[cfg(test)]
-use crate::lie::RootSystem;
-use crate::lie::{GenerationError, LieError};
+use crate::frcore::{check_f_block, check_r_block, f_block_raw, r_block_raw, GateError, MEntry};
+use crate::lie::{GenerationError, LieError, RootSystem};
 
 /// A sparse operator in the rational basis: `op[m]` lists `(m', x)` with
 /// `X b_m = Σ x b_{m'}`.
@@ -29,7 +35,7 @@ type Op = Vec<Vec<(usize, Q)>>;
 /// An internal inconsistency between the construction and its gates.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum CgcError {
-    /// `dim H` differs from the Brauer–Klimyk multiplicity (§5.2 gate).
+    /// `dim H` differs from the Brauer–Klimyk multiplicity (§7, gate 2).
     NullityMismatch {
         a: Vec<i64>,
         b: Vec<i64>,
@@ -37,7 +43,7 @@ pub(super) enum CgcError {
         nullity: usize,
         multiplicity: usize,
     },
-    /// `⟨low| L^h |high⟩ = 0`, which §6.3 proves impossible.
+    /// `⟨low| L^h |high⟩ = 0`, which §5.3 proves impossible (§7, gate 3).
     ZeroPrincipalLadder { lambda: Vec<i64> },
 }
 
@@ -77,9 +83,10 @@ impl From<GateError> for LieError {
 }
 
 /// `L(λ)` with its ladder operators flattened to engine indices: the weight
-/// spaces of the module in §3 order, so index 0 is the highest weight and the
-/// last weight space is the lowest. `public` maps them to magnetic indices.
-pub(super) struct Ladders {
+/// spaces of the module in depth order (§3.2.1), so index 0 is the highest
+/// weight and the last weight space is the lowest. `public` maps them to
+/// magnetic indices.
+pub(crate) struct Ladders {
     pub(super) module: IrrepModule,
     /// `n_m = ⟨b_m, b_m⟩` per magnetic index.
     pub(super) norm: Vec<Q>,
@@ -95,9 +102,15 @@ pub(super) struct Ladders {
 }
 
 impl Ladders {
+    /// `L(λ)` in the basis of its root system (§3): Gelfand–Tsetlin for
+    /// `A_r`, the contravariant Gram–Schmidt basis otherwise.
     pub(super) fn new(data: &CartanData, lambda: &[i64]) -> Result<Self, LieError> {
+        if matches!(data.root, RootSystem::A(_)) {
+            let (module, public) = super::gt::module(data, lambda)?;
+            return Ok(Self::from_module(module, public));
+        }
         let module = IrrepModule::new(data, lambda)?;
-        // The module dimension is at most `u32::MAX` (§4 dimension gate).
+        // The module dimension is at most `u32::MAX` (§7 gate 1).
         let public = (0..module.dim as u32).collect();
         Ok(Self::from_module(module, public))
     }
@@ -145,7 +158,7 @@ impl Ladders {
     }
 
     /// Estimated retained bytes, including the module and both ladder sets.
-    fn bytes(&self) -> usize {
+    pub(crate) fn bytes(&self) -> usize {
         let ops = |ops: &Vec<Op>| -> usize {
             ops.iter()
                 .map(|op| {
@@ -186,7 +199,7 @@ impl Ladders {
         super::rational::radical(x, &self.norm[m], &Q::from(1), &self.norm[src]).to_f64()
     }
 
-    /// `sign ⟨low| L^h |high⟩` with `L = Σ_i f_i` (§6.3). Positive rescalings
+    /// `sign ⟨low| L^h |high⟩` with `L = Σ_i f_i` (§5.3). Positive rescalings
     /// keep the sign, so the rational basis `b` gives it exactly.
     fn principal_sign(&self, lambda: &[i64]) -> Result<i8, LieError> {
         let mut v = vec![Q::from(0); self.dim()];
@@ -218,8 +231,8 @@ impl Ladders {
     }
 }
 
-/// The product states `(m_a, m_b)` of one weight, in composite order
-/// `m_a + d_a·m_b` (§5.1).
+/// The coupling pairs `(m_a, m_b)` of one weight at engine indices, ordered
+/// by their public indices with the left factor slow ("a-slow", §4.1).
 pub(super) struct ProductSpace {
     pub(super) pairs: Vec<(usize, usize)>,
     index: HashMap<(usize, usize), usize>,
@@ -228,7 +241,7 @@ pub(super) struct ProductSpace {
 impl ProductSpace {
     fn new(a: &Ladders, b: &Ladders, nu: &[i64]) -> Self {
         let mut pairs = Vec::new();
-        // Scan the smaller weight set, then restore §5.1 composite order if swapped.
+        // Scan the smaller weight set; the order is restored below either way.
         let (inner, outer, swapped) = if a.module.weights.len() < b.module.weights.len() {
             (b, a, true)
         } else {
@@ -250,9 +263,7 @@ impl ProductSpace {
                 }));
             }
         }
-        if swapped {
-            pairs.sort_unstable_by_key(|&(p, q)| (q, p));
-        }
+        pairs.sort_unstable_by_key(|&(p, q)| (a.public[p], b.public[q]));
         let index = pairs.iter().enumerate().map(|(t, &pq)| (pq, t)).collect();
         Self { pairs, index }
     }
@@ -288,7 +299,7 @@ fn coproduct(op_a: &Op, op_b: &Op, from: &ProductSpace, to: &ProductSpace, v: &[
 /// The CGC of one channel in rational form.
 pub(super) struct Channel {
     pub(super) mult: usize,
-    /// The pivot rows `p_1 < … < p_N` of §5.3, as indices into `P`.
+    /// The pivot rows `p_1 < … < p_N` of §4.3, as indices into `P`.
     #[cfg(test)]
     pub(super) pivots: Vec<usize>,
     /// `N_μ = ⟨B_μ, B_μ⟩`.
@@ -310,7 +321,7 @@ impl Channel {
         let top = &c.module.weights[0].mu;
         let p = ProductSpace::new(a, b, top);
 
-        // §5.2: H is the nullspace of the stacked Δ(e_i) on span(P).
+        // §4.2: H is the nullspace of the stacked Δ(e_i) on span(P).
         let rows = raising_rows(data, a, b, &p, top);
         let (_pivots, echelon) = echelon_nullspace(rows, p.len());
         if echelon.len() != multiplicity {
@@ -324,7 +335,19 @@ impl Channel {
             .into());
         }
 
-        // §5.3: Gram–Schmidt of E_1, …, E_N in pivot order, metric n^a n^b.
+        if multiplicity == 0 {
+            // Gate 2 proved the channel absent; there is nothing to lower.
+            return Ok(Self {
+                mult: 0,
+                #[cfg(test)]
+                pivots: _pivots,
+                seed_norms: Vec::new(),
+                spaces: vec![p],
+                phi: Vec::new(),
+            });
+        }
+
+        // §4.3: Gram–Schmidt of E_1, …, E_N in pivot order, metric n^a n^b.
         let metric: Vec<Q> = p
             .pairs
             .iter()
@@ -355,13 +378,13 @@ impl Channel {
             seeds.push(v);
         }
 
-        // §5.4: replay c's basis recipe through Δ(f_j).
+        // §4.4: replay c's basis recipe through Δ(f_j).
         let mut spaces = vec![p];
         let mut phi: Vec<Vec<Vec<Q>>> = Vec::with_capacity(c.dim());
         phi.push(seeds);
         for space in &c.module.weights[1..] {
             let to = ProductSpace::new(a, b, &space.mu);
-            let lowered: Vec<Vec<Vec<Q>>> = space
+            let mut lowered: Vec<Vec<Vec<Q>>> = space
                 .kept
                 .iter()
                 .map(|&(j, q)| {
@@ -376,7 +399,27 @@ impl Channel {
                         .collect()
                 })
                 .collect();
+            // A candidate used only by one recipe row `b_k = c_t` moves into
+            // place: the general sum would rebuild the same exact vector.
+            let mut uses = vec![0usize; lowered.len()];
             for coeffs in &space.recipe {
+                for (t, r) in coeffs.iter().enumerate() {
+                    if r.numerator_ref() != &0 {
+                        uses[t] += 1;
+                    }
+                }
+            }
+            for coeffs in &space.recipe {
+                let mut terms = coeffs
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, r)| r.numerator_ref() != &0);
+                if let (Some((t, r)), None) = (terms.next(), terms.next()) {
+                    if *r == 1 && uses[t] == 1 {
+                        phi.push(std::mem::take(&mut lowered[t]));
+                        continue;
+                    }
+                }
                 let per_mu = (0..multiplicity)
                     .map(|mu| {
                         // b_k = Σ_t recipe[k][t] c_t, so Φ(b_k) = Σ_t recipe[k][t] Δ(f_{j_t}) Φ(b_{q_t}).
@@ -414,18 +457,18 @@ impl Channel {
         })
     }
 
-    /// The exactly nonzero entries `(m_a, m_b, m_c, μ, C)` at public magnetic
-    /// indices, in the §5.6 order: `μ`, then `m_c`, then the product-space
-    /// order of `(m_a, m_b)`, which is ascending composite order for the
-    /// Gram–Schmidt basis.
-    pub(super) fn exact_entries(
+    /// Visits the exactly nonzero entries `(m_a, m_b, m_c, μ, C)` at public
+    /// magnetic indices, in the §4.7 order: `μ`, then public `m_c`, then
+    /// `(m_a, m_b)` a-slow (§4.1). Exactly zero coefficients are omitted; a
+    /// rounded value is never filtered.
+    fn visit_exact<E>(
         &self,
         a: &Ladders,
         b: &Ladders,
         c: &Ladders,
-    ) -> Vec<(usize, usize, usize, usize, SignedSqrtRational)> {
+        mut visit: impl FnMut(usize, usize, usize, usize, SignedSqrtRational) -> Result<(), E>,
+    ) -> Result<(), E> {
         let by_public = c.engine();
-        let mut out = Vec::new();
         for mu in 0..self.mult {
             for &mc in &by_public {
                 let space = &self.spaces[c.space[mc]];
@@ -434,39 +477,61 @@ impl Channel {
                     if x.numerator_ref() == &0 {
                         continue;
                     }
-                    out.push((
+                    visit(
                         a.public[pa] as usize,
                         b.public[pb] as usize,
                         c.public[mc] as usize,
                         mu,
                         super::rational::radical(x, &a.norm[pa], &b.norm[pb], &scale),
-                    ));
+                    )?;
                 }
             }
         }
+        Ok(())
+    }
+
+    /// The exact entries of [`Self::visit_exact`], collected.
+    #[cfg(test)]
+    pub(super) fn exact_entries(
+        &self,
+        a: &Ladders,
+        b: &Ladders,
+        c: &Ladders,
+    ) -> Vec<(usize, usize, usize, usize, SignedSqrtRational)> {
+        let mut out = Vec::new();
+        let _ = self.visit_exact(a, b, c, |m1, m2, m3, mu, x| {
+            out.push((m1, m2, m3, mu, x));
+            Ok::<_, std::convert::Infallible>(())
+        });
         out
     }
 
-    /// The entries rounded once to `f64`, gated by [`check_rounded`].
+    /// The entries rounded once to `f64` as they are formed, gated by
+    /// [`check_rounded`]; no exact copy of the channel is kept.
     pub(super) fn rounded_entries(
         &self,
         a: &Ladders,
         b: &Ladders,
         c: &Ladders,
     ) -> Result<Vec<MEntry>, LieError> {
-        let entries = self
-            .exact_entries(a, b, c)
-            .into_iter()
-            .map(|(m1, m2, m3, mu, x)| {
-                Ok(MEntry {
-                    m1: magnetic_index(m1)?,
-                    m2: magnetic_index(m2)?,
-                    m3: magnetic_index(m3)?,
-                    mu: magnetic_index(mu)?,
-                    value: x.to_f64(),
-                })
-            })
-            .collect::<Result<Vec<_>, LieError>>()?;
+        let nonzero = self
+            .phi
+            .iter()
+            .flatten()
+            .flatten()
+            .filter(|x| x.numerator_ref() != &0)
+            .count();
+        let mut entries = Vec::with_capacity(nonzero);
+        self.visit_exact(a, b, c, |m1, m2, m3, mu, x| {
+            entries.push(MEntry {
+                m1: magnetic_index(m1)?,
+                m2: magnetic_index(m2)?,
+                m3: magnetic_index(m3)?,
+                mu: magnetic_index(mu)?,
+                value: x.to_f64(),
+            });
+            Ok::<_, LieError>(())
+        })?;
         Ok(entries)
     }
 }
@@ -660,7 +725,7 @@ fn raising_rows(
     rows
 }
 
-/// The echelon basis of `ker M` (§5.3): `E_k[p_l] = δ_kl` and `E_k[t] = 0`
+/// The echelon basis of `ker M` (§4.3): `E_k[p_l] = δ_kl` and `E_k[t] = 0`
 /// for `t < p_k`, returned with its pivots `p_1 < … < p_N`.
 ///
 /// `M` is reduced with its columns taken from last to first. Each free column
@@ -722,38 +787,54 @@ fn echelon_nullspace(mut m: Vec<BTreeMap<usize, Q>>, cols: usize) -> (Vec<usize>
     (free, basis)
 }
 
-struct MemoEntry<T> {
-    value: T,
-    bytes: usize,
-    used: u64,
+#[cfg(test)]
+type Fault<T> = std::cell::Cell<Option<T>>;
+
+#[cfg(test)]
+thread_local! {
+    /// Modules and channels this thread generated (not loaded from the cache).
+    pub(crate) static BUILDS: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
+    /// Fault injection between rounding and the gates.
+    pub(super) static CORRUPT: Fault<fn(&mut Vec<MEntry>)> = const { std::cell::Cell::new(None) };
+    /// Called on entry to every module and channel load, before its cache lookup.
+    pub(crate) static BEFORE_LOAD: Fault<fn()> = const { std::cell::Cell::new(None) };
+    /// Fault injection on every completed F and R entry before its gate.
+    pub(super) static CORRUPT_BLOCK: Fault<fn(f64) -> f64> = const { std::cell::Cell::new(None) };
 }
 
-fn evict_oldest<K: Clone + Eq + std::hash::Hash, V>(
-    entries: &mut HashMap<K, MemoEntry<V>>,
-) -> Option<usize> {
-    let key = entries.iter().min_by_key(|(_, e)| e.used)?.0.clone();
-    Some(entries.remove(&key)?.bytes)
+/// A completed, gated CGC channel: its outer multiplicity and its exactly
+/// nonzero rounded entries in §4.7 order, ascending `(μ, m_c, m_a, m_b)`.
+#[derive(Debug, PartialEq)]
+pub(crate) struct CgcChannel {
+    pub(crate) mult: usize,
+    pub(crate) entries: Box<[MEntry]>,
 }
 
-/// The exceptional engine as a [`Family`]: exact CGC (§5) and `κ_a` (§6.3),
-/// with F and R from the generic `frcore` contractions (§7).
-///
-/// Modules, channels and complex-irrep phases are memoized
-/// for the lifetime of the value only; `bytes` is the estimated retained size
-/// of these three kinds.
+impl std::ops::Deref for CgcChannel {
+    type Target = [MEntry];
+    fn deref(&self) -> &[MEntry] {
+        &self.entries
+    }
+}
+
+/// A rational channel with its three modules.
+type BuiltChannel = (Channel, Arc<Ladders>, Arc<Ladders>, Arc<Ladders>);
+
+#[cfg(test)]
+fn count_build(kind: usize) {
+    BUILDS.with(|b| {
+        let mut v = b.get();
+        v[kind] += 1;
+        b.set(v);
+    });
+}
+
+/// The Cartan engine over one root system: exact CGC (§4), `κ_a` (§5.3) and
+/// the F and R contractions of §6, each loaded from and published to the CGC,
+/// F and R tiers of [`crate::cache`] only after its gates pass.
+#[derive(Clone)]
 pub(crate) struct GeneralFamily {
-    data: std::sync::Arc<CartanData>,
-    modules: HashMap<Vec<i64>, MemoEntry<Ladders>>,
-    channels: HashMap<[Vec<i64>; 3], MemoEntry<Vec<MEntry>>>,
-    /// One `κ` per non-self-dual pair, keyed by its smaller label.
-    phases: HashMap<Vec<i64>, MemoEntry<i8>>,
-    bytes: usize,
-    clock: u64,
-    #[cfg(test)]
-    pub(super) builds: [usize; 2],
-    /// Test-only fault injection between rounding and the gates.
-    #[cfg(test)]
-    pub(super) corrupt: Option<fn(&mut Vec<MEntry>)>,
+    data: Arc<CartanData>,
 }
 
 impl GeneralFamily {
@@ -761,71 +842,29 @@ impl GeneralFamily {
     pub(crate) fn new(root: RootSystem) -> Self {
         Self::with_data(CartanData::new(root))
     }
-    pub(crate) fn with_data(data: std::sync::Arc<CartanData>) -> Self {
-        Self {
-            data,
-            modules: HashMap::new(),
-            channels: HashMap::new(),
-            phases: HashMap::new(),
-            bytes: 0,
-            clock: 0,
-            #[cfg(test)]
-            builds: [0; 2],
-            #[cfg(test)]
-            corrupt: None,
-        }
+    pub(crate) fn with_data(data: Arc<CartanData>) -> Self {
+        Self { data }
     }
 
-    #[cfg(test)]
-    pub(super) fn data(&self) -> &CartanData {
+    pub(crate) fn data(&self) -> &Arc<CartanData> {
         &self.data
     }
 
-    /// Retained memo entries; each phase pair counts as two label entries.
-    pub(super) fn memo_len(&self) -> usize {
-        self.modules.len() + self.channels.len() + 2 * self.phases.len()
+    fn root(&self) -> RootSystem {
+        self.data.root
     }
 
-    /// Estimated retained bytes of the memo (capacity-based, saturating).
-    pub(super) fn memo_bytes(&self) -> usize {
-        self.bytes
-    }
-
-    /// Only the owner calls this, after a query's module borrows have ended.
-    /// Completed channels and paired phases are useful without their modules.
-    pub(super) fn trim(&mut self, max_entries: usize, max_bytes: usize) {
-        while self.memo_len() > max_entries || self.memo_bytes() > max_bytes {
-            let bytes = evict_oldest(&mut self.modules)
-                .or_else(|| evict_oldest(&mut self.channels))
-                .or_else(|| evict_oldest(&mut self.phases))
-                .expect("an over-budget memo has entries");
-            self.bytes -= bytes;
+    /// The module of `lambda`, shared through the CGC tier.
+    pub(crate) fn module(&self, lambda: &[i64]) -> Result<Arc<Ladders>, LieError> {
+        #[cfg(test)]
+        if let Some(hook) = BEFORE_LOAD.with(std::cell::Cell::get) {
+            hook();
         }
-    }
-
-    pub(super) fn module(&mut self, lambda: &[i64]) -> Result<&Ladders, LieError> {
-        self.clock = self.clock.saturating_add(1);
-        if !self.modules.contains_key(lambda) {
-            let built = Ladders::new(&self.data, lambda)?;
+        crate::cache::cgc_module(self.root(), lambda, || {
             #[cfg(test)]
-            {
-                self.builds[0] += 1;
-            }
-            let bytes =
-                labels_bytes(lambda) + built.bytes() + std::mem::size_of::<MemoEntry<Ladders>>();
-            self.bytes = self.bytes.saturating_add(bytes);
-            self.modules.insert(
-                lambda.to_vec(),
-                MemoEntry {
-                    value: built,
-                    bytes,
-                    used: self.clock,
-                },
-            );
-        }
-        let hit = self.modules.get_mut(lambda).unwrap();
-        hit.used = self.clock;
-        Ok(&hit.value)
+            count_build(0);
+            Ladders::new(&self.data, lambda).map(Arc::new)
+        })
     }
 
     /// `a ⊗ b` by Brauer–Klimyk, label → `N^c_{ab}`.
@@ -834,116 +873,164 @@ impl GeneralFamily {
         self.data.shared_product(a, b)
     }
 
-    /// The rational channel with its three modules.
+    /// `N^c_{ab}`: the triangle rule for `A_1`, Brauer–Klimyk otherwise.
+    pub(crate) fn mult(&self, a: &[i64], b: &[i64], c: &[i64]) -> Result<usize, LieError> {
+        if self.root() == RootSystem::A(1) {
+            let dj = |x: &[i64]| u32::try_from(x[0]).map_err(|_| LieError::LabelOverflow);
+            return Ok(usize::from(crate::lie::su2::triangle_ok(
+                dj(a)?,
+                dj(b)?,
+                dj(c)?,
+            )));
+        }
+        Ok(self.data.multiplicities(a, b, None)?.multiplicity(c) as usize)
+    }
+
+    /// The rational channel with its three modules, gated by the exact
+    /// nullity check, uncached.
+    #[cfg(test)]
     pub(super) fn channel(
-        &mut self,
+        &self,
         a: &[i64],
         b: &[i64],
         c: &[i64],
-    ) -> Result<(Channel, &Ladders, &Ladders, &Ladders), LieError> {
-        let n = self.data.multiplicities(a, b, None)?.multiplicity(c) as usize;
-        for l in [a, b, c] {
-            self.module(l)?;
-        }
-        let (ma, mb, mc) = (
-            &self.modules[a].value,
-            &self.modules[b].value,
-            &self.modules[c].value,
-        );
-        Ok((Channel::new(&self.data, ma, mb, mc, n)?, ma, mb, mc))
+    ) -> Result<BuiltChannel, LieError> {
+        self.built_channel(a, b, c, self.mult(a, b, c)?)
     }
 
-    /// `κ_a` of §6.3: the closed form `(−1)^{⟨λ, 2ρ∨⟩}` for a self-dual irrep,
-    /// and `(−1)^{⟨λ, 2ρ∨⟩} σ_a σ_ā` otherwise.
-    pub(crate) fn frobenius_schur_phase(&mut self, a: &[i64]) -> Result<i8, LieError> {
-        let dual = self.data.dual(a)?;
-        if dual == a {
-            return self.data.two_rho_vee_sign(a);
+    fn built_channel(
+        &self,
+        a: &[i64],
+        b: &[i64],
+        c: &[i64],
+        n: usize,
+    ) -> Result<BuiltChannel, LieError> {
+        let (ma, mb, mc) = (self.module(a)?, self.module(b)?, self.module(c)?);
+        Ok((Channel::new(&self.data, &ma, &mb, &mc, n)?, ma, mb, mc))
+    }
+
+    /// The completed channel `a ⊗ b → c`: its multiplicity and its rounded,
+    /// gated entries in §4.7 order, shared through the CGC tier, so a hit
+    /// needs no multiplicity lookup. On a miss the block `d_a d_b d_c N` must
+    /// be addressable before anything is built. A channel with `N = 0` is
+    /// empty, after an exact certificate: no coupling pair has the highest
+    /// weight of `c`, or the highest-weight nullity is zero (§7 gate 2).
+    pub(crate) fn cgc_entries(
+        &self,
+        a: &[i64],
+        b: &[i64],
+        c: &[i64],
+    ) -> Result<Arc<CgcChannel>, LieError> {
+        #[cfg(test)]
+        if let Some(hook) = BEFORE_LOAD.with(std::cell::Cell::get) {
+            hook();
         }
-        self.clock = self.clock.saturating_add(1);
-        let key = a.min(&dual);
-        if let Some(hit) = self.phases.get_mut(key) {
-            hit.used = self.clock;
-            return Ok(hit.value);
+        crate::cache::cgc_channel(self.root(), [a, b, c], || {
+            #[cfg(test)]
+            count_build(1);
+            let n = self.mult(a, b, c)?;
+            let dimension = |l: &[i64]| -> Result<usize, LieError> {
+                usize::try_from(&self.data.weyl_dimension(l)?).map_err(|_| LieError::LabelOverflow)
+            };
+            crate::lie::checked_size([dimension(a)?, dimension(b)?, dimension(c)?, n])?;
+            if n == 0 && self.no_coupling_pair(a, b, c)? {
+                return Ok(Arc::new(CgcChannel {
+                    mult: 0,
+                    entries: Box::new([]),
+                }));
+            }
+            let (channel, ma, mb, mc) = self.built_channel(a, b, c, n)?;
+            #[allow(unused_mut)]
+            let mut entries = channel.rounded_entries(&ma, &mb, &mc)?;
+            // The rounded gates need only the modules.
+            drop(channel);
+            if self.root() == RootSystem::A(1) && (a[0] + b[0] - c[0]) / 2 % 2 != 0 {
+                // §4.6: the A_1 vertex sign (−1)^{j_a + j_b − j_c}, once per
+                // channel. Rounding is odd, so negating the rounded value is
+                // negating the exact one.
+                for e in &mut entries {
+                    e.value = -e.value;
+                }
+            }
+            #[cfg(test)]
+            if let Some(corrupt) = CORRUPT.with(std::cell::Cell::get) {
+                corrupt(&mut entries);
+            }
+            check_rounded(&self.data, &ma, &mb, &mc, n, &entries)?;
+            Ok(Arc::new(CgcChannel {
+                mult: n,
+                entries: entries.into_boxed_slice(),
+            }))
+        })
+    }
+
+    /// Whether no coupling pair has the weight `λ_c`, so `P` is empty and a
+    /// zero multiplicity needs no nullspace. For `A_1` the weight `c` occurs
+    /// in `a ⊗ b` exactly when `c ≤ a + b` with `a + b − c` even; other types
+    /// read the weights off the two modules.
+    fn no_coupling_pair(&self, a: &[i64], b: &[i64], c: &[i64]) -> Result<bool, LieError> {
+        if self.root() == RootSystem::A(1) {
+            let s = a[0] + b[0] - c[0];
+            return Ok(s < 0 || s % 2 != 0);
         }
+        let (ma, mb) = (self.module(a)?, self.module(b)?);
+        Ok(ProductSpace::new(&ma, &mb, c).len() == 0)
+    }
+
+    /// `κ_a` (§5.3) of `a` with dual label `dual`: `(−1)^{⟨λ, 2ρ∨⟩}` for a
+    /// self-dual irrep and for every `A_r` irrep, otherwise
+    /// `(−1)^{⟨λ, 2ρ∨⟩} σ_a σ_ā`, computed once per dual pair and shared
+    /// through the CGC tier.
+    pub(crate) fn frobenius_schur_phase(&self, a: &[i64], dual: &[i64]) -> Result<i8, LieError> {
         let closed = self.data.two_rho_vee_sign(a)?;
-        let sigma_a = self.module(a)?.principal_sign(a)?;
-        let sigma_dual = self.module(&dual)?.principal_sign(&dual)?;
-        // κ_ā = κ_a (§6.3), so one generation answers both labels.
-        let kappa = closed * sigma_a * sigma_dual;
-        let bytes = labels_bytes(key) + std::mem::size_of::<MemoEntry<i8>>();
-        self.bytes = self.bytes.saturating_add(bytes);
-        self.phases.insert(
-            key.to_vec(),
-            MemoEntry {
-                value: kappa,
-                bytes,
-                used: self.clock,
-            },
-        );
-        Ok(kappa)
+        if dual == a || matches!(self.root(), RootSystem::A(_)) {
+            return Ok(closed);
+        }
+        // κ_ā = κ_a (§5.3), so one generation answers both labels.
+        crate::cache::cgc_phase(self.root(), a.min(dual), || {
+            let sigma_a = self.module(a)?.principal_sign(a)?;
+            let sigma_dual = self.module(dual)?.principal_sign(dual)?;
+            Ok(closed * sigma_a * sigma_dual)
+        })
+    }
+
+    /// `F^{abc}_d[e, f]` (§6), gated by gate 7 before it is retained.
+    pub(crate) fn f_symbol(&self, labels: [&[i64]; 6]) -> Result<FBlock<f64>, LieError> {
+        crate::cache::f_block(self.root(), labels, || {
+            let block = f_block_raw(self, labels)?;
+            #[cfg(test)]
+            let block = match CORRUPT_BLOCK.with(std::cell::Cell::get) {
+                Some(fault) => FBlock::from_vec(
+                    block.dims(),
+                    block.data().iter().map(|&x| fault(x)).collect(),
+                ),
+                None => block,
+            };
+            check_f_block(&block)?;
+            Ok(block)
+        })
+    }
+
+    /// `R^{ab}_c` (§6), gated by gate 6 before it is retained.
+    pub(crate) fn r_symbol(&self, labels: [&[i64]; 3]) -> Result<RBlock<f64>, LieError> {
+        crate::cache::r_block(self.root(), labels, || {
+            let block = r_block_raw(self, labels)?;
+            #[cfg(test)]
+            let block = match CORRUPT_BLOCK.with(std::cell::Cell::get) {
+                Some(fault) => RBlock::from_vec(
+                    block.dim(),
+                    block.data().iter().map(|&x| fault(x)).collect(),
+                ),
+                None => block,
+            };
+            check_r_block(&block)?;
+            Ok(block)
+        })
     }
 }
 
 fn magnetic_index(value: usize) -> Result<u32, LieError> {
     u32::try_from(value).map_err(|_| LieError::LabelOverflow)
-}
-
-impl Family for GeneralFamily {
-    type Irrep = Vec<i64>;
-    type Error = LieError;
-
-    fn overflow() -> LieError {
-        LieError::LabelOverflow
-    }
-
-    fn mult(&mut self, a: &Vec<i64>, b: &Vec<i64>, c: &Vec<i64>) -> Result<usize, LieError> {
-        Ok(self.data.multiplicities(a, b, None)?.multiplicity(c) as usize)
-    }
-
-    fn cgc_entries(
-        &mut self,
-        a: &Vec<i64>,
-        b: &Vec<i64>,
-        c: &Vec<i64>,
-    ) -> Result<Vec<MEntry>, LieError> {
-        let key = [a.clone(), b.clone(), c.clone()];
-        self.clock = self.clock.saturating_add(1);
-        if let Some(hit) = self.channels.get_mut(&key) {
-            hit.used = self.clock;
-            return Ok(hit.value.clone());
-        }
-        #[cfg(test)]
-        {
-            self.builds[1] += 1;
-        }
-        let data = self.data.clone();
-        #[cfg(test)]
-        let corrupt = self.corrupt;
-        let (channel, ma, mb, mc) = self.channel(a, b, c)?;
-        #[allow(unused_mut)]
-        let mut entries = channel.rounded_entries(ma, mb, mc)?;
-        #[cfg(test)]
-        if let Some(corrupt) = corrupt {
-            corrupt(&mut entries);
-        }
-        check_rounded(&data, ma, mb, mc, channel.mult, &entries)?;
-        let key_bytes: usize = key.iter().map(|l| labels_bytes(l)).sum();
-        let retained = entries.clone();
-        let bytes = key_bytes
-            + retained.capacity() * std::mem::size_of::<MEntry>()
-            + std::mem::size_of::<MemoEntry<Vec<MEntry>>>();
-        self.bytes = self.bytes.saturating_add(bytes);
-        self.channels.insert(
-            key,
-            MemoEntry {
-                value: retained,
-                bytes,
-                used: self.clock,
-            },
-        );
-        Ok(entries)
-    }
 }
 
 #[cfg(test)]

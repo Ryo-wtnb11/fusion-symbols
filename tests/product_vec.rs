@@ -34,14 +34,6 @@ fn compare<C, T>(
         tuple.has_trivial_associator_gauge()
     );
     assert_eq!(runtime.object_count(), tuple.object_count());
-    // A singleton still has Product fingerprint framing; its coefficient
-    // values and enumeration agree with the bare factor.
-    if runtime.factors().len() != 1 {
-        assert_eq!(
-            runtime.authority_fingerprint(),
-            tuple.authority_fingerprint()
-        );
-    }
     for i in 0..24 {
         match tuple.object_at(i) {
             Ok(a) => {

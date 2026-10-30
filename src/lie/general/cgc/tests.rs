@@ -1,5 +1,5 @@
-//! Independent oracles (`docs/gauge_exceptional.md` §9.3, §9.5–§9.8): the
-//! Brauer–Klimyk counts of §9.3, exact isometry and intertwining checked with
+//! Independent oracles (`docs/gauge_cartan.md` §8, oracles 3, 5, 7–9): the
+//! Brauer–Klimyk counts of oracle 3, exact isometry and intertwining checked with
 //! a separately written coproduct, CGC entries derived by hand, the
 //! pentagon/hexagon/unitarity gates through `frcore`, and `κ_a` against the
 //! sign of `F^{a ā a}_a[𝟙, 𝟙]`.
@@ -10,9 +10,7 @@ use crate::category::{
     FusionCategory, FusionStyle, RBlock, SymbolBlock,
 };
 use crate::frcore::{f_block_raw, r_block_raw};
-use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::rc::Rc;
 use std::time::Instant;
 
 const G7: [i64; 2] = [1, 0];
@@ -71,13 +69,13 @@ fn weight(m: &Ladders, i: usize) -> &[i64] {
     &m.module.weights[m.space[i]].mu
 }
 
-/// §9.5 for one channel: in the rational coordinates,
+/// §8 oracle 5 for one channel: in the rational coordinates,
 /// `⟨Φ'_μ b_m, Φ'_ν b_m′⟩ = δ_μν δ_mm′ N_μ n^c_m` with `Φ' = √N Φ`,
 /// `Δ(x) Φ' = Φ' x` for every `e_j` and `f_j`, and the weight support rule.
-fn check_channel(fam: &mut GeneralFamily, a: &[i64], b: &[i64], c: &[i64], n: usize) {
+fn check_channel(fam: &GeneralFamily, a: &[i64], b: &[i64], c: &[i64], n: usize) {
     let (ch, ma, mb, mc) = fam.channel(a, b, c).unwrap();
-    assert_eq!(ch.mult, n, "§5.2 N gate for {a:?}⊗{b:?}→{c:?}");
-    check_exact(&ch, ma, mb, mc);
+    assert_eq!(ch.mult, n, "§4.2 N gate for {a:?}⊗{b:?}→{c:?}");
+    check_exact(&ch, &ma, &mb, &mc);
 }
 
 /// The exact identities of [`check_channel`] on a built channel, for any
@@ -126,7 +124,7 @@ pub(crate) fn check_exact(ch: &Channel, ma: &Ladders, mb: &Ladders, mc: &Ladders
                 }
             }
         }
-        // Intertwining for every generator, including candidates §4.2 dropped.
+        // Intertwining for every generator, including candidates §3.2.3 dropped.
         for (ops_a, ops_b, ops_c) in [
             (&ma.lower, &mb.lower, &mc.lower),
             (&ma.raise, &mb.raise, &mc.raise),
@@ -148,7 +146,7 @@ pub(crate) fn check_exact(ch: &Channel, ma: &Ladders, mb: &Ladders, mc: &Ladders
 }
 
 fn check_product(root: RootSystem, a: &[i64], b: &[i64]) {
-    let mut fam = GeneralFamily::new(root);
+    let fam = GeneralFamily::new(root);
     let outcomes: Vec<(Vec<i64>, u32)> = fam
         .product(a, b)
         .unwrap()
@@ -156,11 +154,11 @@ fn check_product(root: RootSystem, a: &[i64], b: &[i64]) {
         .map(|(c, n)| (c.dynkin().to_vec(), *n))
         .collect();
     for (c, n) in outcomes {
-        check_channel(&mut fam, a, b, &c, n as usize);
+        check_channel(&fam, a, b, &c, n as usize);
     }
 }
 
-/// §9.3, literal decompositions with dimensions from the spec.
+/// §8 oracle 3, literal decompositions with dimensions from the spec.
 fn decomposition(root: RootSystem, a: &[i64], b: &[i64]) -> Vec<(u64, u32)> {
     let fam = GeneralFamily::new(root);
     let product: Vec<(Vec<i64>, u32)> = fam
@@ -208,7 +206,7 @@ fn brauer_klimyk_counts_match_the_spec() {
     );
 }
 
-/// §9.5 for every channel of G2 7⊗7, 7⊗14 and 14⊗14 (the N gate runs inside
+/// §8 oracle 5 for every channel of G2 7⊗7, 7⊗14 and 14⊗14 (the N gate runs inside
 /// `Channel::new`).
 #[test]
 fn g2_small_products_are_exact_isometric_intertwiners() {
@@ -217,20 +215,20 @@ fn g2_small_products_are_exact_isometric_intertwiners() {
     check_product(RootSystem::G2, &G14, &G14);
 }
 
-/// §9.5 for the multiplicity-2 channels G2 27⊗27 → 27, 64.
+/// §8 oracle 5 for the multiplicity-2 channels G2 27⊗27 → 27, 64.
 #[test]
 fn g2_27x27_multiplicity_two_is_exact() {
-    let mut fam = GeneralFamily::new(RootSystem::G2);
+    let fam = GeneralFamily::new(RootSystem::G2);
     for c in [G27, G64] {
-        check_channel(&mut fam, &G27, &G27, &c, 2);
+        check_channel(&fam, &G27, &G27, &c, 2);
     }
 }
 
-/// §5.3 example: in G2 27⊗27 → 27 the pivots are `[0, 1]`, `Ψ_μ[p_{μ+1}] > 0`,
+/// §4.3 example: in G2 27⊗27 → 27 the pivots are `[0, 1]`, `Ψ_μ[p_{μ+1}] > 0`,
 /// `Ψ_0[p_2] = 0` and `Ψ_1[p_1] ≠ 0`.
 #[test]
 fn g2_27x27_to_27_pivot_rule() {
-    let mut fam = GeneralFamily::new(RootSystem::G2);
+    let fam = GeneralFamily::new(RootSystem::G2);
     let (ch, ..) = fam.channel(&G27, &G27, &G27).unwrap();
     assert_eq!(ch.pivots, [0, 1]);
     let psi = &ch.phi[0];
@@ -239,7 +237,7 @@ fn g2_27x27_to_27_pivot_rule() {
     assert!(psi[1][0].numerator_ref() != &0);
 }
 
-/// §9.5 on every channel of E6 `27 ⊗ 27̄ = 1 + 78 + 650`.
+/// §8 oracle 5 on every channel of E6 `27 ⊗ 27̄ = 1 + 78 + 650`.
 #[test]
 fn e6_27x27bar_is_exact() {
     let (a, b) = (unit(6, 0), unit(6, 5));
@@ -250,7 +248,7 @@ fn e6_27x27bar_is_exact() {
     check_product(RootSystem::E6, &a, &b);
 }
 
-/// §9.5 on every channel of E6 `27 ⊗ 27 = 27̄ + 351 + 351′`.
+/// §8 oracle 5 on every channel of E6 `27 ⊗ 27 = 27̄ + 351 + 351′`.
 #[test]
 fn e6_27x27_is_exact() {
     let v = unit(6, 0);
@@ -261,21 +259,21 @@ fn e6_27x27_is_exact() {
     check_product(RootSystem::E6, &v, &v);
 }
 
-/// §9.5 on E6 `27 ⊗ 78 → 27`.
+/// §8 oracle 5 on E6 `27 ⊗ 78 → 27`.
 #[test]
 fn e6_27x78_to_27_is_exact() {
-    let mut fam = GeneralFamily::new(RootSystem::E6);
-    check_channel(&mut fam, &unit(6, 0), &unit(6, 1), &unit(6, 0), 1);
+    let fam = GeneralFamily::new(RootSystem::E6);
+    check_channel(&fam, &unit(6, 0), &unit(6, 1), &unit(6, 0), 1);
 }
 
-/// §9.5 on the non-square F4 channel `26 ⊗ 52 → 26`.
+/// §8 oracle 5 on the non-square F4 channel `26 ⊗ 52 → 26`.
 #[test]
 fn f4_26x52_to_26_is_exact() {
-    let mut fam = GeneralFamily::new(RootSystem::F4);
-    check_channel(&mut fam, &unit(4, 3), &unit(4, 0), &unit(4, 3), 1);
+    let fam = GeneralFamily::new(RootSystem::F4);
+    check_channel(&fam, &unit(4, 3), &unit(4, 0), &unit(4, 3), 1);
 }
 
-/// §9.5 on every channel of F4 `26 ⊗ 26 = 1 + 26 + 52 + 273 + 324`.
+/// §8 oracle 5 on every channel of F4 `26 ⊗ 26 = 1 + 26 + 52 + 273 + 324`.
 #[test]
 fn f4_26x26_is_exact() {
     let v = unit(4, 3);
@@ -286,7 +284,7 @@ fn f4_26x26_is_exact() {
     check_product(RootSystem::F4, &v, &v);
 }
 
-/// §9.5 on every channel of E7 `56 ⊗ 56 = 1 + 133 + 1463 + 1539`.
+/// §8 oracle 5 on every channel of E7 `56 ⊗ 56 = 1 + 133 + 1463 + 1539`.
 #[test]
 fn e7_56x56_is_exact() {
     let v = unit(7, 6);
@@ -297,22 +295,22 @@ fn e7_56x56_is_exact() {
     check_product(RootSystem::E7, &v, &v);
 }
 
-/// §9.5 on the cheap channels of E8 `248 ⊗ 248`: `→ 1` and `→ 248`.
+/// §8 oracle 5 on the cheap channels of E8 `248 ⊗ 248`: `→ 1` and `→ 248`.
 #[test]
 fn e8_248x248_to_1_and_248_is_exact() {
     let v = unit(8, 7);
-    let mut fam = GeneralFamily::new(RootSystem::E8);
-    check_channel(&mut fam, &v, &v, &[0; 8], 1);
-    check_channel(&mut fam, &v, &v, &v, 1);
+    let fam = GeneralFamily::new(RootSystem::E8);
+    check_channel(&fam, &v, &v, &[0; 8], 1);
+    check_channel(&fam, &v, &v, &v, 1);
 }
 
-/// §9.5 on E8 `248 ⊗ 248 → 3875`.
+/// §8 oracle 5 on E8 `248 ⊗ 248 → 3875`.
 #[test]
 #[ignore = "release 1.2 s, debug 9.2 s"]
 fn e8_248x248_to_3875_is_exact() {
     let v = unit(8, 7);
-    let mut fam = GeneralFamily::new(RootSystem::E8);
-    check_channel(&mut fam, &v, &v, &unit(8, 0), 1);
+    let fam = GeneralFamily::new(RootSystem::E8);
+    check_channel(&fam, &v, &v, &unit(8, 0), 1);
 }
 
 /// Gate 2 in both directions: a declared multiplicity above or below the
@@ -363,7 +361,7 @@ fn principal_ladder_gate_rejects_a_zero_ladder() {
 /// The product states of a weight are exactly the pairs of that weight sum,
 /// in ascending composite order `m_a + d_a·m_b`, whichever factor is scanned.
 #[test]
-fn product_space_is_the_weight_fibre_in_composite_order() {
+fn product_space_is_the_weight_fibre_in_a_slow_order() {
     let data = CartanData::new(RootSystem::G2);
     let m7 = Ladders::new(&data, &G7).unwrap();
     let m27 = Ladders::new(&data, &G27).unwrap();
@@ -375,8 +373,8 @@ fn product_space_is_the_weight_fibre_in_composite_order() {
                     .map(|(x, y)| x + y)
                     .collect();
             let mut want = Vec::new();
-            for q in 0..b.dim() {
-                for p in 0..a.dim() {
+            for p in 0..a.dim() {
+                for q in 0..b.dim() {
                     let sum: Vec<i64> = weight(a, p)
                         .iter()
                         .zip(weight(b, q))
@@ -396,62 +394,59 @@ fn product_space_is_the_weight_fibre_in_composite_order() {
     }
 }
 
-/// G2 7 (§3–§4 by hand, Cartan rows α₀ = (2,−1), α₁ = (−3,2)): weights
+/// G2 7 (§3.2 by hand, Cartan rows α₀ = (2,−1), α₁ = (−3,2)): weights
 /// m0 (1,0), m1 (−1,1), m2 (2,−1), m3 (0,0), m4 (−2,1), m5 (1,−1), m6 (−1,0),
 /// one each, with norms 1, 1, 1, 2, 4, 4, 4. In the orthonormal basis
 /// `f₀: u0→u1 (1), u2→u3 (√2), u3→u4 (√2), u5→u6 (1)` and
 /// `f₁: u1→u2 (1), u4→u5 (1)`.
 ///
-/// 7⊗7 → 7: P = [(3,0), (2,1), (1,2), (0,3)] (composites 3, 9, 15, 21).
-/// `Δ(e₀) x = 0` gives `√2 x₁ + x₂ = 0`, `x₃ + √2 x₄ = 0`; `Δ(e₁) x = 0`
+/// 7⊗7 → 7: P = [(0,3), (1,2), (2,1), (3,0)] (a-slow, §4.1).
+/// `Δ(e₀) x = 0` gives `x₁ + √2 x₂ = 0`, `√2 x₃ + x₄ = 0`; `Δ(e₁) x = 0`
 /// gives `x₂ + x₃ = 0`. So `Ψ = (1, −√2, √2, −1)/√6`, pivot row 0.
 /// Lowering by `Δ(f₀)` (m_c = 1 is `f₀ u0` with entry 1):
-/// `(√2 u4⊗u0 − u3⊗u1 + u1⊗u3 − √2 u0⊗u4)/√6`.
+/// `(√2 u0⊗u4 − u1⊗u3 + u3⊗u1 − √2 u4⊗u0)/√6`.
 #[test]
 fn g2_7x7_to_7_hand_entries_and_order() {
-    let mut fam = GeneralFamily::new(RootSystem::G2);
+    let fam = GeneralFamily::new(RootSystem::G2);
     let (ch, ma, mb, mc) = fam.channel(&G7, &G7, &G7).unwrap();
     let got: Vec<_> = ch
-        .exact_entries(ma, mb, mc)
+        .exact_entries(&ma, &mb, &mc)
         .into_iter()
         .filter(|e| e.2 <= 1)
         .map(|(p, r, m, mu, x)| (p, r, m, mu, x.signed_square()))
         .collect();
     let want = vec![
-        (3, 0, 0, 0, q(1, 6)),
-        (2, 1, 0, 0, q(-1, 3)),
-        (1, 2, 0, 0, q(1, 3)),
-        (0, 3, 0, 0, q(-1, 6)),
-        (4, 0, 1, 0, q(1, 3)),
-        (3, 1, 1, 0, q(-1, 6)),
-        (1, 3, 1, 0, q(1, 6)),
-        (0, 4, 1, 0, q(-1, 3)),
+        (0, 3, 0, 0, q(1, 6)),
+        (1, 2, 0, 0, q(-1, 3)),
+        (2, 1, 0, 0, q(1, 3)),
+        (3, 0, 0, 0, q(-1, 6)),
+        (0, 4, 1, 0, q(1, 3)),
+        (1, 3, 1, 0, q(-1, 6)),
+        (3, 1, 1, 0, q(1, 6)),
+        (4, 0, 1, 0, q(-1, 3)),
     ];
     assert_eq!(got, want);
 }
 
-/// §5.6 order on a multiplicity-2 channel: `μ`, then `m_c`, then composite.
+/// §4.7 order on a multiplicity-2 channel: `μ`, then `m_c`, then `(m_a, m_b)`.
 #[test]
-fn entry_order_is_mu_then_mc_then_composite() {
-    let mut fam = GeneralFamily::new(RootSystem::G2);
-    let e = fam
-        .cgc_entries(&G14.to_vec(), &G14.to_vec(), &G27.to_vec())
-        .unwrap();
-    let d = 14u32;
-    let keys: Vec<_> = e.iter().map(|x| (x.mu, x.m3, x.m1 + d * x.m2)).collect();
+fn entry_order_is_mu_then_mc_then_a_slow() {
+    let fam = GeneralFamily::new(RootSystem::G2);
+    let e = fam.cgc_entries(&G14, &G14, &G27).unwrap();
+    let keys: Vec<_> = e.iter().map(|x| (x.mu, x.m3, x.m1, x.m2)).collect();
     assert!(keys.windows(2).all(|w| w[0] < w[1]));
     assert!(e.iter().all(|x| x.value != 0.0));
 }
 
-/// §5.5: `1 ⊗ s → s` and `s ⊗ 1 → s` are exactly the identity.
+/// §4.5: `1 ⊗ s → s` and `s ⊗ 1 → s` are exactly the identity.
 #[test]
 fn trivial_couplings_are_the_identity() {
-    let mut fam = GeneralFamily::new(RootSystem::G2);
+    let fam = GeneralFamily::new(RootSystem::G2);
     let one = [0, 0];
     for s in [G7, G14, G27] {
         for (a, b) in [(&one[..], &s[..]), (&s[..], &one[..])] {
             let (ch, ma, mb, mc) = fam.channel(a, b, &s).unwrap();
-            let got: Vec<_> = ch.exact_entries(ma, mb, mc);
+            let got: Vec<_> = ch.exact_entries(&ma, &mb, &mc);
             assert_eq!(got.len(), mc.dim());
             for (m, (p, r, mcx, mu, x)) in got.into_iter().enumerate() {
                 assert_eq!((p + r, mcx, mu), (m, m, 0));
@@ -461,17 +456,14 @@ fn trivial_couplings_are_the_identity() {
     }
 }
 
-/// §9.8 within one process: two independent families give the same bits.
+/// §8 oracle 9 within one process: two independent families give the same bits.
 #[test]
 fn regeneration_is_byte_identical() {
     let bits = || {
-        let mut fam = GeneralFamily::new(RootSystem::G2);
+        let fam = GeneralFamily::new(RootSystem::G2);
         let mut out = Vec::new();
         for c in [G7, G14, G27, [0, 0]] {
-            for e in fam
-                .cgc_entries(&G7.to_vec(), &G7.to_vec(), &c.to_vec())
-                .unwrap()
-            {
+            for e in fam.cgc_entries(&G7, &G7, &c).unwrap().iter() {
                 out.push((e.m1, e.m2, e.m3, e.mu, e.value.to_bits()));
             }
         }
@@ -480,11 +472,11 @@ fn regeneration_is_byte_identical() {
     assert_eq!(bits(), bits());
 }
 
-/// Entry-level drift check against the pre-optimization exact formula (§5.4).
+/// Entry-level drift check against the pre-optimization exact formula (§4.4).
 fn check_radical_formation(root: RootSystem, a: &[i64], b: &[i64], c: &[i64]) {
-    let mut fam = GeneralFamily::new(root);
+    let fam = GeneralFamily::new(root);
     let (ch, ma, mb, mc) = fam.channel(a, b, c).unwrap();
-    let got = ch.exact_entries(ma, mb, mc);
+    let got = ch.exact_entries(&ma, &mb, &mc);
     let mut entries = got.iter();
     for mu in 0..ch.mult {
         for (m, per_mu) in ch.phi.iter().enumerate() {
@@ -535,19 +527,19 @@ fn radical_formation_preserves_large_e8_entries() {
     }
 }
 
-/// §10 nonzero counts for the multiplicity-2 channels, from the exact Python
-/// prototype. §10 also bounds the radicands by 5-digit numerators and 7-digit
+/// §9 nonzero counts for the multiplicity-2 channels, from the exact Python
+/// prototype. §9 also bounds the radicands by 5-digit numerators and 7-digit
 /// denominators; the extremes over both channels are pinned: numerator 33856
 /// (`33856/268191`, in → 64) and denominator 7051968 (`18769/7051968`, in → 27).
 /// The numerator 33856 is a tie (`33856/268191` and `33856/446985`);
 /// `max_by_key` keeps the last maximum in entry order, which is the one pinned.
 #[test]
 fn g2_27x27_golden_counts() {
-    let mut fam = GeneralFamily::new(RootSystem::G2);
+    let fam = GeneralFamily::new(RootSystem::G2);
     let mut radicands = Vec::new();
     for (c, count) in [(G27, 1354), (G64, 2904)] {
         let (ch, ma, mb, mc) = fam.channel(&G27, &G27, &c).unwrap();
-        let e = ch.exact_entries(ma, mb, mc);
+        let e = ch.exact_entries(&ma, &mb, &mc);
         assert_eq!(e.len(), count);
         radicands.extend(e.into_iter().map(|x| x.4.radicand().clone()));
     }
@@ -573,13 +565,13 @@ fn g2_27x27_golden_counts() {
 #[derive(Clone)]
 struct Cat {
     root: RootSystem,
-    fam: Rc<RefCell<GeneralFamily>>,
+    fam: GeneralFamily,
 }
 impl Cat {
     fn new(root: RootSystem) -> Self {
         Self {
             root,
-            fam: Rc::new(RefCell::new(GeneralFamily::new(root))),
+            fam: GeneralFamily::new(root),
         }
     }
 }
@@ -616,13 +608,13 @@ impl FusionCategory for Cat {
         vec![0; self.root.rank()]
     }
     fn dual(&self, a: &Vec<i64>) -> Vec<i64> {
-        self.fam.borrow().data().dual(a).unwrap()
+        self.fam.data().dual(a).unwrap()
     }
     fn dim(&self, a: &Vec<i64>) -> f64 {
-        u64::try_from(&self.fam.borrow().data().weyl_dimension(a).unwrap()).unwrap() as f64
+        u64::try_from(&self.fam.data().weyl_dimension(a).unwrap()).unwrap() as f64
     }
     fn frobenius_schur_phase(&self, a: &Vec<i64>) -> f64 {
-        f64::from(self.fam.borrow_mut().frobenius_schur_phase(a).unwrap())
+        f64::from(self.fam.frobenius_schur_phase(a, &self.dual(a)).unwrap())
     }
     fn frobenius_schur_indicator(&self, a: &Vec<i64>) -> f64 {
         if &self.dual(a) == a {
@@ -635,8 +627,8 @@ impl FusionCategory for Cat {
         1.0
     }
     fn fusion<'a>(&'a self, a: &Vec<i64>, b: &Vec<i64>) -> Result<Self::Fusion<'a>, LieError> {
-        let fam = self.fam.borrow_mut();
-        Ok(fam
+        Ok(self
+            .fam
             .product(a, b)?
             .iter()
             .map(|(c, _)| c.dynkin().to_vec())
@@ -644,7 +636,7 @@ impl FusionCategory for Cat {
             .into_iter())
     }
     fn nsymbol(&self, a: &Vec<i64>, b: &Vec<i64>, c: &Vec<i64>) -> u32 {
-        self.fam.borrow_mut().mult(a, b, c).unwrap() as u32
+        self.fam.mult(a, b, c).unwrap() as u32
     }
     fn f_symbol(
         &self,
@@ -655,13 +647,10 @@ impl FusionCategory for Cat {
         e: &Vec<i64>,
         f: &Vec<i64>,
     ) -> Result<FBlock<f64>, LieError> {
-        f_block_raw(&mut *self.fam.borrow_mut(), a, b, c, d, e, f)
+        f_block_raw(&self.fam, [a, b, c, d, e, f].map(|x| x.as_slice()))
     }
     fn r_symbol(&self, a: &Vec<i64>, b: &Vec<i64>, c: &Vec<i64>) -> Result<RBlock<f64>, LieError> {
-        r_block_raw(&mut *self.fam.borrow_mut(), a, b, c)
-    }
-    fn authority_fingerprint(&self) -> &[u8] {
-        b"exceptional-cgc-test"
+        r_block_raw(&self.fam, [a.as_slice(), b, c])
     }
 }
 
@@ -715,7 +704,7 @@ fn e6_27_unitarity_and_hexagon_through_frcore() {
     assert!(timed("H", || hexagon_residual(&e6, &v, &v, &w)) <= TOL);
 }
 
-/// `sign(d_a F^{a ā a}_a[𝟙, 𝟙])` through `frcore`, the §9.7 oracle for `κ_a`.
+/// `sign(d_a F^{a ā a}_a[𝟙, 𝟙])` through `frcore`, the §8 oracle 8 oracle for `κ_a`.
 fn kappa_from_f(cat: &Cat, a: &[i64]) -> f64 {
     let a = a.to_vec();
     let dual = cat.dual(&a);
@@ -726,17 +715,22 @@ fn kappa_from_f(cat: &Cat, a: &[i64]) -> f64 {
     x.signum()
 }
 
-/// §9.7 literals: G2 irreps real (+1); E7 56 pseudo-real (−1); E6 27, 78 and
+/// §8 oracle 8 literals: G2 irreps real (+1); E7 56 pseudo-real (−1); E6 27, 78 and
 /// both 351 pairs +1 with their duals.
+fn kappa(fam: &GeneralFamily, l: &[i64]) -> i8 {
+    fam.frobenius_schur_phase(l, &fam.data().dual(l).unwrap())
+        .unwrap()
+}
+
 #[test]
 fn frobenius_schur_phase_literals() {
-    let mut g2 = GeneralFamily::new(RootSystem::G2);
+    let g2 = GeneralFamily::new(RootSystem::G2);
     for l in [G7, G14, G27, G64, G77, G77P] {
-        assert_eq!(g2.frobenius_schur_phase(&l).unwrap(), 1, "{l:?}");
+        assert_eq!(kappa(&g2, &l), 1, "{l:?}");
     }
-    let mut e7 = GeneralFamily::new(RootSystem::E7);
-    assert_eq!(e7.frobenius_schur_phase(&unit(7, 6)).unwrap(), -1);
-    let mut e6 = GeneralFamily::new(RootSystem::E6);
+    let e7 = GeneralFamily::new(RootSystem::E7);
+    assert_eq!(kappa(&e7, &unit(7, 6)), -1);
+    let e6 = GeneralFamily::new(RootSystem::E6);
     for l in [
         unit(6, 0),
         unit(6, 5),
@@ -746,7 +740,7 @@ fn frobenius_schur_phase_literals() {
         vec![2, 0, 0, 0, 0, 0],
         vec![0, 0, 0, 0, 0, 2],
     ] {
-        assert_eq!(e6.frobenius_schur_phase(&l).unwrap(), 1, "{l:?}");
+        assert_eq!(kappa(&e6, &l), 1, "{l:?}");
     }
 }
 
@@ -778,7 +772,7 @@ fn frobenius_schur_phase_matches_f_sign_e6_351_and_e7_56() {
     assert_eq!(kappa_from_f(&e7, &unit(7, 6)), -1.0);
 }
 
-/// §10 resource report: build time and nonzero count per channel.
+/// §9 resource report: build time and nonzero count per channel.
 #[test]
 #[ignore = "timing report; run in release with --nocapture"]
 fn resource_report() {
@@ -794,7 +788,7 @@ fn resource_report() {
         ),
     ];
     for (root, a, b, only) in cases {
-        let mut fam = GeneralFamily::new(root);
+        let fam = GeneralFamily::new(root);
         let t = Instant::now();
         for l in [&a, &b] {
             fam.module(l).unwrap();
@@ -816,7 +810,7 @@ fn resource_report() {
             let t = Instant::now();
             let (ch, ma, mb, mc) = fam.channel(&a, &b, &c).unwrap();
             let tc = t.elapsed();
-            let entries = ch.exact_entries(ma, mb, mc);
+            let entries = ch.exact_entries(&ma, &mb, &mc);
             let max_den = entries
                 .iter()
                 .map(|e| e.4.radicand().clone())
@@ -830,68 +824,6 @@ fn resource_report() {
             );
         }
     }
-}
-
-/// Charges follow retained entries (including policy metadata), and both
-/// limits hold even when a single entry or dual pair cannot fit.
-#[test]
-fn memo_eviction_bounds_and_phase_pairs() {
-    let mut fam = GeneralFamily::new(RootSystem::E6);
-    let a = unit(6, 0);
-    let dual = fam.data.dual(&a).unwrap();
-    assert_eq!(fam.frobenius_schur_phase(&a).unwrap(), 1);
-    let builds = fam.builds;
-    // Drop modules, preserving the two completed signs.
-    fam.trim(2, usize::MAX);
-    assert!(fam.modules.is_empty());
-    assert_eq!(fam.phases.len(), 1);
-    let bytes = fam.memo_bytes();
-    assert_eq!(bytes, fam.phases.values().map(|e| e.bytes).sum::<usize>());
-    fam.trim(2, bytes);
-    for l in [&a, &dual] {
-        assert_eq!(fam.frobenius_schur_phase(l).unwrap(), 1);
-    }
-    assert_eq!(fam.builds, builds);
-    // A byte short cannot retain just half of a pair.
-    fam.trim(2, bytes - 1);
-    assert_eq!((fam.memo_len(), fam.memo_bytes()), (0, 0));
-    assert_eq!(fam.frobenius_schur_phase(&dual).unwrap(), 1);
-    assert_eq!(fam.frobenius_schur_phase(&a).unwrap(), 1);
-    assert_eq!(fam.builds, [2 * builds[0], 0]);
-    fam.trim(1, usize::MAX);
-    assert_eq!((fam.memo_len(), fam.memo_bytes()), (0, 0));
-
-    let mut fam = GeneralFamily::new(RootSystem::G2);
-    let (a, b) = (G7.to_vec(), G14.to_vec());
-    let bits = |entries: Vec<MEntry>| {
-        entries
-            .into_iter()
-            .map(|e| (e.m1, e.m2, e.m3, e.mu, e.value.to_bits()))
-            .collect::<Vec<_>>()
-    };
-    let expected = bits(fam.cgc_entries(&a, &a, &b).unwrap());
-    // A completed channel owns its data after all modules/products are gone.
-    fam.trim(1, usize::MAX);
-    assert_eq!(fam.channels.len(), 1);
-    assert!(fam.modules.is_empty());
-    let entry = fam.channels.values().next().unwrap();
-    assert_eq!(
-        entry.bytes,
-        3 * labels_bytes(&a)
-            + entry.value.capacity() * std::mem::size_of::<MEntry>()
-            + std::mem::size_of::<MemoEntry<Vec<MEntry>>>()
-    );
-    let bytes = fam.memo_bytes();
-    assert_eq!(bytes, entry.bytes);
-    fam.trim(1, bytes);
-    let builds = fam.builds;
-    assert_eq!(bits(fam.cgc_entries(&a, &a, &b).unwrap()), expected);
-    assert_eq!(fam.builds, builds, "warm channel must not regenerate");
-    fam.trim(1, bytes - 1);
-    assert_eq!((fam.memo_len(), fam.memo_bytes()), (0, 0));
-    assert_eq!(bits(fam.cgc_entries(&a, &a, &b).unwrap()), expected);
-    fam.trim(0, 0);
-    assert_eq!((fam.memo_len(), fam.memo_bytes()), (0, 0));
 }
 
 // Frozen pre-sparse algorithm: drift reference, not a mathematical oracle.
@@ -997,18 +929,11 @@ fn sparse_nullspace_matches_dense_channels() {
         (RootSystem::E7, unit(7, 6), unit(7, 6)),
         (RootSystem::E7, unit(7, 6), unit(7, 0)),
     ] {
-        let mut fam = GeneralFamily::new(root);
+        let fam = GeneralFamily::new(root);
         let outcomes = fam.product(&a, &b).unwrap().clone();
-        fam.module(&a).unwrap();
-        fam.module(&b).unwrap();
+        let (ma, mb) = (fam.module(&a).unwrap(), fam.module(&b).unwrap());
         for (c, n) in outcomes.iter() {
-            compare_nullspace(
-                &fam.data,
-                &fam.modules[&a].value,
-                &fam.modules[&b].value,
-                c.dynkin(),
-                *n as usize,
-            );
+            compare_nullspace(&fam.data, &ma, &mb, c.dynkin(), *n as usize);
             count += 1;
         }
     }
@@ -1068,7 +993,7 @@ fn performance_large_e8_channels() {
         .unwrap();
     for b in [vec![0, 0, 0, 0, 0, 0, 0, 2], unit(8, 6)] {
         for _ in 0..samples {
-            let mut fam = GeneralFamily::new(RootSystem::E8);
+            let fam = GeneralFamily::new(RootSystem::E8);
             let t = Instant::now();
             let entries = fam.cgc_entries(&a, &b, &a).unwrap();
             eprintln!(
@@ -1080,7 +1005,7 @@ fn performance_large_e8_channels() {
     }
 }
 
-/// §9.5 on large E8 channels `248 ⊗ λ → 248` and `λ ⊗ 248 → 248` (release).
+/// §8 oracle 5 on large E8 channels `248 ⊗ λ → 248` and `λ ⊗ 248 → 248` (release).
 #[test]
 #[ignore = "large E8 exact channels; run in release"]
 fn large_e8_channels_are_exact() {
@@ -1234,25 +1159,95 @@ fn ladder_gate_rejects_a_broken_first_descent() {
 }
 
 /// A channel failing a gate is never retained, its error is a typed
-/// generation failure, and a valid retry builds and retains it once.
+/// generation failure, and a valid retry builds and retains it once. The
+/// channel is used by no other test, so no concurrent test publishes it.
 #[test]
 fn failed_gate_is_not_retained_and_retry_succeeds() {
-    let mut fam = GeneralFamily::new(RootSystem::G2);
-    let (a, c) = (G7.to_vec(), G14.to_vec());
-    fam.corrupt = Some(|e| e[0].value = f64::NAN);
-    let err = fam.cgc_entries(&a, &a, &c).err().unwrap();
+    // Resetting tests hold this lock; warm-build checks must not overlap them.
+    let _guard = crate::cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let fam = GeneralFamily::new(RootSystem::G2);
+    let (a, b, c) = (G7.to_vec(), G77P.to_vec(), vec![2, 1]);
+    assert_eq!(fam.mult(&a, &b, &c).unwrap(), 1);
+    let resident = || crate::cache::cgc_channel_is_resident(RootSystem::G2, [&a, &b, &c]);
+    CORRUPT.with(|x| x.set(Some(|e| e[0].value = f64::NAN)));
+    let err = fam.cgc_entries(&a, &b, &c).err();
+    CORRUPT.with(|x| x.set(None));
+    let err = err.unwrap();
     assert_eq!(
         err,
         LieError::from(GateError::NonFinite { gate: "isometry" })
     );
     assert!(matches!(err, LieError::Generation(_)));
-    assert!(fam.channels.is_empty());
-    fam.corrupt = None;
-    let good = fam.cgc_entries(&a, &a, &c).unwrap();
-    assert_eq!(fam.channels.len(), 1);
-    let builds = fam.builds;
-    let again = fam.cgc_entries(&a, &a, &c).unwrap();
-    assert_eq!(fam.builds, builds, "warm channel must not regenerate");
-    let bits = |e: &[MEntry]| e.iter().map(|x| x.value.to_bits()).collect::<Vec<_>>();
-    assert_eq!(bits(&again), bits(&good));
+    assert!(!resident());
+    let good = fam.cgc_entries(&a, &b, &c).unwrap();
+    assert!(resident());
+    let builds = BUILDS.with(std::cell::Cell::get);
+    let again = fam.cgc_entries(&a, &b, &c).unwrap();
+    assert_eq!(
+        BUILDS.with(std::cell::Cell::get),
+        builds,
+        "warm channel must not regenerate"
+    );
+    assert!(Arc::ptr_eq(&again, &good));
+}
+
+/// Gates 6 and 7 run on every completed F and R block before it is retained.
+/// The labels are used by no other test.
+#[test]
+fn failed_block_gates_are_not_retained() {
+    let fam = GeneralFamily::new(RootSystem::C(3));
+    let v: &[i64] = &[1, 0, 0];
+    let sym: &[i64] = &[2, 0, 0];
+    let f = [v, v, v, v, sym, sym];
+    let r = [v, v, sym];
+    CORRUPT_BLOCK.with(|x| x.set(Some(|x| x * 2.0)));
+    let bad_r = fam.r_symbol(r);
+    CORRUPT_BLOCK.with(|x| x.set(Some(|_| f64::INFINITY)));
+    let bad_f_inf = fam.f_symbol(f);
+    CORRUPT_BLOCK.with(|x| x.set(None));
+    assert!(matches!(
+        bad_r,
+        Err(LieError::Generation(ref e)) if e.to_string().contains("R gate: residual")
+    ));
+    assert_eq!(
+        bad_f_inf,
+        Err(LieError::from(GateError::NonFinite { gate: "F" }))
+    );
+    let good_r = fam.r_symbol(r).unwrap();
+    assert_eq!(good_r.data(), [1.0]);
+    let good_f = fam.f_symbol(f).unwrap();
+    assert!(good_f
+        .data()
+        .iter()
+        .all(|x| x.is_finite() && x.abs() <= 1.0));
+}
+
+/// §8 oracle 5 for the Gelfand–Tsetlin basis and the classical
+/// Gram–Schmidt bases: every channel is an exact isometric intertwiner with
+/// weight support, including A(1), the B spinor and vector, the D3 adjoint
+/// (`N = 2`) and the D4 half-spinor.
+#[test]
+fn gt_and_classical_products_are_exact_isometric_intertwiners() {
+    use RootSystem::{A, B, C, D};
+    for (root, a, b) in [
+        (A(1), &[2][..], &[3][..]),
+        (A(2), &[1, 1], &[1, 1]),
+        (A(3), &[1, 0, 1], &[0, 1, 0]),
+        (B(2), &[0, 1], &[0, 1]),
+        (B(2), &[1, 0], &[1, 0]),
+        (C(2), &[1, 1], &[1, 1]),
+        (D(3), &[0, 1, 1], &[0, 1, 1]),
+        (D(4), &[0, 0, 0, 1], &[0, 0, 0, 1]),
+    ] {
+        check_product(root, a, b);
+    }
+}
+
+/// §8 oracle 5 on the `N = 3` channel Sp(4) `35 ⊗ 35 → 35`.
+#[test]
+fn c2_35x35_multiplicity_three_is_exact() {
+    let fam = GeneralFamily::new(RootSystem::C(2));
+    check_channel(&fam, &[2, 1], &[2, 1], &[2, 1], 3);
 }

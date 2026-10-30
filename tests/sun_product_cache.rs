@@ -127,7 +127,7 @@ fn product_cache_contract() {
     let stats = cache::tier_stats(cache::CoefficientCacheTier::Product);
     assert_eq!((stats.entries, stats.misses, stats.hits), (4, 4, 1));
     assert_eq!(
-        cache::tier_stats(cache::CoefficientCacheTier::BcdCgc).entries,
+        cache::tier_stats(cache::CoefficientCacheTier::Cgc).entries,
         0
     );
     for (id, label) in [
@@ -145,11 +145,6 @@ fn product_cache_contract() {
         assert_eq!(g.try_nsymbol(&a, &b, &one).unwrap(), 1);
         let cold = cache::tier_stats(cache::CoefficientCacheTier::Product);
         assert_eq!((cold.entries, cold.misses), (1, 1));
-        g.reset_catalog().unwrap();
-        assert_eq!(
-            cache::tier_stats(cache::CoefficientCacheTier::Product).entries,
-            1
-        );
         assert!(g.fusion(&b, &a).unwrap().any(|c| c == one));
         assert_eq!(g.try_nsymbol(&a, &b, &one).unwrap(), 1);
         let warm = cache::tier_stats(cache::CoefficientCacheTier::Product);

@@ -2,12 +2,27 @@
 
 - [AGENTS.md](../../AGENTS.md): scope and acceptance gates.
 - [Port guard inventories](#port-guard-inventories), below.
-- [Gauge specifications](../gauge.md), [B/C/D conventions](../gauge_soN.md) and
-  [exceptional conventions](../gauge_exceptional.md):
-  normative coefficient rules; prose cleanup does not change gauge epochs.
+- [Gauge specifications](../gauge.md) and
+  [simple Lie factor conventions](../gauge_cartan.md):
+  normative coefficient rules; prose cleanup is not a value change.
 - [Reference map](../references.md) and [table provenance](../references_categories.md).
 - [Tools](../../tools/README.md): independent test oracles and table generation.
-- [Cache ownership](../user-guide/resources.md): application policy and catalog budgets.
+- [Cache ownership](../user-guide/resources.md): application policy and tier budgets.
+
+## Pending public API cleanup
+
+Every simple Lie factor now uses the Cartan engine of
+[`gauge_cartan.md`](../gauge_cartan.md); authority fingerprints, the B/C/D
+generator catalogs, the numerical SU(N) pipeline and the dense backend are
+gone. The same breaking release still owes these public API changes:
+
+- `FusionCategory::nsymbol` returns `Result`; `try_nsymbol` is removed.
+- Remove `su2::*_checked`, `Su2Error` and `AdmissibilityViolation`.
+- F, R, A and B blocks are read only through the `SymbolBlock` trait
+  (`dims`, `as_slice`, `get`); CGC through `CgcBlock::{dims, get}`.
+- `LieIrrep::dynkin()` returns an iterator; `dynkin_labels()` is removed.
+- Remove `TableCategory::objects()` and `ZNIrrep::from_canonical`.
+- Keep `U1`, and point to it from the `LieGroup` rustdoc.
 
 ## Checks
 
@@ -29,7 +44,7 @@ RUSTDOCFLAGS="-D warnings --html-in-header doc/katex-header.html" \
 The KaTeX header matches `Cargo.toml::package.metadata.docs.rs`.
 Criterion harnesses in `benches/` are measurements, not CI gates:
 `torus`, `cache_concurrency`, `wigner`, `sun_cgc`, `sun_fr`, `sun_product`,
-`bcd_fr`. The `sun_*` and `bcd_fr` harnesses require `lie-generated`. Test-only cache measurement
+`bcd_fr`, `exceptional`. All but the first three require `lie-generated`. Test-only cache measurement
 harnesses remain in `src/cache_audit.rs`, `src/cache_budget_pressure.rs`, and
 `src/cache_trim_pressure.rs`; their ignored entry points describe how to run them.
 
@@ -47,8 +62,28 @@ cargo test --test allocations lie_a1_alloc::
 Allocation tests take `tests/common/counting_alloc.rs::serial` before any work;
 the single allocator counts calls, bytes and largest allocation per thread.
 Only integration tests that measure or reset global caches take
-`tests/common/mod.rs::serial`; pure value tests stay parallel. The backend
-identity test takes that guard to reset between independent generation runs.
+`tests/common/mod.rs::serial`; pure value tests stay parallel. The
+cross-process byte test `tests/bit_identity.rs` resets caches only inside its
+child processes. CI selects the release-only checks by exact name: the `release_checks` job
+runs the category identities through `N ≥ 2` vertices and the Sp(4)
+`81 ⊗ 81` regression, and the `bit_identity` job runs the bitwise goldens
+(including the release-only ones) and the cross-process byte test on x86_64
+Linux and arm64 macOS:
+
+```sh
+cargo test --release --all-features --test integration -- --include-ignored --skip print_golden --skip e8_n2_golden bit_identity:: gauge_golden::
+```
+
+### Pre-release checklist
+
+Before every release, on a machine with at least 48 GB of memory and nothing
+else memory-heavy running, run the E8 `N ≥ 2` golden (`3875 ⊗ 30380 → 30380`,
+CGC and R; about 19 minutes and 31 GB peak RSS on Apple M-series), which CI
+does not run:
+
+```sh
+cargo test --release --all-features --test integration -- --ignored --exact gauge_golden::e8_n2_golden
+```
 
 The explicitly named cache-policy, cache-contract, cache-trim, `sun_*_cache`,
 `lie_a1`, `lie_ar`, `lie_bcd`, and `doc_examples` targets remain separate:
@@ -110,15 +145,12 @@ No numerical generator or reference coefficient routine is ported for composites
 | Restartable product iterators | `src/product.rs::{advance,restarted}` clone initialized iterators; changed replay is a documented loud-panic invariant |
 | Machine integer representability | Product overflow maps to `LieError::LabelOverflow`; infallible weight multiplicities panic on checked `u64` multiplication overflow |
 | Root datum has Q contained in X | `src/lie/group.rs::GroupId::new` typed lattice validation; admission precedes engine label construction |
-| Canonical generator resources | `src/lie/bcd/catalog.rs::CanonicalCatalog::seed_requirement` preflights checked seed totals before composite catalogs are allocated |
 | Numerical generation/verification | Simple-factor gates run as for single factors, including special cases; Kronecker orthogonality and identities follow from the factor identities, verified by `tests/category_conformance.rs::composite_lie_identities` |
 | CU1 constructor, SUN UInt8 labels, and new dimension/generator ports | N/A: no such constructor or numerical routine is ported here |
 
 D₂'s convention is α₁ then α₂ in the exact A₁ gauge. N/F/R/A/B and CGCs use
 Product's factor order, with the last factor fastest on each coefficient axis;
-fusion varies the first factor fastest. Composite fingerprints use
-Product framing of factor fingerprints. Quotienting adds no gauge change and
-needs no epoch bump; equal fingerprints do not equate outward group identities.
+fusion varies the first factor fastest. Quotienting adds no gauge change.
 
 ### Connected torus integration
 
@@ -143,11 +175,11 @@ bitwise equivalence test; no coefficient cache is needed.
 No numerical or external constructor is ported here (additional SUN/CU1
 reference guards are N/A). Warm generated calls are checked directly with
 `src/lie.rs::tests::torus_composites_warm_calls_do_not_generate` and the
-`src/lie/sun/cgc.rs::GENERATIONS` counter.
+thread-local `src/lie/general/cgc.rs::BUILDS` counter.
 
 The `sun_product` benchmark/test target names remain stable; their tier control
 is `CoefficientCacheTier::Product`. Product retention includes all simple
-Lie families, while BcdCgc observations describe raw/CGC coefficients only.
+Lie families.
 
 The reset-sensitive producer-count gate runs alone in the default CI job:
 

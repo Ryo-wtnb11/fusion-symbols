@@ -1,5 +1,5 @@
-//! B/C/D F-symbol generation cost, cold (fresh catalog + full CGC sweep +
-//! four-CGC contraction) and warm (derived-f64 bcd F cache hit). Not a CI gate;
+//! B/C/D F-symbol generation cost, cold (every cache cleared: modules, four
+//! CGC channels and the contraction) and warm (F tier hit). Not a CI gate;
 //! run with `cargo bench --features lie-generated`.
 //!
 //! R is not benched separately: it is a single sparse join of two CGC, an order
@@ -74,8 +74,8 @@ fn bench_cold(c: &mut Criterion) {
     for (label, series, rank, s) in cases() {
         g.bench_function(label, |b| {
             b.iter(|| {
-                // Fresh catalog + cleared caches: pay the full canonical-parent
-                // CGC materialization (SVD sweeps) plus the four-CGC contraction.
+                // Cleared caches: pay the exact module and channel builds plus
+                // the four-CGC contraction.
                 cache::reset();
                 let cat = bcd_test::group(series, rank).unwrap();
                 black_box(

@@ -55,12 +55,6 @@ pub fn check_hexagon(a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<(), Lie
     assert!(category::hexagon_residual(&group(a), a, b, c)? < 1e-10);
     Ok(())
 }
-pub fn fingerprint() -> Vec<u8> {
-    LieGroup::new(GroupId::su(3).unwrap())
-        .unwrap()
-        .authority_fingerprint()
-        .to_vec()
-}
 pub fn product(
     a: &LieIrrep,
     b: &LieIrrep,

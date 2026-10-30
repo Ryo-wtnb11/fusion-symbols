@@ -41,8 +41,6 @@ impl FermionParityIrrep {
     }
 }
 
-const FINGERPRINT: &[u8] = b"fusion-symbols:abelian-fz2:n=tks-fermions:f=tks-fermions:r=tks-fermions-odd-odd-minus:dim=one:fs=tks-fsymbol-sign:twist=tks-fermions:scalar=f64:epoch=1";
-
 impl FusionCategory for FermionParity {
     type Object = FermionParityIrrep;
     type Scalar = f64;
@@ -143,8 +141,5 @@ impl FusionCategory for FermionParity {
     }
     fn object_index(&self, a: &FermionParityIrrep) -> Result<u64, EnumerationError> {
         Ok(u64::from(a.odd))
-    }
-    fn authority_fingerprint(&self) -> &[u8] {
-        FINGERPRINT
     }
 }

@@ -1,8 +1,10 @@
 //! G2, F4, E6, E7 and E8 through the public `LieGroup` API
-//! (`docs/gauge_exceptional.md`). Expected values are literals: Weyl
-//! dimensions, §9.3 decompositions, the §6.2 indicators and the §6.3 phases.
+//! (`docs/gauge_cartan.md`). Expected values are literals: Weyl dimensions,
+//! the §8 oracle 3 decompositions, the §5.2 indicators and the §5.3 phases.
 
-use fusion_symbols::lie::{GroupId, LieError, LieGroup, RootSystem};
+#[cfg(not(feature = "lie-generated"))]
+use fusion_symbols::lie::LieError;
+use fusion_symbols::lie::{GroupId, LieGroup, RootSystem};
 
 #[test]
 fn exceptional_constructors_are_the_simply_connected_covers() {
@@ -18,7 +20,7 @@ fn exceptional_constructors_are_the_simply_connected_covers() {
     }
 }
 
-/// The exceptional types need `lie-generated` and have no B/C/D catalog.
+/// The exceptional types need `lie-generated`.
 #[test]
 fn unsupported_boundaries() {
     let served = [
@@ -30,16 +32,8 @@ fn unsupported_boundaries() {
         GroupId::cover(&[RootSystem::E6, RootSystem::A(1)], 1).unwrap(),
     ];
     #[cfg(feature = "lie-generated")]
-    for id in served.into_iter().chain([
-        GroupId::cover(&[RootSystem::G2, RootSystem::A(1)], 1).unwrap(),
-        GroupId::cover(&[RootSystem::F4], 1).unwrap(),
-    ]) {
-        assert_eq!(
-            LieGroup::with_catalog_budget(id, usize::MAX),
-            Err(LieError::Unsupported {
-                requires: "B/C/D catalog"
-            })
-        );
+    for id in served {
+        assert!(LieGroup::new(id).is_ok());
     }
     #[cfg(not(feature = "lie-generated"))]
     for id in served {

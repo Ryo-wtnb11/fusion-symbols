@@ -9,6 +9,60 @@ value/gauge rule noted below.
 
 ### Breaking
 
+- Every simple Lie factor computes its CGC with one exact pipeline, the
+  Cartan engine of [`docs/gauge_cartan.md`](docs/gauge_cartan.md): a
+  highest-weight nullspace over the coupling pairs in a-slow order
+  `(m_a, m_b)` ascending, and an intertwiner descent through the irrep basis
+  (Gelfand–Tsetlin for the A series, contravariant Gram–Schmidt otherwise),
+  rounded once. It replaces the floating-point SU(N) pipeline, the B/C/D
+  generator catalogs and decomposition sweep, and the exceptional engine's
+  a-fast pair order. `docs/gauge_soN.md` and `docs/gauge_exceptional.md` are
+  superseded (last versions:
+  [`gauge_soN.md`](https://github.com/Ryo-wtnb11/fusion-symbols/blob/fdc93839418c4765b1f1eda30cd737519c93c9e4/docs/gauge_soN.md),
+  [`gauge_exceptional.md`](https://github.com/Ryo-wtnb11/fusion-symbols/blob/fdc93839418c4765b1f1eda30cd737519c93c9e4/docs/gauge_exceptional.md)).
+  Value changes:
+  - B, C and D: the magnetic basis, its index order (now the depth order of
+    §3.2.1, highest weight first) and the outer-multiplicity basis change, so
+    CGC, F, R, A and B values change.
+  - G2, F4, E6, E7 and E8: the multiplicity basis follows the a-slow pair
+    order, so CGC values and the F, R, A and B blocks with `N ≥ 2` vertices
+    change. Self-dual Frobenius–Schur phases and every module basis are
+    unchanged.
+  - SU(N), N ≥ 3: the signed GT convention is unchanged; values are now exact
+    until one rounding and differ from the former results by at most 3.1e-13
+    (SU(3) `64 ⊗ 64`), about 90% of entries in their last bits.
+  - SU(2) and every A(1) presentation: block CGC now come from the same
+    engine with the vertex sign `(−1)^{j_1+j_2−j_3}` and are bit-identical to
+    the former Condon–Shortley values; F, R and the Frobenius–Schur phase stay
+    closed forms.
+  - D(r), r odd: the Frobenius–Schur phase of a complex irrep is computed as
+    `(−1)^{⟨λ, 2ρ∨⟩} σ_a σ_ā` (§5.3). Complex D(r) labels above `u32::MAX`
+    dimensions now return `LieError::LabelOverflow`, as complex E6 labels do.
+  Every CGC, F, R, A and B value is now bit-identical across processes and
+  platforms with correctly rounded binary64 arithmetic; the golden tests
+  compare bits. Generation verifies exact module ranks and nullities, rounded
+  CGC isometry and ladder consistency, R orthogonality and F finiteness, and
+  a value that fails a gate is a `LieError::Generation`, never returned or
+  retained.
+- Remove `FusionCategory::authority_fingerprint` and every family's
+  fingerprint bytes. Value changes are announced here and by semver.
+- Remove `LieGroup::{with_catalog_budget, catalog_stats, reset_catalog}` and
+  `lie::CatalogStats`: groups retain no coefficient state. Construction of a
+  group of rank at least two builds nothing.
+- Coefficient-cache tiers are per data kind, keyed by the presented root
+  system, with one process-wide limit each: `Product` ("product"), `Cgc`
+  ("cgc"), `FSymbol` ("f_symbol"), `RSymbol` ("r_symbol"), `Wigner3j`
+  ("wigner_3j", formerly `ThreeJ`) and `Wigner6j` ("wigner_6j", formerly
+  `SixJ`). `FSymbol` absorbs `DerivedF` and the SU(N)/B/C/D F tiers, `RSymbol`
+  the SU(N)/B/C/D R tiers, and `Cgc` the SU(N)/B/C/D CGC tiers and the former
+  per-group exceptional memo (modules, channels and complex phases), now
+  bounded by one 256 MiB process-wide cap instead of 512 entries and 256 MiB
+  per group. Every tier is compiled in every build. `BASE_CACHE_MAX_BYTES` is
+  448 MiB (Wigner 3j, 6j, F and CGC) and `GENERATED_CACHE_MAX_BYTES` 64 MiB +
+  128 KiB (R and Product).
+- `lie-generated` is a capability switch: every build compiles the same
+  engine and A(1) block CGC are cached in the CGC tier in every build.
+
 - Rename `CoefficientCacheTier::SunProduct` to `Product` (Display `"sun_product"`
   to `"product"`), without an alias. It now owns all materialized simple-Lie
   products; `BcdCgc` retains only raw/CGC coefficients, and duals are label-owned.
@@ -17,14 +71,30 @@ value/gauge rule noted below.
   `SignedSqrtRational` exposes `Rational`. Users name the types through
   `malachite_nz` / `malachite_q` directly; there are no re-exports.
 
+### Fixed
+
+- `category::hexagon_residual`: the second hexagon applies the adjoint of
+  each R block for the inverse braiding. The former elementwise conjugate
+  (as in TensorKitSectors `hexagon_equation`) reported residuals of order one
+  for valid data whose `N ≥ 2` R blocks between different irreps are not
+  symmetric, for example SU(3) `27` (0.035), SU(4) `15` (1.0) and G2 `27`
+  (0.68).
+
 ### Dependencies
 
-- Require t4a-faer 0.25 for sequential dense kernels, using `ParShape::Seq` for scratch queries.
+- Remove the `t4a-faer` dependency; there is no dense linear-algebra backend.
 - Malachite 0.14 (`malachite-base`, `malachite-nz`, `malachite-q`) is required
   for all exact arithmetic, including base builds (LGPL-3.0-only).
   Remove `num-bigint` and `num-rational`; the crate remains MIT OR Apache-2.0.
 
 ### Performance
+
+- A resident CGC channel carries its multiplicity, so a warm CGC query makes
+  no Product lookup. A(1) irrep modules are written directly from the lowering
+  chain instead of the general GT enumeration, with identical exact data.
+  CGC entries are rounded as they are formed and the exact channel is
+  released before the rounded gates, which removes a whole-channel exact copy
+  from the working set (Spin(8) `350 ⊗ 350 → 4096`: live peak 1617 → 891 MiB).
 
 - Unify exact root mathematics and label-owned dimensions/duals. Exceptional
   N, fusion and coefficient multiplicity checks share the bounded Product tier;
@@ -111,7 +181,7 @@ value/gauge rule noted below.
 
 - F₄, E₇ and E₈ coefficients through `LieGroup` (`lie-generated`), from the
   same exact engine and authority fingerprint as G₂
-  ([`docs/gauge_exceptional.md`](docs/gauge_exceptional.md)). Every irrep is
+  ([`docs/gauge_exceptional.md`](https://github.com/Ryo-wtnb11/fusion-symbols/blob/fdc93839418c4765b1f1eda30cd737519c93c9e4/docs/gauge_exceptional.md)). Every irrep is
   self-dual; the E₇ irreps with odd `a₂ + a₅ + a₇` (such as `56` and `912`)
   are pseudo-real, all others real. Each group owns a bounded memo like G₂.
   Without `lie-generated`, F₄, E₇ and E₈ now return
@@ -135,7 +205,7 @@ value/gauge rule noted below.
 
 - G₂ coefficients through `LieGroup` (`lie-generated`): irreps, fusion, F, R,
   A, B and CGC from the exact engine of
-  [`docs/gauge_exceptional.md`](docs/gauge_exceptional.md), with a new
+  [`docs/gauge_exceptional.md`](https://github.com/Ryo-wtnb11/fusion-symbols/blob/fdc93839418c4765b1f1eda30cd737519c93c9e4/docs/gauge_exceptional.md), with a new
   authority fingerprint (`lie-exceptional`, epoch 1). Values are exact until
   one rounding, so equal fingerprints mean bit-identical values. Every G₂
   irrep is self-dual and real. Composites with G₂ factors use the ordered
@@ -158,7 +228,7 @@ value/gauge rule noted below.
   `tests/doc_examples.rs`.
 - Added the frozen gauge specification for the exceptional groups G2, F4,
   E6, E7 and E8
-  ([`docs/gauge_exceptional.md`](docs/gauge_exceptional.md)), ahead of their
+  ([`docs/gauge_exceptional.md`](https://github.com/Ryo-wtnb11/fusion-symbols/blob/fdc93839418c4765b1f1eda30cd737519c93c9e4/docs/gauge_exceptional.md)), ahead of their
   exact coefficient engine.
 
 ## [0.9.0] - 2026-10-27
@@ -853,7 +923,7 @@ tests and CI.
   - `bcd::spinor_seeds` — the second base case: the Clifford/Fock generator
     seeds for `ω_r` (`B_r`) and `ω_{r-1}`, `ω_r` (`D_r`), gated by the same
     exact `check_commutators`, specified in
-    [`docs/gauge_soN.md`](docs/gauge_soN.md) §16 and pinned by new
+    [`docs/gauge_soN.md`](https://github.com/Ryo-wtnb11/fusion-symbols/blob/fdc93839418c4765b1f1eda30cd737519c93c9e4/docs/gauge_soN.md) §16 and pinned by new
     `tests/gauge_golden.rs` rows (`Spin(5)`, `Spin(6)`, `Spin(7)`, `Spin(10)`).
   - The canonical-parent candidate set is **class-indexed** (§14.2): a tensor
     irrep's parents are searched in the tensor sublattice only. **Every shipped
@@ -881,7 +951,7 @@ tests and CI.
   by the class they retain. **No coefficient value changes**; no `epoch` moves.
 
 - **Frozen gauge specification.** [`docs/gauge.md`](docs/gauge.md) and
-  [`docs/gauge_soN.md`](docs/gauge_soN.md) are declared **normative**: the
+  [`docs/gauge_soN.md`](https://github.com/Ryo-wtnb11/fusion-symbols/blob/fdc93839418c4765b1f1eda30cd737519c93c9e4/docs/gauge_soN.md) are declared **normative**: the
   documents are the authority and the code implements them. `docs/gauge.md` also
   now specifies the base SU(2) conventions (§12) and marks the rules the
   implementation fixes only implicitly. **No coefficient value changes** from

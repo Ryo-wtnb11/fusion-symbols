@@ -161,7 +161,6 @@ fn fusion_first_factor_fastest_and_reassociation() {
         .map(|((a, b), c)| (a, b, c))
         .collect();
     assert_eq!(flat.fusion(&a, &a).unwrap().collect::<Vec<_>>(), flattened);
-    assert_ne!(flat.authority_fingerprint(), left.authority_fingerprint());
 }
 
 fn hash(x: &impl Hash) -> u64 {
@@ -175,26 +174,12 @@ fn identity_framing_and_arity() {
     let b = a.clone();
     let before = hash(&a);
     let debug = format!("{a:?}");
-    let mut expected =
-        b"fusion-symbols:product:epoch=1:axes=last-fastest:fusion=first-fastest;".to_vec();
-    expected.extend(2u32.to_le_bytes());
-    for c in [&a.factors().0, &a.factors().1] {
-        let fp = c.authority_fingerprint();
-        expected.extend((fp.len() as u64).to_le_bytes());
-        expected.extend(fp);
-    }
-    assert_eq!(a.authority_fingerprint(), expected);
     assert_eq!(a, b);
     assert_eq!(hash(&a), before);
     assert_eq!(format!("{a:?}"), debug);
     assert_eq!(a, a.clone());
     let swapped = Product::new((ZN::new(3).unwrap(), ZN::new(2).unwrap()));
     assert_ne!(a, swapped);
-    assert_eq!(a.authority_fingerprint(), swapped.authority_fingerprint());
-    assert_ne!(
-        Product::new((U1, FermionParity)).authority_fingerprint(),
-        Product::new((FermionParity, U1)).authority_fingerprint()
-    );
     let max = Product::new((U1, U1, U1, U1, U1, U1, U1, U1, U1, U1, U1, U1));
     assert_eq!(max.fusion(&max.unit(), &max.unit()).unwrap().count(), 1);
     assert_eq!(max.nsymbol(&max.unit(), &max.unit(), &max.unit()), 1);
@@ -409,9 +394,6 @@ impl FusionCategory for Probe {
                 data: self.r,
             })
         }
-    }
-    fn authority_fingerprint(&self) -> &[u8] {
-        b"probe"
     }
 }
 

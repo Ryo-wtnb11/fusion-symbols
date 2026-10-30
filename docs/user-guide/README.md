@@ -42,7 +42,6 @@ another type is named.
 | Enumerate objects | `object_count`, `object_at`, `object_index` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#method.object_count) |
 | Check pentagon, hexagon or F unitarity | `category::{pentagon_residual, hexagon_residual, f_unitarity_residual}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/index.html) |
 | Limit or inspect cache memory | `cache::{configure_cache_budgets, tier_stats, trim_to, reset}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/cache/index.html) |
-| Record the value convention | `authority_fingerprint` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.authority_fingerprint) |
 
 ## Choosing a category
 
@@ -235,8 +234,7 @@ major). `category::FBlock` and `RBlock` add `at` and `data`. Scalar families
 (U(1), Z_N, parity, tables) return a bare scalar whose storage axes are all one
 even when its logical value is zero; read the logical shape from N. A and B
 always return `RBlock` and need no braiding. The multiplicity copy order is
-gauge, fixed in [SU(N) §8](../gauge.md#8-outer-multiplicity-axis) and
-[B/C/D §9](../gauge_soN.md#9-outer-multiplicity-assignment).
+gauge, fixed in [gauge_cartan.md §4.3](../gauge_cartan.md#43-multiplicity-basis).
 
 ## Clebsch–Gordan coefficients
 
@@ -255,7 +253,9 @@ assert!(c.at([0, 2, 0, 1]) < 0.0);
 `at([m1, m2, m3, mu])` reads one coefficient and panics outside the axes. An
 absent channel has a zero-length multiplicity axis. Magnetic indices: A1
 ascends from the lowest weight; higher A-series follow `gt_patterns()`;
-B/C/D follow the canonical frame of [gauge_soN.md](../gauge_soN.md). `U1` and
+B, C, D and the exceptional types follow the depth order of
+[gauge_cartan.md §3.2](../gauge_cartan.md#32-b_re8-gramschmidt-basis-of-the-contravariant-form),
+highest weight first. `U1` and
 `ZN` return a scalar CGC: `1.0` for a present channel, `0.0` for an absent one.
 
 The exact SU(2) evaluators under `lie::su2` take doubled spins and doubled
@@ -394,14 +394,16 @@ The full validation order is in [validation and errors](../overview.md#validatio
 ## Caches
 
 Generated coefficients and exact SU(2) values are cached in process-global,
-byte-bounded tiers. The defaults are bounded (192 MiB for the SU(2) tiers,
-768 MiB + 128 KiB for the generated tiers), so most programs do nothing.
+byte-bounded tiers, one per data kind and shared by every group. The defaults
+are bounded (448 MiB for the tiers every build fills, 64 MiB + 128 KiB more
+for the Product and R tiers of higher-rank groups), so most programs do
+nothing.
 
 ```rust
 use fusion_symbols::cache::{tier_stats, CoefficientCacheTier};
 
 let _ = fusion_symbols::lie::su2::wigner_6j(2, 2, 2, 2, 2, 2);
-let six_j = tier_stats(CoefficientCacheTier::SixJ);
+let six_j = tier_stats(CoefficientCacheTier::Wigner6j);
 println!("{} entries, {} bytes, {} hits", six_j.entries, six_j.bytes, six_j.hits);
 // A sum over tiers combines independent snapshots; use it for reporting only.
 let total: usize = CoefficientCacheTier::ALL.iter().map(|&t| tier_stats(t).bytes).sum();
@@ -410,10 +412,8 @@ println!("{total} bytes retained across all tiers");
 
 The application, not a library, owns the policy: configure smaller budgets
 once with `cache::configure_cache_budgets` before any cache use, and release
-memory with `cache::trim_to` or `cache::reset`. Each B/C/D `LieGroup` also
-owns a generator catalog (256 MiB default, `LieGroup::with_catalog_budget`).
-Persist `authority_fingerprint()` next to any derived data. Details:
-[caches and reproducibility](resources.md).
+memory with `cache::trim_to` or `cache::reset`. Groups retain no
+coefficient state of their own. Details: [caches and reproducibility](resources.md).
 
 ## Identity checks
 

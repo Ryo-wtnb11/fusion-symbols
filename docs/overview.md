@@ -68,16 +68,18 @@ and gives numbering, dimensions, duals and the U(N) charge rule.
 rank. A1, B1 and C1 use the exact SU(2) implementation; SO(3) and PSU(2) admit
 only even doubled spins. D₂ expands into α₁ then α₂, each in the exact A₁
 gauge: dimensions are `(a+1)(b+1)`, and SO(4) admits `a+b` even while PSO(4)
-requires both labels even. G₂, F₄, E₆, E₇ and E₈ use the exact engine of
-[gauge_exceptional.md](gauge_exceptional.md) (`lie-generated`);
-`GroupId::{g2, f4, e6, e7, e8}` build the simply connected forms. G₂, F₄, E₇
+requires both labels even. Every simple factor uses the exact Cartan engine
+of [gauge_cartan.md](gauge_cartan.md); factors other than A₁ need
+`lie-generated`. `GroupId::{g2, f4, e6, e7, e8}` build the simply connected
+forms. G₂, F₄, E₇
 and E₈ irreps are all self-dual, and all are real except the E₇ irreps with
 odd `a₂ + a₅ + a₇`, which are pseudo-real. E₆ duality swaps `a₁ ↔ a₆` and
-`a₃ ↔ a₅`; its self-dual irreps are real, and a complex irrep's
-Frobenius–Schur phase is derived from the gauge (§6.3) and generated on first
-use. `irrep` rejects a complex E₆ label whose dimension exceeds `u32::MAX`
-with `LieError::LabelOverflow`, because that phase is generated in a basis
-with `u32` indices.
+`a₃ ↔ a₅`; its self-dual irreps are real. The Frobenius–Schur phase of a
+complex D(r) (r odd) or E₆ irrep is derived from the gauge
+([gauge_cartan.md](gauge_cartan.md) §5.3) and
+generated on first use. `irrep` rejects such a complex label whose dimension
+exceeds `u32::MAX` with `LieError::LabelOverflow`, because that phase is
+generated in a basis with `u32` indices.
 
 A `GroupId` is a validated classification datum: ordered root-system blocks,
 a torus rank, and a full-rank character lattice, the lattice of admitted
@@ -93,8 +95,8 @@ conventions are fixed in [references](references.md#global-form--fixed-conventio
 with `0 ≤ H[i,j] < H[j,j]` above the positive pivots. Invalid ranks return
 `GroupError::UnsupportedRank`; malformed, singular or root-excluding
 lattices return `InvalidLattice`; overflowing sizes or entries return
-`SizeOverflow`. Unsupported presentations are rejected before any coefficient
-catalog is created.
+`SizeOverflow`. Unsupported presentations are rejected before any root data
+are built.
 
 Equality, hashing and order use the ordered presentation and canonical
 lattice, so SU(n)/Z1 equals SU(n), while distinct presentations such as
@@ -118,7 +120,7 @@ the semisimple coordinates and `charges` the torus coordinates.
 `FusionCategory` accepts validated objects. Every object-taking method except
 `contains` panics on a foreign object before testing capabilities or channels.
 Use `contains` for a non-panicking membership check. Category equality and
-hashing represent mathematical identity, independently of fingerprints.
+hashing represent mathematical identity.
 
 - `fusion` yields distinct outcomes in deterministic order; `nsymbol` gives
   the exact `u32` multiplicity, including zero. `try_nsymbol` reports
@@ -159,23 +161,23 @@ Rank-one arithmetic and the existing coefficient generators keep their gauges.
 
 Lie dimensions, duals, Frobenius–Schur indicators, weights and fusion
 multiplicities are exact. SU(2) coefficients use signed square-rooted rationals
-and round once to `f64`. G₂, F₄, E₆, E₇ and E₈ coefficients are computed
-exactly with the same required Malachite 0.14 arithmetic family as the rest
-of the crate and round once to `f64`. Public exact rationals are
-`malachite_q::Rational`; there are no arithmetic backend conversions.
-SU(N) and B/C/D
-coefficients are computed in `f64` and accepted only after numerical
-verification checks; tables are offline projections of exact AnyonWiki data
+and round once to `f64`. The CGC of every simple factor is computed exactly
+with the same required Malachite 0.14 arithmetic family as the rest of the
+crate and rounded once to `f64`; F, R, A and B follow a fixed floating-point
+evaluation order, so all are bit-identical across builds and platforms.
+Public exact rationals are `malachite_q::Rational`; there are no arithmetic
+backend conversions. Tables are offline projections of exact AnyonWiki data
 to `Complex64`.
 Closed-form U(1), CU(1), Z_N and parity symbols are `f64`.
 
-SU(N) uses a highest-weight nullspace in the GT basis and lowering descent.
-B/C/D uses exact fusion plus a canonical generator catalog and a numerical
-decomposition sweep. Generation checks orthogonality and generator consistency;
-failures are typed errors. Public F-unitarity, pentagon and hexagon residuals
-are explicit caller-invoked checks with caller-selected tolerances. Dense
-factorizations and CGC contractions use sequential t4a-faer; backend selection
-and extended precision are not public capabilities.
+Every simple factor uses one exact pipeline: a highest-weight nullspace and an
+intertwiner descent from the Cartan matrix, with the Gelfand–Tsetlin basis for
+the A series and a contravariant Gram–Schmidt basis otherwise. Generation
+checks exact module ranks and nullities, rounded CGC isometry and ladder
+consistency, R orthogonality and F finiteness; failures are typed errors.
+Public F-unitarity, pentagon and hexagon residuals are explicit
+caller-invoked checks with caller-selected tolerances. There is no dense
+linear-algebra backend.
 
 `has_trivial_associator_gauge` certifies admissible F = 1 in the documented gauge;
 `has_canonical_unit` certifies identity F moves with an external unit leg
@@ -184,11 +186,10 @@ products take the conjunction. All built-in families have a canonical unit;
 U(1), Z_N and parity have trivial associators, as do qualifying pointed tables.
 These are gauge-dependent certificates, not substitutes for N or braiding checks.
 
-Gauge rules are frozen in [gauge.md](gauge.md), [gauge_soN.md](gauge_soN.md)
-and [gauge_exceptional.md](gauge_exceptional.md).
-Persisted derived data should carry the opaque authority fingerprint; compare
-bytes without parsing. SU(N) and B/C/D fingerprints identify conventions, not
-cross-process bit-identical coefficients; the exceptional fingerprint identifies values. See [resources](user-guide/resources.md).
+Gauge rules are frozen in [gauge.md](gauge.md) and
+[gauge_cartan.md](gauge_cartan.md).
+A coefficient value changes only in a semver-breaking release with a
+CHANGELOG entry. See [resources](user-guide/resources.md).
 
 ## Enumeration and products
 

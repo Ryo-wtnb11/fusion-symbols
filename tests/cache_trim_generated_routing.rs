@@ -34,12 +34,9 @@ fn trim_routes_to_each_populated_generated_tier() {
     let _ = bcd_test::r_symbol(&cat, &v, &v, &adj).unwrap();
     let tiers = [
         CoefficientCacheTier::Product,
-        CoefficientCacheTier::SunCgc,
-        CoefficientCacheTier::SunF,
-        CoefficientCacheTier::SunR,
-        CoefficientCacheTier::BcdCgc,
-        CoefficientCacheTier::BcdF,
-        CoefficientCacheTier::BcdR,
+        CoefficientCacheTier::Cgc,
+        CoefficientCacheTier::FSymbol,
+        CoefficientCacheTier::RSymbol,
     ];
     for tier in tiers {
         let selected = cache::tier_stats(tier);

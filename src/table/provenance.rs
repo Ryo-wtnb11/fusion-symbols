@@ -12,9 +12,8 @@
 /// shortest round-trip decimal; at load, `str::parse::<f64>()` reads it back
 /// bit for bit, pairs as `re + i·im`, and absent records are exact zero".
 ///
-/// It is folded into every provider's authority fingerprint, so a change makes
-/// previously-built fingerprints compare unequal: cached recoupling data
-/// computed under the old projection must not be reused under the new one.
+/// It is part of every shipped table's provenance, so a change of projection
+/// is visible in [`TableProvenance::write_canonical_bytes`].
 ///
 /// Minted for this crate and named for its source: the AnyonWiki tables at the
 /// pinned commit, projected to `f64` on 2026-10-16. Values are the
@@ -63,7 +62,7 @@ impl TableProvenance {
     /// The format is one `key=value` line per field in declaration order. It
     /// is a byte contract, not a display form: it is hashed and compared, so
     /// reordering fields, renaming a key, or changing a separator changes
-    /// every derived authority fingerprint.
+    /// the bytes of every table.
     ///
     /// Why not `Debug` or a serde encoding: `Debug` output is explicitly not a
     /// stability guarantee, and a serialisation framework would put the byte
@@ -104,15 +103,12 @@ impl TableProvenance {
     }
 }
 
-/// FNV-1a over 64 bits — the prehash a consumer's identity carries beside the
-/// fingerprint bytes. Used by the tests to pin the composed fingerprint.
+/// FNV-1a over 64 bits, used by the tests to pin every shipped table text.
 ///
 /// Why not `std::collections::hash_map::DefaultHasher`: its output is
 /// explicitly not stable across Rust releases, and the acceptance criterion
 /// here is that two independent builds agree. Why not a real cryptographic
-/// digest: identity compares the full byte slice on equality, so the
-/// prehash only has to be a cheap, deterministic bucket key — a collision
-/// costs a memcmp, not a wrong answer.
+/// digest: the pin detects accidental edits, not adversarial ones.
 #[cfg(test)]
 pub(crate) fn fnv1a64(bytes: &[u8]) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;

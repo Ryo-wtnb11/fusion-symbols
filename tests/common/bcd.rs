@@ -90,7 +90,7 @@ pub fn check_hexagon(
     assert!(category::hexagon_residual(cat, a, b, c)? < 1e-8);
     Ok(())
 }
-/// Original dense catalog order: multiplicity, coupled column, first-factor-fast row.
+/// One multiplicity copy as a dense column-major `d_a·d_b × d_c` matrix, first factor fast.
 pub fn copy(c: &LieCgc, mu: usize) -> Vec<f64> {
     let [d1, d2, d3, _] = c.dims();
     (0..d3)
@@ -99,10 +99,4 @@ pub fn copy(c: &LieCgc, mu: usize) -> Vec<f64> {
 }
 pub fn data(c: &LieCgc) -> Vec<f64> {
     (0..c.dims()[3]).flat_map(|mu| copy(c, mu)).collect()
-}
-pub fn fingerprint() -> Vec<u8> {
-    group(Series::B, 2)
-        .unwrap()
-        .authority_fingerprint()
-        .to_vec()
 }

@@ -1,316 +1,63 @@
-# Coefficient gauge specification (base SU(2) and SU(N))
+# Coefficient gauge specification
 
-This document specifies the **gauge** of the coefficients this crate returns —
-the deterministic rules that fix the otherwise free basis, sign, and ordering of
-every coefficient. It covers the base SU(2) family (§12) and the SU(N) family
-(§1–§11, the bulk of the document); SO(N)/Sp(2N) is specified in
-[`gauge_soN.md`](gauge_soN.md) and is normative on the same terms.
+This document specifies the **gauge** of the coefficients this crate returns:
+the deterministic rules that fix the otherwise free basis, sign, and ordering
+of every coefficient. The rules live in one place each:
+
+| Coefficients | Specification |
+|---|---|
+| Simple Lie factors `A_r`–`E8`: irrep bases, CGC, F/R contraction, Frobenius–Schur phases | [`gauge_cartan.md`](gauge_cartan.md) |
+| SU(2) closed forms: 3j, 6j, single CGC, F, R, Frobenius–Schur | §1 below |
+| Semisimple products, tori and central quotients | §2 below |
+| U(1), Z_N, parity, fermion parity, CU(1) closed forms | [category conventions](references_categories.md) |
+| AnyonWiki tables | [category conventions](references_categories.md#pinned-tables-table-module) |
 
 ## Status: FROZEN NORMATIVE SPECIFICATION
 
-**This document is the authority. The code is an implementation of it.**
+**These documents are the authority. The code is an implementation of them.**
 
-Every discrete choice that fixes values is normative below. A conflicting
+Every discrete choice that fixes values is normative. A conflicting
 coefficient is a bug; restore the specified value rather than redefine the
-gauge. Authority fingerprints version this specification, not a build's output.
-These rules are complete for value-fixing purposes; implementation choices not
-specified here are not gauge. Their `racah:` prefixes remain permanent identifiers.
+gauge. These rules are complete for value-fixing purposes; implementation
+choices not specified are not gauge.
 
 ### Operational rule for changing a value
 
 A change to a returned coefficient value, its normalization, or the canonical
-convention it is expressed in is not an ordinary change. It is a **specification
-correction**, and it requires, in the same change:
+convention it is expressed in is not an ordinary change. It is a
+**specification correction**, and it requires, in one pull request:
 
-1. **The spec edit.** The changed rule edited here (or in `gauge_soN.md`), with
-   the defect it corrects stated — what the old rule got wrong, not merely what
+1. **The spec edit.** The changed rule edited in the governing document, with
+   the defect it corrects stated: what the old rule got wrong, not merely what
    the new rule says.
-2. **A fingerprint bump.** The affected family's `epoch=N` tag incremented in
-   `src/lie/su2.rs::fingerprint` / `src/lie/sun.rs::fingerprint` /
-   `src/lie/bcd.rs::bcd_authority_fingerprint`, and the pinned literal in the matching
-   `tests/*_fingerprint.rs` updated in the same PR. Epochs are per-family and
-   independent: correcting the SU(N) spec never invalidates SU(2)- or
-   B/C/D-derived consumer state.
-3. **A CHANGELOG breaking-change entry** naming the spec correction and the new
-   epoch, so a consumer reading only the changelog still learns their persisted
-   coefficients are stale.
-4. **Regenerated golden values** (`tests/gauge_golden.rs`) in the same commit.
+2. **A CHANGELOG breaking-change entry** naming the spec correction, so a
+   consumer reading only the changelog learns that persisted coefficients are
+   stale.
+3. **Regenerated golden values** (`tests/gauge_golden.rs`).
+4. **A semver-breaking release** carrying the change.
 
 A value change without these four steps is a defect. `tests/gauge_golden.rs`
-pins representative signed coefficients at `1e-12`.
+pins representative signed coefficients.
 
-Prose, cache and implementation changes that preserve specified values require
-no epoch bump. Verification-only tolerances may be tightened without changing
-the gauge. The contract is agreement within oracle tolerance, not cross-process
-bit identity: independent dense-backend generations may differ by a few ULPs.
+Prose, cache and implementation changes that preserve specified values are
+ordinary changes.
 
-**§1–§11 specify the SU(N) family** — the coefficients produced by
-`fusion_symbols::category::GroupRepresentations::cgc` and the F/R symbols contracted from them. The construction is
-a port of **SUNRepresentations.jl v0.4.0** (`src/`). Every choice below cites the
-reference `file:symbol` and its implementing function in this crate. A reader
-with this document and the reference source can re-derive the gauge without
-reading the Rust implementation.
+## 1. SU(2) closed forms
 
-Coefficient *values* are `f64` (as in the reference, which is `Float64`
-end-to-end after the exact ladder matrices). What is exact and gauge-fixing is
-the *procedure*: the combinatorial basis order, the pivot/sign rules, and the
-descent order are discrete facts; only the final linear-algebra solve is
-floating point, and it is verification-gated.
+The SU(2) closed forms have no free basis to fix: every coefficient is a
+closed-form expression in exact big-rational arithmetic, so their gauge is the
+set of **phase, normalization, and argument-order conventions** the formulas
+are written in. They apply to every `A_1`
+presentation (SU(2), SO(3), Sp(2), PSU(2), and each factor of SO(4)).
 
-## 0. Notation
+The SU(2) **CGC blocks** returned by `GroupRepresentations::cgc` come from the
+Cartan engine with the `A_1` vertex sign
+([`gauge_cartan.md` §4.6](gauge_cartan.md#46-the-a_1-vertex-sign)); they equal
+the closed-form `clebsch_gordan` below bit for bit. Their magnetic index is
+`m + j`, lowest weight first. F, R and the Frobenius–Schur phase of an `A_1`
+factor are the closed forms below.
 
-- SU(N) irrep `s` has a normalized highest weight `λ = (λ₁ ≥ … ≥ λ_N)`, `λ_N =
-  0`, Dynkin labels `aᵢ = λᵢ − λᵢ₊₁`.
-- `d(s) = dim(s)` is the Weyl dimension (`sector.jl:dim`).
-- A coupling is `s1 ⊗ s2 → s3` with outer multiplicity
-  `N = N^{s3}_{s1 s2}` (`gtpatterns.jl:directproduct`).
-- The CGC is a sparse tensor `C[m1, m2, m3, μ]`, `m1 ∈ [0,d1)`, `m2 ∈ [0,d2)`,
-  `m3 ∈ [0,d3)`, `μ ∈ [0,N)`. Indices `m` are 0-based positions in the GT basis
-  order (§1); `μ` is the outer-multiplicity (trailing) axis (§8).
-
-## 1. GT basis order (the load-bearing basis)
-
-The magnetic indices `m1, m2, m3` index the **Gelfand–Tsetlin pattern basis** in
-the reference iteration order.
-
-- Reference: `gtpatterns.jl:GTPatternIterator{N}` (`basis(s) =
-  GTPatternIterator{N}(weight(s))`). For `N ≥ 2` the iterator loops over the
-  admissible second rows `I[i+1]:I[i]` with the **last** sub-row entry varying
-  fastest, recursing into `GTPatternIterator{N-1}` as the inner (faster) loop;
-  pattern data is stored top row (`l = N`) first.
-- Port: `src/lie.rs::LieIrrep::gt_patterns`, backed by `src/lie/sun.rs::Irrep::patterns`, pinned index-for-index against an
-  in-test enumeration of this rule and the SUNRepresentations SU(3) adjoint
-  basis (`tests/sun_oracle.rs`), and re-verified by the signed CGC values (§11).
-- The highest-weight pattern (all rows equal to the top-row prefix) is the
-  **last** basis index `d3 − 1`; this is where the highest-weight block is
-  stored (`clebschgordan.jl:highest_weight_CGC`, `CGC[m1m2, d3, α]`).
-
-The pattern **weight** used throughout is `gtpatterns.jl:weight(m)`: the
-`N`-tuple with component `l` (1-based) equal to `rowsum(l) − rowsum(l−1)`,
-`rowsum(l) = Σ_{k=1..l} m[k,l]`, `rowsum(0) = 0`. Port: `cgc.rs:pattern_weight`.
-
-The weight offset `wshift = ⌊(Σλ(s1) + Σλ(s2) − Σλ(s3)) / N⌋` maps an `s1`
-weight to the matching `s2` weight at fixed total: `w2 = w3 − w1 + wshift`
-(`clebschgordan.jl:highest_weight_CGC`; port `cgc.rs:Ctx::new`).
-
-## 2. Highest-weight system
-
-Reference: `clebschgordan.jl:highest_weight_CGC`. Over the coupling pairs
-`(m1, m2)` whose weights sum to `s3`'s highest weight, build the sparse linear
-system expressing that every simple raising operator annihilates the coupled
-highest-weight state:
-
-$$ (J^+_l(s_1) \otimes \mathbb{1} + \mathbb{1} \otimes J^+_l(s_2))\, |m_1, m_2\rangle = 0, \quad l = 1 \dots N-1 $$
-
-The raising matrices are the exact GT ladder matrices
-(`gtpatterns.jl:creation`, `private GT raising operator`), entries `signedroot(coef)`.
-
-**Column (coupling-pair) order — gauge-relevant.** The columns of the system
-are the coupling pairs `(m1, m2)` enumerated in this exact order
-(`clebschgordan.jl:highest_weight_CGC`, port `cgc.rs:highest_weight_cgc`): the
-**outer** loop is `m1` ascending over `basis(s1)` (the GT basis order of §1);
-the **inner** loop is `m2` ascending over the members of the *matching weight
-class* `map2[w2]`, `w2 = w3_top − weight(m1) + wshift`, where `map2[w]` lists
-the `s2` basis indices of weight `w` **in `basis(s2)` order**
-(`clebschgordan.jl:weightmap` preserves basis order). This lexicographic
-`(m1, then matching m2)` order is the "first-seen" column order the nullspace
-and the gauge consume, so it is part of the gauge. Rows are the distinct raised
-targets `(l, m1′, m2′)`, sorted and deduplicated (their order does not affect
-the nullspace).
-
-## 3. Nullspace: tolerance and rank rule
-
-Reference: `clebschgordan.jl:_nullspace!`, called with `atol = TOL_NULLSPACE`.
-
-```
-const TOL_NULLSPACE = 1.0e-13
-SVD = svd!(A; full = true)
-tol = max(atol, S[1] * rtol),   rtol = (min(size(A)) * eps) * iszero(atol)
-indstart = #{ i : S[i] > tol } + 1        # = rank + 1
-nullspace = copy(SVD.Vt[indstart:end, :]')  # trailing right-singular vectors
-```
-
-- Because `atol = 1e-13 > 0`, the relative term vanishes (`iszero(atol) = 0`),
-  so the cut is **purely** `Sᵢ > 1e-13`; `rank = #{ Sᵢ > 1e-13 }` and the
-  nullspace dimension is `n − rank`.
-- **Full V** is required (U is unused): the nullspace is the trailing
-  `n − rank` **rows of the full `Vh` (n×n)**, which a thin SVD would discard
-  whenever the system is wide (`m < n`, e.g. the minimal SU(2) singlet
-  ½⊗½→0, a 1×2 system).
-- Empty system (`m = 0` or `n = 0`): the whole space is the nullspace — return
-  the `n×n` identity (`_nullspace!`'s `(m==0 || n==0)` guard).
-- Port: `linalg.rs:nullspace` via `faer::linalg::svd::svd` with full V and no U (§10).
-
-**Multiplicity gate.** `#{nullspace vectors} == directproduct(s1, s2)[s3]` must
-hold (`clebschgordan.jl` `@assert N123 == directproduct(s1, s2)[s3]`); a
-mismatch is the typed error `GenerationError (nullspace dimension mismatch)` (never silent).
-
-## 4. Gauge canonicalization: `gaugefix! = first ∘ qrpos! ∘ cref!`
-
-Reference: `clebschgordan.jl:gaugefix!(C) = first(qrpos!(cref!(C, TOL_GAUGE)))`.
-The nullspace basis `A` (shape `n × N`, columns spanning the coupled subspace)
-is canonicalized in two steps. Both steps preserve the **column space** (the
-subspace), so the result depends only on the subspace, not on which nullspace
-basis the SVD happened to return — which is why an independent SVD/QR
-implementation reproduces the reference gauge (verified in §11).
-
-### 4a. `cref!` — column-pivoted reduced echelon (THE pivot rule)
-
-Reference: `clebschgordan.jl:cref!` with `ɛ = TOL_GAUGE = 1.0e-11` (deliberately
-looser than `TOL_NULLSPACE`, per the reference comment). Port: `cgc.rs:cref`,
-ported statement-for-statement.
-
-Walk pivot rows `i = 1, 2, …` and pivot columns `j = 1, 2, …`:
-
-1. **Pivot column selection.** Among the not-yet-pinned columns `j … nc`, pick
-   the column with the **largest `|A[i, j']|`** in the current row `i`. This is
-   `findabsmax(view(A, i, j:nc))`.
-2. **Tie behavior.** `findabsmax` updates its running maximum only on a **strict**
-   `>` (`abs(v) > m`), so on a tie the **leftmost** (smallest column index)
-   candidate wins. This tie rule is part of the gauge specification. It is,
-   however, **value-neutral in `cref`'s output**: reduced column echelon form is
-   unique, so a different tie rule cannot change any returned coefficient. No
-   coefficient fixture can therefore catch a change to it; the rule is pinned
-   instead by a unit test at the selection site
-   (`cgc.rs:findabsmax` / `findabsmax_breaks_ties_leftmost`).
-3. **Dead row.** If that maximum is `≤ ɛ`, the row is set to zero over `j:nc`
-   (since `ɛ > 0`) and skipped (`i += 1`, `j` unchanged).
-4. **Eliminate.** Otherwise swap the pivot column into position `j`, scale
-   column `j` so `A[i, j] = 1`, and subtract multiples of column `j` from every
-   other column to clear row `i`. Advance `i += 1, j += 1`.
-
-The result is a canonical reduced **column**-echelon representative of the
-subspace; the pivot rule fixes which representative.
-
-### 4b. `qrpos!` — positive-diagonal QR sign fix
-
-Reference: `clebschgordan.jl:qrpos!`:
-
-```
-q, r = qr!(C)
-d = diag(r);  d .= (d == 0 ? 1 : sign(d))   # zero diagonal → +1 (no flip)
-Q = q * Diagonal(d);  R = Diagonal(d) \ r     # so every R[i,i] ≥ 0
-```
-
-`gaugefix!` keeps **`Q`** (`first(...)`), the orthonormal basis with the sign
-convention "each `R` diagonal entry is non-negative; an exactly-zero diagonal is
-left unflipped." Port: `src/lie/sun/linalg.rs::qr_positive_q` uses
-unpivoted QR and folds each negative R-diagonal sign into Q; zero stays
-unflipped.
-
-The gauge-fixed highest-weight block is scattered into `C[·, ·, d3−1, μ]`.
-
-## 5. Lower-weight descent: order and solve
-
-Reference: `clebschgordan.jl:lower_weight_CGC!`. Port: `cgc.rs:lower_weight_cgc`.
-
-- **Descent order.** Weights of `s3` are visited in **reverse lexicographic**
-  order (`w3list = sort(keys(map3); rev = true)`), skipping the first (the
-  highest weight, already solved). Reverse-lex guarantees every parent weight
-  `w3′` (one raising step up) is solved before its children — the descent never
-  reads an unfilled coefficient.
-- **Per-weight system.** For each remaining weight `w3` and each multiplicity
-  column `α`, apply the lowering intertwiner
-  `J⁻₃ |m3⟩ = (J⁻₁ ⊗ 𝟙 + 𝟙 ⊗ J⁻₂) |m1,m2⟩`. The left-hand `eqs[i,j] =
-  J⁻₃[m3, m3′]` (over parent states `m3′`, one block per level `l`) and the
-  right-hand `rhs` accumulates `J⁻[·]·C[parent]` from the already-solved parents.
-  Lowering matrices are `private GT lowering operator` (transpose of `creation`,
-  `gtpatterns.jl`).
-- **Solve.** `sols = ldiv!(qr!(eqs), rhs)` — a QR **least-squares** solve of the
-  (tall or square, full-column-rank) system. Port:
-  `linalg.rs::LeastSquares::{factor,solve}` (§10), reusing each weight's
-  factorization once it has an RHS. Contributions accumulate into
-  `C[·, ·, m3, α]`.
-
-## 6. Purge
-
-Reference: `clebschgordan.jl:purge!`, `atol = TOL_PURGE = 1.0e-14`: drop every
-stored coefficient with `|v| ≤ 1e-14`. Port: `cgc.rs:purge`.
-
-## 7. Trivial couplings
-
-Reference: `clebschgordan.jl:trivial_CGC`. `1 ⊗ s → s` gives `C[0, m, m, 0] = 1`;
-`s ⊗ 1 → s` gives `C[m, 0, m, 0] = 1` (identity embeddings, no linear algebra).
-Port: `cgc.rs:trivial_cgc`.
-
-## 8. Outer-multiplicity axis
-
-- The `N` multiplicity columns share **one** nullspace and are gauge-fixed
-  **together as a block** by a single `qrpos! ∘ cref!` (§4: `cref!` first, then
-  `qrpos!`). Their order on the
-  trailing axis `μ` is therefore the column order that block produces — it is
-  *not* an independent convention and cannot be chosen per column.
-  Reordering the columns changes the specification.
-- This is the same ordering SUNRepresentations produces (its 4th CGC index).
-  The signed oracle (§11) checks OM ≥ 2 channels **including the `μ` order**, so
-  a divergent column order would fail the oracle. (The
-  F-block axis order is `[μ,ν,κ,λ]`; see the [API guide](user-guide/README.md#symbol-layout).)
-
-## 9. Generation gates (typed, never silent)
-
-Floating-point stages are verification-gated (`AGENTS.md` acceptance 5). A
-violation is a typed `lie::GenerationError`, never a silently degraded coefficient.
-
-- **Multiplicity** (§3): `GenerationError (nullspace dimension mismatch)`.
-- **Orthonormality**: the CGC reshaped as `M[(m1,m2),(m3,μ)]` is an isometry,
-  `Σ_{m1,m2} C[··,m3,α] C[··,m3′,β] = δ_{m3 m3′} δ_{αβ}` (contracted over the
-  coupling indices per output column, **not** summed over `m3`). Worst residual
-  `> TOL_ORTHO` → `GenerationError (orthonormality failure)`.
-- **Ladder consistency**: the level-1 lowering intertwiner evaluated at the
-  highest-weight parent must reproduce the descended coefficients; residual
-  `> TOL_LADDER` → `GenerationError (ladder inconsistency)`.
-
-`TOL_ORTHO = TOL_LADDER = 1e-9` are verification tolerances, not value-fixing
-reference constants. Tightening them does not change the gauge.
-
-Proven-unreachable invariant violations (e.g. a missing raised GT pattern when
-its ladder coefficient is nonzero) `panic` in every build (`src/lie/sun.rs::Irrep::try_creation`),
-per the crate's error discipline — those are not tolerance events.
-
-## 10. Numerical seams (backend)
-
-All dense factorizations route through **t4a-faer** (no hand-rolled kernels),
-using explicit `Par::Seq` and precomputed scratch workspaces. The dependency
-has only `std` enabled, without `rayon`; the caller owns parallelism and the
-seams never set or consult global parallelism.
-
-| Operation | Reference | t4a-faer API (`src/lie/sun/linalg.rs`) |
-|---|---|---|
-| nullspace | `_nullspace!` (`svd!(A; full=true)`) | `linalg::svd::svd` (no U, full V) → trailing V columns |
-| gauge sign | `qrpos!` (`qr!` + `sign(diag R)`) | `qr::no_pivoting::factor::qr_in_place` + sign fix → Q |
-| descent | `ldiv!(qr!(eqs), rhs)` | `qr::no_pivoting::solve::solve_lstsq_in_place` |
-
-The crates.io semver requirement is in `Cargo.toml`. `cref!` is **not** a
-factorization kernel — it is the gauge algorithm itself and is ported directly
-in `cgc.rs` (§4a).
-
-## 11. Verification (independent oracles)
-
-- **SU(2) embedding** (`src/lie/sun/su2_embedding_tests.rs::su2_randomized_sweep_matches_exact`): N = 2 CGC vs the crate's exact
-  `clebsch_gordan` (big-rational Racah sums, rounded once) over a randomized
-  sweep — signed, exact up to the single per-channel highest-weight sign.
-- **Gauge continuity** (`tests/sun_cgc_gauge.rs`, `tests/sun_fr_su3_values.rs`):
-  isometry and intertwining of the GT raising operators on representative
-  channels across N ∈ {2,3,4}, and signed entries checked against
-  SUNRepresentations.jl v0.4.0 there, including the OM = 2 `8 ⊗ 8 → 8`
-  channel and its `μ`-axis order, and SU(3) F/R blocks.
-
-A change that moves any observed value beyond these oracles' tolerances is a
-deviation from this specification: a defect unless it ships as a specification
-correction under the four-step rule in **Status** above.
-
-The in-repo drift tripwire is `tests/gauge_golden.rs` (§Status); its SU(3)
-rows are checked against SUNRepresentations.jl v0.4.0.
-
-## 12. The base SU(2) family
-
-The base (no-feature) SU(2) path has no free basis to fix: every coefficient is a
-closed-form expression in exact big-rational arithmetic, so its "gauge" is the
-set of **phase, normalization, and argument-order conventions** the formulas are
-written in. They are normative on the same terms as §1–§11, and are the
-conventions the `FusionCategory::authority_fingerprint` tags name.
-
-- **Evaluation model — `model=bigrational-round-once`.** Every value is computed
+- **Evaluation model.** Every value is computed
   as a big-rational Racah sum carried as `exact.rs:SignedSqrtRational` (a signed
   rational under a square root) with a **single final rounding** to `f64`
   (`lie/su2.rs` module docs). No intermediate rounding: the dimension factors fold
@@ -318,34 +65,33 @@ conventions the `FusionCategory::authority_fingerprint` tags name.
   presented value is `f64` (`lie/su2.rs::f_symbol`) it is a *presentation* of that
   same exact value, never an independent computation. This is value-fixing: a
   differently-associated float evaluation is a different (worse) value.
-- **3j — `3j=condon-shortley`.** `lie/su2.rs:wigner_3j` (`wigner_3j_uncached`): the
+- **3j.** `lie/su2.rs:wigner_3j` (`wigner_3j_uncached`): the
   Condon–Shortley phase convention, evaluated by the prime-factorized Racah
   single sum (`primefactor.rs`). Non-admissible labels return exact zero, never
   an error and never a panic.
-- **6j — `6j=racah-single-sum`.** `lie/su2.rs:wigner_6j` (`wigner_6j_uncached`): the
+- **6j.** `lie/su2.rs:wigner_6j` (`wigner_6j_uncached`): the
   Racah single-sum closed form, with the triangle coefficients from
   `lie/su2.rs:delta_sq_pf`.
-- **Clebsch–Gordan — `cg=condon-shortley`.** `lie/su2.rs:clebsch_gordan`, composed
+- **Clebsch–Gordan.** `lie/su2.rs:clebsch_gordan`, composed
   from the 3j as
   $\sqrt{dj_3+1}\,(-1)^{(dj_2-dj_1-dm_3)/2}\, \begin{pmatrix} dj_1 & dj_2 & dj_3 \\ dm_1 & dm_2 & -dm_3\end{pmatrix}$.
   Both the $\sqrt{dj_3+1}$ normalization and the sign are part of the gauge:
   this is its own convention, not inherited from the 3j.
-- **F symbol — `f=tks-su2irrep`.** `lie/su2.rs:f_symbol_exact` is the value
+- **F symbol.** `lie/su2.rs:f_symbol_exact` is the value
   authority:
   $F = (-1)^{j_1+j_2+j_3+j_4}\sqrt{(dj_5+1)(dj_6+1)}\; \{dj_1\,dj_2\,dj_5 / dj_3\,dj_4\,dj_6\}$,
   matching TensorKitSectors `su2irrep.jl:Fsymbol`. **The 6j argument order is
   gauge**, not an implementation detail — a permuted argument order is a
   different F convention with the same 6j.
-- **R symbol — `r=tks-su2irrep`.** `lie/su2.rs::r_symbol`: $(-1)^{j_1+j_2-j_3}$ on
+- **R symbol.** `lie/su2.rs::r_symbol`: $(-1)^{j_1+j_2-j_3}$ on
   an admissible triangle, exact zero otherwise (an empty category block) (TensorKitSectors
   `su2irrep.jl:Rsymbol`). The zero on a non-admissible triple mirrors
   `Nsymbol == 0` and is normative: it is what stops a caller multiplying a
   spurious sign into a forbidden channel.
-- **Frobenius–Schur — `fs=tks-su2irrep`.** `lie/su2.rs::fs_phase`:
-  $(-1)^{dj}$, i.e. `+1` for integer `j` and `-1` for half-integer. Tagged
-  separately from `r` because it is a distinct formula, not the R convention.
+- **Frobenius–Schur.** `lie/su2.rs::fs_phase`:
+  $(-1)^{dj}$, i.e. `+1` for integer `j` and `-1` for half-integer. It is a distinct formula, not the R convention.
 
-**Deliberately not gauge** (so changing it needs no epoch bump):
+**Deliberately not gauge** (so changing it is not a specification correction):
 
 - The **doubled-spin label encoding** `dj = 2j`. It is input addressing / API
   shape; changing it would be an API break that leaves every value unchanged.
@@ -355,25 +101,13 @@ conventions the `FusionCategory::authority_fingerprint` tags name.
   phase so the returned value is identical either way. They are value-neutral by
   construction, and pinned by the symmetry tests in `tests/properties.rs`.
 
-## 13. SO(N)/Sp(2N)
-
-Specified in [`gauge_soN.md`](gauge_soN.md): the defining-representation
-generator seeds, the Kronecker convention, the decomposition sweep and its
-Gram–Schmidt/QR gauge, the descending-weight sort and its tie-break, the
-first-significant-entry sign convention, the outer-multiplicity assignment, the
-canonical-parent rule, and the intertwiner alignment. That document is normative
-under this same freeze, and `FusionCategory::authority_fingerprint`'s `epoch` is its
-specification version.
-
-## 14. Semisimple products and central quotients
+## 2. Semisimple products and central quotients
 
 Composite `LieGroup` coefficients use the ordered simple-cover gauges through
 `Product<Vec<LieGroup>>`. A D₂ block expands into α₁ then α₂, each in the
-exact A₁ gauge of §12. Each F/R/A/B multiplicity axis and each CGC magnetic or
+`A_1` gauge. Each F/R/A/B multiplicity axis and each CGC magnetic or
 multiplicity axis has the last factor fastest. Factor coefficients multiply
 left to right. These conventions introduce no change to simple-factor values.
 A character lattice `Q ⊆ X ⊆ P` only restricts admitted objects; all fusion
 outcomes remain admitted because `ν−λ−μ ∈ Q`. It neither changes coefficients
-nor renormalizes them. Authority fingerprints use the existing Product framing
-of ordered simple-factor fingerprints, without a new epoch or quotient tag.
-Different outward group presentations can share an authority.
+nor renormalizes them.

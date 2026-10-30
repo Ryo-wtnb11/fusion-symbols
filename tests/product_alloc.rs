@@ -21,7 +21,7 @@ fn warm_product_composition_allocates_nothing() {
         .f_symbol(&half, &half, &half, &half, &zero, &zero)
         .unwrap();
     let stats =
-        fusion_symbols::cache::tier_stats(fusion_symbols::cache::CoefficientCacheTier::DerivedF);
+        fusion_symbols::cache::tier_stats(fusion_symbols::cache::CoefficientCacheTier::FSymbol);
     let before = counting_alloc::calls();
     let f = cat
         .f_symbol(&half, &half, &half, &half, &zero, &zero)
@@ -36,7 +36,7 @@ fn warm_product_composition_allocates_nothing() {
     assert!(empty.data().is_empty());
     assert_eq!(outcomes, 2);
     let warm =
-        fusion_symbols::cache::tier_stats(fusion_symbols::cache::CoefficientCacheTier::DerivedF);
+        fusion_symbols::cache::tier_stats(fusion_symbols::cache::CoefficientCacheTier::FSymbol);
     assert_eq!(warm.misses, stats.misses);
     assert_eq!(warm.hits, stats.hits + 1);
 }
@@ -196,12 +196,16 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
         let (base, generated, hits) = (
             stats_sum(&BASE_TIERS),
             stats_sum(generated_tiers()),
-            tier_stats(Tier::SunF).hits,
+            tier_stats(Tier::FSymbol).hits,
         );
         let (calls, bytes, _, _) = counting_alloc::measure(query_f);
         println!("{name} F: {calls}/{bytes}");
         assert_eq!((calls, bytes), f, "{name} F");
-        assert_eq!(tier_stats(Tier::SunF).hits, hits + k, "{name}: factor hits");
+        assert_eq!(
+            tier_stats(Tier::FSymbol).hits,
+            hits + k,
+            "{name}: factor hits"
+        );
         assert_eq!(
             stats_sum(generated_tiers()).misses,
             generated.misses,
@@ -210,13 +214,13 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
         assert_eq!(stats_sum(&BASE_TIERS).misses, base.misses, "{name}");
         let query_r = || cat.r_symbol(x, x, x).unwrap();
         query_r();
-        let (generated, hits) = (stats_sum(generated_tiers()), tier_stats(Tier::SunR).hits);
+        let (generated, hits) = (stats_sum(generated_tiers()), tier_stats(Tier::RSymbol).hits);
         let r_alloc = counting_alloc::measure(query_r);
         let r_alloc = (r_alloc.0, r_alloc.1);
         println!("{name} R: {}/{}", r_alloc.0, r_alloc.1);
         assert_eq!(r_alloc, r, "{name} R");
         assert_eq!(
-            tier_stats(Tier::SunR).hits,
+            tier_stats(Tier::RSymbol).hits,
             hits + k,
             "{name}: R factor hits"
         );

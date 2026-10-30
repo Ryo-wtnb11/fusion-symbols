@@ -149,9 +149,6 @@ impl FusionCategory for Counter {
         bump_enumeration(2);
         Ok(0)
     }
-    fn authority_fingerprint(&self) -> &[u8] {
-        b"counter"
-    }
 }
 
 /// Leaf calls `([dim, nsymbol, braiding_style, queried], contains)` for each
@@ -372,9 +369,6 @@ impl FusionCategory for Malformed {
     }
     fn b_symbol(&self, _: &u8, _: &u8, _: &u8) -> Result<RBlock<f64>, Infallible> {
         Ok(RBlock::one(1.0))
-    }
-    fn authority_fingerprint(&self) -> &[u8] {
-        b"malformed"
     }
 }
 
