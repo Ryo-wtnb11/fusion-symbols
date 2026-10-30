@@ -3,7 +3,7 @@ use fusion_symbols::{
     category::{
         CgcBlock, EnumerationError, FusionCategory, FusionStyle, GroupRepresentations, SymbolBlock,
     },
-    lie::{CatalogStats, GroupId, LieError, LieGroup, LieIrrep, RootSystem::*},
+    lie::{GroupId, LieError, LieGroup, LieIrrep, RootSystem::*},
     product::Product,
 };
 use std::collections::BTreeMap;
@@ -117,7 +117,6 @@ fn d2_forms_admission_and_hand_values() {
         (-0.5) * (-0.5)
     );
     let cover = LieGroup::new(GroupId::spin(4).unwrap()).unwrap();
-    assert_eq!(cat.authority_fingerprint(), cover.authority_fingerprint());
     let cv = label(&cover, &[1, 1]);
     for x in cat.fusion(&vector, &vector).unwrap() {
         let cx = label(&cover, &x.dynkin());
@@ -170,7 +169,6 @@ fn compare_product(id: GroupId, roots: &[fusion_symbols::lie::RootSystem], sampl
                 .collect()
         })
         .collect();
-    assert_eq!(cat.authority_fingerprint(), product.authority_fingerprint());
     assert_eq!(cat.fusion_style(), product.fusion_style());
     assert_eq!(cat.braiding_style(), product.braiding_style());
     assert_eq!(cat.has_canonical_unit(), product.has_canonical_unit());
@@ -343,13 +341,6 @@ fn quotient_only_restricts_objects_and_enumeration() {
         );
         assert_eq!(cover.object_index(&x), Ok(i));
     }
-    assert_eq!(cover.catalog_stats().unwrap(), CatalogStats::default());
-    assert!(matches!(
-        LieGroup::with_catalog_budget(GroupId::spin(4).unwrap(), 0),
-        Err(LieError::Unsupported {
-            requires: "B/C/D catalog"
-        })
-    ));
 }
 
 #[cfg(feature = "lie-generated")]
@@ -403,28 +394,6 @@ fn composite_feature_boundary() {
 
 #[cfg(feature = "lie-generated")]
 #[test]
-fn aggregate_catalog_budget() {
-    let b = LieGroup::new(GroupId::cover(&[B(2)], 0).unwrap()).unwrap();
-    let c = LieGroup::new(GroupId::cover(&[C(2)], 0).unwrap()).unwrap();
-    let (b_seed, c_seed) = (b.catalog_stats().unwrap(), c.catalog_stats().unwrap());
-    let seed_sum = b_seed.bytes + c_seed.bytes;
-    let byte_budget = |s: CatalogStats| (s.bytes, s.budget);
-    let id = GroupId::cover(&[B(2), C(2)], 0).unwrap();
-    assert!(matches!(
-        LieGroup::with_catalog_budget(id.clone(), seed_sum - 1),
-        Err(LieError::Generation(_))
-    ));
-    let cat = LieGroup::with_catalog_budget(id, seed_sum + 5).unwrap();
-    let stats = cat.catalog_stats().unwrap();
-    assert_eq!(byte_budget(stats), (seed_sum, seed_sum + 5));
-    assert_eq!(stats.entries, b_seed.entries + c_seed.entries);
-    cat.reset_catalog().unwrap();
-    assert_eq!(cat.catalog_stats().unwrap(), stats);
-    assert_eq!(cat.object_count(), Err(EnumerationError::NotEnumerable));
-}
-
-#[cfg(feature = "lie-generated")]
-#[test]
 fn checked_composite_n_overflow_and_zero_wins() {
     // Each SU3 adjoint product contains the adjoint twice: 2^32 does not fit u32.
     let cat = LieGroup::new(GroupId::cover(&[A(2); 32], 0).unwrap()).unwrap();
@@ -436,7 +405,7 @@ fn checked_composite_n_overflow_and_zero_wins() {
     assert_eq!(cat.try_nsymbol(&a, &a, &absent), Ok(0));
 }
 
-/// The feature boundary precedes any B/C/D catalog seed charge.
+/// The feature boundary precedes any root data.
 #[cfg(not(feature = "lie-generated"))]
 #[test]
 fn unsupported_composite_precedence() {
@@ -446,11 +415,7 @@ fn unsupported_composite_precedence() {
     ] {
         let group = GroupId::cover(&roots, torus).unwrap();
         assert_eq!(
-            LieGroup::new(group.clone()),
-            Err(LieError::Unsupported { requires })
-        );
-        assert_eq!(
-            LieGroup::with_catalog_budget(group, 0),
+            LieGroup::new(group),
             Err(LieError::Unsupported { requires })
         );
     }

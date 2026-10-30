@@ -23,8 +23,8 @@
 //! and product channels through both sides, never merely assumed from a numerical
 //! coincidence. `A_{n}` uses [`fusion_symbols::lie`]
 //! Dynkin labels `(a_1,…,a_n)`; `B_r`/`C_r`/`D_r` use [`fusion_symbols::lie`] Dynkin
-//! labels `(b_0,…,b_{r-1})` in the module's node order (node 0 = vector for
-//! `B`/`D`, per `docs/gauge_soN.md`).
+//! labels `(b_0,…,b_{r-1})` in Bourbaki node order (node 0 = vector for
+//! `B`/`D`, per `docs/gauge_cartan.md` §2.1).
 //!
 //! ## `SO(6) ≅ SU(4)` (`D_3 ≅ A_3`)
 //!
@@ -431,6 +431,5 @@ fn spin3_su2_is_a_form_aware_low_rank_redirect() {
         spin3.irrep(&[1]).unwrap().dim_exact(),
         su2.irrep(&[1]).unwrap().dim_exact()
     );
-    assert_eq!(spin3.authority_fingerprint(), su2.authority_fingerprint());
     assert_eq!(so3.irrep(&[1]), Err(LieError::NotAdmissible));
 }

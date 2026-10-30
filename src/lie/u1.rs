@@ -69,8 +69,6 @@ impl U1Irrep {
     }
 }
 
-pub(crate) const U1_FINGERPRINT: &[u8] = b"fusion-symbols:abelian-u1:labels=i32-integer-no-min:n=exact:f=tks-irreps:r=tks-irreps:dim=one:fs=tks-irreps-one:twist=one:scalar=f64:epoch=1";
-
 /// Integer-charge U(1), with validated labels and checked fusion arithmetic.
 ///
 /// Enumeration (frozen): charges `0, 1, −1, 2, −2, …`; charge `q > 0` has
@@ -202,9 +200,6 @@ impl FusionCategory for U1 {
         let q = i64::from(a.charge);
         // |q| ≤ i32::MAX, so both forms fit.
         Ok((if q > 0 { 2 * q - 1 } else { -2 * q }) as u64)
-    }
-    fn authority_fingerprint(&self) -> &[u8] {
-        U1_FINGERPRINT
     }
 }
 

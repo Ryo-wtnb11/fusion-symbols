@@ -1,6 +1,13 @@
 //! Exact signed-coordinate primitives for B/C/D.
 use super::*;
-use crate::lie::bcd::Series;
+/// The classical series `B_r`, `C_r`, `D_r`, whose weights also have
+/// orthonormal ε coordinates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Series {
+    B,
+    C,
+    D,
+}
 pub(crate) fn dynkin_to_two_partition(series: Series, a: &[i64]) -> Result<Vec<i64>, LieError> {
     let r = a.len();
     let mut lam = vec![0i64; r];
@@ -275,12 +282,6 @@ pub(crate) fn enum_dom_rec(
 
 // ---- Weyl orbit ----------------------------------------------------------
 
-/// All distinct Weyl-group images of a dominant weight `mu` (ε-basis):
-/// signed permutations for `B`/`C`, even-signed permutations for `D`.
-#[cfg(test)]
-pub(crate) fn weyl_orbit(series: Series, mu: &[i64]) -> Vec<Vec<i64>> {
-    try_weyl_orbit(series, mu).unwrap_or_else(|e| panic!("infallible weight orbit failed: {e}"))
-}
 pub(crate) fn weyl_sign_count(rank: usize) -> Result<u32, LieError> {
     u32::try_from(rank)
         .ok()

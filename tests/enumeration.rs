@@ -429,9 +429,6 @@ impl<C: FusionCategory> FusionCategory for Forward<C> {
     ) -> Result<C::RSymbol, C::Error> {
         self.0.r_symbol(a, b, c)
     }
-    fn authority_fingerprint(&self) -> &[u8] {
-        self.0.authority_fingerprint()
-    }
     fn object_count(&self) -> Result<Option<u64>, EnumerationError> {
         self.0.object_count()
     }

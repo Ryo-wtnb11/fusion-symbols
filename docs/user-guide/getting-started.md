@@ -130,7 +130,7 @@ A vertex that fusion forbids gives a zero-length axis, not an error.
 ## Checking F against the Wigner 6j symbol
 
 The SU(2) F symbol is a normalized Wigner 6j symbol. In the crate's frozen
-convention ([gauge.md §12](../gauge.md#12-the-base-su2-family), the
+convention ([gauge.md §1](../gauge.md#1-su2-closed-forms), the
 TensorKitSectors convention), with spins `a, b, c, d, e, f`:
 
 ```text
@@ -266,6 +266,6 @@ zero-length blocks. Every case is in the guide's [errors table](README.md#errors
 - [User guide](README.md): every category, A and B symbols, tables, caches,
   and the API at a glance.
 - [Dynkin labels](labels.md): labels of common irreps, duals, U(N) charges.
-- [Caches and reproducibility](resources.md): memory budgets and fingerprints.
+- [Caches and reproducibility](resources.md): memory budgets and reproducibility.
 - [Gauge specifications](../gauge.md): the exact basis and sign conventions.
 - [API reference](https://docs.rs/fusion-symbols).

@@ -10,7 +10,7 @@ API and convention differences, not a claim of complete feature parity.
 | Area | fusion-symbols contract and reason |
 |---|---|
 | Boundary | Standalone mathematical category values, no `Sector` interface or tensor engine; consumers own tensor operations |
-| Lie coefficients | Built-in runtime SU(N)/SO(N)/Spin(N)/Sp(2r)/G₂/F₄/E₆/E₇/E₈ generation (TKS has no exceptional groups) with public CGC and frozen gauge specifications |
+| Lie coefficients | Built-in runtime SU(N)/SO(N)/Spin(N)/Sp(2r)/G₂/F₄/E₆/E₇/E₈ generation from one exact Cartan engine (TKS has no exceptional groups) with public CGC and frozen gauge specifications |
 | Errors | Constructors validate objects; foreign objects panic; N = 0 is a value; absent vertices give zero symbols; numerical failures are typed errors |
 | A/B symbols | Always `category::RBlock`, including scalar families, so the default can construct a result for every category |
 | Scalars | One associated `Scalar` (`f64` or `Complex64`), rather than separate fusion/braiding scalar types; abelian/parity symbols use `f64` rather than TKS `Int` |
@@ -18,7 +18,8 @@ API and convention differences, not a claim of complete feature parity.
 | Tables | AnyonWiki source gauge retained verbatim; only unitary entries with compatible pivotal dimensions are shipped |
 | Fibonacci | Same gauge and braiding as TKS; exact-source rounding can differ from TKS floating arithmetic by a few ulp |
 | Ising | TKS `(I,σ,ψ)` maps to source `(1,3,2)`, with vertex gauge `u^{σσ}_ψ = −1` (R identical, six F signs differ) |
-| Resource control | Bounded coefficient caches and explicit application-owned policy; opaque fingerprints for persisted derived data |
+| Resource control | Bounded coefficient caches and explicit application-owned policy |
+| Hexagon check | `hexagon_residual`'s second hexagon uses the adjoint of each R block for the inverse braiding; TKS `hexagon_equation` uses the elementwise `conj`, which equals the adjoint only for symmetric blocks and so rejects valid data with `N ≥ 2` vertices between different irreps |
 
 Exact SU(2) evaluators retain infallible and `*_checked` entry points. All
 category operations use `FusionCategory`; braiding capability errors apply
@@ -69,8 +70,8 @@ exact counts and binary searches instead of the reference's sequential search.
 
 `Product` retains tuple factors (2..=12) or homogeneous vector factors (any
 length), explicit nesting and trivial factors; TKS `⊠` flattens and absorbs
-`Trivial`. Thus nested and flat labels,
-fingerprints and enumerations differ. For example, index 5 of `(U(1) ⊠ U(1)) ⊠ U(1)`
+`Trivial`. Thus nested and flat labels
+and enumerations differ. For example, index 5 of `(U(1) ⊠ U(1)) ⊠ U(1)`
 is `((1,0),0)`, while index 3 of the flat product is `(1,0,0)`.
 
 Fusion varies the first factor fastest, each F/R/A/B multiplicity axis the

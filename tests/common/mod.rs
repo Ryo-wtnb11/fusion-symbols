@@ -13,11 +13,12 @@ pub fn serial() -> std::sync::MutexGuard<'static, ()> {
     SERIAL.lock().unwrap_or_else(|poison| poison.into_inner())
 }
 
-/// The base SU(2) tiers, whose charge `BASE_CACHE_MAX_BYTES` bounds.
+/// The tiers a build without `lie-generated` fills, whose charge
+/// `BASE_CACHE_MAX_BYTES` bounds.
 #[allow(dead_code)]
-pub const BASE_TIERS: [Tier; 3] = [Tier::ThreeJ, Tier::SixJ, Tier::DerivedF];
+pub const BASE_TIERS: [Tier; 4] = [Tier::Wigner3j, Tier::Wigner6j, Tier::FSymbol, Tier::Cgc];
 
-/// Every generated tier compiled into this build.
+/// The tiers only higher-rank groups fill.
 #[allow(dead_code)]
 pub fn generated_tiers() -> impl Iterator<Item = &'static Tier> {
     Tier::ALL.iter().filter(|tier| !BASE_TIERS.contains(tier))

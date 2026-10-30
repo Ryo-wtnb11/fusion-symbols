@@ -41,7 +41,6 @@ fn labels_forms_and_rank_one_isomorphisms() {
         GroupId::psu(2).unwrap(),
     ] {
         let cat = LieGroup::new(id.clone()).unwrap();
-        assert_eq!(cat.authority_fingerprint(), su.authority_fingerprint());
         if id == GroupId::so(3).unwrap() || id == GroupId::psu(2).unwrap() {
             assert_eq!(cat.irrep(&[1]), Err(LieError::NotAdmissible));
         } else {
@@ -78,9 +77,12 @@ fn foreign_object_precedes_zero_channel() {
 #[test]
 fn dense_cgc_matches_exact_in_ascending_magnetic_order() {
     let cat = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    for a in 0..=6 {
-        for b in 0..=6 {
-            for c in 0..=6 {
+    // Every block for doubled spins a, b ≤ 8 and every admissible c (plus one
+    // inadmissible c each), bitwise against the exact closed form, so the
+    // signs of zeros are compared too.
+    for a in 0..=8u32 {
+        for b in 0..=8u32 {
+            for c in 0..=a + b + 1 {
                 let [ia, ib, ic] = [a, b, c].map(|dj| cat.irrep(&[i64::from(dj)]).unwrap());
                 let tensor = cat.cgc(&ia, &ib, &ic).unwrap();
                 let n = cat.nsymbol(&ia, &ib, &ic) as usize;
@@ -88,36 +90,39 @@ fn dense_cgc_matches_exact_in_ascending_magnetic_order() {
                     tensor.dims(),
                     [a as usize + 1, b as usize + 1, c as usize + 1, n]
                 );
+                if n == 0 {
+                    continue;
+                }
                 for x in 0..=a {
                     for y in 0..=b {
                         for z in 0..=c {
-                            if n != 0 {
-                                assert_eq!(
-                                    tensor.at([x as usize, y as usize, z as usize, 0]),
-                                    clebsch_gordan(
-                                        a,
-                                        2 * x as i32 - a as i32,
-                                        b,
-                                        2 * y as i32 - b as i32,
-                                        c,
-                                        2 * z as i32 - c as i32
-                                    )
-                                    .to_f64()
-                                );
-                            }
+                            let exact = clebsch_gordan(
+                                a,
+                                2 * x as i32 - a as i32,
+                                b,
+                                2 * y as i32 - b as i32,
+                                c,
+                                2 * z as i32 - c as i32,
+                            )
+                            .to_f64();
+                            assert_eq!(
+                                tensor.at([x as usize, y as usize, z as usize, 0]).to_bits(),
+                                exact.to_bits(),
+                                "{a} {b} {c} [{x},{y},{z}]"
+                            );
                         }
                     }
                 }
             }
         }
     }
-    // Dense materialization reuses the exact evaluator's cached 3j values.
-    let cached =
-        fusion_symbols::cache::tier_stats(fusion_symbols::cache::CoefficientCacheTier::ThreeJ);
+    // A warm block is a CGC-tier hit, not a regeneration.
     let half = cat.irrep(&[1]).unwrap();
     cat.cgc(&half, &half, &cat.unit()).unwrap();
-    let warm =
-        fusion_symbols::cache::tier_stats(fusion_symbols::cache::CoefficientCacheTier::ThreeJ);
+    let cached =
+        fusion_symbols::cache::tier_stats(fusion_symbols::cache::CoefficientCacheTier::Cgc);
+    cat.cgc(&half, &half, &cat.unit()).unwrap();
+    let warm = fusion_symbols::cache::tier_stats(fusion_symbols::cache::CoefficientCacheTier::Cgc);
     assert_eq!(warm.misses, cached.misses);
     assert!(warm.hits > cached.hits);
     let huge = cat.irrep(&[i64::from(u32::MAX)]).unwrap();

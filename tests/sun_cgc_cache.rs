@@ -130,12 +130,8 @@ fn cache_reset_stats_and_concurrency() {
         }
     }
 
-    // (b) The winner value is a valid CGC: it matches a from-scratch
-    // recomputation within tolerance. NOT exact -- the faer backend's parallel
-    // reductions are not bit-reproducible across runs, so two independent
-    // generations of the same channel can differ by a few ULPs. (Determinism of
-    // the STORED value under one cache is (a); reproducibility of the gauge
-    // *values* is the fixture oracle, at 2.4e-15.)
+    // (b) The winner value is the CGC: a from-scratch regeneration after a
+    // reset is bit-identical (`docs/gauge_cartan.md` §6.2).
     cache::reset();
     for (k, (a, b, c)) in chans.iter().enumerate() {
         let fresh = cgc(a, b, c).unwrap();
@@ -154,12 +150,12 @@ fn cache_reset_stats_and_concurrency() {
                 (fe.m1, fe.m2, fe.m3, fe.mu),
                 "channel {k}: entry index differs"
             );
-            assert!(
-                (re.value - fe.value).abs() < 1e-9,
-                "channel {k}: value {} vs {} (|Δ|={:e})",
+            assert_eq!(
+                re.value.to_bits(),
+                fe.value.to_bits(),
+                "channel {k}: value {} vs {}",
                 re.value,
-                fe.value,
-                (re.value - fe.value).abs()
+                fe.value
             );
         }
     }

@@ -31,7 +31,6 @@ impl GtPattern {
     }
 
     #[inline]
-    #[cfg(feature = "lie-generated")]
     pub(super) fn set(&mut self, k: usize, l: usize, v: i64) {
         let idx = Self::flat_index(self.n, k, l);
         self.data[idx] = v;
@@ -45,7 +44,6 @@ impl GtPattern {
     }
 }
 
-#[cfg(feature = "lie-generated")]
 pub(super) fn gt_enumerate(toprow: &[i64]) -> Vec<Vec<i64>> {
     let n = toprow.len();
     if n == 1 {
@@ -65,7 +63,6 @@ pub(super) fn gt_enumerate(toprow: &[i64]) -> Vec<Vec<i64>> {
 /// All admissible second rows for `toprow`, in the reference product order:
 /// `sub[j] ∈ [toprow[j+1], toprow[j]]` (GT betweenness), with the *last* entry
 /// `sub[N-2]` varying fastest and `sub[0]` slowest.
-#[cfg(feature = "lie-generated")]
 fn subrow_order(toprow: &[i64]) -> Vec<Vec<i64>> {
     let m = toprow.len() - 1;
     let mut out = Vec::new();
@@ -74,7 +71,6 @@ fn subrow_order(toprow: &[i64]) -> Vec<Vec<i64>> {
     out
 }
 
-#[cfg(feature = "lie-generated")]
 fn subrow_rec(j: usize, m: usize, toprow: &[i64], cur: &mut Vec<i64>, out: &mut Vec<Vec<i64>>) {
     if j == m {
         out.push(cur.clone());

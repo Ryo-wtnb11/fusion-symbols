@@ -1,7 +1,7 @@
-//! Independent oracles (`docs/gauge_exceptional.md` §9): the Chevalley
+//! Independent oracles (`docs/gauge_cartan.md` §8): the Chevalley
 //! relations of §2.3, Weyl and Freudenthal counts, an `e_j` built from the
 //! module axioms alone against the transpose of `f_j`, the lowering recipe
-//! against the stored ladders, and basis facts derived by hand from §3–§4.
+//! against the stored ladders, and basis facts derived by hand from §3.2.1.
 //! The relation and recipe checks are shared with the Gelfand–Tsetlin basis.
 
 use super::*;
@@ -145,7 +145,7 @@ fn serre(x: &[Op], i: usize, j: usize, n: i64, v: &Vector) -> Vector {
     out
 }
 
-/// §9.4 and e_i† = f_i, exactly in the rational basis.
+/// §8 oracle 4 and e_i† = f_i, exactly in the rational basis.
 fn check_relations(root: RootSystem, lambda: &[i64]) {
     let (data, m) = build(root, lambda);
     check_relations_of(&data, &m);
@@ -216,7 +216,7 @@ pub(crate) fn check_recipes(m: &IrrepModule) {
     }
 }
 
-/// Weyl dimension and Freudenthal multiplicity of every weight space (§4.2, §9.1–9.2).
+/// Weyl dimension and Freudenthal multiplicity of every weight space (§3.2.3, §8 oracle 1–3.2.3).
 fn check_ranks(root: RootSystem, lambda: &[i64], weyl: usize) {
     let (data, m) = build(root, lambda);
     assert_eq!(m.dim, weyl);
@@ -250,7 +250,7 @@ fn generator_relations_exact() {
     }
 }
 
-/// The Gram–Schmidt recipe is unit lower triangular (§4.3) and reproduces
+/// The Gram–Schmidt recipe is unit lower triangular (§3.2.3) and reproduces
 /// each basis vector from the kept candidates.
 #[test]
 fn gram_schmidt_recipes_are_unit_lower_triangular_and_exact() {
@@ -313,7 +313,7 @@ fn rank_gates() {
 }
 
 /// G2 `7 = (1, 0)` with α₀ = (2, −1), α₁ = (−3, 2) (§2.1). Lowering from λ
-/// along the only allowed simple roots gives one weight per depth (§3):
+/// along the only allowed simple roots gives one weight per depth (§3.2.1):
 /// (1,0) →f₀ (−1,1) →f₁ (2,−1) →f₀ (0,0) →f₀ (−2,1) →f₁ (1,−1) →f₀ (−1,0).
 /// Each is multiplicity-free with the single candidate shown, so each entry is
 /// `+√‖f_j u‖²` with `‖f_j u‖² = μ_j + ‖e_j u‖²`: 1, 1, √2, √2, 1, 1 (the α₀
@@ -348,7 +348,7 @@ fn g2_7_order_candidates_and_entries() {
     }
 }
 
-/// E6 27 and 27̄ are minuscule: every `f_i` entry is 0 or +1 (§6.3 proof).
+/// E6 27 and 27̄ are minuscule: every `f_i` entry is 0 or +1 (§5.3 proof).
 #[test]
 fn e6_minuscule_entries_are_zero_or_one() {
     for lambda in [unit(6, 0), unit(6, 5)] {
@@ -376,16 +376,16 @@ fn e6_minuscule_entries_are_zero_or_one() {
 
 /// G2 27 = (2, 0), zero weight. Dominant weights of 27 are (2,0), (0,1),
 /// (1,0), (0,0) with multiplicities 1, 1, 2, 3 (6 + 6 + 12 + 3 = 27).
-/// Candidates (§4.1): j = 0 from 0 + α₀ = (2,−1), Weyl-conjugate to (1,0)
+/// Candidates (§3.2.2): j = 0 from 0 + α₀ = (2,−1), Weyl-conjugate to (1,0)
 /// (s₁ then s₀), so 2 vectors; j = 1 from 0 + α₁ = (−3,2), conjugate to (0,1)
 /// (s₀ then s₁), so 1 vector. Three candidates span a 3-dimensional space, so
-/// §4.2 keeps all of them: (0,0), (0,1), (1,0).
+/// §3.2.3 keeps all of them: (0,0), (0,1), (1,0).
 #[test]
 fn g2_27_zero_weight_keeps_every_candidate() {
     let (_, m) = build(RootSystem::G2, &[2, 0]);
     let s = &m.weights[m.weight_index(&[0, 0]).unwrap()];
     assert_eq!(s.kept, vec![(0, 0), (0, 1), (1, 0)]);
-    // §4.3: b_k = c_k − (earlier b), so its own coefficient is 1 and later ones 0.
+    // §3.2.3: b_k = c_k − (earlier b), so its own coefficient is 1 and later ones 0.
     for (k, row) in s.recipe.iter().enumerate() {
         assert_eq!(row[k], Q::from(1));
         assert!(row[k + 1..].iter().all(|x| x.numerator_ref() == &0));

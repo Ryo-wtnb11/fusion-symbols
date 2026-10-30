@@ -386,9 +386,6 @@ impl FusionCategory for CU1 {
         })
     }
 
-    /// Opaque authority fingerprint of the `CU(1)` provider. Same contract as
-    /// [`crate::category::FusionCategory::authority_fingerprint`]: compare by equality only; the epoch
-    /// is bumped exactly when a returned value or convention changes.
     fn object_count(&self) -> Result<Option<u64>, EnumerationError> {
         Ok(None)
     }
@@ -407,9 +404,6 @@ impl FusionCategory for CU1 {
             0 => u64::from(a.s),
             q => u64::from(q) + 1,
         })
-    }
-    fn authority_fingerprint(&self) -> &[u8] {
-        b"fusion-symbols:cu1:labels=u32-twice-charge-full:n=tks-cu1irrep-exact:f=tks-cu1irrep:r=tks-cu1irrep:dim=tks-cu1irrep:fs=tks-cu1irrep-one:twist=tks-rsymbol-sum-one:scalar=f64:epoch=1"
     }
 }
 
@@ -561,22 +555,6 @@ mod tests {
                     }
                 }
             }
-        }
-    }
-
-    #[test]
-    fn fingerprint_is_pinned_and_distinct() {
-        assert_eq!(
-            CU1.authority_fingerprint(),
-            &b"fusion-symbols:cu1:labels=u32-twice-charge-full:n=tks-cu1irrep-exact:f=tks-cu1irrep:r=tks-cu1irrep:dim=tks-cu1irrep:fs=tks-cu1irrep-one:twist=tks-rsymbol-sum-one:scalar=f64:epoch=1"[..]
-        );
-        let fibonacci = crate::table::TableCategory::fibonacci();
-        for other in [
-            super::super::u1::U1_FINGERPRINT,
-            crate::finite::LEGACY_PARITY_FINGERPRINT,
-            fibonacci.authority_fingerprint(),
-        ] {
-            assert_ne!(CU1.authority_fingerprint(), other);
         }
     }
 }

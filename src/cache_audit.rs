@@ -4,12 +4,13 @@ use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 use crate::cache::{self, CoefficientCacheTier};
+use crate::category::{FusionCategory, GroupRepresentations};
 use crate::lie::su2::{f_symbol as exact_f, wigner_3j, wigner_6j};
-use crate::lie::sun::{cgc, directproduct, f_symbol, shared_directproduct, Irrep};
+use crate::lie::{GroupId, LieGroup, LieIrrep};
 use crate::primefactor;
 
-fn irr(dynkin: &[i64]) -> Irrep {
-    Irrep::from_dynkin(dynkin).unwrap()
+fn group(n: usize) -> LieGroup {
+    LieGroup::new(GroupId::su(n).unwrap()).unwrap()
 }
 
 fn rss_bytes() -> Option<usize> {
@@ -52,22 +53,17 @@ struct Measurement {
 }
 
 fn emit(phase: &str, measurement: Option<Measurement>) {
-    let [three_j, six_j, derived_f] = [
-        CoefficientCacheTier::ThreeJ,
-        CoefficientCacheTier::SixJ,
-        CoefficientCacheTier::DerivedF,
-    ]
-    .map(cache::tier_stats);
-    let [product, sun_cgc, sun_f, sun_r, bcd_cgc, bcd_f, bcd_r] = [
-        CoefficientCacheTier::Product,
-        CoefficientCacheTier::SunCgc,
-        CoefficientCacheTier::SunF,
-        CoefficientCacheTier::SunR,
-        CoefficientCacheTier::BcdCgc,
-        CoefficientCacheTier::BcdF,
-        CoefficientCacheTier::BcdR,
-    ]
-    .map(cache::tier_stats);
+    let tiers = CoefficientCacheTier::ALL
+        .iter()
+        .map(|&tier| {
+            let s = cache::tier_stats(tier);
+            format!(
+                "\"{tier}\":[{},{},{},{},{}]",
+                s.entries, s.bytes, s.hits, s.misses, s.evictions
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
     let table = primefactor::table_stats();
     let (live, _) = crate::audit_alloc::snapshot();
     let (elapsed, start_live, end_live, peak_live) = measurement
@@ -77,23 +73,13 @@ fn emit(phase: &str, measurement: Option<Measurement>) {
     eprintln!(
         concat!(
             "COEFFICIENT_CACHE_AUDIT {{\"kind\":\"phase\",\"phase\":\"{}\",\"elapsed_ns\":{},",
-            "\"base\":[[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}]],",
-            "\"generated\":[[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}],[{},{},{},{},{}]],",
+            "\"tiers\":{{{}}},",
             "\"factorial_rows\":{},\"primes\":{},\"table_capacity_bytes\":{},",
             "\"system_requested_live_start_bytes\":{},\"system_requested_live_end_bytes\":{},\"system_requested_live_peak_bytes\":{},\"system_requested_live_transient_lower_bound_bytes\":{},\"rss_bytes\":{} }}"
         ),
         phase,
         elapsed,
-        three_j.entries, three_j.bytes, three_j.hits, three_j.misses, three_j.evictions,
-        six_j.entries, six_j.bytes, six_j.hits, six_j.misses, six_j.evictions,
-        derived_f.entries, derived_f.bytes, derived_f.hits, derived_f.misses, derived_f.evictions,
-        product.entries, product.bytes, product.hits, product.misses, product.evictions,
-        sun_cgc.entries, sun_cgc.bytes, sun_cgc.hits, sun_cgc.misses, sun_cgc.evictions,
-        sun_f.entries, sun_f.bytes, sun_f.hits, sun_f.misses, sun_f.evictions,
-        bcd_cgc.entries, bcd_cgc.bytes, bcd_cgc.hits, bcd_cgc.misses, bcd_cgc.evictions,
-        bcd_f.entries, bcd_f.bytes, bcd_f.hits, bcd_f.misses, bcd_f.evictions,
-        sun_r.entries, sun_r.bytes, sun_r.hits, sun_r.misses, sun_r.evictions,
-        bcd_r.entries, bcd_r.bytes, bcd_r.hits, bcd_r.misses, bcd_r.evictions,
+        tiers,
         table.factorial_rows, table.primes, table.retained_capacity_bytes,
         start_live,
         end_live,
@@ -155,47 +141,42 @@ fn su2_no_reuse() {
     let _ = exact_f(2, 2, 2, 2, 2, 2);
 }
 
+fn sun(n: usize, reset: bool) {
+    let g = group(n);
+    let mut fundamental = vec![0; n - 1];
+    fundamental[0] = 1;
+    let a: LieIrrep = g.irrep(&fundamental).unwrap();
+    let b = g.dual(&a);
+    let mut adjoint = fundamental.clone();
+    adjoint[n - 2] += 1;
+    let adjoint = g.irrep(&adjoint).unwrap();
+    let step = || {
+        if reset {
+            cache::reset();
+        }
+    };
+    step();
+    let _ = g.fusion(&a, &b).unwrap().count();
+    step();
+    assert!(g.cgc(&a, &b, &adjoint).is_ok());
+    step();
+    let _ = g.f_symbol(&a, &b, &a, &a, &adjoint, &adjoint).unwrap();
+}
+
 fn su3() {
-    let three = irr(&[1, 0]);
-    let three_bar = irr(&[0, 1]);
-    let eight = irr(&[1, 1]);
-    let _ = shared_directproduct(&three, &three_bar).unwrap();
-    let warmed_cgc = cgc(&three, &three_bar, &eight).unwrap();
-    assert!(!warmed_cgc.entries().is_empty());
-    let _ = f_symbol(&three, &three_bar, &three, &three, &eight, &eight).unwrap();
+    sun(3, false);
 }
 
 fn su3_no_reuse() {
-    let three = irr(&[1, 0]);
-    let three_bar = irr(&[0, 1]);
-    let eight = irr(&[1, 1]);
-    cache::reset();
-    let _ = shared_directproduct(&three, &three_bar).unwrap();
-    cache::reset();
-    let _ = cgc(&three, &three_bar, &eight).unwrap();
-    cache::reset();
-    let _ = f_symbol(&three, &three_bar, &three, &three, &eight, &eight).unwrap();
+    sun(3, true);
 }
 
 fn su4() {
-    let four = irr(&[1, 0, 0]);
-    let four_bar = irr(&[0, 0, 1]);
-    let fifteen = irr(&[1, 0, 1]);
-    let _ = shared_directproduct(&four, &four_bar).unwrap();
-    let _ = cgc(&four, &four_bar, &fifteen).unwrap();
-    let _ = f_symbol(&four, &four_bar, &four, &four, &fifteen, &fifteen).unwrap();
+    sun(4, false);
 }
 
 fn su4_no_reuse() {
-    let four = irr(&[1, 0, 0]);
-    let four_bar = irr(&[0, 0, 1]);
-    let fifteen = irr(&[1, 0, 1]);
-    cache::reset();
-    let _ = shared_directproduct(&four, &four_bar).unwrap();
-    cache::reset();
-    let _ = cgc(&four, &four_bar, &fifteen).unwrap();
-    cache::reset();
-    let _ = f_symbol(&four, &four_bar, &four, &four, &fifteen, &fifteen).unwrap();
+    sun(4, true);
 }
 
 fn run(label: &str, work: fn(), no_reuse: fn()) {
@@ -244,40 +225,17 @@ fn coefficient_cache_audit() {
     cache::reset();
     su2();
     clone_slope("exact_su2_6j", || wigner_6j(60, 60, 60, 60, 60, 60));
-    let three = irr(&[1, 0]);
-    let three_bar = irr(&[0, 1]);
-    let eight = irr(&[1, 1]);
-    let _ = shared_directproduct(&three, &three_bar).unwrap();
-    clone_slope("owned_product", || {
-        directproduct(&three, &three_bar).unwrap()
-    });
-    let _ = cgc(&three, &three_bar, &eight).unwrap();
-    clone_slope("public_cgc", || cgc(&three, &three_bar, &eight).unwrap());
-    let _ = f_symbol(&three, &three_bar, &three, &three, &eight, &eight).unwrap();
+    let g = group(3);
+    let three = g.irrep(&[1, 0]).unwrap();
+    let three_bar = g.irrep(&[0, 1]).unwrap();
+    let eight = g.irrep(&[1, 1]).unwrap();
+    let _ = g.fusion(&three, &three_bar).unwrap().count();
+    clone_slope("product", || g.fusion(&three, &three_bar).unwrap());
+    let _ = g.cgc(&three, &three_bar, &eight).unwrap();
+    clone_slope("public_cgc", || g.cgc(&three, &three_bar, &eight).unwrap());
+    let _ = g.f_symbol(&three, &three_bar, &three, &three, &eight, &eight);
     clone_slope("public_f", || {
-        f_symbol(&three, &three_bar, &three, &three, &eight, &eight).unwrap()
+        g.f_symbol(&three, &three_bar, &three, &three, &eight, &eight)
+            .unwrap()
     });
-
-    cache::reset();
-    let a = irr(&[1, 0]);
-    let b = irr(&[0, 1]);
-    let retained = shared_directproduct(&a, &b).unwrap();
-    let cache_shared = shared_directproduct(&a, &b).unwrap();
-    assert!(retained.ptr_eq(&cache_shared));
-    let owners_with_two_public_handles = retained.strong_count();
-    drop(cache_shared);
-    let owners_before_reset = retained.strong_count();
-    cache::reset();
-    assert_eq!(retained.strong_count() + 1, owners_before_reset);
-    assert!(!retained.iter().collect::<Vec<_>>().is_empty());
-    let before_drop = crate::audit_alloc::snapshot().0;
-    drop(retained);
-    let after_drop = crate::audit_alloc::snapshot().0;
-    eprintln!(
-        "COEFFICIENT_CACHE_AUDIT {{\"kind\":\"retention\",\"owners_with_two_public_handles\":{},\"owners_before_reset\":{},\"freed_bytes_after_final_drop\":{}}}",
-        owners_with_two_public_handles,
-        owners_before_reset,
-        before_drop.saturating_sub(after_drop),
-    );
-    emit("public_product_retained_after_reset", None);
 }

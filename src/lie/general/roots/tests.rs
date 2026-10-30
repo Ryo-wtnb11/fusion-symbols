@@ -1,6 +1,6 @@
 //! Independent oracles: closed forms, literal tables from
-//! `docs/gauge_exceptional.md` §6.2 and §9 (Bourbaki Plates V–IX), and the
-//! literal classical products and chirality orbits.
+//! `docs/gauge_cartan.md` §5.2 and §8 (Bourbaki Plates I–IX), Oscar 1.8.0
+//! classical products, and chirality orbits.
 
 use super::*;
 use std::collections::BTreeSet;
@@ -757,31 +757,24 @@ fn weyl_dimension_of_scaled_rho() {
 
 #[test]
 fn coefficient_checks_use_dimension_free_multiplicities() {
-    use crate::frcore::Family;
     let _guard = crate::cache::TEST_CACHE_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let roots = CartanData::new(RootSystem::C(2));
-    let a = crate::lie::bcd::Irrep(roots.irrep(&[1, 0]).unwrap());
-    let one = crate::lie::bcd::Irrep(roots.irrep(&[0, 0]).unwrap());
+    let a = roots.irrep(&[1, 0]).unwrap();
+    let one = roots.irrep(&[0, 0]).unwrap();
     crate::cache::reset();
     EVALUATIONS.with(|n| n.set((0, 0)));
-    assert_eq!(crate::lie::bcd::fr::mult(&a, &a, &one).unwrap(), 1);
-    assert_eq!(crate::lie::bcd::fr::mult(&a, &a, &one).unwrap(), 1);
+    assert_eq!(roots.multiplicity(&a, &a, &one).unwrap(), 1);
+    assert_eq!(roots.multiplicity(&a, &a, &one).unwrap(), 1);
     EVALUATIONS.with(|n| assert_eq!(n.get(), (0, 0)));
-    let mut family = super::super::cgc::GeneralFamily::new(RootSystem::G2);
+    let family = super::super::cgc::GeneralFamily::new(RootSystem::G2);
     crate::cache::reset();
     LABEL_PROJECTIONS.set(0);
     EVALUATIONS.with(|n| n.set((0, 0)));
-    assert_eq!(
-        family.mult(&vec![1, 0], &vec![1, 0], &vec![0, 0]).unwrap(),
-        1
-    );
+    assert_eq!(family.mult(&[1, 0], &[1, 0], &[0, 0]).unwrap(), 1);
     EVALUATIONS.with(|n| n.set((0, 0)));
-    assert_eq!(
-        family.mult(&vec![1, 0], &vec![1, 0], &vec![0, 0]).unwrap(),
-        1
-    );
+    assert_eq!(family.mult(&[1, 0], &[1, 0], &[0, 0]).unwrap(), 1);
     EVALUATIONS.with(|n| assert_eq!(n.get(), (0, 0)));
     // Observe this key and this thread; unrelated tests may populate other projections.
     assert!(crate::cache::product_multiplicities_are_resident(
@@ -791,17 +784,86 @@ fn coefficient_checks_use_dimension_free_multiplicities() {
     ));
     assert_eq!(LABEL_PROJECTIONS.get(), 0);
 
-    let engine = super::super::Engine::new(RootSystem::G2);
-    let a = engine.irrep(&[1, 0]).unwrap();
-    let one = engine.irrep(&[0, 0]).unwrap();
     crate::cache::reset();
     LABEL_PROJECTIONS.set(0);
-    let first = engine.cgc(&a, &a, &one).unwrap();
-    assert_eq!(engine.cgc(&a, &a, &one).unwrap(), first);
+    let first = family.cgc_entries(&[1, 0], &[1, 0], &[0, 0]).unwrap();
+    assert_eq!(
+        family.cgc_entries(&[1, 0], &[1, 0], &[0, 0]).unwrap(),
+        first
+    );
     assert!(crate::cache::product_multiplicities_are_resident(
         RootSystem::G2,
         &[1, 0],
         &[1, 0]
     ));
     assert_eq!(LABEL_PROJECTIONS.get(), 0);
+}
+
+/// Classical B/C/D tensor products checked against Oscar 1.8.0
+/// (`tensor_product_decomposition`), including multiplicity-2 channels, and
+/// Oscar dimensions for labels with an entry 3.
+#[test]
+fn classical_products_checked_against_oscar() {
+    type Row<'a> = (RootSystem, &'a [i64], &'a [i64], &'a [(&'a [i64], u32)]);
+    let rows: [Row; 4] = [
+        (
+            RootSystem::B(2),
+            &[0, 2],
+            &[1, 2],
+            &[
+                (&[0, 2], 1),
+                (&[0, 4], 1),
+                (&[1, 0], 1),
+                (&[1, 2], 2),
+                (&[1, 4], 1),
+                (&[2, 0], 1),
+                (&[2, 2], 1),
+                (&[3, 0], 1),
+            ],
+        ),
+        (
+            RootSystem::C(2),
+            &[2, 0],
+            &[1, 1],
+            &[
+                (&[1, 0], 1),
+                (&[1, 1], 2),
+                (&[1, 2], 1),
+                (&[3, 0], 1),
+                (&[3, 1], 1),
+            ],
+        ),
+        (
+            RootSystem::B(3),
+            &[1, 0, 0],
+            &[1, 0, 0],
+            &[(&[0, 0, 0], 1), (&[0, 1, 0], 1), (&[2, 0, 0], 1)],
+        ),
+        (
+            RootSystem::D(4),
+            &[0, 0, 1, 1],
+            &[1, 0, 0, 0],
+            &[
+                (&[0, 0, 0, 2], 1),
+                (&[0, 0, 2, 0], 1),
+                (&[0, 1, 0, 0], 1),
+                (&[1, 0, 1, 1], 1),
+            ],
+        ),
+    ];
+    for (root, a, b, want) in rows {
+        let data = CartanData::new(root);
+        let got: BTreeMap<Vec<i64>, u32> = data.tensor_product(a, b).unwrap();
+        assert_eq!(got, multiset(want), "{root:?} {a:?} ⊗ {b:?}");
+    }
+    for (root, d, want) in [
+        (RootSystem::B(2), [3, 2], 154u32),
+        (RootSystem::C(2), [3, 2], 140),
+    ] {
+        assert_eq!(
+            CartanData::new(root).weyl_dimension(&d).unwrap(),
+            Integer::from(want),
+            "{root:?} {d:?}"
+        );
+    }
 }

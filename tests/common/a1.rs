@@ -25,6 +25,3 @@ pub fn phase(dj: u32) -> f64 {
 pub fn twist(dj: u32) -> f64 {
     group().twist(&ir(dj))
 }
-pub fn fingerprint() -> Vec<u8> {
-    group().authority_fingerprint().to_vec()
-}

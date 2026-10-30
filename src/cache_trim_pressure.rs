@@ -5,7 +5,6 @@ use std::time::Instant;
 
 use crate::cache::{self, CoefficientCacheTier};
 use crate::lie::su2::{wigner_3j, wigner_6j};
-use crate::lie::sun::{directproduct, Irrep};
 
 fn rss_bytes() -> Option<usize> {
     let output = std::process::Command::new("ps")
@@ -31,22 +30,12 @@ fn workload() {
         ));
         black_box(wigner_3j(labels[0], labels[1], labels[2], 0, 0, 0));
     }
-    for (a, b) in [
-        (&[1, 0][..], &[0, 1][..]),
-        (&[1, 1], &[1, 1]),
-        (&[1, 0, 0], &[0, 0, 1]),
-    ] {
-        black_box(
-            directproduct(
-                &Irrep::from_dynkin(a).unwrap(),
-                &Irrep::from_dynkin(b).unwrap(),
-            )
-            .unwrap(),
-        );
-    }
     use crate::category::FusionCategory;
     use crate::lie::{GroupId, LieGroup};
     for (id, label) in [
+        (GroupId::su(3).unwrap(), vec![1, 0]),
+        (GroupId::su(3).unwrap(), vec![1, 1]),
+        (GroupId::su(4).unwrap(), vec![1, 0, 0]),
         (GroupId::sp(4).unwrap(), vec![1, 0]),
         (GroupId::e6(), vec![1, 0, 0, 0, 0, 0]),
     ] {
@@ -64,8 +53,8 @@ fn run(mode: &str) {
     cache::reset();
     workload();
     let [before_three_j, before_six_j, before_product] = [
-        CoefficientCacheTier::ThreeJ,
-        CoefficientCacheTier::SixJ,
+        CoefficientCacheTier::Wigner3j,
+        CoefficientCacheTier::Wigner6j,
         CoefficientCacheTier::Product,
     ]
     .map(cache::tier_stats);
@@ -84,8 +73,8 @@ fn run(mode: &str) {
         _ => unreachable!(),
     };
     let reports = [
-        cache::trim_to(CoefficientCacheTier::ThreeJ, targets[0]),
-        cache::trim_to(CoefficientCacheTier::SixJ, targets[1]),
+        cache::trim_to(CoefficientCacheTier::Wigner3j, targets[0]),
+        cache::trim_to(CoefficientCacheTier::Wigner6j, targets[1]),
         cache::trim_to(CoefficientCacheTier::Product, targets[2]),
     ];
     match mode {
@@ -103,13 +92,13 @@ fn run(mode: &str) {
     let elapsed_ns = start.elapsed().as_nanos();
     let (end_live, peak_live) = crate::audit_alloc::snapshot();
     let [after_three_j, after_six_j, after_product] = [
-        CoefficientCacheTier::ThreeJ,
-        CoefficientCacheTier::SixJ,
+        CoefficientCacheTier::Wigner3j,
+        CoefficientCacheTier::Wigner6j,
         CoefficientCacheTier::Product,
     ]
     .map(cache::tier_stats);
-    assert!(after_three_j.bytes <= cache::cache_budgets().limit(CoefficientCacheTier::ThreeJ));
-    assert!(after_six_j.bytes <= cache::cache_budgets().limit(CoefficientCacheTier::SixJ));
+    assert!(after_three_j.bytes <= cache::cache_budgets().limit(CoefficientCacheTier::Wigner3j));
+    assert!(after_six_j.bytes <= cache::cache_budgets().limit(CoefficientCacheTier::Wigner6j));
     assert!(after_product.bytes <= cache::cache_budgets().limit(CoefficientCacheTier::Product));
     let sample = std::env::var("COEFFICIENT_CACHE_TRIM_SAMPLE").unwrap_or_else(|_| "0".into());
     let revision = option_env!("RACAH_TRIM_REVISION").unwrap_or("not-embedded");

@@ -98,10 +98,6 @@ impl ZNIrrep {
     }
 }
 
-#[cfg(test)]
-pub(crate) const LEGACY_PARITY_FINGERPRINT: &[u8] = b"fusion-symbols:abelian-z2:n=tks-irreps:f=tks-irreps:r=tks-irreps:dim=one:fs=tks-irreps-one:twist=one:scalar=f64:epoch=1";
-const ZN_FINGERPRINT: &[u8] = b"fusion-symbols:abelian-zn:labels=u32-runtime-modulus:n=tks-irreps:f=tks-irreps:r=tks-irreps:dim=one:fs=tks-irreps-one:twist=one:scalar=f64:epoch=1";
-
 /// Cyclic bosonic category with validated, modulus-tagged objects.
 ///
 /// Enumeration (frozen): the `N` charges `0, 1, …, N − 1`; the index of a
@@ -262,9 +258,6 @@ impl FusionCategory for ZN {
     fn object_index(&self, a: &ZNIrrep) -> Result<u64, EnumerationError> {
         self.validate(&[a]);
         Ok(u64::from(a.charge))
-    }
-    fn authority_fingerprint(&self) -> &[u8] {
-        ZN_FINGERPRINT
     }
 }
 
@@ -558,32 +551,5 @@ mod tests {
         );
         assert_eq!(U1.r_symbol(&u1(1), &u1(2), &u1(3)).unwrap(), 1.0);
         assert_eq!(U1.r_symbol(&u1(1), &u1(2), &u1(2)).unwrap(), 0.0);
-    }
-
-    #[test]
-    fn fingerprints_are_pinned_and_distinct() {
-        let cyclic = ZN::new(2).unwrap();
-        let all = [
-            cyclic.authority_fingerprint(),
-            U1.authority_fingerprint(),
-            FermionParity.authority_fingerprint(),
-        ];
-        assert_eq!(
-            all,
-            [
-                &b"fusion-symbols:abelian-zn:labels=u32-runtime-modulus:n=tks-irreps:f=tks-irreps:r=tks-irreps:dim=one:fs=tks-irreps-one:twist=one:scalar=f64:epoch=1"[..],
-                &b"fusion-symbols:abelian-u1:labels=i32-integer-no-min:n=exact:f=tks-irreps:r=tks-irreps:dim=one:fs=tks-irreps-one:twist=one:scalar=f64:epoch=1"[..],
-                &b"fusion-symbols:abelian-fz2:n=tks-fermions:f=tks-fermions:r=tks-fermions-odd-odd-minus:dim=one:fs=tks-fsymbol-sign:twist=tks-fermions:scalar=f64:epoch=1"[..],
-            ]
-        );
-        for (i, a) in all.iter().enumerate() {
-            for b in &all[i + 1..] {
-                assert_ne!(a, b);
-            }
-            assert_ne!(
-                *a,
-                crate::table::TableCategory::fibonacci().authority_fingerprint()
-            );
-        }
     }
 }

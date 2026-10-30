@@ -11,7 +11,7 @@ use fusion_symbols::cache::{
 #[test]
 fn observing_cache_stats_freezes_the_default_policy() {
     let default = CoefficientCacheBudgets::default();
-    let _ = tier_stats(CoefficientCacheTier::ThreeJ);
+    let _ = tier_stats(CoefficientCacheTier::Wigner3j);
     assert_eq!(cache_budgets(), default);
     assert_eq!(
         configure_cache_budgets(CoefficientCacheBudgets::disabled()),

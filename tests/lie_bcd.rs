@@ -1,19 +1,12 @@
-//! Isolated process: reset/warm counter and catalog lifecycle assertions exclude unrelated cache traffic.
+//! Isolated process: reset/warm counter assertions exclude unrelated cache traffic.
 mod common;
 
 #[cfg(feature = "lie-generated")]
 use fusion_symbols::category::FusionCategory;
-use fusion_symbols::lie::{CatalogStats, GroupId, LieError, LieGroup};
+use fusion_symbols::lie::{GroupId, LieError, LieGroup};
 
 #[test]
-fn excluded_rank_and_absent_catalog() {
-    let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    assert_eq!(su2.catalog_stats().unwrap(), CatalogStats::default());
-    su2.reset_catalog().unwrap();
-    assert!(matches!(
-        LieGroup::with_catalog_budget(GroupId::su(2).unwrap(), 0),
-        Err(LieError::Unsupported { .. })
-    ));
+fn feature_boundary() {
     #[cfg(not(feature = "lie-generated"))]
     for id in [
         GroupId::spin(5).unwrap(),
@@ -31,14 +24,10 @@ fn excluded_rank_and_absent_catalog() {
 
 #[cfg(feature = "lie-generated")]
 #[test]
-fn labels_weights_zero_blocks_and_catalog_budget() {
+fn labels_weights_zero_blocks_and_shared_cgc() {
     use fusion_symbols::{
         cache,
         category::{CgcBlock, FusionCategory, FusionStyle, GroupRepresentations},
-    };
-    use std::{
-        collections::hash_map::DefaultHasher,
-        hash::{Hash, Hasher},
     };
     let cat = LieGroup::new(GroupId::spin(5).unwrap()).unwrap();
     let s = cat.irrep(&[0, 1]).unwrap();
@@ -129,30 +118,14 @@ fn labels_weights_zero_blocks_and_catalog_budget() {
     let warm = cache::tier_stats(cache::CoefficientCacheTier::Product);
     assert_eq!(warm.misses, before.misses);
     assert!(warm.hits > before.hits);
-    cache::reset();
-    let seed_bytes = cat.catalog_stats().unwrap().bytes;
-    let tiny = LieGroup::with_catalog_budget(GroupId::spin(5).unwrap(), seed_bytes).unwrap();
-    assert_eq!(tiny, cat);
-    let hash = |x: &LieGroup| {
-        let mut h = DefaultHasher::new();
-        x.hash(&mut h);
-        h.finish()
-    };
-    assert_eq!(hash(&tiny), hash(&cat));
-    assert_eq!(tiny.catalog_stats().unwrap().budget, seed_bytes);
-    assert!(matches!(
-        tiny.cgc(&s, &s, &adj),
-        Err(LieError::Generation(_))
-    ));
-    let baseline = cat.catalog_stats().unwrap();
+    // Equal groups and clones share the process-wide CGC tier.
     let clone = cat.clone();
-    cat.cgc(&s, &s, &adj).unwrap();
-    let grown = clone.catalog_stats().unwrap();
-    assert!(grown.bytes > baseline.bytes);
-    assert!(grown.entries > baseline.entries);
-    assert_eq!(grown.budget, baseline.budget);
-    clone.reset_catalog().unwrap();
-    assert_eq!(cat.catalog_stats().unwrap(), baseline);
+    let first = cat.cgc(&s, &s, &adj).unwrap();
+    let hits = cache::tier_stats(cache::CoefficientCacheTier::Cgc).hits;
+    assert_eq!(clone.cgc(&s, &s, &adj).unwrap(), first);
+    let twin = LieGroup::new(GroupId::spin(5).unwrap()).unwrap();
+    assert_eq!(twin.cgc(&s, &s, &adj).unwrap(), first);
+    assert!(cache::tier_stats(cache::CoefficientCacheTier::Cgc).hits >= hits + 2);
 }
 
 #[cfg(feature = "lie-generated")]

@@ -16,9 +16,9 @@ fn trim_is_tier_local_preserves_budget_and_allows_refill() {
     let _ = wigner_6j(2, 2, 2, 2, 2, 2);
     let _ = exact_f(2, 2, 2, 2, 2, 2);
     for tier in [
-        CoefficientCacheTier::ThreeJ,
-        CoefficientCacheTier::SixJ,
-        CoefficientCacheTier::DerivedF,
+        CoefficientCacheTier::Wigner3j,
+        CoefficientCacheTier::Wigner6j,
+        CoefficientCacheTier::FSymbol,
     ] {
         let selected = tier_stats(tier);
         assert!(selected.entries > 0);
@@ -28,6 +28,6 @@ fn trim_is_tier_local_preserves_budget_and_allows_refill() {
     }
     assert_eq!(cache_budgets(), budget);
     let _ = wigner_6j(2, 2, 2, 2, 2, 2);
-    assert_eq!(tier_stats(CoefficientCacheTier::SixJ).entries, 1);
+    assert_eq!(tier_stats(CoefficientCacheTier::Wigner6j).entries, 1);
     assert_eq!(cache_budgets(), budget);
 }

@@ -66,7 +66,6 @@ impl SignedSqrtRational {
     }
 
     /// Accept an already reduced nonnegative radicand at the exceptional boundary.
-    #[cfg(feature = "lie-generated")]
     pub(crate) fn from_radicand(sign: i8, r: Rational) -> Self {
         if r == 0 {
             Self::zero()
@@ -265,7 +264,6 @@ fn two_pow_i(e: i64) -> f64 {
 /// The running value stays in lowest terms: each incoming pair is reduced
 /// against itself and crosswise against the running state before
 /// multiplying, so intermediates are as small as the factor order allows.
-#[cfg(feature = "lie-generated")]
 pub(crate) fn checked_integral_quotient(
     factors: impl IntoIterator<Item = (u128, u128)>,
 ) -> Option<u128> {
@@ -284,7 +282,6 @@ pub(crate) fn checked_integral_quotient(
 }
 
 /// `a / b`, in a hardware `u64` division whenever both operands fit.
-#[cfg(feature = "lie-generated")]
 fn div(a: u128, b: u128) -> u128 {
     match (u64::try_from(a), u64::try_from(b)) {
         (Ok(a), Ok(b)) => u128::from(a / b),
@@ -294,7 +291,6 @@ fn div(a: u128, b: u128) -> u128 {
 
 /// Euclid in hardware `u64` whenever both operands fit; otherwise binary gcd,
 /// since a `u128` division is a slow library call and shifts are not.
-#[cfg(feature = "lie-generated")]
 fn gcd(mut a: u128, mut b: u128) -> u128 {
     if let (Ok(mut x), Ok(mut y)) = (u64::try_from(a), u64::try_from(b)) {
         while y != 0 {
@@ -323,7 +319,6 @@ fn gcd(mut a: u128, mut b: u128) -> u128 {
 mod tests {
     use super::*;
 
-    #[cfg(feature = "lie-generated")]
     #[test]
     fn checked_integral_quotient_is_exact_up_to_u128() {
         fn q<const N: usize>(f: [(u128, u128); N]) -> Option<u128> {

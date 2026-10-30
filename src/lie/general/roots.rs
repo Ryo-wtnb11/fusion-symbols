@@ -2,7 +2,7 @@
 //!
 //! One producer serves each exact operation, using the Cartan convention of
 //! `src/lie/group.rs::cartan`, `cartan(i, j) = ⟨α_i, α_j∨⟩`
-//! (`docs/gauge_exceptional.md` §2.1). Weights are in Dynkin coordinates, so
+//! (`docs/gauge_cartan.md` §2.1). Weights are in Dynkin coordinates, so
 //! subtracting a simple root is `(μ − α_i)_j = μ_j − cartan(i, j)`; roots are
 //! in simple-root coefficient form.
 //!
@@ -10,16 +10,16 @@
 //! - The symmetrizer `d_j = (α_j, α_j)/2` with long roots of length² 2, and the
 //!   form `(α_i, α_j) = d_j cartan(i, j)` (§2.2). Internally the form is carried
 //!   at the integer scale `L = 1 / min_j d_j`, so every quantity stays integral.
-//! - `2ρ` in simple roots and `2ρ∨` in simple coroots (§6.2); `ρ` itself is
+//! - `2ρ` in simple roots and `2ρ∨` in simple coroots (§5.2); `ρ` itself is
 //!   `(1, …, 1)` in Dynkin coordinates.
-//! - The Weyl dimension (§9.1), exact.
-//! - Dominant-weight multiplicities by Freudenthal's recursion, exact (§4.2
-//!   gate, §9.2).
-//! - Tensor-product multiplicities by Brauer–Klimyk (§5.2 gate, §9.3), with
+//! - The Weyl dimension (§8 oracle 1), exact.
+//! - Dominant-weight multiplicities by Freudenthal's recursion, exact (§3.2.3
+//!   gate).
+//! - Tensor-product multiplicities by Brauer–Klimyk (§4.2 gate), with
 //!   each shifted weight reflected into the dominant chamber; the Weyl group is
 //!   never enumerated.
-//! - The dual label `−w₀λ` (§6.1) and the closed-form sign
-//!   `(−1)^{⟨λ, 2ρ∨⟩}`, which is `κ_a` for a self-dual irrep (§6.2, §6.3).
+//! - The dual label `−w₀λ` (§5.1) and the closed-form sign
+//!   `(−1)^{⟨λ, 2ρ∨⟩}`, which is `κ_a` for a self-dual irrep (§5.2, §5.3).
 //!
 //! Arithmetic is checked; anything outside the integer range is
 //! [`LieError::LabelOverflow`].
@@ -30,7 +30,7 @@ use malachite_nz::natural::Natural;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 pub(crate) mod classical;
-use crate::lie::bcd::Series;
+use classical::Series;
 
 use super::rational::Q;
 
@@ -244,13 +244,13 @@ impl CartanData {
         coefficient_sum(self.rank, &coeffs)
     }
 
-    /// `2ρ∨ = Σ_{α>0} α∨` in simple coroots (§6.2), so `⟨λ, 2ρ∨⟩ = Σ_i c_i λ_i`.
+    /// `2ρ∨ = Σ_{α>0} α∨` in simple coroots (§5.2), so `⟨λ, 2ρ∨⟩ = Σ_i c_i λ_i`.
     #[cfg(test)]
     pub(crate) fn two_rho_vee(&self) -> &[i64] {
         &self.two_rho_vee
     }
 
-    /// `dim L(λ) = ∏_{α>0} (λ+ρ, α) / (ρ, α)` (§9.1), in checked `u128` and,
+    /// `dim L(λ) = ∏_{α>0} (λ+ρ, α) / (ρ, α)` (§8 oracle 1), in checked `u128` and,
     /// only when that overflows, one big-natural product and exact division.
     pub(crate) fn weyl_dimension(&self, lambda: &[i64]) -> Result<Integer, LieError> {
         self.check_label(lambda)?;
@@ -379,8 +379,9 @@ impl CartanData {
         Ok(out)
     }
 
-    /// The dual label `−w₀λ` (§6.1): `w₀λ` is the antidominant conjugate of
+    /// The dual label `−w₀λ` (§5.1): `w₀λ` is the antidominant conjugate of
     /// `λ`, so `−w₀λ` is the dominant conjugate of `−λ`.
+    #[cfg(test)]
     pub(crate) fn dual(&self, lambda: &[i64]) -> Result<Vec<i64>, LieError> {
         self.check_label(lambda)?;
         Ok(self.opposition(lambda))
@@ -388,7 +389,10 @@ impl CartanData {
 
     pub(crate) fn check_dual_domain(&self, lambda: &[i64]) -> Result<(), LieError> {
         self.check_label(lambda)?;
-        if !super::serves(self.root) {
+        if !matches!(
+            self.root,
+            RootSystem::G2 | RootSystem::F4 | RootSystem::E6 | RootSystem::E7 | RootSystem::E8
+        ) {
             return Ok(());
         }
         // Exceptional rank is at most eight: retain the checked public guard without warm allocations.
@@ -417,8 +421,9 @@ impl CartanData {
         d
     }
 
-    /// `(−1)^{⟨λ, 2ρ∨⟩}` (§6.2). This is `κ_a` only for a self-dual `λ`; for a
-    /// complex E6 irrep `κ_a` is the gauge-derived `σ_a σ_ā` (§6.3).
+    /// `(−1)^{⟨λ, 2ρ∨⟩}` (§5.2). This is `κ_a` for a self-dual `λ` and for
+    /// every `A_r` irrep; for a complex `D_r` (`r` odd) or E6 irrep `κ_a` is
+    /// the gauge-derived `(−1)^{⟨λ, 2ρ∨⟩} σ_a σ_ā` (§5.3).
     pub(crate) fn two_rho_vee_sign(&self, lambda: &[i64]) -> Result<i8, LieError> {
         self.check_label(lambda)?;
         let odd = lambda
@@ -616,7 +621,10 @@ impl CartanData {
         self.check_label(a)?;
         self.check_label(b)?;
         #[cfg(test)]
-        PRODUCT_BUILDS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        {
+            PRODUCT_BUILDS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            THREAD_PRODUCT_BUILDS.with(|n| n.set(n.get() + 1));
+        }
         if matches!(self.root, RootSystem::A(_)) {
             return self.gt_product(a, b, dims);
         }
@@ -734,6 +742,11 @@ impl CartanData {
             .map(|x| x[0].checked_sub(x[1]).ok_or(LieError::LabelOverflow))
             .collect()
     }
+    /// Whether the phase `κ` of a complex irrep is generated (`D_r` with `r`
+    /// odd, and `E6`) rather than a closed form (`docs/gauge_cartan.md` §5.3).
+    fn generates_phase(&self) -> bool {
+        matches!(self.root, RootSystem::D(r) if r % 2 == 1) || self.root == RootSystem::E6
+    }
     pub(crate) fn irrep(self: &Arc<Self>, lambda: &[i64]) -> Result<RootIrrep, LieError> {
         self.check_label(lambda)?;
         let label = Coordinates {
@@ -758,7 +771,7 @@ impl CartanData {
                 root: self.root,
                 roots: Arc::downgrade(self),
                 public_coefficient_label_ok: self.check_dual_domain(lambda).is_ok()
-                    && (dual.is_none() || u32::try_from(&dim).is_ok()),
+                    && (dual.is_none() || !self.generates_phase() || u32::try_from(&dim).is_ok()),
                 label,
                 dual,
                 dim,
@@ -1074,9 +1087,6 @@ impl RootIrrep {
     pub(crate) fn dynkin(&self) -> &[i64] {
         &self.coordinates().dynkin
     }
-    pub(crate) fn classical(&self) -> &[i64] {
-        &self.coordinates().classical
-    }
     pub(crate) fn dim(&self) -> &Natural {
         &self.data.dim
     }
@@ -1270,10 +1280,11 @@ pub(crate) fn shared_product(a: &RootIrrep, b: &RootIrrep) -> Result<Product, Li
         |channels| data().load_product(channels, Some((a, b))),
     )
 }
-pub(crate) use classical::{half_sum, two_partition_to_dynkin};
 
 #[cfg(test)]
 std::thread_local! {
     pub(crate) static EVALUATIONS:std::cell::Cell<(usize,usize)>=const{std::cell::Cell::new((0,0))};
     static LABEL_PROJECTIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Exact tensor products this thread computed.
+    pub(crate) static THREAD_PRODUCT_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }

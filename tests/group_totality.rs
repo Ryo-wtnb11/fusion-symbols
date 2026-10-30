@@ -352,10 +352,8 @@ fn hnf_membership_matches_two_by_two_determinants() {
 fn unaddressable_su_weight_returns_a_typed_error() {
     // Only scalars are constructed: the internal weight would need N i64s.
     let group = GroupId::su(isize::MAX as usize / 8 + 1).unwrap();
-    for result in [
-        LieGroup::new(group.clone()),
-        LieGroup::with_catalog_budget(group.clone(), usize::MAX),
-    ] {
+    {
+        let result = LieGroup::new(group.clone());
         #[cfg(feature = "lie-generated")]
         assert!(matches!(result, Err(LieError::LabelOverflow)), "{result:?}");
         #[cfg(not(feature = "lie-generated"))]
@@ -373,7 +371,7 @@ fn unaddressable_su_weight_returns_a_typed_error() {
 
 #[cfg(target_pointer_width = "64")]
 #[test]
-fn huge_bcd_seeds_return_a_typed_error() {
+fn huge_bcd_groups_construct_without_root_data() {
     let r = 1usize << 40;
     for group in [
         GroupId::spin(2 * r + 1),
@@ -383,15 +381,11 @@ fn huge_bcd_seeds_return_a_typed_error() {
         GroupId::so(2 * r),
     ] {
         let group = group.unwrap();
-        for result in [
-            LieGroup::new(group.clone()),
-            LieGroup::with_catalog_budget(group.clone(), usize::MAX),
-        ] {
+        // Construction builds no root data, so a huge rank is still a group.
+        {
+            let result = LieGroup::new(group.clone());
             #[cfg(feature = "lie-generated")]
-            assert!(
-                matches!(result, Err(LieError::Generation(_))),
-                "{group:?}: {result:?}"
-            );
+            assert!(result.is_ok(), "{group:?}: {result:?}");
             #[cfg(not(feature = "lie-generated"))]
             assert!(
                 matches!(

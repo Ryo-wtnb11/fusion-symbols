@@ -1,11 +1,12 @@
-//! The irreducible module `L(λ)` in the orthonormal basis of
-//! `docs/gauge_exceptional.md` §3–§4, built exactly from the contravariant
-//! form and the Cartan matrix alone.
+//! The irreducible module `L(λ)` in the Gram–Schmidt basis of the
+//! contravariant form (`docs/gauge_cartan.md` §3.2), built exactly from the
+//! Cartan matrix alone, and the depth order shared with the Gelfand–Tsetlin
+//! basis of §3.1.
 //!
-//! The module is kept in the unnormalized orthogonal basis `b_k` of §4.3: the
+//! The module is kept in the unnormalized orthogonal basis `b_k` of §3.2.3: the
 //! norms `n_k = ⟨b_k, b_k⟩`, a rational lowering recipe over the kept
 //! candidates (here the Gram–Schmidt coefficients), and the rational lowering
-//! matrices `F` of §4.5. Every ladder entry of the orthonormal basis
+//! matrices `F` of §3.3. Every ladder entry of the orthonormal basis
 //! `u_k = b_k / √n_k` is then the single signed square root
 //! `F[a, b] · √(n_a / n_b)`, returned as a
 //! [`SignedSqrtRational`](crate::exact::SignedSqrtRational); no two square
@@ -39,9 +40,9 @@ pub(super) fn qrows_bytes(m: &Vec<Vec<Q>>) -> usize {
     m.capacity() * std::mem::size_of::<Vec<Q>>() + m.iter().map(qs_bytes).sum::<usize>()
 }
 
-/// `L(λ)` in the §4 basis.
+/// `L(λ)` in the §3.2 basis.
 pub(super) struct IrrepModule {
-    /// Weight spaces in the §3 order.
+    /// Weight spaces in the §3.2.1 order.
     pub(super) weights: Vec<WeightSpace>,
     index: HashMap<Vec<i64>, usize>,
     pub(super) dim: usize,
@@ -50,23 +51,23 @@ pub(super) struct IrrepModule {
 pub(super) struct WeightSpace {
     /// The weight `μ` in Dynkin coordinates.
     pub(super) mu: Vec<i64>,
-    /// `λ − μ = Σ_i k_i α_i` (§3).
+    /// `λ − μ = Σ_i k_i α_i` (§3.2.1).
     pub(super) k: Vec<i64>,
     /// Magnetic index of `b_0`; this space holds `offset .. offset + norms.len()`.
     pub(super) offset: usize,
     /// `n_k = ⟨b_k, b_k⟩ > 0`.
     pub(super) norms: Vec<Q>,
-    /// The kept candidates `c_t = f_j b_q^{μ+α_j}` as `(j, q)`, in §4.2 order.
+    /// The kept candidates `c_t = f_j b_q^{μ+α_j}` as `(j, q)`, in §3.2.3 order.
     pub(super) kept: Vec<(usize, usize)>,
     /// The lowering recipe `b_k = Σ_t recipe[k][t] c_t` over the kept
-    /// candidates. The Gram–Schmidt basis of §4.3 has a unit lower-triangular
+    /// candidates. The Gram–Schmidt basis of §3.2.3 has a unit lower-triangular
     /// recipe; another basis may have any invertible one.
     pub(super) recipe: Vec<Vec<Q>>,
     /// Per `j`: the index of `μ + α_j` and `F` with `f_j b_b = Σ_a F[a][b] b_a`.
     pub(super) lower: Vec<Option<(usize, Vec<Vec<Q>>)>>,
 }
 
-/// An internal inconsistency between the construction and its gates (§4.2).
+/// An internal inconsistency between the construction and its gates (§3.2.3).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ModuleError {
     /// The greedy rank of a weight space differs from its Freudenthal multiplicity.
@@ -81,7 +82,6 @@ pub(super) enum ModuleError {
     IndefiniteForm { weight: Vec<i64> },
     /// A closed-form ladder coefficient is undefined (zero denominator) or
     /// leaves its weight.
-    #[cfg(test)]
     InvalidLadder { weight: Vec<i64> },
 }
 
@@ -105,7 +105,6 @@ impl std::fmt::Display for ModuleError {
             Self::IndefiniteForm { weight } => {
                 write!(f, "weight {weight:?}: contravariant form is not positive")
             }
-            #[cfg(test)]
             Self::InvalidLadder { weight } => {
                 write!(
                     f,
@@ -155,7 +154,7 @@ impl IrrepModule {
         self.weights.capacity() * std::mem::size_of::<WeightSpace>() + spaces + index
     }
 
-    /// Builds `L(λ)` for a dominant `λ` in the Gram–Schmidt basis of §4.
+    /// Builds `L(λ)` for a dominant `λ` in the Gram–Schmidt basis of §3.2.
     /// Dimensions beyond `u32`, the magnetic-index type handed to `frcore`,
     /// are [`LieError::LabelOverflow`].
     pub(super) fn new(data: &CartanData, lambda: &[i64]) -> Result<Self, LieError> {
@@ -185,7 +184,7 @@ impl IrrepModule {
         Self::from_spaces(weights, order)
     }
 
-    /// Assembles built weight spaces in the §3 order of `order` (whose
+    /// Assembles built weight spaces in the §3.2.1 order of `order` (whose
     /// `spaces` may already have been consumed), with the final dimension
     /// gate against the Weyl dimension.
     pub(super) fn from_spaces(
@@ -207,12 +206,26 @@ impl IrrepModule {
         })
     }
 
+    /// A module whose spaces are known to have total dimension `dim`.
+    pub(super) fn assembled(
+        weights: Vec<WeightSpace>,
+        index: HashMap<Vec<i64>, usize>,
+        dim: usize,
+    ) -> Self {
+        debug_assert_eq!(weights.iter().map(|s| s.norms.len()).sum::<usize>(), dim);
+        Self {
+            weights,
+            index,
+            dim,
+        }
+    }
+
     pub(super) fn weight_index(&self, mu: &[i64]) -> Option<usize> {
         self.index.get(mu).copied()
     }
 
     /// `⟨u_a, f_j u_b⟩` with `u_a` the `a`-th basis vector of weight space `w`
-    /// and `u_b` the `b`-th of `μ_w + α_j` (§4.5).
+    /// and `u_b` the `b`-th of `μ_w + α_j` (§3.3).
     #[cfg(test)]
     pub(super) fn f_entry(
         &self,
@@ -235,10 +248,10 @@ impl IrrepModule {
     }
 }
 
-/// The weights of `L(λ)` in the §3 order, with their multiplicities and the
+/// The weights of `L(λ)` in the §3.2.1 order, with their multiplicities and the
 /// Weyl dimension: the layout every basis of the module shares.
 pub(super) struct DepthOrder {
-    /// `(k, μ)` with `λ − μ = Σ_i k_i α_i`, in §3 order.
+    /// `(k, μ)` with `λ − μ = Σ_i k_i α_i`, in §3.2.1 order.
     pub(super) spaces: Vec<(Vec<i64>, Vec<i64>)>,
     /// Position of each weight in `spaces`.
     pub(super) index: HashMap<Vec<i64>, usize>,
@@ -254,7 +267,7 @@ pub(super) fn checked_weyl(data: &CartanData, lambda: &[i64]) -> Result<usize, L
     Ok(u32::try_from(&data.weyl_dimension(lambda)?).map_err(|_| LieError::LabelOverflow)? as usize)
 }
 
-/// The §3 weight order of `L(λ)`. Dimensions beyond `u32` are
+/// The §3.2.1 weight order of `L(λ)`. Dimensions beyond `u32` are
 /// [`LieError::LabelOverflow`].
 pub(super) fn depth_order(data: &CartanData, lambda: &[i64]) -> Result<DepthOrder, LieError> {
     let weyl = checked_weyl(data, lambda)?;
@@ -267,7 +280,7 @@ pub(super) fn depth_order(data: &CartanData, lambda: &[i64]) -> Result<DepthOrde
 }
 
 impl DepthOrder {
-    /// The §3 order of the weights `mult` of `L(λ)`, of dimension `weyl`.
+    /// The §3.2.1 order of the weights `mult` of `L(λ)`, of dimension `weyl`.
     pub(super) fn new(
         data: &CartanData,
         lambda: &[i64],
@@ -309,7 +322,7 @@ impl DepthOrder {
     }
 }
 
-/// One weight space at depth `≥ 1` by §4.1–§4.3, with the form of §4.4.
+/// One weight space at depth `≥ 1` by §3.2.2–§3.2.3, with the form of §3.2.4.
 fn build_space(
     data: &CartanData,
     weights: &[WeightSpace],
@@ -322,7 +335,7 @@ fn build_space(
     let rank = mu.len();
     let raise =
         |nu: &[i64], j: usize| -> Vec<i64> { (0..rank).map(|i| nu[i] + data.c(j, i)).collect() };
-    // §4.1: candidates (j, source weight, q); `start[j]` is where j's block begins.
+    // §3.2.2: candidates (j, source weight, q); `start[j]` is where j's block begins.
     let mut cands: Vec<(usize, usize, usize)> = Vec::new();
     let mut start = vec![None; rank];
     for (j, slot) in start.iter_mut().enumerate() {
@@ -332,7 +345,7 @@ fn build_space(
         }
     }
 
-    // §4.4: ⟨f_j w, f_k w′⟩ = ⟨e_k w, e_j w′⟩ + δ_jk (μ+α_j)_j ⟨w, w′⟩, with
+    // §3.2.4: ⟨f_j w, f_k w′⟩ = ⟨e_k w, e_j w′⟩ + δ_jk (μ+α_j)_j ⟨w, w′⟩, with
     // ⟨e_k b_q, e_j b_q′⟩ = Σ_p F_k[q][p] F_j[q′][p] n_q n_q′ / n_p by contravariance.
     let c = cands.len();
     let mut gram = vec![vec![Q::from(0); c]; c];
@@ -424,7 +437,7 @@ fn build_space(
         .into());
     }
 
-    // §4.5: F[a][b] = ⟨b_a, c_(j,b)⟩ / n_a.
+    // §3.3: F[a][b] = ⟨b_a, c_(j,b)⟩ / n_a.
     let lower = (0..rank)
         .map(|j| {
             let s0 = start[j]?;

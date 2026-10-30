@@ -213,7 +213,7 @@ impl<const RANK: usize> SymbolBlock<RANK> for Complex64 {
 /// Every object-taking method except [`Self::contains`] panics on a foreign
 /// object, before testing capability or admissibility. `N = 0` is a value, never an error. Errors
 /// mean genuine computation failure or absent capability. Category equality
-/// and hashing use full mathematical identity, independently of the fingerprint.
+/// and hashing use full mathematical identity.
 ///
 /// # Panics
 /// All object-taking methods except [`Self::contains`] panic for objects from a
@@ -643,20 +643,6 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         let scale = vertex_scale(self, a, b, c);
         Ok(rank2_block(n, f.as_slice().iter().map(|&x| scale * x)))
     }
-    /// Opaque convention bytes; compare by equality, never parse.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, LieGroup, U1}};
-    ///
-    /// let su2 = LieGroup::new(GroupId::su(2)?)?;
-    /// let sp2 = LieGroup::new(GroupId::sp(2)?)?; // same values, same convention
-    /// assert_eq!(su2.authority_fingerprint(), sp2.authority_fingerprint());
-    /// assert_ne!(su2.authority_fingerprint(), U1.authority_fingerprint());
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    fn authority_fingerprint(&self) -> &[u8];
     /// `√d_a`; foreign objects panic.
     ///
     /// The default is `self.dim(a).sqrt()`. A product multiplies its factors'

@@ -385,9 +385,6 @@ mod su3 {
             self.nsymbol(a, b, c);
             panic!("no braiding in the rotated gauge")
         }
-        fn authority_fingerprint(&self) -> &[u8] {
-            b"test:su3-rotated-15-15bar-27"
-        }
     }
 
     const J: [f64; 4] = [0.0, -1.0, 1.0, 0.0];

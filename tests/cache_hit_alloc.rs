@@ -21,12 +21,12 @@ fn check<T>(tier: Tier, query: impl Fn() -> T) {
 fn every_coefficient_tier_has_zero_allocation_warm_hits() {
     let _serial = counting_alloc::serial();
     // Large radicands exercise shared big integers, not just inline limbs.
-    check(Tier::ThreeJ, || su2::wigner_3j(60, 60, 60, 0, 0, 0));
-    check(Tier::SixJ, || su2::wigner_6j(60, 60, 60, 60, 60, 60));
+    check(Tier::Wigner3j, || su2::wigner_3j(60, 60, 60, 0, 0, 0));
+    check(Tier::Wigner6j, || su2::wigner_6j(60, 60, 60, 60, 60, 60));
     let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
     let half = su2.irrep(&[1]).unwrap();
     let unit = su2.unit();
-    check(Tier::DerivedF, || {
+    check(Tier::FSymbol, || {
         su2.f_symbol(&half, &half, &half, &half, &unit, &unit)
             .unwrap()
     });
@@ -39,13 +39,15 @@ fn every_coefficient_tier_has_zero_allocation_warm_hits() {
         check(Tier::Product, || {
             su3.fusion(&octet, &octet).unwrap().count()
         });
-        check(Tier::SunCgc, || su3.cgc(&octet, &octet, &octet).unwrap());
-        check(Tier::SunF, || {
+        check(Tier::Cgc, || su3.cgc(&octet, &octet, &octet).unwrap());
+        check(Tier::FSymbol, || {
             su3.f_symbol(&octet, &octet, &octet, &octet, &octet, &octet)
                 .unwrap()
         });
         // The 2×2 multiplicity block is shared, not copied.
-        check(Tier::SunR, || su3.r_symbol(&octet, &octet, &octet).unwrap());
+        check(Tier::RSymbol, || {
+            su3.r_symbol(&octet, &octet, &octet).unwrap()
+        });
         let b2 = LieGroup::new(GroupId::so(5).unwrap()).unwrap();
         let unit = b2.unit();
         let vector = b2.irrep(&[1, 0]).unwrap();
@@ -54,12 +56,12 @@ fn every_coefficient_tier_has_zero_allocation_warm_hits() {
         check(Tier::Product, || {
             b2.fusion(&vector, &vector).unwrap().count()
         });
-        check(Tier::BcdCgc, || b2.cgc(&vector, &vector, &adjoint).unwrap());
-        check(Tier::BcdF, || {
+        check(Tier::Cgc, || b2.cgc(&vector, &vector, &adjoint).unwrap());
+        check(Tier::FSymbol, || {
             b2.f_symbol(&unit, &vector, &vector, &adjoint, &vector, &adjoint)
                 .unwrap()
         });
-        check(Tier::BcdR, || {
+        check(Tier::RSymbol, || {
             b2.r_symbol(&vector, &vector, &adjoint).unwrap()
         });
         for (id, label) in [

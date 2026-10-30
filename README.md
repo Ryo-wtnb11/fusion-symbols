@@ -45,13 +45,13 @@ fusion-symbols = "0.10"
 
 | Feature | Default | Adds |
 |---|---|---|
-| `lie-generated` | yes | Runtime coefficients for SU(N), SO(N), Spin(N), Sp(2r) of higher rank and for G₂, F₄, E₆, E₇, E₈, and the dense backend (`t4a-faer`, sequential; the caller owns parallelism) |
+| `lie-generated` | yes | Higher-rank SU(N), SO(N), Spin(N), Sp(2r) and G₂, F₄, E₆, E₇, E₈ groups. A capability switch: every build compiles the same exact Cartan engine (sequential; the caller owns parallelism) |
 | `anyonwiki-unitary` | no | 303 rank 5–7 table categories, data only |
 
 The required dependencies include Malachite 0.14 (`malachite-base`,
 `malachite-nz`, `malachite-q`) for all exact arithmetic, `num-traits`,
-`num-complex` and `quick_cache`. `lie-generated` adds `t4a-faer`.
-Use `default-features = false` for the base build without the dense backend.
+`num-complex` and `quick_cache`; no feature adds a dependency.
+Use `default-features = false` for the base build without higher-rank groups.
 
 ## Example
 
@@ -99,8 +99,8 @@ assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
 - [API reference](https://docs.rs/fusion-symbols).
 - [Design and contracts](docs/overview.md),
   [caches and reproducibility](docs/user-guide/resources.md).
-- Frozen gauge specifications: [SU(2)/SU(N)](docs/gauge.md),
-  [SO(N)/Spin(N)/Sp(2r)](docs/gauge_soN.md), [exceptional](docs/gauge_exceptional.md).
+- Frozen gauge specifications: [overview, SU(2) closed forms and products](docs/gauge.md),
+  [simple Lie factors](docs/gauge_cartan.md).
 - [Algorithm references](docs/references.md),
   [closed-form and table conventions](docs/references_categories.md).
 - [Changelog](CHANGELOG.md), [contributor notes](docs/developer/README.md).

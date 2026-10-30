@@ -34,7 +34,6 @@ fn labels_zero_channels_and_warm_generation() {
     assert!(block.data().is_empty());
     assert_eq!(cat.r_symbol(&three, &three, &unit).unwrap().dim(), 0);
     assert_eq!(cat.cgc(&three, &three, &unit).unwrap().dims(), [3, 3, 1, 0]);
-    assert_eq!(cat.authority_fingerprint(),b"racah:sun-gt:ref=sunrep-0.4:basis=gt-order:gauge=qrpos-cref:descent=ladder-lstsq:tol=sunrep-tol-tier:epoch=1");
 
     cache::reset();
     let cold: Vec<_> = cat.fusion(&eight, &eight).unwrap().collect();
@@ -45,13 +44,13 @@ fn labels_zero_channels_and_warm_generation() {
     );
     assert_eq!(cache::tier_stats(Tier::Product).misses, misses);
     let cgc = cat.cgc(&eight, &eight, &eight).unwrap();
-    let misses = cache::tier_stats(Tier::SunCgc).misses;
+    let misses = cache::tier_stats(Tier::Cgc).misses;
     assert_eq!(cat.cgc(&eight, &eight, &eight).unwrap(), cgc);
-    assert_eq!(cache::tier_stats(Tier::SunCgc).misses, misses);
+    assert_eq!(cache::tier_stats(Tier::Cgc).misses, misses);
     let product = fusion_symbols::product::Product::new((cat.clone(), a1.clone()));
     let channel = (eight.clone(), a1.irrep(&[2]).unwrap());
     let first = product.cgc(&channel, &channel, &channel).unwrap();
-    let tiers = [Tier::SunCgc, Tier::Product, Tier::ThreeJ];
+    let tiers = [Tier::Cgc, Tier::Product, Tier::Wigner3j];
     let [cgc_stats, product_stats, three_j] = tiers.map(cache::tier_stats);
     assert_eq!(product.cgc(&channel, &channel, &channel).unwrap(), first);
     let [cgc_warm, product_warm, three_j_warm] = tiers.map(cache::tier_stats);
@@ -60,14 +59,14 @@ fn labels_zero_channels_and_warm_generation() {
     assert!(cgc_warm.hits > cgc_stats.hits);
     assert_eq!(three_j_warm.misses, three_j.misses);
     let r = cat.r_symbol(&eight, &eight, &eight).unwrap();
-    let tiers = [Tier::SunCgc, Tier::Product];
+    let tiers = [Tier::Cgc, Tier::Product];
     let misses = tiers.map(|tier| cache::tier_stats(tier).misses);
     assert_eq!(cat.r_symbol(&eight, &eight, &eight).unwrap(), r);
     assert_eq!(tiers.map(|tier| cache::tier_stats(tier).misses), misses);
     let f = cat
         .f_symbol(&eight, &eight, &eight, &eight, &eight, &eight)
         .unwrap();
-    let tiers = [Tier::SunF, Tier::SunCgc];
+    let tiers = [Tier::FSymbol, Tier::Cgc];
     let misses = tiers.map(|tier| cache::tier_stats(tier).misses);
     assert_eq!(
         cat.f_symbol(&eight, &eight, &eight, &eight, &eight, &eight)

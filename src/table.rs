@@ -135,7 +135,6 @@ struct TableData {
     /// Gauge certificates, read off the stored F exactly (no tolerance).
     trivial_associator: bool,
     canonical_unit: bool,
-    fingerprint: Vec<u8>,
 }
 
 impl PartialEq for TableCategory {
@@ -321,7 +320,6 @@ impl TableCategory {
                 canonical_unit,
                 fusion_style,
                 braiding_style,
-                fingerprint: fingerprint_bytes(&entry.provenance, entry.n, entry.f, entry.r),
             }),
         })
     }
@@ -511,34 +509,6 @@ impl FusionCategory for TableCategory {
     fn object_index(&self, a: &TableObject) -> Result<u64, EnumerationError> {
         Ok(self.index(a) as u64)
     }
-    fn authority_fingerprint(&self) -> &[u8] {
-        &self.data.fingerprint
-    }
-}
-
-/// The exact byte composition of the authority fingerprint.
-fn fingerprint_bytes(
-    provenance: &TableProvenance,
-    n_text: &str,
-    f_text: &str,
-    r_text: Option<&str>,
-) -> Vec<u8> {
-    let mut bytes = Vec::new();
-    provenance.write_canonical_bytes(&mut bytes);
-    // The source text, not a re-serialisation of the parsed f64s, which would
-    // hide a parser change behind identical output. A fusion-only entry keeps
-    // an empty, still tagged, R section.
-    for (tag, text) in [
-        ("Nsymbols", n_text),
-        ("Fsymbols", f_text),
-        ("Rsymbols", r_text.unwrap_or("")),
-    ] {
-        bytes.extend_from_slice(b"--- ");
-        bytes.extend_from_slice(tag.as_bytes());
-        bytes.push(b'\n');
-        bytes.extend_from_slice(text.as_bytes());
-    }
-    bytes
 }
 
 #[cfg(test)]

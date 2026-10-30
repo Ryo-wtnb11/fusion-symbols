@@ -295,14 +295,19 @@ pub fn pentagon_residual<C: FusionCategory>(
 ///
 /// ```text
 /// RFR1[α,β,μ,ν] = Σ_{λ,γ} R(c,a,e)[α,λ] · F[λ,β,γ,ν] · R(c,b,f)[γ,μ]
-/// RFR2[α,β,μ,ν] = Σ_{λ,γ} R(a,c,e)[α,λ] · F[λ,β,γ,ν] · R(b,c,f)[γ,μ]   (conj; real)
+/// RFR2[α,β,μ,ν] = Σ_{λ,γ} R(a,c,e)†[α,λ] · F[λ,β,γ,ν] · R(b,c,f)†[γ,μ]
 /// FRF1[α,β,μ,ν] = Σ_{g∈a⊗b, δ,σ,ψ}
 ///                   F(c,a,b,d,e,g)[α,β,δ,σ] · R(c,g,d)[σ,ψ] · F(a,b,c,d,g,f)[δ,ψ,μ,ν]
-/// FRF2[α,β,μ,ν] = Σ ... R(g,c,d)[σ,ψ] ...   (conj; real)
+/// FRF2[α,β,μ,ν] = Σ ... R(g,c,d)†[σ,ψ] ...
 /// ```
 ///
-/// returns `max(|RFR1 - FRF1|, |RFR2 - FRF2|)`. R is real, so the two hexagons
-/// differ only in which R replaces which (`conj` is the identity).
+/// with `R(x,y,z)†[σ,ψ] = conj(R(x,y,z)[ψ,σ])`, and returns
+/// `max(|RFR1 - FRF1|, |RFR2 - FRF2|)`. The second hexagon uses the inverse
+/// braiding, the adjoint of the R block. TensorKitSectors writes it as the
+/// elementwise `conj(R[σ, ψ])`, which pairs a `(y,x,z)` multiplicity index
+/// with an `(x,y,z)` one; that is the adjoint only when the block is
+/// symmetric, so it fails for `N ≥ 2` channels in general multiplicity bases
+/// (for example SU(3) `27`, where `R(27, 8, 27)` is not symmetric).
 pub fn hexagon_residual<C: FusionCategory>(
     fam: &C,
     a: &C::Object,
@@ -354,9 +359,9 @@ pub fn hexagon_residual<C: FusionCategory>(
                                         rfr1 = rfr1
                                             + rcae.get([alpha, lam]) * fv * rcbf.get([gam, mu]);
                                         rfr2 = rfr2
-                                            + race.get([alpha, lam]).conj()
+                                            + race.get([lam, alpha]).conj()
                                                 * fv
-                                                * rbcf.get([gam, mu]).conj();
+                                                * rbcf.get([mu, gam]).conj();
                                     }
                                 }
                                 // FRF1 / FRF2.
@@ -373,7 +378,7 @@ pub fn hexagon_residual<C: FusionCategory>(
                                                 let fa = fabc.get([delta, psi, mu, nu]);
                                                 frf1 = frf1 + fc * rcgd.get([sigma, psi]) * fa;
                                                 frf2 =
-                                                    frf2 + fc * rgcd.get([sigma, psi]).conj() * fa;
+                                                    frf2 + fc * rgcd.get([psi, sigma]).conj() * fa;
                                             }
                                         }
                                     }

@@ -27,9 +27,10 @@ default = ["lie-generated"]
 # rank 5-7 in `table`: 303 entries beyond the 74 of rank <= 4 shipped by
 # default. Data only, no dependency; about 4.2 MB of embedded tables.
 anyonwiki-unitary = []
-# Runtime coefficient generation for SU(N)/SO(N)/Sp(2N).
-# Sequential dense factorization and contraction kernels; the caller owns parallelism.
-lie-generated = ["dep:t4a-faer"]
+# Higher-rank simple Lie factors (A_r with r >= 2, B/C/D, G2-E8): a capability
+# switch only. Every build compiles the same exact Cartan engine; A(1) needs
+# no feature. Sequential; the caller owns parallelism.
+lie-generated = []
 
 [dependencies]
 # `sharded-lock` gives warm hits one of eight reader stripes instead of one shared
@@ -39,9 +40,6 @@ num-traits = "0.2"
 # R-symbols and twists of braided categories are complex (`table`). Default `std` feature kept: `Complex64::norm` and
 # `from_polar` need it.
 num-complex = "0.4"
-# crates.io semver range; std only (no rayon or global parallelism).
-# Only lie-generated pulls the dense backend; base builds stay dependency-light.
-t4a-faer = { version = "0.25", default-features = false, features = ["std"], optional = true }
 
 # One exact arithmetic family, including the public API.
 malachite-nz = "0.14"
@@ -85,7 +83,7 @@ name = "sun_product"
 harness = false
 required-features = ["lie-generated"]
 
-# B/C/D F-symbol generation cost (cold catalog+sweep+contraction + warm hit).
+# B/C/D F-symbol generation cost (cold modules+channels+contraction + warm hit).
 [[bench]]
 name = "bcd_fr"
 harness = false
