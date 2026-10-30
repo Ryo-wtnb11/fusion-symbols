@@ -897,17 +897,36 @@ impl GeneralFamily {
         b: &[i64],
         c: &[i64],
     ) -> Result<BuiltChannel, LieError> {
-        self.built_channel(a, b, c, self.mult(a, b, c)?)
+        let (ma, mb) = self.module_pair(a, b)?;
+        self.channel_on(ma, mb, a, b, c, self.mult(a, b, c)?)
     }
 
-    fn built_channel(
+    /// The modules of `a` and `b`, built once when the labels are equal: a
+    /// module the CGC tier rejects for size is not found by a second lookup.
+    fn module_pair(&self, a: &[i64], b: &[i64]) -> Result<(Arc<Ladders>, Arc<Ladders>), LieError> {
+        let ma = self.module(a)?;
+        let mb = if b == a { ma.clone() } else { self.module(b)? };
+        Ok((ma, mb))
+    }
+
+    /// The rational channel on the modules of `a` and `b`, sharing the module
+    /// of `c` with an equal label.
+    fn channel_on(
         &self,
+        ma: Arc<Ladders>,
+        mb: Arc<Ladders>,
         a: &[i64],
         b: &[i64],
         c: &[i64],
         n: usize,
     ) -> Result<BuiltChannel, LieError> {
-        let (ma, mb, mc) = (self.module(a)?, self.module(b)?, self.module(c)?);
+        let mc = if c == a {
+            ma.clone()
+        } else if c == b {
+            mb.clone()
+        } else {
+            self.module(c)?
+        };
         Ok((Channel::new(&self.data, &ma, &mb, &mc, n)?, ma, mb, mc))
     }
 
@@ -935,13 +954,29 @@ impl GeneralFamily {
                 usize::try_from(&self.data.weyl_dimension(l)?).map_err(|_| LieError::LabelOverflow)
             };
             crate::lie::checked_size([dimension(a)?, dimension(b)?, dimension(c)?, n])?;
-            if n == 0 && self.no_coupling_pair(a, b, c)? {
-                return Ok(Arc::new(CgcChannel {
+            let empty = || {
+                Ok(Arc::new(CgcChannel {
                     mult: 0,
                     entries: Box::new([]),
-                }));
+                }))
+            };
+            // No coupling pair has the weight `λ_c`, so `P` is empty and a
+            // zero multiplicity needs no nullspace. For `A_1` the weight `c`
+            // occurs in `a ⊗ b` exactly when `c ≤ a + b` with `a + b − c`
+            // even; other types read the weights off the two modules, which
+            // the channel then reuses.
+            let a1 = self.root() == RootSystem::A(1);
+            if n == 0 && a1 && {
+                let s = a[0] + b[0] - c[0];
+                s < 0 || s % 2 != 0
+            } {
+                return empty();
             }
-            let (channel, ma, mb, mc) = self.built_channel(a, b, c, n)?;
+            let (ma, mb) = self.module_pair(a, b)?;
+            if n == 0 && !a1 && ProductSpace::new(&ma, &mb, c).len() == 0 {
+                return empty();
+            }
+            let (channel, ma, mb, mc) = self.channel_on(ma, mb, a, b, c, n)?;
             #[allow(unused_mut)]
             let mut entries = channel.rounded_entries(&ma, &mb, &mc)?;
             // The rounded gates need only the modules.
@@ -964,19 +999,6 @@ impl GeneralFamily {
                 entries: entries.into_boxed_slice(),
             }))
         })
-    }
-
-    /// Whether no coupling pair has the weight `λ_c`, so `P` is empty and a
-    /// zero multiplicity needs no nullspace. For `A_1` the weight `c` occurs
-    /// in `a ⊗ b` exactly when `c ≤ a + b` with `a + b − c` even; other types
-    /// read the weights off the two modules.
-    fn no_coupling_pair(&self, a: &[i64], b: &[i64], c: &[i64]) -> Result<bool, LieError> {
-        if self.root() == RootSystem::A(1) {
-            let s = a[0] + b[0] - c[0];
-            return Ok(s < 0 || s % 2 != 0);
-        }
-        let (ma, mb) = (self.module(a)?, self.module(b)?);
-        Ok(ProductSpace::new(&ma, &mb, c).len() == 0)
     }
 
     /// `κ_a` (§5.3) of `a` with dual label `dual`: `(−1)^{⟨λ, 2ρ∨⟩}` for a

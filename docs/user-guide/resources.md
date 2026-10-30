@@ -30,8 +30,11 @@ only while channels of their label are built. Each value is charged when it
 is published, including its labels, rational limbs, vector capacities and
 `Arc` headers. A query holds the modules and channels it uses independently
 of retention, so its working set may exceed the cap transiently, and an
-oversize value is returned but not retained. A completed channel is retained
-independently of its modules.
+oversize value is returned but not retained. One channel miss loads each
+required module label at most once and shares it among equal labels, so an oversize
+module is not rebuilt within that channel; the separate channel misses of one
+F or R query each load their modules through the tier. A completed channel is
+retained independently of its modules.
 
 All materialized simple-Lie tensor products use the Product tier. Its
 borrowed key is the root-system presentation, an unordered pair of exact
