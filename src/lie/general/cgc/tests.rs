@@ -1774,3 +1774,96 @@ fn channel_request_builds_each_module_label_once() {
     }
     crate::cache::reset();
 }
+
+/// An F request whose six labels are distinct and admissible: SU(3)
+/// `F^{3, 8, 6}_{1}[6̄, 3̄]`.
+const A2_F6: [[i64; 2]; 6] = [[1, 0], [1, 1], [2, 0], [0, 0], [0, 2], [0, 1]];
+
+/// One F or R request builds each distinct module label at most once across
+/// its channels, even when the CGC tier retains nothing (a reset before every
+/// load): R with `a ≠ b`, whose two channels need the same modules, and F
+/// with three and with six distinct labels. The request holds at most the
+/// distinct labels for R and at most five modules for six F labels, and none
+/// once it returns. Concurrent tests can only turn a build into a hit, hence
+/// `≤`. The bits equal those of a request with retention.
+#[test]
+fn f_and_r_requests_build_each_module_label_once() {
+    let _guard = crate::cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let g2 = GeneralFamily::new(RootSystem::G2);
+    let a2 = GeneralFamily::new(RootSystem::A(2));
+    let builds = || BUILDS.with(std::cell::Cell::get)[0];
+    let r = |fam: &GeneralFamily, [a, b, c]: [&[i64]; 3]| {
+        let block = r_block_raw(fam, [a, b, c]).unwrap();
+        block
+            .as_slice()
+            .iter()
+            .map(|x| x.to_bits())
+            .collect::<Vec<_>>()
+    };
+    let f = |fam: &GeneralFamily, l: [[i64; 2]; 6]| {
+        let block = f_block_raw(fam, l.each_ref().map(|x| &x[..])).unwrap();
+        block
+            .as_slice()
+            .iter()
+            .map(|x| x.to_bits())
+            .collect::<Vec<_>>()
+    };
+    let check = |i: usize, request: &dyn Fn() -> Vec<u64>, distinct: usize, peak: usize| {
+        crate::cache::reset();
+        REQUEST_MODULES.with(|c| c.set([0; 2]));
+        BEFORE_LOAD.with(|h| h.set(Some(crate::cache::reset)));
+        let before = builds();
+        let rejected = request();
+        let after = builds();
+        BEFORE_LOAD.with(|h| h.set(None));
+        assert!(after - before <= distinct, "request {i}");
+        let [live, max] = REQUEST_MODULES.with(std::cell::Cell::get);
+        assert_eq!(live, 0, "request {i}");
+        let at = AT_CONTRACTION.with(std::cell::Cell::take);
+        assert_eq!(at, Some(0), "request {i}: modules held at contraction");
+        assert!(max <= peak, "request {i}: {max} held");
+        crate::cache::reset();
+        let retained = request();
+        assert!(!retained.is_empty());
+        assert_eq!(rejected, retained, "request {i}");
+    };
+    check(0, &|| r(&g2, [&G7, &G14, &G7]), 2, 2);
+    check(1, &|| f(&g2, [G27, G27, G27, G27, G7, G14]), 3, 3);
+    BEFORE_FOURTH.with(|b| b.borrow_mut().clear());
+    check(2, &|| f(&a2, A2_F6), 6, 5);
+    // Only the fourth channel's labels (a, f, d) remain before it loads.
+    let mut held = BEFORE_FOURTH.with(|b| b.take());
+    held.sort();
+    let mut afd = vec![A2_F6[0].to_vec(), A2_F6[5].to_vec(), A2_F6[3].to_vec()];
+    afd.sort();
+    assert_eq!(held, afd);
+    crate::cache::reset();
+}
+
+thread_local! {
+    static LOADS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// An F request whose four channels are resident loads exactly those four
+/// channels: a cached channel loads no module and holds none.
+#[test]
+fn resident_channels_load_no_module() {
+    let _guard = crate::cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let fam = GeneralFamily::new(RootSystem::A(2));
+    let labels = A2_F6.each_ref().map(|x| &x[..]);
+    crate::cache::reset();
+    let warm = f_block_raw(&fam, labels).unwrap();
+    REQUEST_MODULES.with(|c| c.set([0; 2]));
+    LOADS.with(|c| c.set(0));
+    BEFORE_LOAD.with(|h| h.set(Some(|| LOADS.with(|c| c.set(c.get() + 1)))));
+    let hit = f_block_raw(&fam, labels).unwrap();
+    BEFORE_LOAD.with(|h| h.set(None));
+    assert_eq!(LOADS.with(std::cell::Cell::get), 4);
+    assert_eq!(REQUEST_MODULES.with(std::cell::Cell::get), [0; 2]);
+    assert_eq!(warm.as_slice(), hit.as_slice());
+    crate::cache::reset();
+}

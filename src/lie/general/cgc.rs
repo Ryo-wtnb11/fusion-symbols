@@ -993,6 +993,13 @@ thread_local! {
     pub(super) static LIVE_EXACT: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
     /// Largest weight block of entries [`check_rounded`] held, as capacity.
     pub(super) static GATE_BLOCK: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Modules held by the live [`RequestModules`] of this thread:
+    /// `[current, maximum]`.
+    pub(crate) static REQUEST_MODULES: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
+    /// Modules held by this thread when an F or R contraction last began.
+    pub(crate) static AT_CONTRACTION: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+    /// Labels a request held when F's fourth channel was last loaded.
+    pub(crate) static BEFORE_FOURTH: std::cell::RefCell<Vec<Vec<i64>>> = const { std::cell::RefCell::new(Vec::new()) };
     /// Row-start slots written by [`RowScratch::rows`].
     pub(super) static ROW_WRITES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// Fault injection between rounding and the gates.
@@ -1031,6 +1038,66 @@ fn count_build(kind: usize) {
         v[kind] += 1;
         b.set(v);
     });
+}
+
+/// The modules held across the channel loads of one F or R request, by label
+/// (at most six, so a short vector with equality lookup). A module the CGC
+/// tier does not retain is then built once per request rather than once per
+/// missed channel; a single channel request is the same with one channel.
+/// Holding is strong: a weak handle would not keep a rejected module alive.
+#[derive(Default)]
+pub(crate) struct RequestModules<'l> {
+    held: Vec<(&'l [i64], Arc<Ladders>)>,
+}
+
+impl<'l> RequestModules<'l> {
+    /// The module of `label`, from this request or else loaded and held.
+    fn load(&mut self, fam: &GeneralFamily, label: &'l [i64]) -> Result<Arc<Ladders>, LieError> {
+        if let Some((_, m)) = self.held.iter().find(|(l, _)| *l == label) {
+            return Ok(m.clone());
+        }
+        let m = fam.module(label)?;
+        self.held.push((label, m.clone()));
+        #[cfg(test)]
+        self.count();
+        Ok(m)
+    }
+
+    /// Releases every module whose label is not in `later`, the labels of
+    /// the channels this request may still load.
+    pub(crate) fn retain(&mut self, later: &[&[i64]]) {
+        self.held.retain(|(l, _)| later.contains(l));
+        #[cfg(test)]
+        self.count();
+    }
+
+    /// Records the held labels before F's fourth channel.
+    #[cfg(test)]
+    pub(crate) fn observe_before_fourth(&self) {
+        BEFORE_FOURTH
+            .with(|b| *b.borrow_mut() = self.held.iter().map(|(l, _)| l.to_vec()).collect());
+    }
+
+    #[cfg(test)]
+    fn count(&self) {
+        REQUEST_MODULES.with(|c| {
+            let [_, max] = c.get();
+            c.set([self.held.len(), max.max(self.held.len())]);
+        });
+    }
+}
+
+/// Records the modules held as an F or R contraction begins.
+#[cfg(test)]
+pub(crate) fn observe_contraction() {
+    AT_CONTRACTION.with(|c| c.set(Some(REQUEST_MODULES.with(std::cell::Cell::get)[0])));
+}
+
+#[cfg(test)]
+impl Drop for RequestModules<'_> {
+    fn drop(&mut self) {
+        REQUEST_MODULES.with(|c| c.set([0, c.get()[1]]));
+    }
 }
 
 /// The Cartan engine over one root system: exact CGC (§4), `κ_a` (§5.3) and
@@ -1099,37 +1166,12 @@ impl GeneralFamily {
         b: &[i64],
         c: &[i64],
     ) -> Result<BuiltChannel, LieError> {
-        let (ma, mb) = self.module_pair(a, b)?;
-        let mc = self.module_c(&ma, &mb, a, b, c)?;
+        let mut modules = RequestModules::default();
+        let ma = modules.load(self, a)?;
+        let mb = modules.load(self, b)?;
+        let mc = modules.load(self, c)?;
         let ch = ExactChannel::new(&self.data, &ma, &mb, &mc, self.mult(a, b, c)?)?;
         Ok((ch, ma, mb, mc))
-    }
-
-    /// The modules of `a` and `b`, built once when the labels are equal: a
-    /// module the CGC tier rejects for size is not found by a second lookup.
-    fn module_pair(&self, a: &[i64], b: &[i64]) -> Result<(Arc<Ladders>, Arc<Ladders>), LieError> {
-        let ma = self.module(a)?;
-        let mb = if b == a { ma.clone() } else { self.module(b)? };
-        Ok((ma, mb))
-    }
-
-    /// The module of `c`, shared with the module of `a` or `b` of an equal
-    /// label.
-    fn module_c(
-        &self,
-        ma: &Arc<Ladders>,
-        mb: &Arc<Ladders>,
-        a: &[i64],
-        b: &[i64],
-        c: &[i64],
-    ) -> Result<Arc<Ladders>, LieError> {
-        if c == a {
-            Ok(ma.clone())
-        } else if c == b {
-            Ok(mb.clone())
-        } else {
-            self.module(c)
-        }
     }
 
     /// The completed channel `a ⊗ b → c`: its multiplicity and its rounded,
@@ -1143,6 +1185,18 @@ impl GeneralFamily {
         a: &[i64],
         b: &[i64],
         c: &[i64],
+    ) -> Result<Arc<CgcChannel>, LieError> {
+        self.cgc_entries_in(a, b, c, &mut RequestModules::default())
+    }
+
+    /// [`Self::cgc_entries`] as one channel of a request: a miss takes its
+    /// modules from, and adds them to, `modules`; a hit leaves it untouched.
+    pub(crate) fn cgc_entries_in<'l>(
+        &self,
+        a: &'l [i64],
+        b: &'l [i64],
+        c: &'l [i64],
+        modules: &mut RequestModules<'l>,
     ) -> Result<Arc<CgcChannel>, LieError> {
         #[cfg(test)]
         if let Some(hook) = BEFORE_LOAD.with(std::cell::Cell::get) {
@@ -1174,11 +1228,12 @@ impl GeneralFamily {
             } {
                 return empty();
             }
-            let (ma, mb) = self.module_pair(a, b)?;
+            let ma = modules.load(self, a)?;
+            let mb = modules.load(self, b)?;
             if n == 0 && !a1 && ProductSpace::new(&ma, &mb, c).len() == 0 {
                 return empty();
             }
-            let mc = self.module_c(&ma, &mb, a, b, c)?;
+            let mc = modules.load(self, c)?;
             // No exact vector outlives the descent; the gates read the
             // rounded entries and the modules only.
             #[allow(unused_mut)]

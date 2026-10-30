@@ -890,6 +890,16 @@ column.
        `O(N d_c + max_w (nnz_w + N² m_c(w)²))` beyond the entries instead of
        a second copy of the channel; then the residual map of one
        first-descent column at a time.
+- **F and R requests.** The channel misses of one F or R request (§6) share
+  their modules by label: each distinct label is loaded once per request
+  instead of once per missed channel, and a channel served from the tier
+  loads none. A module is released after the last channel of the request
+  whose labels contain it, in the channel order of §6. R's two channels need
+  the same labels, so the module working set is that of one channel; F's
+  channels `(a,b,e)`, `(e,c,d)`, `(b,c,f)`, `(a,f,d)` release `e` after the
+  second and `b, c` after the third, so with six distinct labels at most
+  five modules are live (not all six). No module is held during the
+  contraction.
 - **No catalog.** There is no generator catalog, catalog budget or catalog
   error for any simple type.
 

@@ -43,7 +43,7 @@ pub(crate) struct MEntry {
 }
 
 use crate::category::{FBlock, RBlock, SymbolBlock};
-use crate::lie::general::GeneralFamily;
+use crate::lie::general::{GeneralFamily, RequestModules};
 use crate::lie::LieError;
 
 /// A rounded CGC, F or R value that failed a generation gate. The gates only
@@ -143,10 +143,21 @@ pub(crate) fn f_block_raw(
     }
 
     let len = crate::lie::checked_size(dims)?;
-    let cab = fam.cgc_entries(a, b, e)?; // A[ma,mb,me,μ]
-    let cecd = fam.cgc_entries(e, c, d)?; // B slice at m_d=0: [me,mc,ν]
-    let cbcf = fam.cgc_entries(b, c, f)?; // C[mb,mc,mf,κ]
-    let cafd = fam.cgc_entries(a, f, d)?; // D slice at m_d=0: [ma,mf,λ]
+    // Missed channels share their modules; each is released after the last
+    // channel that may need it, so at most five of the six labels' modules
+    // are live at once, and none during the contraction.
+    let mut modules = RequestModules::default();
+    let cab = fam.cgc_entries_in(a, b, e, &mut modules)?; // A[ma,mb,me,μ]
+    let cecd = fam.cgc_entries_in(e, c, d, &mut modules)?; // B slice at m_d=0: [me,mc,ν]
+    modules.retain(&[b, c, f, a, d]);
+    let cbcf = fam.cgc_entries_in(b, c, f, &mut modules)?; // C[mb,mc,mf,κ]
+    modules.retain(&[a, f, d]);
+    #[cfg(test)]
+    modules.observe_before_fourth();
+    let cafd = fam.cgc_entries_in(a, f, d, &mut modules)?; // D slice at m_d=0: [ma,mf,λ]
+    drop(modules);
+    #[cfg(test)]
+    crate::lie::general::observe_contraction();
 
     // Step 1: AB[(ma,mb,mc), (μ,ν)] = Σ_me A[ma,mb,me,μ] · B[me,mc,ν].
     // Group A and B by the shared magnetic index me, then cross each group.
@@ -266,8 +277,14 @@ pub(crate) fn r_block_raw(
     debug_assert_eq!(n1, n2, "N^c_ab == N^c_ba");
 
     let len = crate::lie::checked_size([n1, n1])?;
-    let cab = fam.cgc_entries(a, b, c)?; // A[ma,mb,mc,μ]
-    let cba = fam.cgc_entries(b, a, c)?; // B[mb,ma,mc,ν]
+    // Both channels need the same modules, so sharing them adds none to the
+    // live set; they are released before the contraction.
+    let mut modules = RequestModules::default();
+    let cab = fam.cgc_entries_in(a, b, c, &mut modules)?; // A[ma,mb,mc,μ]
+    let cba = fam.cgc_entries_in(b, a, c, &mut modules)?; // B[mb,ma,mc,ν]
+    drop(modules);
+    #[cfg(test)]
+    crate::lie::general::observe_contraction();
 
     // A slice at m_c = 0, keyed by (ma, mb) -> Vec<(μ, value)>.
     let mut a_map: HashMap<(u32, u32), Vec<(u32, f64)>> = HashMap::new();
