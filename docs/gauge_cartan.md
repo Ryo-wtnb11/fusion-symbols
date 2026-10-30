@@ -465,9 +465,15 @@ factor of `D_2`.
 `Ψ_μ = B_μ/√N_μ` with `B_μ` rational in the rational coordinates and
 `N_μ = ⟨B_μ, B_μ⟩` rational. The intertwiner keeps coordinates rational, so
 each CGC entry is `x·√(n^a_{m_a} n^b_{m_b} / (N_μ n^c_{m_c}))` with `x`
-rational: a single signed √rational. Its `f64` value is the correctly
-rounded conversion of `SignedSqrtRational::to_f64` (`src/exact.rs`), applied
-to the reduced radicand, and is **the only rounding of a CGC**. Only exactly zero
+rational: a single signed √rational. Its `f64` value is the conversion of
+`SignedSqrtRational::to_f64` (`src/exact.rs`), correctly rounded for normal
+results (a subnormal result can be rounded twice, issue #262), and is
+**the only rounding of a CGC**. The conversion is a function of the radicand's
+value alone, so it is applied to the integer ratio `U/V` of the products of
+the operands' numerators and denominators (`U = p_x²·p_a·p_b·q_t`,
+`V = q_x²·q_a·q_b·p_t` for `x = p_x/q_x`, `n^a = p_a/q_a`, `n^b = p_b/q_b`,
+`N_μ n^c = p_t/q_t`) without reducing it; the bits equal those of the
+reduced radicand, including at ties and in the subnormal range. Only exactly zero
 coefficients are omitted; an exactly nonzero coefficient that rounds to a
 signed zero keeps its entry. An absent entry reads `+0.0`. There is no purge
 threshold.
