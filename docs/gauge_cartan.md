@@ -466,8 +466,9 @@ factor of `D_2`.
 `N_μ = ⟨B_μ, B_μ⟩` rational. The intertwiner keeps coordinates rational, so
 each CGC entry is `x·√(n^a_{m_a} n^b_{m_b} / (N_μ n^c_{m_c}))` with `x`
 rational: a single signed √rational. Its `f64` value is the conversion of
-`SignedSqrtRational::to_f64` (`src/exact.rs`), correctly rounded for normal
-results (a subnormal result can be rounded twice, issue #262), and is
+`SignedSqrtRational::to_f64` (`src/exact.rs`), correctly rounded (to nearest,
+ties to even, once) over the whole `f64` range including subnormal results and
+underflow to a signed zero, and is
 **the only rounding of a CGC**. The conversion is a function of the radicand's
 value alone, so it is applied to the integer ratio `U/V` of the products of
 the operands' numerators and denominators (`U = p_x²·p_a·p_b·q_t`,
@@ -477,6 +478,14 @@ reduced radicand, including at ties and in the subnormal range. Only exactly zer
 coefficients are omitted; an exactly nonzero coefficient that rounds to a
 signed zero keeps its entry. An absent entry reads `+0.0`. There is no purge
 threshold.
+
+*Specification correction (#262).* The former rule was correctly rounded only
+for exact magnitudes at least `2^-1022`: a smaller value was first rounded to
+a 53-bit significand and then rounded again to the subnormal spacing
+`2^-1074`, which can miss the nearest `f64` by one subnormal step (or return
+the smallest normal `2^-1022` for a value just below it). The rule is now one
+rounding on the `2^-1074` grid below `2^-1022`; values of magnitude at least
+`2^-1022` are unchanged.
 
 The public block `GroupRepresentations::cgc(a, b, c)` has axes
 `[m_a, m_b, m_c, μ]` with lengths `[d_a, d_b, d_c, N]`, indexed as in §3.

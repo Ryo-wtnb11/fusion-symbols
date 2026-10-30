@@ -59,8 +59,14 @@ factor are the closed forms below.
 
 - **Evaluation model.** Every value is computed
   as a big-rational Racah sum carried as `exact.rs:SignedSqrtRational` (a signed
-  rational under a square root) with a **single final rounding** to `f64`
-  (`lie/su2.rs` module docs). No intermediate rounding: the dimension factors fold
+  rational under a square root) with a **single final rounding** to `f64`,
+  to nearest with ties to even over the whole `f64` range including
+  subnormal results (`lie/su2.rs` module docs, `docs/gauge_cartan.md` §4.7).
+  *Specification correction (#262):* the former rounding was single only for
+  exact magnitudes at least `2^-1022`; a smaller value was rounded to 53 bits
+  and then again to the subnormal spacing, which can miss the nearest `f64`
+  by one subnormal step (for example
+  `clebsch_gordan(1035, -1035, 1015, 1015, 2050, -20)`). No intermediate rounding: the dimension factors fold
   into the radicand (`times_sqrt_int`) and phases into the sign. Where the
   presented value is `f64` (`lie/su2.rs::f_symbol`) it is a *presentation* of that
   same exact value, never an independent computation. This is value-fixing: a

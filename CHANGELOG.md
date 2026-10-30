@@ -44,6 +44,20 @@ value/gauge rule noted below.
   CGC isometry and ladder consistency, R orthogonality and F finiteness, and
   a value that fails a gate is a `LieError::Generation`, never returned or
   retained.
+- Specification correction: the single `f64` rounding
+  (`SignedSqrtRational::to_f64`, behind every CGC, 3j, 6j, F and R value) is
+  to nearest with ties to even over the whole `f64` range, including
+  subnormal results (`docs/gauge_cartan.md` §4.7, `docs/gauge.md` §1). The
+  former rule rounded a value below `2^-1022` twice, to 53 bits and then to
+  the subnormal spacing, and could miss the nearest `f64` by one subnormal
+  step: `su2::clebsch_gordan(1035, -1035, 1015, 1015, 2050, -20)` returned
+  bits `0x000fd1dc15672826` instead of `0x000fd1dc15672825`, and
+  `sqrt((2^120 + 1) / 2^2270)` returned `+0.0` instead of the smallest
+  subnormal. Values whose exact magnitude is below `2^-1022` may change by
+  one subnormal step, including values formerly returned as the smallest
+  normal `2^-1022`; persisted subnormal coefficients must be regenerated.
+  Every value whose exact magnitude is at least `2^-1022` keeps its bits, and
+  every golden CGC, F and R value was checked unchanged (#262).
 - Remove `FusionCategory::authority_fingerprint` and every family's
   fingerprint bytes. Value changes are announced here and by semver.
 - Remove `LieGroup::{with_catalog_budget, catalog_stats, reset_catalog}` and
