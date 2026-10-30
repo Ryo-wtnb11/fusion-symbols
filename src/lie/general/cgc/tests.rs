@@ -635,9 +635,9 @@ fn radical_formation_preserves_exact_entries() {
     }
 }
 
-/// Round-only formation saves exactly the canonical temporary's one
-/// allocation per nonzero entry, with the arithmetic and the bits unchanged
-/// (GS and GT bases, N = 2).
+/// Round-only formation from the unreduced ratio gives the bits of the exact
+/// value and, with no canonical temporary and no gcd, allocates less over a
+/// channel than forming the exact value first (GS and GT bases, N = 2).
 #[cfg(feature = "lie-generated")]
 #[test]
 fn round_only_formation_skips_the_exact_temporary() {
@@ -649,7 +649,7 @@ fn round_only_formation_skips_the_exact_temporary() {
     ] {
         let fam = GeneralFamily::new(root);
         let (ch, ma, mb, mc) = fam.channel(&a, &b, &c).unwrap();
-        let mut nonzero = 0;
+        let (mut nonzero, mut exact_calls, mut round_calls) = (0, 0, 0);
         for mu in 0..ch.mult {
             for (m, per_mu) in ch.phi.iter().enumerate() {
                 let scale = &ch.seed_norms[mu] * &mc.norm[m];
@@ -664,12 +664,14 @@ fn round_only_formation_skips_the_exact_temporary() {
                     let new = rounded_radical(x, na, nb, &scale);
                     let end = calls();
                     assert_eq!(old.to_bits(), new.to_bits());
-                    assert_eq!(mid - start, end - mid + 1);
+                    exact_calls += mid - start;
+                    round_calls += end - mid;
                     nonzero += 1;
                 }
             }
         }
         assert!(nonzero > 0);
+        assert!(round_calls < exact_calls, "{round_calls} vs {exact_calls}");
     }
 }
 

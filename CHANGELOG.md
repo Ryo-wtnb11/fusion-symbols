@@ -128,6 +128,14 @@ value/gauge rule noted below.
 
 ### Performance
 
+- Cartan CGC entries are rounded from the unreduced integer ratio of their
+  operands' numerators and denominators instead of a gcd-normalized
+  radicand; the conversion depends only on the ratio, so every coefficient
+  bit is unchanged. Sequential release cold `cgc`:
+  A2 `(6,6)³` 1.44 → 0.73 s, F4 `1274² → 29172` 48.3 → 36.1 s,
+  E7 `1539² → 40755` 15.6 → 12.5 s, E7 `912 ⊗ 1539 → 6480` 2.49 → 1.96 s,
+  G2 `[2,2]³` 111.5 → 95.8 s.
+
 - Gram–Schmidt module construction (B–G) evaluates the contravariant form
   lazily: every candidate's diagonal, and the row to later candidates only of
   kept candidates, so a rejected candidate costs one evaluation and no

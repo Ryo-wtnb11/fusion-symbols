@@ -140,19 +140,21 @@ impl SignedSqrtRational {
     /// `(2*mant+1)^2 * 2^(2*exp-2)` — no floating point enters the decision, so
     /// the only rounding is the final exactly-representable `mant * 2^exp`.
     pub fn to_f64(&self) -> f64 {
-        signed_sqrt_to_f64(self.sign, self.radicand())
+        let r = self.radicand();
+        signed_sqrt_to_f64(self.sign, r.numerator_ref(), r.denominator_ref())
     }
 }
 
-/// The value of [`SignedSqrtRational::to_f64`] for `sign * sqrt(r)` with `r`
-/// reduced and nonnegative, without materializing the exact value. The sign is
-/// applied after rounding the magnitude, so a nonzero value that underflows
-/// keeps its signed zero.
-pub(crate) fn signed_sqrt_to_f64(sign: i8, r: &Rational) -> f64 {
+/// The value of [`SignedSqrtRational::to_f64`] for `sign * sqrt(n/d)`, with
+/// `n, d` nonnegative integers (`d > 0`) that need not be coprime, without
+/// materializing the exact value. The result depends only on the ratio
+/// `n/d` (see [`sqrt_ratio_to_f64`]). The sign is applied after rounding the
+/// magnitude, so a nonzero value that underflows keeps its signed zero.
+pub(crate) fn signed_sqrt_to_f64(sign: i8, n: &Natural, d: &Natural) -> f64 {
     if sign == 0 {
         return 0.0;
     }
-    let mag = sqrt_ratio_to_f64(r.numerator_ref(), r.denominator_ref());
+    let mag = sqrt_ratio_to_f64(n, d);
     if sign < 0 {
         -mag
     } else {
@@ -161,6 +163,18 @@ pub(crate) fn signed_sqrt_to_f64(sign: i8, r: &Rational) -> f64 {
 }
 
 /// Nearest `f64` to `sqrt(n/d)` for nonnegative big integers, ties to even.
+///
+/// The result is a function of the ratio `n/d` alone, so `(k·n, k·d)` gives the
+/// same bits for every `k > 0`. With `x = sqrt(n/d)`, `floor(n·2^(2g)/d) =
+/// floor(x²·2^(2g))` and `floor(sqrt(floor(y))) = floor(sqrt(y))`, so `q =
+/// floor(x·2^g)`. The scale `g` the loop settles on may depend on the bit
+/// lengths of `n` and `d` (several `g` can give 54..=56 bits), but `q` has
+/// `L + g` bits with `L = floor(log2 x) + 1`, so `value_exp = bits − 53 − g =
+/// L − 53` and `mant = floor(q / 2^(bits−53)) = floor(x·2^(−value_exp))` do
+/// not: the 53-bit floor and its exponent are those of `x`. The midpoint test
+/// is an exact cross-multiplication, and the final `scale_pow2(mant,
+/// value_exp)` (including its subnormal behavior) therefore sees the same
+/// operands for every representation of the ratio.
 fn sqrt_ratio_to_f64(n: &Natural, d: &Natural) -> f64 {
     if n == &0 {
         return 0.0;
@@ -209,13 +223,14 @@ fn sqrt_ratio_to_f64(n: &Natural, d: &Natural) -> f64 {
     let two_m1 = (&mant << 1u32) + Natural::ONE;
     let mid_sq_int = &two_m1 * &two_m1; // (2*mant+1)^2
     let p = 2 * value_exp - 2;
-    let (lhs, rhs) = if p >= 0 {
-        (n.clone(), (&mid_sq_int * d) << (p as u64))
+    let rhs = mid_sq_int * d;
+    let ord = if p >= 0 {
+        n.cmp(&(rhs << (p as u64)))
     } else {
-        (n << ((-p) as u64), &mid_sq_int * d)
+        (n << ((-p) as u64)).cmp(&rhs)
     };
 
-    let chosen: Natural = match lhs.cmp(&rhs) {
+    let chosen: Natural = match ord {
         std::cmp::Ordering::Less => mant, // below midpoint -> round down
         std::cmp::Ordering::Greater => mant + Natural::ONE, // above -> round up
         std::cmp::Ordering::Equal => {
@@ -540,17 +555,73 @@ mod tests {
             // 2^-1100 underflows to a zero that keeps the sign.
             (r(one.clone(), 2200), 0),
         ];
+        // Unreduced representations `(k·n, k·d)` of each ratio: small and large
+        // powers of two, small odd, and large non-powers-of-two.
+        let ks: Vec<Natural> = [
+            Integer::from(2),
+            Integer::from(3),
+            two(64),
+            two(1000),
+            Integer::from(3u32).pow(150),
+            two(127) - &one,
+            Integer::from(10u32).pow(40) + Integer::from(7),
+        ]
+        .iter()
+        .map(|k| Natural::try_from(k).unwrap())
+        .collect();
         for (radicand, bits) in cases {
+            let (n, d) = (radicand.numerator_ref(), radicand.denominator_ref());
             for sign in [1i8, -1] {
                 let want = if sign < 0 { bits | 1 << 63 } else { bits };
-                let got = signed_sqrt_to_f64(sign, &radicand);
+                let got = signed_sqrt_to_f64(sign, n, d);
                 assert_eq!(got.to_bits(), want, "{sign} sqrt({radicand})");
                 let exact = SignedSqrtRational::from_radicand(sign, radicand.clone());
                 assert_eq!(exact.to_f64().to_bits(), want, "{sign} sqrt({radicand})");
+                for k in &ks {
+                    let got = signed_sqrt_to_f64(sign, &(k * n), &(k * d));
+                    assert_eq!(got.to_bits(), want, "{sign} sqrt({k}·{radicand}/{k})");
+                }
             }
         }
-        assert_eq!(signed_sqrt_to_f64(0, &Rational::ZERO).to_bits(), 0);
+        assert_eq!(
+            signed_sqrt_to_f64(0, &Natural::ZERO, &Natural::ONE).to_bits(),
+            0
+        );
+        for k in &ks {
+            assert_eq!(signed_sqrt_to_f64(1, &Natural::ZERO, k).to_bits(), 0);
+        }
         assert_eq!(SignedSqrtRational::zero().to_f64().to_bits(), 0);
+    }
+
+    /// Unreduced `(k·n, k·d)` rounds like the reduced `n/d` over random ratios
+    /// whose bit lengths straddle the converter's 54..=56-bit window and the
+    /// subnormal range.
+    #[test]
+    fn unreduced_ratio_rounds_like_reduced() {
+        use rand::{Rng, SeedableRng};
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(0x256e);
+        let mut nat = |bits: u64| -> Natural {
+            let mut x = Natural::ZERO;
+            for _ in 0..bits.div_ceil(64) {
+                x = (x << 64u32) + Natural::from(rng.gen::<u64>());
+            }
+            (x >> (bits.div_ceil(64) * 64 - bits)) | (Natural::ONE << (bits - 1))
+        };
+        for i in 0..4000u64 {
+            let (nb, db, kb) = (1 + i % 97 * 7, 1 + (i / 97) % 41 * 13, 1 + i % 61 * 5);
+            let n = nat(nb);
+            // Every tenth denominator puts the value deep in the subnormal range.
+            let d = if i % 10 == 0 {
+                nat(db) << 2120u32
+            } else {
+                nat(db)
+            };
+            let k = nat(kb);
+            let r = Rational::from_naturals(n.clone(), d.clone());
+            let want = signed_sqrt_to_f64(-1, r.numerator_ref(), r.denominator_ref());
+            let got = signed_sqrt_to_f64(-1, &(&k * &n), &(&k * &d));
+            assert_eq!(got.to_bits(), want.to_bits(), "sqrt({n}/{d}), k = {k}");
+        }
     }
 
     #[test]
