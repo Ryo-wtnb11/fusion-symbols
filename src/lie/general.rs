@@ -10,7 +10,9 @@ pub(crate) mod roots;
 
 use std::sync::LazyLock;
 
-pub(crate) use self::cgc::GeneralFamily;
+#[cfg(test)]
+pub(crate) use self::cgc::observe_contraction;
+pub(crate) use self::cgc::{GeneralFamily, RequestModules};
 use self::roots::CartanData;
 use crate::lie::RootSystem;
 

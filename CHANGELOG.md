@@ -142,6 +142,18 @@ value/gauge rule noted below.
 
 ### Performance
 
+- The channel misses of one F or R query share their irrep modules: a
+  module the CGC tier does not retain (oversize, or under a small budget) is
+  built once per query instead of once per missed channel, and it is
+  released after the last channel of the query that may need it, so an R
+  query holds no more modules than one channel and an F query with six
+  distinct labels at most five. A resident channel loads no module. Every
+  coefficient bit is unchanged. Sequential release cold, one thread:
+  E8 `R(147250, 1; 147250)` 4.09 → 2.18 s and
+  `F^{1,147250,1}_{147250}[147250,147250]` 4.11 → 2.18 s (one module build
+  instead of two), E8 `F^{248,248,248}_{248}[30380,27000]` with a zero CGC
+  budget 1.14 → 0.84 s; peak allocated bytes unchanged.
+
 - The rounded CGC gates read the entries in place through one run per
   column `(m_c, μ)` and group one output weight block at a time, instead of
   first copying the whole channel into per-weight blocks; the extra entry

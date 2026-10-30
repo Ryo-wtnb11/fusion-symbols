@@ -32,9 +32,13 @@ is published, including its labels, rational limbs, vector capacities and
 of retention, so its working set may exceed the cap transiently, and an
 oversize value is returned but not retained. One channel miss loads each
 required module label at most once and shares it among equal labels, so an oversize
-module is not rebuilt within that channel; the separate channel misses of one
-F or R query each load their modules through the tier. A completed channel is
-retained independently of its modules.
+module is not rebuilt within that channel. The channel misses of one F or R
+query share their modules the same way: each distinct label is loaded at most
+once per query, and a module is released after the last channel of the query
+that may need it, so an R query holds no more modules than one of its
+channels and an F query with six distinct labels at most five; none are held
+during the contraction. A resident channel loads no module. A completed
+channel is retained independently of its modules.
 
 All materialized simple-Lie tensor products use the Product tier. Its
 borrowed key is the root-system presentation, an unordered pair of exact
