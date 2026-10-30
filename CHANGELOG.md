@@ -128,6 +128,15 @@ value/gauge rule noted below.
 
 ### Performance
 
+- Gram–Schmidt module construction (B–G) evaluates the contravariant form
+  lazily: every candidate's diagonal, and the row to later candidates only of
+  kept candidates, so a rejected candidate costs one evaluation and no
+  candidate-by-candidate Gram matrix is allocated. Norms, recipes, lowering
+  matrices and every coefficient bit are unchanged. Sequential release cold
+  single-module build (`λ ⊗ 0 → λ`): F4 106496 49.8 → 18.9 s (peak RSS 8.3 →
+  7.2 GB), E6 112320 11.6 → 5.1 s, E8 147250 4.1 → 2.0 s, F4 29172 1.42 →
+  0.73 s, G2 `[4,4]` 16.6 → 5.9 s.
+
 - Cartan CGC product states are located by row arithmetic instead of a
   per-weight pair-to-index hash map: a left state's pairs are one contiguous
   run of the a-slow order, so a pair sits at its row start plus the right

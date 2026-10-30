@@ -559,3 +559,234 @@ fn large_modules_satisfy_rank_gates_and_recipes() {
         check_recipes(&build(root, &lambda).1);
     }
 }
+
+thread_local! {
+    /// Contravariant-form evaluations made by `build_space` on this thread.
+    pub(super) static FORM_EVALS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Slots of the retained `inner` rows (one per kept candidate) allocated
+    /// by `build_space` on this thread.
+    pub(super) static RETAINED_ROW_SLOTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The former eager construction of §3.2.3, kept as an oracle: the full
+/// `C × C` candidate Gram matrix, then greedy Gram–Schmidt over it. Returns
+/// the norms, kept candidate indices, recipe and lowering matrices.
+#[allow(clippy::type_complexity)]
+fn eager_space(
+    data: &CartanData,
+    weights: &[WeightSpace],
+    index: &HashMap<Vec<i64>, usize>,
+    mu: &[i64],
+) -> (
+    Vec<Q>,
+    Vec<usize>,
+    Vec<Vec<Q>>,
+    Vec<Option<(usize, Vec<Vec<Q>>)>>,
+) {
+    let rank = mu.len();
+    let raise =
+        |nu: &[i64], j: usize| -> Vec<i64> { (0..rank).map(|i| nu[i] + data.c(j, i)).collect() };
+    let mut cands: Vec<(usize, usize, usize)> = Vec::new();
+    let mut start = vec![None; rank];
+    for (j, slot) in start.iter_mut().enumerate() {
+        if let Some(&src) = index.get(&raise(mu, j)) {
+            *slot = Some(cands.len());
+            cands.extend((0..weights[src].norms.len()).map(|q| (j, src, q)));
+        }
+    }
+    let c = cands.len();
+    let mut gram = vec![vec![Q::from(0); c]; c];
+    for s in 0..c {
+        let (j, v1, q) = cands[s];
+        for t in s..c {
+            let (kk, v2, q2) = cands[t];
+            let (w1, w2) = (&weights[v1], &weights[v2]);
+            let mut g = Q::from(0);
+            if let (Some((tau, f1)), Some((_, f2))) = (&w1.lower[kk], &w2.lower[j]) {
+                for (p, n_p) in weights[*tau].norms.iter().enumerate() {
+                    g += &f1[q][p] * &f2[q2][p] / n_p;
+                }
+                g *= &w1.norms[q] * &w2.norms[q2];
+            }
+            if j == kk && q == q2 {
+                g += Q::from(w1.mu[j]) * &w1.norms[q];
+            }
+            gram[t][s] = g.clone();
+            gram[s][t] = g;
+        }
+    }
+    // Plain Gram–Schmidt on the full matrix: b_k = c_t − Σ_l (G-projection) b_l.
+    let mut recipe: Vec<Vec<Q>> = Vec::new();
+    let mut inner: Vec<Vec<Q>> = Vec::new();
+    let mut norms: Vec<Q> = Vec::new();
+    let mut kept = Vec::new();
+    for t in 0..c {
+        let scales: Vec<Q> = inner.iter().zip(&norms).map(|(r, n)| &r[t] / n).collect();
+        let n = &gram[t][t] - scales.iter().zip(&inner).map(|(s, r)| s * &r[t]).sum::<Q>();
+        assert!(n >= 0);
+        if n == 0 {
+            continue;
+        }
+        let mut coeffs = vec![Q::from(0); recipe.len() + 1];
+        coeffs[recipe.len()] = Q::from(1);
+        for (s, r) in scales.iter().zip(&recipe) {
+            for (x, y) in coeffs.iter_mut().zip(r) {
+                *x -= s * y;
+            }
+        }
+        let row: Vec<Q> = (0..c)
+            .map(|col| {
+                &gram[t][col]
+                    - scales
+                        .iter()
+                        .zip(&inner)
+                        .map(|(s, r)| s * &r[col])
+                        .sum::<Q>()
+            })
+            .collect();
+        recipe.push(coeffs);
+        inner.push(row);
+        norms.push(n);
+        kept.push(t);
+    }
+    for row in &mut recipe {
+        row.resize(norms.len(), Q::from(0));
+    }
+    let lower = (0..rank)
+        .map(|j| {
+            let s0 = start[j]?;
+            let src = cands[s0].1;
+            let len = weights[src].norms.len();
+            let f = inner
+                .iter()
+                .zip(&norms)
+                .map(|(row, n)| row[s0..s0 + len].iter().map(|x| x / n).collect())
+                .collect();
+            Some((src, f))
+        })
+        .collect();
+    (norms, kept, recipe, lower)
+}
+
+/// The lazy construction keeps the same candidates with the same norms,
+/// recipes and lowering matrices as the eager oracle, evaluating the form
+/// exactly `C + Σ_l (C − t_l − 1)` times per weight and allocating one row of
+/// `C` slots per kept candidate only.
+fn check_lazy_against_eager(root: RootSystem, lambda: &[i64]) -> (usize, usize) {
+    let data = CartanData::new(root);
+    FORM_EVALS.with(|n| n.set(0));
+    RETAINED_ROW_SLOTS.with(|n| n.set(0));
+    let m = IrrepModule::new(&data, lambda).unwrap();
+    let (evals, slots) = (
+        FORM_EVALS.with(|n| n.get()),
+        RETAINED_ROW_SLOTS.with(|n| n.get()),
+    );
+    let (mut lazy_bound, mut eager_evals, mut lazy_slots) = (0, 0, 0);
+    for (w, s) in m.weights.iter().enumerate().skip(1) {
+        let (norms, kept, recipe, lower) = eager_space(&data, &m.weights[..w], &m.index, &s.mu);
+        let c: usize = s
+            .lower
+            .iter()
+            .flatten()
+            .map(|(src, _)| m.weights[*src].norms.len())
+            .sum();
+        let starts: Vec<usize> = s
+            .lower
+            .iter()
+            .scan(0, |acc, l| {
+                let at = *acc;
+                *acc += l.as_ref().map_or(0, |(src, _)| m.weights[*src].norms.len());
+                Some(at)
+            })
+            .collect();
+        let lazy_kept: Vec<usize> = s.kept.iter().map(|&(j, q)| starts[j] + q).collect();
+        assert_eq!(lazy_kept, kept, "{root:?} {lambda:?} {:?}", s.mu);
+        assert_eq!(s.norms, norms, "{root:?} {lambda:?} {:?}", s.mu);
+        assert_eq!(s.recipe, recipe, "{root:?} {lambda:?} {:?}", s.mu);
+        assert_eq!(s.lower, lower, "{root:?} {lambda:?} {:?}", s.mu);
+        lazy_bound += c + kept.iter().map(|t| c - t - 1).sum::<usize>();
+        eager_evals += c * (c + 1) / 2;
+        lazy_slots += kept.len() * c;
+    }
+    assert_eq!(evals, lazy_bound, "{root:?} {lambda:?}");
+    assert!(evals <= eager_evals);
+    assert_eq!(slots, lazy_slots, "{root:?} {lambda:?}");
+    (evals, eager_evals)
+}
+
+#[test]
+fn lazy_gram_schmidt_matches_eager_oracle() {
+    let mut saved = false;
+    for (root, lambda) in [
+        (RootSystem::G2, vec![1, 0]),
+        (RootSystem::G2, vec![2, 0]),
+        (RootSystem::G2, vec![1, 1]),
+        (RootSystem::G2, vec![2, 1]),
+        (RootSystem::B(2), vec![1, 1]),
+        (RootSystem::B(3), vec![1, 0, 1]),
+        (RootSystem::C(3), vec![0, 1, 1]),
+        (RootSystem::D(4), vec![0, 1, 0, 0]),
+        (RootSystem::D(5), vec![1, 0, 0, 1, 0]),
+        (RootSystem::F4, unit(4, 3)),
+        (RootSystem::F4, unit(4, 2)),
+        (RootSystem::E6, unit(6, 1)),
+        (RootSystem::E7, unit(7, 6)),
+        (RootSystem::E8, unit(8, 7)),
+    ] {
+        let (lazy, eager) = check_lazy_against_eager(root, &lambda);
+        saved |= lazy < eager;
+    }
+    assert!(saved, "some fixture must reject candidates");
+}
+
+/// Lazy against eager on larger profile modules (release).
+#[test]
+#[ignore = "large exact modules; run in release"]
+fn lazy_gram_schmidt_matches_eager_oracle_large() {
+    for (root, lambda) in [
+        (RootSystem::F4, vec![1, 1, 0, 0]),
+        (RootSystem::E7, vec![0, 1, 0, 0, 0, 0, 1]),
+        (RootSystem::G2, vec![4, 4]),
+    ] {
+        check_lazy_against_eager(root, &lambda);
+    }
+}
+
+/// The widest-rejection weight space of a module allocates no candidate Gram
+/// matrix. Budget on calls by the building thread: one projection-scale vector
+/// per candidate, a recipe and an `inner` row per kept candidate, the recipe
+/// padding, `rank · (m + 2)` for the lowering matrices and raised weights, and
+/// at most 8 fixed vectors; arithmetic on these small rationals stays inline.
+/// A `C × C` matrix would add `C + 1` calls, more than the budget leaves.
+#[cfg(feature = "lie-generated")]
+#[test]
+fn rejecting_weight_space_allocates_no_candidate_gram_matrix() {
+    for (root, lambda) in [
+        (RootSystem::E8, unit(8, 0)),
+        (RootSystem::F4, vec![1, 0, 0, 1]),
+    ] {
+        let data = CartanData::new(root);
+        let order = depth_order(&data, &lambda).unwrap();
+        let m = IrrepModule::new(&data, &lambda).unwrap();
+        let candidates = |s: &WeightSpace| -> usize {
+            s.lower
+                .iter()
+                .flatten()
+                .map(|(src, _)| m.weights[*src].norms.len())
+                .sum()
+        };
+        let w = (1..m.weights.len())
+            .max_by_key(|&w| candidates(&m.weights[w]) - m.weights[w].norms.len())
+            .unwrap();
+        let (c, kept) = (candidates(&m.weights[w]), m.weights[w].norms.len());
+        assert!(c > kept + 20, "{root:?}: fixture must reject candidates");
+        let (k, mu) = order.spaces[w].clone();
+        let before = crate::audit_alloc::thread_allocation_calls();
+        let space = build_space(&data, &m.weights[..w], &order.index, mu, k, 0, kept as u64);
+        let calls = crate::audit_alloc::thread_allocation_calls() - before;
+        drop(space.unwrap());
+        let rank = lambda.len();
+        let budget = c + 3 * kept + rank * (kept + 2) + 8;
+        assert!(calls <= budget, "{root:?}: {calls} calls, budget {budget}");
+    }
+}

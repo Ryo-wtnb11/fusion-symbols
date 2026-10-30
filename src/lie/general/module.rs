@@ -348,40 +348,42 @@ fn build_space(
     // §3.2.4: ⟨f_j w, f_k w′⟩ = ⟨e_k w, e_j w′⟩ + δ_jk (μ+α_j)_j ⟨w, w′⟩, with
     // ⟨e_k b_q, e_j b_q′⟩ = Σ_p F_k[q][p] F_j[q′][p] n_q n_q′ / n_p by contravariance.
     let c = cands.len();
-    let mut gram = vec![vec![Q::from(0); c]; c];
-    for s in 0..c {
+    let form = |s: usize, t: usize| -> Q {
+        #[cfg(test)]
+        tests::FORM_EVALS.with(|n| n.set(n.get() + 1));
         let (j, v1, q) = cands[s];
-        for t in s..c {
-            let (kk, v2, q2) = cands[t];
-            let (w1, w2) = (&weights[v1], &weights[v2]);
-            let mut g = Q::from(0);
-            if let (Some((tau, f1)), Some((_, f2))) = (&w1.lower[kk], &w2.lower[j]) {
-                let n_tau = &weights[*tau].norms;
-                for (p, n_p) in n_tau.iter().enumerate() {
-                    if f1[q][p].numerator_ref() != &0 && f2[q2][p].numerator_ref() != &0 {
-                        g += &f1[q][p] * &f2[q2][p] / n_p;
-                    }
-                }
-                if g.numerator_ref() != &0 {
-                    g *= &w1.norms[q] * &w2.norms[q2];
+        let (kk, v2, q2) = cands[t];
+        let (w1, w2) = (&weights[v1], &weights[v2]);
+        let mut g = Q::from(0);
+        if let (Some((tau, f1)), Some((_, f2))) = (&w1.lower[kk], &w2.lower[j]) {
+            let n_tau = &weights[*tau].norms;
+            for (p, n_p) in n_tau.iter().enumerate() {
+                if f1[q][p].numerator_ref() != &0 && f2[q2][p].numerator_ref() != &0 {
+                    g += &f1[q][p] * &f2[q2][p] / n_p;
                 }
             }
-            if j == kk && q == q2 {
-                g += Q::from(w1.mu[j]) * &w1.norms[q];
+            if g.numerator_ref() != &0 {
+                g *= &w1.norms[q] * &w2.norms[q2];
             }
-            gram[t][s] = g.clone();
-            gram[s][t] = g;
         }
-    }
+        if j == kk && q == q2 {
+            g += Q::from(w1.mu[j]) * &w1.norms[q];
+        }
+        g
+    };
 
-    // Cache ⟨b_a, c_t⟩ once: GS uses it for projections and lowering uses it / n_a.
+    // Greedy Gram–Schmidt over the lazily evaluated Gram matrix: a candidate
+    // needs only its diagonal and its column of the kept rows `inner`; the
+    // form row to later candidates is evaluated only once it is kept, so a
+    // rejected candidate costs one evaluation and no C × C matrix exists.
+    // `inner[a][t] = ⟨b_a, c_t⟩` serves projections here and lowering as F / n_a.
     // Rejected candidates never occur in a residual, so GS needs only kept coordinates.
     let mut gs: Vec<Vec<Q>> = Vec::with_capacity(usize::try_from(multiplicity).unwrap_or(0));
     let mut inner: Vec<Vec<Q>> = Vec::new();
     let mut norms: Vec<Q> = Vec::new();
     let mut kept_idx: Vec<usize> = Vec::new();
     for t in 0..c {
-        let mut n = gram[t][t].clone();
+        let mut n = form(t, t);
         let scales: Vec<Q> = inner
             .iter()
             .zip(&norms)
@@ -413,10 +415,12 @@ fn build_space(
             }
         }
         // All earlier candidates lie in the preceding span, orthogonal to b_a.
+        #[cfg(test)]
+        tests::RETAINED_ROW_SLOTS.with(|n| n.set(n.get() + c));
         let mut row = vec![Q::from(0); c];
         row[t] = n.clone();
         for col in t + 1..c {
-            row[col] = gram[t][col].clone();
+            row[col] = form(t, col);
             for (scale, prev) in scales.iter().zip(&inner) {
                 if scale.numerator_ref() != &0 && prev[col].numerator_ref() != &0 {
                     row[col] -= scale * &prev[col];
