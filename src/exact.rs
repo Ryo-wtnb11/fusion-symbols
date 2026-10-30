@@ -9,10 +9,10 @@
 use std::sync::Arc;
 
 #[cfg(test)]
-use malachite_base::num::arithmetic::traits::Pow;
+use malachite_base::num::{arithmetic::traits::Pow, basic::traits::One};
 use malachite_base::num::{
-    arithmetic::traits::FloorSqrt,
-    basic::traits::{One, Zero},
+    arithmetic::traits::{FloorSqrt, XMulYToZZ, XXDivModYToQR},
+    basic::traits::Zero,
     logic::traits::SignificantBits,
 };
 #[cfg(test)]
@@ -180,26 +180,27 @@ fn sqrt_ratio_to_f64(n: &Natural, d: &Natural) -> f64 {
     if n == &0 {
         return 0.0;
     }
+    // Both exact inputs as machine words, when they fit (`d > 0` is the
+    // caller's invariant). Only the two exact primitives below dispatch on it;
+    // the scale, the significand and the rounding decision are shared.
+    let words = u64::try_from(n).ok().zip(u64::try_from(d).ok());
     let nb = n.significant_bits() as i64;
     let db = d.significant_bits() as i64;
     // floor(log2(sqrt(n/d))) ≈ (nb - db) / 2; choose g so Q ≈ sqrt(n/d)*2^g
     // lands around 54 bits.
     let mut g: i64 = 54 - (nb - db) / 2;
     let (q, exp) = loop {
-        let two_g = 2 * g;
-        // scaled = floor(n * 2^(2g) / d)
-        let scaled = if two_g >= 0 {
-            (n << (two_g as u64)) / d
-        } else {
-            n / (d << ((-two_g) as u64))
+        // q = floor(sqrt(floor(n * 2^(2g) / d))), zero iff the quotient is.
+        let q = match words.and_then(|(u, v)| word_scaled_sqrt(u, v, 2 * g)) {
+            Some(q) => Natural::from(q),
+            None => natural_scaled_sqrt(n, d, 2 * g),
         };
-        if scaled == 0 {
+        if q == 0 {
             // g too small (only possible if n/d rounds below 1 at this scale);
             // push the scale up and retry.
             g += 8;
             continue;
         }
-        let q = scaled.floor_sqrt();
         let bits = q.significant_bits() as i64;
         if bits < 54 {
             g += (54 - bits + 1) / 2 + 1;
@@ -209,12 +210,11 @@ fn sqrt_ratio_to_f64(n: &Natural, d: &Natural) -> f64 {
             g -= (bits - 56 + 1) / 2 + 1;
             continue;
         }
-        break (q, g);
+        break (u64::try_from(&q).expect("q has at most 56 bits"), g);
     };
 
-    let bits = q.significant_bits() as i64;
-    let drop = bits - 53; // >= 1 since bits in 54..=56
-    let mut mant: Natural = &q >> (drop as u64);
+    let drop = i64::from(u64::BITS - q.leading_zeros()) - 53; // >= 1 since bits in 54..=56
+    let mut mant = q >> drop;
     // value ≈ mant * 2^(drop - exp)
     let mut value_exp = drop - exp;
     // Below 2^-1022 the f64 spacing is fixed at 2^-1074, so the significand
@@ -222,51 +222,113 @@ fn sqrt_ratio_to_f64(n: &Natural, d: &Natural) -> f64 {
     // floor(x·2^1074). Rounding once here leaves `scale_pow2` an exact scale;
     // a carry to 2^52 lands exactly on the smallest normal.
     if value_exp < MIN_ULP_EXP {
-        mant >>= (MIN_ULP_EXP - value_exp) as u64;
+        mant = u32::try_from(MIN_ULP_EXP - value_exp)
+            .ok()
+            .and_then(|s| mant.checked_shr(s))
+            .unwrap_or(0);
         value_exp = MIN_ULP_EXP;
     }
 
     // Exact midpoint decision: compare sqrt(n/d) against (mant + 1/2)*2^value_exp.
-    // Squared: n/d  vs  (2*mant+1)^2 * 2^(2*value_exp - 2).
-    // Cross-multiply by d and clear the sign of the power of two.
-    let two_m1 = (&mant << 1u32) + Natural::ONE;
-    let mid_sq_int = &two_m1 * &two_m1; // (2*mant+1)^2
+    // Squared: n/d  vs  (2*mant+1)^2 * 2^(2*value_exp - 2), cross-multiplied
+    // by d with the power of two moved to the side it multiplies.
+    let two_m1 = 2 * mant + 1; // below 2^54
     let p = 2 * value_exp - 2;
-    let rhs = mid_sq_int * d;
-    let ord = if p >= 0 {
-        n.cmp(&(rhs << (p as u64)))
-    } else {
-        (n << ((-p) as u64)).cmp(&rhs)
+    let ord = match words.and_then(|(u, v)| word_midpoint_cmp(u, v, two_m1, p)) {
+        Some(ord) => ord,
+        None => natural_midpoint_cmp(n, d, two_m1, p),
     };
 
-    let chosen: Natural = match ord {
-        std::cmp::Ordering::Less => mant, // below midpoint -> round down
-        std::cmp::Ordering::Greater => mant + Natural::ONE, // above -> round up
-        std::cmp::Ordering::Equal => {
-            // Exact midpoint: round half to even.
-            if (&mant & Natural::ONE) == 0 {
-                mant
-            } else {
-                mant + Natural::ONE
-            }
-        }
+    let chosen = match ord {
+        std::cmp::Ordering::Less => mant,
+        std::cmp::Ordering::Greater => mant + 1,
+        // Exact midpoint: round half to even.
+        std::cmp::Ordering::Equal => mant + (mant & 1),
     };
 
-    // `chosen` has at most 54 bits (53, or 2^53 on carry) so it is exact in f64,
-    // and `chosen · 2^value_exp` is a representable f64 (or overflows).
-    let mant_f = natural_to_f64_exact(&chosen);
-    scale_pow2(mant_f, value_exp)
+    // `chosen` is at most 2^53 so it is exact in f64, and `chosen · 2^value_exp`
+    // is a representable f64 (or overflows).
+    scale_pow2(chosen as f64, value_exp)
 }
 
 /// Exponent of the smallest subnormal `f64`, `2^-1074`: the finest spacing of
 /// the `f64` grid.
 const MIN_ULP_EXP: i64 = -1074;
 
-/// Exact `f64` of a `Natural` that fits in 54 bits.
-fn natural_to_f64_exact(x: &Natural) -> f64 {
-    // Fits in u64 (<= 2^54); u64->f64 is exact for values < 2^53 and exact for
-    // 2^53 and 2^54 as well since they are powers of two with a single bit.
-    u64::try_from(x).map_or(f64::INFINITY, |n| n as f64)
+/// `floor(sqrt(floor(n · 2^two_g / d)))` in big integers, for either sign of
+/// `two_g`.
+fn natural_scaled_sqrt(n: &Natural, d: &Natural, two_g: i64) -> Natural {
+    let scaled = if two_g >= 0 {
+        (n << (two_g as u64)) / d
+    } else {
+        n / (d << ((-two_g) as u64))
+    };
+    scaled.floor_sqrt()
+}
+
+/// `n` against `two_m1² · d · 2^p` in big integers, for either sign of `p`.
+fn natural_midpoint_cmp(n: &Natural, d: &Natural, two_m1: u64, p: i64) -> std::cmp::Ordering {
+    let two_m1 = Natural::from(two_m1);
+    let rhs = &two_m1 * &two_m1 * d;
+    if p >= 0 {
+        n.cmp(&(rhs << (p as u64)))
+    } else {
+        (n << ((-p) as u64)).cmp(&rhs)
+    }
+}
+
+// The word primitives below compute the same values as the big-integer ones
+// above in two `u128` limbs, `(hi, lo) = hi · 2^128 + lo`, and return `None`
+// whenever an operand or intermediate does not fit, before computing anything
+// from it; the caller then recomputes the same primitive from the original
+// inputs in big integers. For `0 < u, v < 2^64` the driver's first scale has
+// `23 <= g <= 85`, never retries, and keeps `p` negative, so `u · 2^(2g)` and
+// `u · 2^(-p)` have at most 173 bits and `(2m+1)² · v` at most 172.
+
+/// `floor(sqrt(floor(u · 2^two_g / v)))` when `u · 2^two_g` fits 256 bits and
+/// the quotient fits `u128`.
+fn word_scaled_sqrt(u: u64, v: u64, two_g: i64) -> Option<u64> {
+    let (hi, lo) = shl_wide(u128::from(u), two_g)?;
+    let v = u128::from(v);
+    // The divider's precondition; it also excludes `v == 0`, which the
+    // big-integer division then reports.
+    if hi >= v {
+        return None;
+    }
+    let (scaled, _) = u128::xx_div_mod_y_to_qr(hi, lo, v);
+    #[cfg(test)]
+    tests::count_word_hit(0);
+    // The square root of a u128 is below 2^64.
+    Some(scaled.isqrt() as u64)
+}
+
+/// `u` against `two_m1² · v · 2^p` for negative `p` with `u · 2^(-p)` within
+/// 256 bits; `None` for `p >= 0`, which the word domain never reaches.
+fn word_midpoint_cmp(u: u64, v: u64, two_m1: u64, p: i64) -> Option<std::cmp::Ordering> {
+    if p >= 0 {
+        return None;
+    }
+    let sq = u128::from(two_m1).checked_mul(u128::from(two_m1))?;
+    let rhs = u128::x_mul_y_to_zz(sq, u128::from(v));
+    let lhs = shl_wide(u128::from(u), -p)?;
+    #[cfg(test)]
+    tests::count_word_hit(1);
+    Some(lhs.cmp(&rhs))
+}
+
+/// `x · 2^k` as `(hi, lo)` when `0 <= k < 256` and no set bit leaves the 256
+/// bits; checked before any shift, since a `u128` shift discards high bits
+/// and panics at 128.
+fn shl_wide(x: u128, k: i64) -> Option<(u128, u128)> {
+    let k = u32::try_from(k).ok().filter(|&k| k < 256)?;
+    if k > 128 + x.leading_zeros() {
+        return None;
+    }
+    Some(match k {
+        0 => (0, x),
+        1..=127 => (x >> (128 - k), x << k),
+        _ => (x << (k - 128), 0),
+    })
 }
 
 /// Multiply `x` by `2^exp` without libm. Exact whenever the product is a
@@ -777,6 +839,212 @@ mod tests {
             };
             let shift = (2 * t + nb).saturating_sub(db);
             check(&nat(nb), &(nat(db) << shift));
+        }
+    }
+
+    thread_local! {
+        /// Successful calls of the two word primitives on this thread:
+        /// `[scaled square root, midpoint comparison]`.
+        static WORD_HITS: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
+    }
+
+    pub(super) fn count_word_hit(i: usize) {
+        WORD_HITS.with(|h| {
+            let mut v = h.get();
+            v[i] += 1;
+            h.set(v);
+        });
+    }
+
+    /// The converter's bits and the word-primitive successes of one call.
+    fn convert_counting(n: &Natural, d: &Natural) -> (u64, [usize; 2]) {
+        let before = WORD_HITS.with(std::cell::Cell::get);
+        let bits = sqrt_ratio_to_f64(n, d).to_bits();
+        let after = WORD_HITS.with(std::cell::Cell::get);
+        (bits, [after[0] - before[0], after[1] - before[1]])
+    }
+
+    /// Both signs against the grid oracle; inside the word domain both word
+    /// primitives succeed exactly once, outside it neither runs.
+    fn check_word_dispatch(n: &Natural, d: &Natural) {
+        let want = nearest_sqrt_bits_oracle(n, d);
+        let (bits, hits) = convert_counting(n, d);
+        assert_eq!(bits, want, "sqrt({n}/{d})");
+        assert_eq!(
+            signed_sqrt_to_f64(-1, n, d).to_bits(),
+            want | 1 << 63,
+            "-sqrt({n}/{d})"
+        );
+        let fits = |x: &Natural| u64::try_from(x).is_ok();
+        let expected = if fits(n) && fits(d) { [1, 1] } else { [0, 0] };
+        assert_eq!(hits, expected, "word primitives for sqrt({n}/{d})");
+    }
+
+    /// Word inputs just around a rounding midpoint and a significand carry,
+    /// with expected bits from the IEEE grid: `1 + 2^-52` lies just below the
+    /// squared midpoint `(1 + 2^-53)² = 1 + 2^-52 + 2^-106` and the next
+    /// numerator just above it; the next pair straddles the midpoint above the
+    /// odd significand `1 + 2^-52`; the last rounds up to 2 with a carry.
+    /// `(1, 2^64 - 1)` and its reversal are the scale extremes, with a
+    /// negative odd bit-length difference.
+    #[test]
+    fn word_inputs_round_at_midpoints_and_carry() {
+        let p63 = 1u64 << 63;
+        for (u, v, bits) in [
+            (p63 + 2048, p63, 0x3ff0_0000_0000_0000u64),
+            (p63 + 2049, p63, 0x3ff0_0000_0000_0001),
+            (p63 + 6144, p63, 0x3ff0_0000_0000_0001),
+            (p63 + 6145, p63, 0x3ff0_0000_0000_0002),
+            (p63 - 1, 1 << 61, 0x4000_0000_0000_0000),
+        ] {
+            let (n, d) = (Natural::from(u), Natural::from(v));
+            assert_eq!(convert_counting(&n, &d), (bits, [1, 1]), "sqrt({u}/{v})");
+            check_word_dispatch(&n, &d);
+        }
+        for (u, v) in [(1, u64::MAX), (u64::MAX, 1)] {
+            check_word_dispatch(&Natural::from(u), &Natural::from(v));
+        }
+    }
+
+    /// Word and big-integer storage agree with the grid oracle on both sides
+    /// of the `2^64` boundary of each input, and over random bit lengths.
+    #[test]
+    fn word_and_big_inputs_round_alike() {
+        use rand::{Rng, SeedableRng};
+        let mut values: Vec<Natural> = [1u64, 2, 3, 4, 9, 1 << 32, 0xffff_ffff]
+            .map(Natural::from)
+            .to_vec();
+        for k in [62u64, 63, 64, 65] {
+            let p = Natural::ONE << k;
+            values.extend([&p - Natural::ONE, p.clone(), p + Natural::ONE]);
+        }
+        for n in &values {
+            for d in &values {
+                check_word_dispatch(n, d);
+            }
+        }
+        // Perfect squares in and out of the word domain round exactly.
+        for x in [3u64, 0xffff_ffff, 1 << 32] {
+            let sq = Natural::from(x) * Natural::from(x);
+            check_word_dispatch(&sq, &Natural::ONE);
+            check_word_dispatch(&Natural::ONE, &sq);
+        }
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(0x8a);
+        let mut nat = |bits: u64| -> Natural {
+            let x = Natural::from(rng.gen::<u64>()) << 64u32 | Natural::from(rng.gen::<u64>());
+            (x >> (128 - bits)) | (Natural::ONE << (bits - 1))
+        };
+        for i in 0..4000u64 {
+            // Bit lengths 1..=64 inside the word domain, 65..=70 just outside.
+            let (nb, db) = (1 + i % 70, 1 + (i * 37 + i / 70) % 70);
+            check_word_dispatch(&nat(nb), &nat(db));
+        }
+    }
+
+    /// The word primitives against their big-integer counterparts at the
+    /// shift, divider and product limits, including the rejected cases.
+    #[test]
+    fn word_primitives_match_big_integers() {
+        let wide = |(hi, lo): (u128, u128)| (Natural::from(hi) << 128u32) + Natural::from(lo);
+        for x in [0u128, 1, 3, u64::MAX.into(), 1 << 100, u128::MAX] {
+            for k in [0i64, 63, 64, 127, 128, 129, 255, 256, -1] {
+                let got = shl_wide(x, k);
+                let fits = (0..256).contains(&k)
+                    && (Natural::from(x) << k as u64).significant_bits() <= 256;
+                assert_eq!(got.is_some(), fits, "{x} << {k}");
+                if let Some(w) = got {
+                    assert_eq!(wide(w), Natural::from(x) << k as u64, "{x} << {k}");
+                }
+            }
+        }
+        // The divider precondition `hi < v` at its limit: u·2^128 / v with
+        // hi = u is accepted for u = v - 1 and rejected for u = v.
+        for v in [1u64, 3, 1 << 63, u64::MAX] {
+            let d = Natural::from(v);
+            for u in [v - 1, v] {
+                let got = word_scaled_sqrt(u, v, 128);
+                let want = natural_scaled_sqrt(&Natural::from(u), &d, 128);
+                if u == v {
+                    assert_eq!(got, None, "hi = v = {v}");
+                } else if u > 0 {
+                    assert_eq!(got.map(Natural::from), Some(want), "hi = v - 1 = {u}");
+                }
+            }
+            for (u, two_g) in [(1u64, 0i64), (u64::MAX, 46), (u64::MAX, 170), (7, -2)] {
+                let got = word_scaled_sqrt(u, v, two_g);
+                let want = natural_scaled_sqrt(&Natural::from(u), &d, two_g);
+                // Accepted iff the scale is nonnegative and the quotient fits u128.
+                let fits = two_g >= 0
+                    && ((Natural::from(u) << two_g as u64) / &d).significant_bits() <= 128;
+                assert_eq!(
+                    got.map(Natural::from),
+                    fits.then_some(want),
+                    "{u}·2^{two_g}/{v}"
+                );
+            }
+        }
+        // The midpoint comparison at the largest square and denominator, on
+        // both sides of equality, and the rejected `p >= 0`.
+        let m = (1u64 << 54) - 1;
+        let rhs = Natural::from(m) * Natural::from(m) * Natural::from(u64::MAX);
+        for p in [-110i64, -170, -200] {
+            for u in [1u64, u64::MAX, 1 << 40] {
+                let got = word_midpoint_cmp(u, u64::MAX, m, p);
+                let n = Natural::from(u);
+                let want = natural_midpoint_cmp(&n, &Natural::from(u64::MAX), m, p);
+                let fits = (&n << (-p) as u64).significant_bits() <= 256;
+                assert_eq!(got, fits.then_some(want), "{u}·2^{} vs {rhs}", -p);
+            }
+        }
+        // Equality is reachable at the primitive: 9·2^2 = 3²·4.
+        assert_eq!(
+            word_midpoint_cmp(9, 4, 3, -2),
+            Some(std::cmp::Ordering::Equal)
+        );
+        assert_eq!(
+            natural_midpoint_cmp(&Natural::from(9u32), &Natural::from(4u32), 3, -2),
+            std::cmp::Ordering::Equal
+        );
+        assert_eq!(word_midpoint_cmp(1, 1, 1, 0), None);
+        assert_eq!(word_midpoint_cmp(1, 1, 1, 5), None);
+    }
+
+    /// A conversion whose inputs fit machine words allocates nothing.
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn word_conversion_does_not_allocate() {
+        use rand::{Rng, SeedableRng};
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(0x8a1);
+        let p63 = 1u64 << 63;
+        let mut pairs: Vec<(u64, u64)> = vec![
+            (p63 + 2048, p63),
+            (p63 + 6145, p63),
+            (p63 - 1, 1 << 61),
+            (1, u64::MAX),
+            (u64::MAX, 1),
+            (u64::MAX, u64::MAX),
+            (1, 1),
+        ];
+        for i in 0..2000u32 {
+            let (nb, db) = (1 + i % 64, 1 + (i * 37) % 64);
+            let r = |b: u32, x: u64| (x >> (64 - b)) | 1 << (b - 1);
+            pairs.push((r(nb, rng.gen()), r(db, rng.gen())));
+        }
+        let inputs: Vec<(Natural, Natural)> = pairs
+            .iter()
+            .map(|&(u, v)| (Natural::from(u), Natural::from(v)))
+            .collect();
+        let mut out = Vec::with_capacity(inputs.len());
+        // Touch the thread-local counters before the measured interval.
+        let _ = WORD_HITS.with(std::cell::Cell::get);
+        let calls = crate::audit_alloc::thread_allocation_calls;
+        let before = calls();
+        for (n, d) in &inputs {
+            out.push(sqrt_ratio_to_f64(n, d).to_bits());
+        }
+        assert_eq!(calls() - before, 0);
+        for ((n, d), bits) in inputs.iter().zip(out) {
+            assert_eq!(bits, nearest_sqrt_bits_oracle(n, d), "sqrt({n}/{d})");
         }
     }
 
