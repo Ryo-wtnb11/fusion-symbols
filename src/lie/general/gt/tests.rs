@@ -6,7 +6,7 @@
 
 use super::*;
 use crate::lie::general::cgc::tests::check_exact;
-use crate::lie::general::cgc::{check_rounded, Channel, Ladders};
+use crate::lie::general::cgc::{check_rounded, rounded_entries, ExactChannel, Ladders};
 use crate::lie::general::module::depth_order;
 use crate::lie::general::module::tests::{check_recipes, check_relations_of};
 use crate::lie::RootSystem;
@@ -327,9 +327,9 @@ fn gt_channels_are_exact() {
         for (c, n) in data.tensor_product(&a, &b).unwrap() {
             assert_eq!(product.multiplicity(&c), n);
             let mc = build(&c).1;
-            let ch = Channel::new(&data, &ma, &mb, &mc, n as usize).unwrap();
+            let ch = ExactChannel::new(&data, &ma, &mb, &mc, n as usize).unwrap();
             check_exact(&ch, &ma, &mb, &mc);
-            let entries = ch.rounded_entries(&ma, &mb, &mc).unwrap();
+            let entries = rounded_entries(&data, &ma, &mb, &mc, n as usize).unwrap();
             check_rounded(&data, &ma, &mb, &mc, n as usize, &entries).unwrap();
         }
     }

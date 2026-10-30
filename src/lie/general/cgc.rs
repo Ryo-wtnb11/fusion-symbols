@@ -251,6 +251,7 @@ impl Ladders {
 
 /// The coupling pairs `(m_a, m_b)` of one weight at engine indices, ordered
 /// by their public indices with the left factor slow ("a-slow", §4.1).
+#[cfg_attr(test, derive(Clone))]
 pub(super) struct ProductSpace {
     pub(super) pairs: Vec<(usize, usize)>,
 }
@@ -365,11 +366,269 @@ fn coproduct(op_a: &Op, op_b: &Op, from: &ProductSpace, to: &PairRows, v: &[Q]) 
     out
 }
 
-/// The CGC of one channel in rational form.
-pub(super) struct Channel {
+/// A completed coupled state: `N_μ`, its engine index `m_c`, its product
+/// space and `√N_μ Φ_μ(b^c_{m_c})` per `μ`.
+type Emit<'e> = dyn FnMut(&[Q], usize, &ProductSpace, &[Vec<Q>]) -> Result<(), LieError> + 'e;
+
+/// The rational CGC of `a ⊗ b → c` (§4.2–§4.4), streamed: every coupled
+/// state is passed to `emit` once, in engine order, as soon as it completes.
+///
+/// A state at depth `ℓ` is lowered only from states at depth `ℓ − 1`, and a
+/// recipe may mix several of them, so a rounded column cannot replace an
+/// exact parent. Each exact vector is therefore kept exactly until its last
+/// kept candidate has been lowered, and a weight's product space until its
+/// last reader: the live exact set is at most two depth layers plus one
+/// weight's candidates (`docs/gauge_cartan.md` §9). Returns the pivots of §4.3.
+fn descend(
+    data: &CartanData,
+    a: &Ladders,
+    b: &Ladders,
+    c: &Ladders,
+    multiplicity: usize,
+    emit: &mut Emit<'_>,
+) -> Result<Vec<usize>, LieError> {
+    let top = &c.module.weights[0].mu;
+    let p = ProductSpace::new(a, b, top);
+    let mut scratch = RowScratch::new(a);
+
+    // §4.2: H is the nullspace of the stacked Δ(e_i) on span(P).
+    let rows = raising_rows(data, a, b, &p, top, &mut scratch);
+    let (pivots, echelon) = echelon_nullspace(rows, p.len());
+    if echelon.len() != multiplicity {
+        return Err(CgcError::NullityMismatch {
+            a: a.module.weights[0].mu.clone(),
+            b: b.module.weights[0].mu.clone(),
+            c: top.clone(),
+            nullity: echelon.len(),
+            multiplicity,
+        }
+        .into());
+    }
+    if multiplicity == 0 {
+        // Gate 2 proved the channel absent; there is nothing to lower.
+        return Ok(pivots);
+    }
+
+    // §4.3: Gram–Schmidt of E_1, …, E_N in pivot order, metric n^a n^b.
+    let metric: Vec<Q> = p
+        .pairs
+        .iter()
+        .map(|&(x, y)| &a.norm[x] * &b.norm[y])
+        .collect();
+    let dot = |x: &[Q], y: &[Q]| -> Q {
+        x.iter()
+            .zip(y)
+            .zip(&metric)
+            .filter(|((u, v), _)| u.numerator_ref() != &0 && v.numerator_ref() != &0)
+            .map(|((u, v), g)| u * v * g)
+            .fold(Q::from(0), |acc, x| acc + x)
+    };
+    let mut seeds: Vec<Vec<Q>> = Vec::with_capacity(multiplicity);
+    let mut seed_norms: Vec<Q> = Vec::with_capacity(multiplicity);
+    for e in echelon {
+        let mut v = e.clone();
+        for (s, n) in seeds.iter().zip(&seed_norms) {
+            let scale = dot(&e, s) / n;
+            if scale.numerator_ref() == &0 {
+                continue;
+            }
+            for (x, y) in v.iter_mut().zip(s) {
+                *x -= &scale * y;
+            }
+        }
+        seed_norms.push(dot(&v, &v));
+        seeds.push(v);
+    }
+    drop(metric);
+
+    // The kept candidates reading each state, and each weight's product space.
+    let weights = &c.module.weights;
+    let source = |space: &super::module::WeightSpace, j: usize| -> usize {
+        space.lower[j]
+            .as_ref()
+            .expect("a kept candidate's source weight space exists (§4.1)")
+            .0
+    };
+    let mut readers = vec![0usize; c.dim()];
+    let mut space_readers = vec![0usize; weights.len()];
+    for space in &weights[1..] {
+        for &(j, q) in &space.kept {
+            let src = source(space, j);
+            readers[weights[src].offset + q] += 1;
+            space_readers[src] += 1;
+        }
+    }
+    let mut phi: Vec<Vec<Vec<Q>>> = vec![Vec::new(); c.dim()];
+    let mut spaces: Vec<Option<ProductSpace>> = (0..weights.len()).map(|_| None).collect();
+    // Emits a completed state and keeps it only while a reader remains.
+    let mut complete = |phi: &mut Vec<Vec<Vec<Q>>>,
+                        readers: &[usize],
+                        m: usize,
+                        to: &ProductSpace,
+                        v: Vec<Vec<Q>>| {
+        emit(&seed_norms, m, to, &v)?;
+        if readers[m] > 0 {
+            phi[m] = v;
+        } else {
+            track(&v, false);
+        }
+        Ok::<_, LieError>(())
+    };
+
+    // The highest weight space is the single state `m_c = 0`.
+    track(&seeds, true);
+    complete(&mut phi, &readers, 0, &p, seeds)?;
+    if space_readers[0] > 0 {
+        spaces[0] = Some(p);
+    }
+
+    // §4.4: replay c's basis recipe through Δ(f_j).
+    for (w, space) in weights.iter().enumerate().skip(1) {
+        let to = ProductSpace::new(a, b, &space.mu);
+        let rows = scratch.rows(&to, b);
+        let mut lowered: Vec<Vec<Vec<Q>>> = Vec::with_capacity(space.kept.len());
+        for &(j, q) in &space.kept {
+            let src = source(space, j);
+            let m = weights[src].offset + q;
+            let from = spaces[src]
+                .as_ref()
+                .expect("a product space outlives its last reader");
+            let cand: Vec<Vec<Q>> = phi[m]
+                .iter()
+                .map(|v| coproduct(&a.lower[j], &b.lower[j], from, &rows, v))
+                .collect();
+            track(&cand, true);
+            lowered.push(cand);
+            readers[m] -= 1;
+            if readers[m] == 0 {
+                track(&phi[m], false);
+                phi[m] = Vec::new();
+            }
+            space_readers[src] -= 1;
+            if space_readers[src] == 0 {
+                spaces[src] = None;
+            }
+        }
+        // A candidate used only by one recipe row `b_k = c_t` moves into
+        // place: the general sum would rebuild the same exact vector.
+        let mut uses = vec![0usize; lowered.len()];
+        for coeffs in &space.recipe {
+            for (t, r) in coeffs.iter().enumerate() {
+                if r.numerator_ref() != &0 {
+                    uses[t] += 1;
+                }
+            }
+        }
+        for (k, coeffs) in space.recipe.iter().enumerate() {
+            let m = space.offset + k;
+            let mut terms = coeffs
+                .iter()
+                .enumerate()
+                .filter(|(_, r)| r.numerator_ref() != &0);
+            if let (Some((t, r)), None) = (terms.next(), terms.next()) {
+                if *r == 1 && uses[t] == 1 {
+                    complete(&mut phi, &readers, m, &to, std::mem::take(&mut lowered[t]))?;
+                    continue;
+                }
+            }
+            let per_mu: Vec<Vec<Q>> = (0..multiplicity)
+                .map(|mu| {
+                    // b_k = Σ_t recipe[k][t] c_t, so Φ(b_k) = Σ_t recipe[k][t] Δ(f_{j_t}) Φ(b_{q_t}).
+                    let mut v = vec![Q::from(0); to.len()];
+                    for (r, cand) in coeffs.iter().zip(&lowered) {
+                        if r.numerator_ref() == &0 {
+                            continue;
+                        }
+                        let unit = *r == 1;
+                        for (x, y) in v.iter_mut().zip(&cand[mu]) {
+                            if y.numerator_ref() == &0 {
+                                continue;
+                            }
+                            if unit {
+                                *x += y;
+                            } else {
+                                *x += r * y;
+                            }
+                        }
+                    }
+                    v
+                })
+                .collect();
+            track(&per_mu, true);
+            complete(&mut phi, &readers, m, &to, per_mu)?;
+        }
+        for cand in &lowered {
+            track(cand, false);
+        }
+        if space_readers[w] > 0 {
+            spaces[w] = Some(to);
+        }
+    }
+    Ok(pivots)
+}
+
+/// Test accounting of the live exact slots of [`descend`] (current, maximum).
+#[cfg_attr(not(test), allow(unused_variables))]
+fn track(v: &[Vec<Q>], live: bool) {
+    #[cfg(test)]
+    LIVE_EXACT.with(|cell| {
+        let n: usize = v.iter().map(Vec::len).sum();
+        let [now, max] = cell.get();
+        let now = if live { now + n } else { now - n };
+        cell.set([now, max.max(now)]);
+    });
+}
+
+/// The entries of `a ⊗ b → c` with multiplicity `n`, rounded once as each
+/// coupled state completes, before any gate: per column `(μ, m_c)`, then
+/// concatenated in §4.7 order, `μ`, then public `m_c`, then `(m_a, m_b)`
+/// a-slow (§4.1). The entry `x·√(n^a n^b/(N_μ n^c))` of an exactly nonzero
+/// coordinate `x` is kept even when it rounds to zero.
+pub(super) fn rounded_entries(
+    data: &CartanData,
+    a: &Ladders,
+    b: &Ladders,
+    c: &Ladders,
+    n: usize,
+) -> Result<Vec<MEntry>, LieError> {
+    let dc = c.dim();
+    let mut columns: Vec<Vec<MEntry>> = vec![Vec::new(); n * dc];
+    descend(data, a, b, c, n, &mut |seed_norms, m, space, per_mu| {
+        let mc = c.public[m];
+        for (mu, v) in per_mu.iter().enumerate() {
+            let scale = &seed_norms[mu] * &c.norm[m];
+            let column = &mut columns[mu * dc + mc as usize];
+            column.reserve_exact(v.iter().filter(|x| x.numerator_ref() != &0).count());
+            let mu = magnetic_index(mu)?;
+            for (&(pa, pb), x) in space.pairs.iter().zip(v) {
+                if x.numerator_ref() == &0 {
+                    continue;
+                }
+                column.push(MEntry {
+                    m1: a.public[pa],
+                    m2: b.public[pb],
+                    m3: mc,
+                    mu,
+                    value: super::rational::rounded_radical(x, &a.norm[pa], &b.norm[pb], &scale),
+                });
+            }
+        }
+        Ok(())
+    })?;
+    // The flattening copy briefly doubles the rounded payload (24 B per
+    // entry, counted in §9); reordering in place would avoid it.
+    let mut entries = Vec::with_capacity(columns.iter().map(Vec::len).sum());
+    for column in columns {
+        entries.extend(column);
+    }
+    Ok(entries)
+}
+
+/// The exact channel of [`descend`] retained whole, for the exact oracles.
+#[cfg(test)]
+pub(super) struct ExactChannel {
     pub(super) mult: usize,
     /// The pivot rows `p_1 < … < p_N` of §4.3, as indices into `P`.
-    #[cfg(test)]
     pub(super) pivots: Vec<usize>,
     /// `N_μ = ⟨B_μ, B_μ⟩`.
     pub(super) seed_norms: Vec<Q>,
@@ -379,7 +638,8 @@ pub(super) struct Channel {
     pub(super) phi: Vec<Vec<Vec<Q>>>,
 }
 
-impl Channel {
+#[cfg(test)]
+impl ExactChannel {
     pub(super) fn new(
         data: &CartanData,
         a: &Ladders,
@@ -387,184 +647,35 @@ impl Channel {
         c: &Ladders,
         multiplicity: usize,
     ) -> Result<Self, LieError> {
-        let top = &c.module.weights[0].mu;
-        let p = ProductSpace::new(a, b, top);
-        let mut scratch = RowScratch::new(a);
-
-        // §4.2: H is the nullspace of the stacked Δ(e_i) on span(P).
-        let rows = raising_rows(data, a, b, &p, top, &mut scratch);
-        let (_pivots, echelon) = echelon_nullspace(rows, p.len());
-        if echelon.len() != multiplicity {
-            return Err(CgcError::NullityMismatch {
-                a: a.module.weights[0].mu.clone(),
-                b: b.module.weights[0].mu.clone(),
-                c: top.clone(),
-                nullity: echelon.len(),
-                multiplicity,
-            }
-            .into());
-        }
-
-        if multiplicity == 0 {
-            // Gate 2 proved the channel absent; there is nothing to lower.
-            return Ok(Self {
-                mult: 0,
-                #[cfg(test)]
-                pivots: _pivots,
-                seed_norms: Vec::new(),
-                spaces: vec![p],
-                phi: Vec::new(),
-            });
-        }
-
-        // §4.3: Gram–Schmidt of E_1, …, E_N in pivot order, metric n^a n^b.
-        let metric: Vec<Q> = p
-            .pairs
-            .iter()
-            .map(|&(x, y)| &a.norm[x] * &b.norm[y])
-            .collect();
-        let dot = |x: &[Q], y: &[Q]| -> Q {
-            x.iter()
-                .zip(y)
-                .zip(&metric)
-                .filter(|((u, v), _)| u.numerator_ref() != &0 && v.numerator_ref() != &0)
-                .map(|((u, v), g)| u * v * g)
-                .fold(Q::from(0), |acc, x| acc + x)
-        };
-        let mut seeds: Vec<Vec<Q>> = Vec::with_capacity(multiplicity);
-        let mut seed_norms: Vec<Q> = Vec::with_capacity(multiplicity);
-        for e in echelon {
-            let mut v = e.clone();
-            for (s, n) in seeds.iter().zip(&seed_norms) {
-                let scale = dot(&e, s) / n;
-                if scale.numerator_ref() == &0 {
-                    continue;
-                }
-                for (x, y) in v.iter_mut().zip(s) {
-                    *x -= &scale * y;
-                }
-            }
-            seed_norms.push(dot(&v, &v));
-            seeds.push(v);
-        }
-
-        // §4.4: replay c's basis recipe through Δ(f_j).
-        let mut spaces = vec![p];
-        let mut phi: Vec<Vec<Vec<Q>>> = Vec::with_capacity(c.dim());
-        phi.push(seeds);
-        for space in &c.module.weights[1..] {
-            let to = ProductSpace::new(a, b, &space.mu);
-            let rows = scratch.rows(&to, b);
-            let mut lowered: Vec<Vec<Vec<Q>>> = space
-                .kept
-                .iter()
-                .map(|&(j, q)| {
-                    let (src, _) = space.lower[j]
-                        .as_ref()
-                        .expect("a kept candidate's source weight space exists (§4.1)");
-                    let from = &spaces[*src];
-                    let m = c.module.weights[*src].offset + q;
-                    phi[m]
-                        .iter()
-                        .map(|v| coproduct(&a.lower[j], &b.lower[j], from, &rows, v))
-                        .collect()
-                })
-                .collect();
-            // A candidate used only by one recipe row `b_k = c_t` moves into
-            // place: the general sum would rebuild the same exact vector.
-            let mut uses = vec![0usize; lowered.len()];
-            for coeffs in &space.recipe {
-                for (t, r) in coeffs.iter().enumerate() {
-                    if r.numerator_ref() != &0 {
-                        uses[t] += 1;
-                    }
-                }
-            }
-            for coeffs in &space.recipe {
-                let mut terms = coeffs
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, r)| r.numerator_ref() != &0);
-                if let (Some((t, r)), None) = (terms.next(), terms.next()) {
-                    if *r == 1 && uses[t] == 1 {
-                        phi.push(std::mem::take(&mut lowered[t]));
-                        continue;
-                    }
-                }
-                let per_mu = (0..multiplicity)
-                    .map(|mu| {
-                        // b_k = Σ_t recipe[k][t] c_t, so Φ(b_k) = Σ_t recipe[k][t] Δ(f_{j_t}) Φ(b_{q_t}).
-                        let mut v = vec![Q::from(0); to.len()];
-                        for (r, cand) in coeffs.iter().zip(&lowered) {
-                            if r.numerator_ref() == &0 {
-                                continue;
-                            }
-                            let unit = *r == 1;
-                            for (x, y) in v.iter_mut().zip(&cand[mu]) {
-                                if y.numerator_ref() == &0 {
-                                    continue;
-                                }
-                                if unit {
-                                    *x += y;
-                                } else {
-                                    *x += r * y;
-                                }
-                            }
-                        }
-                        v
-                    })
-                    .collect();
-                phi.push(per_mu);
-            }
-            spaces.push(to);
-        }
+        let mut seed_norms = Vec::new();
+        let mut spaces: Vec<Option<ProductSpace>> =
+            (0..c.module.weights.len()).map(|_| None).collect();
+        let mut phi = vec![Vec::new(); c.dim()];
+        let pivots = descend(
+            data,
+            a,
+            b,
+            c,
+            multiplicity,
+            &mut |norms, m, space, per_mu| {
+                seed_norms = norms.to_vec();
+                spaces[c.space[m]].get_or_insert_with(|| space.clone());
+                phi[m] = per_mu.to_vec();
+                Ok(())
+            },
+        )?;
         Ok(Self {
             mult: multiplicity,
-            #[cfg(test)]
-            pivots: _pivots,
+            pivots,
             seed_norms,
-            spaces,
+            spaces: spaces.into_iter().flatten().collect(),
             phi,
         })
     }
 
-    /// Visits the exactly nonzero entries `(m_a, m_b, m_c, μ, C)` at public
-    /// magnetic indices, in the §4.7 order: `μ`, then public `m_c`, then
-    /// `(m_a, m_b)` a-slow (§4.1). `C = form(x, n^a, n^b, N_μ n^c)` is
-    /// `x·√(n^a n^b/(N_μ n^c))`, exact or rounded once. Exactly zero
-    /// coefficients are omitted; a rounded value is never filtered.
-    fn visit_entries<T, E>(
-        &self,
-        a: &Ladders,
-        b: &Ladders,
-        c: &Ladders,
-        form: impl Fn(&Q, &Q, &Q, &Q) -> T,
-        mut visit: impl FnMut(usize, usize, usize, usize, T) -> Result<(), E>,
-    ) -> Result<(), E> {
-        let by_public = c.engine();
-        for mu in 0..self.mult {
-            for &mc in &by_public {
-                let space = &self.spaces[c.space[mc]];
-                let scale = &self.seed_norms[mu] * &c.norm[mc];
-                for (&(pa, pb), x) in space.pairs.iter().zip(&self.phi[mc][mu]) {
-                    if x.numerator_ref() == &0 {
-                        continue;
-                    }
-                    visit(
-                        a.public[pa] as usize,
-                        b.public[pb] as usize,
-                        c.public[mc] as usize,
-                        mu,
-                        form(x, &a.norm[pa], &b.norm[pb], &scale),
-                    )?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// The exact entries of [`Self::visit_entries`], collected.
-    #[cfg(test)]
+    /// The exactly nonzero entries `(m_a, m_b, m_c, μ, C)` at public magnetic
+    /// indices, in the §4.7 order of [`rounded_entries`], with the exact
+    /// `C = x·√(n^a n^b/(N_μ n^c))`.
     pub(super) fn exact_entries(
         &self,
         a: &Ladders,
@@ -572,42 +683,25 @@ impl Channel {
         c: &Ladders,
     ) -> Vec<(usize, usize, usize, usize, SignedSqrtRational)> {
         let mut out = Vec::new();
-        let form = super::rational::radical;
-        let _ = self.visit_entries(a, b, c, form, |m1, m2, m3, mu, x| {
-            out.push((m1, m2, m3, mu, x));
-            Ok::<_, std::convert::Infallible>(())
-        });
+        for mu in 0..self.mult {
+            for mc in c.engine() {
+                let space = &self.spaces[c.space[mc]];
+                let scale = &self.seed_norms[mu] * &c.norm[mc];
+                for (&(pa, pb), x) in space.pairs.iter().zip(&self.phi[mc][mu]) {
+                    if x.numerator_ref() == &0 {
+                        continue;
+                    }
+                    out.push((
+                        a.public[pa] as usize,
+                        b.public[pb] as usize,
+                        c.public[mc] as usize,
+                        mu,
+                        super::rational::radical(x, &a.norm[pa], &b.norm[pb], &scale),
+                    ));
+                }
+            }
+        }
         out
-    }
-
-    /// The entries rounded once to `f64` as they are formed, gated by
-    /// [`check_rounded`]; no exact copy of the channel is kept.
-    pub(super) fn rounded_entries(
-        &self,
-        a: &Ladders,
-        b: &Ladders,
-        c: &Ladders,
-    ) -> Result<Vec<MEntry>, LieError> {
-        let nonzero = self
-            .phi
-            .iter()
-            .flatten()
-            .flatten()
-            .filter(|x| x.numerator_ref() != &0)
-            .count();
-        let mut entries = Vec::with_capacity(nonzero);
-        let form = super::rational::rounded_radical;
-        self.visit_entries(a, b, c, form, |m1, m2, m3, mu, value| {
-            entries.push(MEntry {
-                m1: magnetic_index(m1)?,
-                m2: magnetic_index(m2)?,
-                m3: magnetic_index(m3)?,
-                mu: magnetic_index(mu)?,
-                value,
-            });
-            Ok::<_, LieError>(())
-        })?;
-        Ok(entries)
     }
 }
 
@@ -871,6 +965,8 @@ type Fault<T> = std::cell::Cell<Option<T>>;
 thread_local! {
     /// Modules and channels this thread generated (not loaded from the cache).
     pub(crate) static BUILDS: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
+    /// Live exact slots of [`descend`] on this thread: `[current, maximum]`.
+    pub(super) static LIVE_EXACT: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
     /// Row-start slots written by [`RowScratch::rows`].
     pub(super) static ROW_WRITES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// Fault injection between rounding and the gates.
@@ -898,8 +994,9 @@ impl std::ops::Deref for CgcChannel {
     }
 }
 
-/// A rational channel with its three modules.
-type BuiltChannel = (Channel, Arc<Ladders>, Arc<Ladders>, Arc<Ladders>);
+/// An exact channel with its three modules.
+#[cfg(test)]
+type BuiltChannel = (ExactChannel, Arc<Ladders>, Arc<Ladders>, Arc<Ladders>);
 
 #[cfg(test)]
 fn count_build(kind: usize) {
@@ -977,7 +1074,9 @@ impl GeneralFamily {
         c: &[i64],
     ) -> Result<BuiltChannel, LieError> {
         let (ma, mb) = self.module_pair(a, b)?;
-        self.channel_on(ma, mb, a, b, c, self.mult(a, b, c)?)
+        let mc = self.module_c(&ma, &mb, a, b, c)?;
+        let ch = ExactChannel::new(&self.data, &ma, &mb, &mc, self.mult(a, b, c)?)?;
+        Ok((ch, ma, mb, mc))
     }
 
     /// The modules of `a` and `b`, built once when the labels are equal: a
@@ -988,25 +1087,23 @@ impl GeneralFamily {
         Ok((ma, mb))
     }
 
-    /// The rational channel on the modules of `a` and `b`, sharing the module
-    /// of `c` with an equal label.
-    fn channel_on(
+    /// The module of `c`, shared with the module of `a` or `b` of an equal
+    /// label.
+    fn module_c(
         &self,
-        ma: Arc<Ladders>,
-        mb: Arc<Ladders>,
+        ma: &Arc<Ladders>,
+        mb: &Arc<Ladders>,
         a: &[i64],
         b: &[i64],
         c: &[i64],
-        n: usize,
-    ) -> Result<BuiltChannel, LieError> {
-        let mc = if c == a {
-            ma.clone()
+    ) -> Result<Arc<Ladders>, LieError> {
+        if c == a {
+            Ok(ma.clone())
         } else if c == b {
-            mb.clone()
+            Ok(mb.clone())
         } else {
-            self.module(c)?
-        };
-        Ok((Channel::new(&self.data, &ma, &mb, &mc, n)?, ma, mb, mc))
+            self.module(c)
+        }
     }
 
     /// The completed channel `a ⊗ b → c`: its multiplicity and its rounded,
@@ -1055,11 +1152,11 @@ impl GeneralFamily {
             if n == 0 && !a1 && ProductSpace::new(&ma, &mb, c).len() == 0 {
                 return empty();
             }
-            let (channel, ma, mb, mc) = self.channel_on(ma, mb, a, b, c, n)?;
+            let mc = self.module_c(&ma, &mb, a, b, c)?;
+            // No exact vector outlives the descent; the gates read the
+            // rounded entries and the modules only.
             #[allow(unused_mut)]
-            let mut entries = channel.rounded_entries(&ma, &mb, &mc)?;
-            // The rounded gates need only the modules.
-            drop(channel);
+            let mut entries = rounded_entries(&self.data, &ma, &mb, &mc, n)?;
             if self.root() == RootSystem::A(1) && (a[0] + b[0] - c[0]) / 2 % 2 != 0 {
                 // §4.6: the A_1 vertex sign (−1)^{j_a + j_b − j_c}, once per
                 // channel. Rounding is odd, so negating the rounded value is

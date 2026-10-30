@@ -857,8 +857,8 @@ column.
      raising and one lowering sparse matrix per simple root and weight space. For `SU(n)`
      the ladder arrays alone hold `2(n−1)` matrix headers per weight space,
      already quadratic in `n` for the fundamental.
-  2. *Pair storage* (live through rounding): for every weight `w` of `c`, its
-     pair list, `O(P_w)`. A pair is located by row arithmetic, not a map: for
+  2. *Pair storage*: for each weight `w` of `c`, its pair list, `O(P_w)`,
+     live from its construction until its last lowered reader. A pair is located by row arithmetic, not a map: for
      a left state `m_a`, the pairs of `P_w` are the whole weight space of
      `w − wt(m_a)` in public order, so `(m_a, m_b)` sits at the row start of
      `m_a` plus the public rank of `m_b` within its weight space. One row-start
@@ -870,10 +870,18 @@ column.
      - *elimination*: the sparse raising constraint matrix on `P_{λ_c}`, the
        pivot row in use and the emerging nullspace basis (`N` rational
        vectors of length `P_{λ_c}`);
-     - *descent and rounding*: `N Σ_w m_c(w) P_w` rational slots (zeros
-       included), one weight's lowered candidates (`N kept_w P_w`
-       rationals, `kept_w` the candidates kept at `w`), and the rounded entries being written (entries are
-       rounded as they are formed; no exact copy of the channel exists);
+     - *descent and rounding*: a state at depth `ℓ = Σ_i k_i` is lowered only
+       from states at depth `ℓ − 1`, and a recipe may mix several of them,
+       so each exact vector is rounded once when it completes and kept
+       exactly until its last kept candidate has been lowered. With
+       `D_ℓ = Σ_{depth w = ℓ} m_c(w) P_w`, the live exact slots (zeros
+       included) are at most `N (max_ℓ (D_{ℓ−1} + D_ℓ) + max_w kept_w P_w)`:
+       two depth layers plus one weight's lowered candidates (`kept_w` the
+       candidates kept at `w`), instead of the whole channel
+       `N Σ_w m_c(w) P_w`. The rounded entries are written per column
+       `(μ, m_c)` as they are formed and concatenated in §4.7 order at the
+       end, `O(nnz + N d_c)` with no sort; that final copy briefly holds the
+       rounded entries twice;
      - *verification*, after the rational channel is released: the rounded
        entries and their full copy grouped by output weight, one
        `(N m_c(w))²` Gram matrix at a time, and the first-descent columns and
