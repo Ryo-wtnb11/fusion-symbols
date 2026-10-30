@@ -1256,3 +1256,43 @@ fn c2_35x35_multiplicity_three_is_exact() {
     let fam = GeneralFamily::new(RootSystem::C(2));
     check_channel(&fam, &[2, 1], &[2, 1], &[2, 1], 3);
 }
+
+/// One channel request builds each distinct module label at most once, even
+/// when the CGC tier retains nothing (a reset before every load stands in for
+/// a zero budget): `λ ⊗ 𝟙 → λ`, `a ⊗ a → c`, and a zero-multiplicity channel
+/// whose weight occurs, so the exact nullity check and the channel share the
+/// modules. Concurrent tests can only turn a build into a hit, hence `≤`.
+/// The bits equal those of a request with retention.
+#[test]
+fn channel_request_builds_each_module_label_once() {
+    let _guard = crate::cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let fam = GeneralFamily::new(RootSystem::G2);
+    let bits = |a: &[i64], b: &[i64], c: &[i64]| {
+        let ch = fam.cgc_entries(a, b, c).unwrap();
+        (
+            ch.mult,
+            ch.iter().map(|e| e.value.to_bits()).collect::<Vec<_>>(),
+        )
+    };
+    let builds = || BUILDS.with(std::cell::Cell::get);
+    for ([a, b, c], distinct, mult) in [
+        ([G27, [0, 0], G27], 2, 1),
+        ([G7, G7, G14], 2, 1),
+        ([G7, [0, 0], [0, 0]], 2, 0),
+    ] {
+        crate::cache::reset();
+        BEFORE_LOAD.with(|h| h.set(Some(crate::cache::reset)));
+        let before = builds();
+        let rejected = bits(&a, &b, &c);
+        let after = builds();
+        BEFORE_LOAD.with(|h| h.set(None));
+        assert!(after[0] - before[0] <= distinct, "{a:?} {b:?} {c:?}");
+        crate::cache::reset();
+        let retained = bits(&a, &b, &c);
+        assert_eq!(retained.0, mult);
+        assert_eq!(rejected, retained);
+    }
+    crate::cache::reset();
+}

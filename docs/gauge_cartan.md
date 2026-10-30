@@ -827,7 +827,8 @@ column.
   header plus its numerator and denominator limb capacities; `P_w` is the
   number of coupling pairs of weight `w` of `c` and `m_c(w)` its
   multiplicity in `c`.
-  1. *Modules* (live throughout): the three irrep modules with their weight
+  1. *Modules* (live throughout): one irrep module per distinct label among
+     `a, b, c`, shared by equal labels, with their weight
      spaces, norms, public indices and ladder arrays, one raising and one
      lowering sparse matrix per simple root and weight space. For `SU(n)`
      the ladder arrays alone hold `2(n−1)` matrix headers per weight space,
