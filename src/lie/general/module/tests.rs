@@ -44,7 +44,7 @@ fn lowering(m: &IrrepModule, j: usize) -> Op {
             let src = &m.weights[*src];
             for (a, row) in f.iter().enumerate() {
                 for (b, x) in row.iter().enumerate() {
-                    if x.numerator_ref() != &0 {
+                    if !x.is_zero() {
                         op[src.offset + b].push((s.offset + a, x.clone()));
                     }
                 }
@@ -62,7 +62,7 @@ fn raising_by_form(m: &IrrepModule, j: usize) -> Op {
             let src = &m.weights[*src];
             for (a, row) in f.iter().enumerate() {
                 for (b, x) in row.iter().enumerate() {
-                    if x.numerator_ref() != &0 {
+                    if !x.is_zero() {
                         let e = x * &s.norms[a] / &src.norms[b];
                         op[s.offset + a].push((src.offset + b, e));
                     }
@@ -91,10 +91,7 @@ fn raising_by_recursion(m: &IrrepModule, j: usize, lowers: &[Op]) -> Op {
                     add(&mut out, i, r * x);
                 }
             }
-            op[s.offset + a] = out
-                .into_iter()
-                .filter(|(_, x)| x.numerator_ref() != &0)
-                .collect();
+            op[s.offset + a] = out.into_iter().filter(|(_, x)| !x.is_zero()).collect();
         }
     }
     op
@@ -107,7 +104,7 @@ fn to_vec(col: &[(usize, Q)]) -> Vector {
 fn add(v: &mut Vector, i: usize, x: Q) {
     let e = v.entry(i).or_insert_with(|| Q::from(0));
     *e += x;
-    if e.numerator_ref() == &0 {
+    if e.is_zero() {
         v.remove(&i);
     }
 }
@@ -210,7 +207,7 @@ pub(crate) fn check_recipes(m: &IrrepModule) {
                     .zip(&s.kept)
                     .map(|(r, &(j, q))| r * &s.lower[j].as_ref().unwrap().1[a][q])
                     .fold(Q::from(0), |acc, x| acc + x);
-                assert_eq!(got, Q::from(u8::from(a == k)), "{:?} b_{k} at {a}", s.mu);
+                assert_eq!(got, Q::from(i64::from(a == k)), "{:?} b_{k} at {a}", s.mu);
             }
         }
     }
@@ -263,7 +260,7 @@ fn gram_schmidt_recipes_are_unit_lower_triangular_and_exact() {
         for s in &m.weights[1..] {
             for (k, row) in s.recipe.iter().enumerate() {
                 assert_eq!(row[k], Q::from(1));
-                assert!(row[k + 1..].iter().all(|x| x.numerator_ref() == &0));
+                assert!(row[k + 1..].iter().all(|x| x.is_zero()));
             }
         }
     }
@@ -388,7 +385,7 @@ fn g2_27_zero_weight_keeps_every_candidate() {
     // §3.2.3: b_k = c_k − (earlier b), so its own coefficient is 1 and later ones 0.
     for (k, row) in s.recipe.iter().enumerate() {
         assert_eq!(row[k], Q::from(1));
-        assert!(row[k + 1..].iter().all(|x| x.numerator_ref() == &0));
+        assert!(row[k + 1..].iter().all(|x| x.is_zero()));
     }
 }
 
@@ -493,7 +490,7 @@ fn performance_modules() {
 }
 
 fn q(n: i64, d: i64) -> Q {
-    Q::from_integers(n.into(), d.into())
+    Q::from(malachite_q::Rational::from_integers(n.into(), d.into()))
 }
 
 /// Golden values, cross-checked against an independent exact computation of
@@ -503,7 +500,11 @@ fn golden_values() {
     let (_, g27) = build(RootSystem::G2, &[2, 0]);
     for mu in [[2, -1], [1, -1]] {
         let x = g27.f_entry(g27.weight_index(&mu).unwrap(), 1, 1, 1);
-        assert_eq!((x.sign(), x.radicand().clone()), (-1, q(2, 3)), "{mu:?}");
+        assert_eq!(
+            (x.sign(), x.radicand().clone()),
+            (-1, q(2, 3).to_rational()),
+            "{mu:?}"
+        );
     }
     let zero = &g27.weights[g27.weight_index(&[0, 0]).unwrap()];
     assert_eq!(zero.norms, vec![q(96, 1), q(16, 1), q(84, 1)]);
@@ -518,7 +519,7 @@ fn golden_values() {
         .filter(|x| x.sign() != 0)
         .map(|x| x.radicand().clone())
         .collect();
-    let expected = [q(1, 1), q(1, 2), q(2, 1), q(3, 2)];
+    let expected = [q(1, 1), q(1, 2), q(2, 1), q(3, 2)].map(|x| x.to_rational());
     assert_eq!(radicands, BTreeSet::from(expected));
 
     let (_, g64) = build(RootSystem::G2, &[1, 1]);
@@ -622,9 +623,14 @@ fn eager_space(
     let mut kept = Vec::new();
     for t in 0..c {
         let scales: Vec<Q> = inner.iter().zip(&norms).map(|(r, n)| &r[t] / n).collect();
-        let n = &gram[t][t] - scales.iter().zip(&inner).map(|(s, r)| s * &r[t]).sum::<Q>();
-        assert!(n >= 0);
-        if n == 0 {
+        let n = &gram[t][t]
+            - scales
+                .iter()
+                .zip(&inner)
+                .map(|(s, r)| s * &r[t])
+                .fold(Q::from(0), |a, x| a + x);
+        assert!(n.signum().is_ge());
+        if n.is_zero() {
             continue;
         }
         let mut coeffs = vec![Q::from(0); recipe.len() + 1];
@@ -641,7 +647,7 @@ fn eager_space(
                         .iter()
                         .zip(&inner)
                         .map(|(s, r)| s * &r[col])
-                        .sum::<Q>()
+                        .fold(Q::from(0), |a, x| a + x)
             })
             .collect();
         recipe.push(coeffs);

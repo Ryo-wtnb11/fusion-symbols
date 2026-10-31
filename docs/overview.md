@@ -167,9 +167,10 @@ Rank-one arithmetic and the existing coefficient generators keep their gauges.
 
 Lie dimensions, duals, Frobenius–Schur indicators, weights and fusion
 multiplicities are exact. SU(2) coefficients use signed square-rooted rationals
-and round once to `f64`. The CGC of every simple factor is computed exactly
-with the same required Malachite 0.14 arithmetic family as the rest of the
-crate and rounded once to `f64`; F, R, A and B follow a fixed floating-point
+and round once to `f64`. The CGC of every simple factor is computed in exact
+rationals, held in machine words when the reduced value fits and in the same
+required Malachite 0.14 arithmetic family as the rest of the crate otherwise,
+and rounded once to `f64`; F, R, A and B follow a fixed floating-point
 evaluation order, so all are bit-identical across builds and platforms.
 Public exact rationals are `malachite_q::Rational`; there are no arithmetic
 backend conversions. Tables are offline projections of exact AnyonWiki data

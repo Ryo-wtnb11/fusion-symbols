@@ -155,10 +155,15 @@ mod audit_alloc {
 
     std::thread_local! {
         static THREAD_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+        static THREAD_LIVE: std::cell::Cell<isize> = const { std::cell::Cell::new(0) };
     }
 
     fn count_thread_call() {
         let _ = THREAD_CALLS.try_with(|n| n.set(n.get() + 1));
+    }
+
+    fn count_thread_live(delta: isize) {
+        let _ = THREAD_LIVE.try_with(|n| n.set(n.get() + delta));
     }
 
     pub(crate) struct TrackingAllocator;
@@ -169,6 +174,7 @@ mod audit_alloc {
             if !ptr.is_null() {
                 ALLOC_CALLS.fetch_add(1, Ordering::Relaxed);
                 count_thread_call();
+                count_thread_live(layout.size() as isize);
                 ALLOC_BYTES.fetch_add(layout.size(), Ordering::Relaxed);
                 let live = LIVE.fetch_add(layout.size(), Ordering::Relaxed) + layout.size();
                 PEAK.fetch_max(live, Ordering::Relaxed);
@@ -181,6 +187,7 @@ mod audit_alloc {
             if !ptr.is_null() {
                 ALLOC_CALLS.fetch_add(1, Ordering::Relaxed);
                 count_thread_call();
+                count_thread_live(layout.size() as isize);
                 ALLOC_BYTES.fetch_add(layout.size(), Ordering::Relaxed);
                 let live = LIVE.fetch_add(layout.size(), Ordering::Relaxed) + layout.size();
                 PEAK.fetch_max(live, Ordering::Relaxed);
@@ -190,12 +197,14 @@ mod audit_alloc {
 
         unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
             unsafe { System.dealloc(ptr, layout) };
+            count_thread_live(-(layout.size() as isize));
             LIVE.fetch_sub(layout.size(), Ordering::Relaxed);
         }
 
         unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
             let new = unsafe { System.realloc(ptr, layout, size) };
             if !new.is_null() {
+                count_thread_live(size as isize - layout.size() as isize);
                 if size >= layout.size() {
                     let delta = size - layout.size();
                     ALLOC_CALLS.fetch_add(1, Ordering::Relaxed);
@@ -223,6 +232,11 @@ mod audit_alloc {
     /// like [`allocation_totals`] but immune to concurrently running tests.
     pub(crate) fn thread_allocation_calls() -> usize {
         THREAD_CALLS.try_with(std::cell::Cell::get).unwrap_or(0)
+    }
+
+    /// Bytes allocated minus bytes freed by the calling thread.
+    pub(crate) fn thread_live_bytes() -> isize {
+        THREAD_LIVE.try_with(std::cell::Cell::get).unwrap_or(0)
     }
 
     /// Cumulative successful allocation requests. `realloc` contributes only

@@ -142,6 +142,25 @@ value/gauge rule noted below.
 
 ### Performance
 
+- The Cartan engine's exact rationals are held as a reduced `i64`/`u64`
+  pair whenever the value fits, and as a boxed Malachite rational
+  otherwise; every result is re-selected by value, so a cancelling result
+  returns to words and every coefficient bit is unchanged. Word operations
+  run on 64-bit magnitudes with checked 128-bit products and sums, and fall
+  back to Malachite from the intact operands; `acc ± x·y` adds a Big product
+  in place without a boxed temporary. Retained module values are
+  re-allocated at their length when a module is published, so the CGC tier
+  charge bounds their limbs. The Weyl-dimension quotient and the Cartan
+  rational share one word gcd. Sequential release cold `cgc`, medians:
+  F4 `273³` 41.5 → 34.1 ms, D5 `210 ⊗ 945 → 5940` 1.21 → 1.02 s
+  (peak RSS 476 → 255 MiB), E7 `1539² → 40755` 10.4 → 9.1 s,
+  F4 `1274² → 29172` 32.5 → 26.8 s (peak RSS 6.1 → 4.7 GiB),
+  A3 `[2,2,2]³` 8.16 → 7.17 s, A2 `(6,6)³` 0.718 → 0.678 s.
+  Accepted cost: G2 `[2,2]³`, whose coefficients mostly exceed 64 bits,
+  97.6 → 104.3 s (+6.8%) and peak RSS 2.30 → 2.43 GiB (+5.7%), because
+  each Big value carries a box and each mixed word/Big operation converts
+  its word operand through Malachite's reducing constructor.
+
 - The CGC rounding works in two `u128` limbs instead of big integers when
   both integers of the unreduced ratio fit 64 bits: the scaled quotient and
   its integer square root, and the exact midpoint comparison. Such a

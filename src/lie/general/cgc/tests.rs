@@ -27,7 +27,7 @@ fn unit(rank: usize, i: usize) -> Vec<i64> {
 }
 
 fn q(n: i64, d: i64) -> Q {
-    Q::from_integers(n.into(), d.into())
+    Q::from(malachite_q::Rational::from_integers(n.into(), d.into()))
 }
 
 /// `x ↦ X x` with `X` from L2's stored `F` (a vector keyed by `(m_a, m_b)`).
@@ -36,7 +36,7 @@ type Vector = BTreeMap<(usize, usize), Q>;
 fn add(v: &mut Vector, k: (usize, usize), x: Q) {
     let e = v.entry(k).or_insert_with(|| Q::from(0));
     *e += x;
-    if e.numerator_ref() == &0 {
+    if e.is_zero() {
         v.remove(&k);
     }
 }
@@ -58,7 +58,7 @@ fn delta(op_a: &Op, op_b: &Op, v: &Vector) -> Vector {
 fn as_vector(ch: &ExactChannel, c: &Ladders, mc: usize, mu: usize) -> Vector {
     let mut v = Vector::new();
     for (&pq, x) in ch.spaces[c.space[mc]].pairs.iter().zip(&ch.phi[mc][mu]) {
-        if x.numerator_ref() != &0 {
+        if !x.is_zero() {
             v.insert(pq, x.clone());
         }
     }
@@ -232,9 +232,9 @@ fn g2_27x27_to_27_pivot_rule() {
     let (ch, ..) = fam.channel(&G27, &G27, &G27).unwrap();
     assert_eq!(ch.pivots, [0, 1]);
     let psi = &ch.phi[0];
-    assert!(psi[0][0] > 0 && psi[1][1] > 0);
-    assert!(psi[0][1].numerator_ref() == &0);
-    assert!(psi[1][0].numerator_ref() != &0);
+    assert!(psi[0][0].signum().is_gt() && psi[1][1].signum().is_gt());
+    assert!(psi[0][1].is_zero());
+    assert!(!psi[1][0].is_zero());
 }
 
 /// §8 oracle 5 on every channel of E6 `27 ⊗ 27̄ = 1 + 78 + 650`.
@@ -557,7 +557,10 @@ fn g2_7x7_to_7_hand_entries_and_order() {
         (1, 3, 1, 0, q(-1, 6)),
         (3, 1, 1, 0, q(1, 6)),
         (4, 0, 1, 0, q(-1, 3)),
-    ];
+    ]
+    .into_iter()
+    .map(|(p, r, m, mu, x)| (p, r, m, mu, x.to_rational()))
+    .collect::<Vec<_>>();
     assert_eq!(got, want);
 }
 
@@ -583,7 +586,7 @@ fn trivial_couplings_are_the_identity() {
             assert_eq!(got.len(), mc.dim());
             for (m, (p, r, mcx, mu, x)) in got.into_iter().enumerate() {
                 assert_eq!((p + r, mcx, mu), (m, m, 0));
-                assert_eq!(x.signed_square(), Q::from(1));
+                assert_eq!(x.signed_square(), malachite_q::Rational::from(1));
             }
         }
     }
@@ -617,12 +620,12 @@ fn check_radical_formation(root: RootSystem, a: &[i64], b: &[i64], c: &[i64]) {
         for m in mc.engine() {
             let scale = &ch.seed_norms[mu] * &mc.norm[m];
             for (&(pa, pb), x) in ch.spaces[mc.space[m]].pairs.iter().zip(&ch.phi[m][mu]) {
-                if x.numerator_ref() == &0 {
+                if x.is_zero() {
                     continue;
                 }
                 let old = SignedSqrtRational::from_prefactor_radical(
-                    x.clone(),
-                    &ma.norm[pa] * &mb.norm[pb] / &scale,
+                    x.to_rational(),
+                    (&ma.norm[pa] * &mb.norm[pb] / &scale).to_rational(),
                 );
                 let (pa, pb, pc) = (ma.public[pa], mb.public[pb], mc.public[m]);
                 want.push((pa as usize, pb as usize, pc as usize, mu, old));
@@ -702,7 +705,7 @@ fn round_only_formation_skips_the_exact_temporary() {
             for (m, per_mu) in ch.phi.iter().enumerate() {
                 let scale = &ch.seed_norms[mu] * &mc.norm[m];
                 for (&(pa, pb), x) in ch.spaces[mc.space[m]].pairs.iter().zip(&per_mu[mu]) {
-                    if x.numerator_ref() == &0 {
+                    if x.is_zero() {
                         continue;
                     }
                     let (na, nb) = (&ma.norm[pa], &mb.norm[pb]);
@@ -756,9 +759,9 @@ fn g2_27x27_golden_counts() {
         .iter()
         .max_by_key(|r| r.denominator_ref().clone())
         .unwrap();
-    assert!(radicands.contains(&q(33856, 446985)));
-    assert_eq!(*max_numer, q(33856, 268191));
-    assert_eq!(*max_denom, q(18769, 7051968));
+    assert!(radicands.contains(&q(33856, 446985).to_rational()));
+    assert_eq!(*max_numer, q(33856, 268191).to_rational());
+    assert_eq!(*max_denom, q(18769, 7051968).to_rational());
 }
 
 // ---------------------------------------------------------------------------
@@ -1042,22 +1045,22 @@ fn dense_echelon_nullspace(mut m: Vec<Vec<Q>>, cols: usize) -> (Vec<usize>, Vec<
     let mut is_pivot = vec![false; cols];
     for col in (0..cols).rev() {
         let r0 = pivot_of_row.len();
-        let Some(r) = (r0..m.len()).find(|&r| m[r][col].numerator_ref() != &0) else {
+        let Some(r) = (r0..m.len()).find(|&r| !m[r][col].is_zero()) else {
             continue;
         };
         m.swap(r0, r);
         let inv = Q::from(1) / &m[r0][col];
-        for x in m[r0].iter_mut().filter(|x| x.numerator_ref() != &0) {
+        for x in m[r0].iter_mut().filter(|x| !x.is_zero()) {
             *x *= &inv;
         }
         let pivot = m[r0].clone();
         for (r, row) in m.iter_mut().enumerate() {
-            if r == r0 || row[col].numerator_ref() == &0 {
+            if r == r0 || row[col].is_zero() {
                 continue;
             }
             let scale = row[col].clone();
             for (x, y) in row.iter_mut().zip(&pivot) {
-                if y.numerator_ref() != &0 {
+                if !y.is_zero() {
                     *x -= &scale * y;
                 }
             }
@@ -1072,7 +1075,7 @@ fn dense_echelon_nullspace(mut m: Vec<Vec<Q>>, cols: usize) -> (Vec<usize>, Vec<
             let mut v = vec![Q::from(0); cols];
             v[f] = Q::from(1);
             for (row, &pc) in m.iter().zip(&pivot_of_row) {
-                if row[f].numerator_ref() != &0 {
+                if !row[f].is_zero() {
                     v[pc] = -row[f].clone();
                 }
             }
@@ -1110,7 +1113,7 @@ fn compare_nullspace(data: &CartanData, a: &Ladders, b: &Ladders, top: &[i64], n
         .map(|row| {
             row.iter()
                 .enumerate()
-                .filter(|(_, x)| x.numerator_ref() != &0)
+                .filter(|(_, x)| !x.is_zero())
                 .map(|(col, x)| (col, x.clone()))
                 .collect()
         })
@@ -1182,7 +1185,7 @@ fn sparse_nullspace_degenerate_matrices() {
                 .map(|row| {
                     row.iter()
                         .enumerate()
-                        .filter(|(_, x)| x.numerator_ref() != &0)
+                        .filter(|(_, x)| !x.is_zero())
                         .map(|(j, x)| (j, x.clone()))
                         .collect()
                 })
@@ -1866,4 +1869,32 @@ fn resident_channels_load_no_module() {
     assert_eq!(REQUEST_MODULES.with(std::cell::Cell::get), [0; 2]);
     assert_eq!(warm.as_slice(), hit.as_slice());
     crate::cache::reset();
+}
+
+/// Publication compacts every retained rational, so the module charge
+/// bounds what the ladders own even when an exact value arrives with spare
+/// limb capacity.
+#[cfg(feature = "lie-generated")]
+#[test]
+fn published_ladders_are_charged_what_they_own() {
+    use malachite_nz::natural::Natural;
+    let live = crate::audit_alloc::thread_live_bytes;
+    let data = CartanData::new(RootSystem::G2);
+    let mut module = IrrepModule::new(&data, &G7).unwrap();
+    let mut limbs = Vec::with_capacity(4096);
+    limbs.extend([1u64, 1]);
+    let bloated = Q::from(malachite_q::Rational::from(Natural::from_owned_limbs_asc(
+        limbs,
+    )));
+    module.weights[1].norms[0] = bloated;
+    let public = (0..module.dim as u32).collect();
+    let ladders = Ladders::from_module(module, public);
+    let charged = ladders.bytes();
+    let before = live();
+    drop(ladders);
+    let freed = before - live();
+    assert!(
+        freed > 0 && freed as usize <= charged,
+        "{freed} > {charged}"
+    );
 }

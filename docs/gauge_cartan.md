@@ -847,8 +847,11 @@ column.
   channel's working set is not bounded by these limits: `E8 248⊗248` has
   `61504` product states and at most `Σ_μ P(μ)² = 1 787 056` CGC nonzeros
   over its five channels.
-  The working set of one channel miss, by stage. A rational costs its
-  header plus its numerator and denominator limb capacities; `P_w` is the
+  The working set of one channel miss, by stage. A rational whose reduced
+  numerator and denominator fit `i64` and `u64` costs its slot alone; any
+  other costs its slot, a boxed header and its numerator and denominator
+  limb capacities (retained module values are re-allocated at their length,
+  so the charge bounds them); `P_w` is the
   number of coupling pairs of weight `w` of `c` and `m_c(w)` its
   multiplicity in `c`.
   1. *Modules* (live throughout): one irrep module per distinct label among

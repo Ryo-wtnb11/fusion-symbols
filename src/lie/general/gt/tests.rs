@@ -29,11 +29,13 @@ fn ell(p: &GtPattern, k: usize, i: usize) -> i64 {
 
 /// Molev (2.7): the coefficient of `ξ_{Λ−δ_{ki}}` in `E_{k+1,k} ξ_Λ`.
 fn molev_b(p: &GtPattern, k: usize, i: usize) -> Q {
-    let num: Q = (1..k).map(|j| q(ell(p, k, i) - ell(p, k - 1, j))).product();
+    let num: Q = (1..k)
+        .map(|j| q(ell(p, k, i) - ell(p, k - 1, j)))
+        .fold(q(1), |a, x| a * x);
     let den: Q = (1..=k)
         .filter(|&j| j != i)
         .map(|j| q(ell(p, k, i) - ell(p, k, j)))
-        .product();
+        .fold(q(1), |a, x| a * x);
     num / den
 }
 
@@ -41,17 +43,17 @@ fn molev_b(p: &GtPattern, k: usize, i: usize) -> Q {
 fn molev_a(p: &GtPattern, k: usize, i: usize) -> Q {
     let num: Q = (1..=k + 1)
         .map(|j| q(ell(p, k, i) - ell(p, k + 1, j)))
-        .product();
+        .fold(q(1), |a, x| a * x);
     let den: Q = (1..=k)
         .filter(|&j| j != i)
         .map(|j| q(ell(p, k, i) - ell(p, k, j)))
-        .product();
+        .fold(q(1), |a, x| a * x);
     -num / den
 }
 
 fn factorial(n: i64) -> Q {
     assert!(n >= 0);
-    (2..=n).map(q).product()
+    (2..=n).map(q).fold(q(1), |a, x| a * x)
 }
 
 /// Molev Proposition 2.4: `⟨ξ_Λ, ξ_Λ⟩`.
@@ -130,16 +132,16 @@ fn molev_ladders_and_norms() {
                     };
                     let x = molev_b(p, k, i);
                     let got = l.lower[j][e[g]].iter().find(|(t, _)| *t == e[h]);
-                    if x == 0 {
+                    if x.is_zero() {
                         assert!(got.is_none());
                         continue;
                     }
                     count += 1;
-                    assert!(x > 0, "{lambda:?}: f_{j} sign");
+                    assert!(x.signum().is_gt(), "{lambda:?}: f_{j} sign");
                     assert_eq!(got.map(|(_, x)| x), Some(&x), "{lambda:?} f_{j} {p:?}");
                     let y = l.raise[j][e[h]].iter().find(|(t, _)| *t == e[g]).unwrap();
                     assert_eq!(y.1, molev_a(&patterns[h], k, i), "{lambda:?} e_{j}");
-                    assert!(y.1 > 0, "{lambda:?}: e_{j} sign");
+                    assert!(y.1.signum().is_gt(), "{lambda:?}: e_{j} sign");
                 }
             }
         }
@@ -176,7 +178,7 @@ fn su3_adjoint_matches_sunrepresentations() {
             let square = x * x * &l.norm[tgt] / &l.norm[src];
             assert_eq!(
                 square,
-                Q::from_integers(num.into(), den.into()),
+                Q::from(malachite_q::Rational::from_integers(num.into(), den.into())),
                 "f_{j} {row}->{col}"
             );
         }
@@ -256,7 +258,7 @@ fn recipes_reconstruct_basis_exactly() {
         check_recipes(&l.module);
         for s in &l.module.weights[1..] {
             for (k, row) in s.recipe.iter().enumerate() {
-                general |= row[k] != 1 || row[k + 1..].iter().any(|x| *x != 0);
+                general |= !row[k].is_one() || row[k + 1..].iter().any(|x| !x.is_zero());
             }
         }
     }

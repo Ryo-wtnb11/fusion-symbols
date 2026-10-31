@@ -119,7 +119,7 @@ fn molev(p: &GtPattern, k: usize, i: usize, row: usize, sign: i64) -> Result<Opt
     for j in (1..=k).filter(|&j| j != i) {
         den *= diff(k, j)?;
     }
-    Ok((den != 0).then(|| Q::from_integers(num, den)))
+    Ok((den != 0).then(|| Q::from(malachite_q::Rational::from_integers(num, den))))
 }
 
 /// `B_i(Λ)` of (2.7).
@@ -245,17 +245,17 @@ fn from_patterns(
                         let (Some(a), Some(b)) = (a, b) else {
                             return Err(invalid(&weights[w].mu));
                         };
-                        if b == 0 {
+                        if b.is_zero() {
                             return Err(invalid(&weights[w].mu));
                         }
                         let (ws, ps) = local[s];
-                        norm = Some(a * &weights[ws].norms[ps] / b);
+                        norm = Some(a * &weights[ws].norms[ps] / &b);
                         break 'raise;
                     }
                 }
             }
             match norm {
-                Some(n) if n > 0 => weights[w].norms[pos] = n,
+                Some(n) if n.signum().is_gt() => weights[w].norms[pos] = n,
                 _ => {
                     return Err(ModuleError::IndefiniteForm {
                         weight: weights[w].mu.clone(),
@@ -278,7 +278,7 @@ fn from_patterns(
                 let Some(x) = lower_coefficient(p, k, i)? else {
                     return Err(invalid(&weights[ws].mu));
                 };
-                if x == 0 {
+                if x.is_zero() {
                     continue;
                 }
                 let (wt, at) = local[t];
@@ -315,13 +315,13 @@ fn solve_recipe(space: &mut WeightSpace, members: &[Vec<usize>]) -> Result<(), L
             let mut combo = vec![Q::from(0); m];
             combo[kept.len()] = Q::from(1);
             for (p, row, rc) in &rows {
-                if v[*p] != 0 {
+                if !v[*p].is_zero() {
                     let s = v[*p].clone();
                     axpy(&mut v, &s, row);
                     axpy(&mut combo, &s, rc);
                 }
             }
-            let Some(p) = v.iter().position(|x| *x != 0) else {
+            let Some(p) = v.iter().position(|x| !x.is_zero()) else {
                 continue;
             };
             let inv = Q::from(1) / &v[p];
@@ -329,7 +329,7 @@ fn solve_recipe(space: &mut WeightSpace, members: &[Vec<usize>]) -> Result<(), L
                 *x *= &inv;
             }
             for (_, row, rc) in &mut rows {
-                if row[p] != 0 {
+                if !row[p].is_zero() {
                     let s = row[p].clone();
                     axpy(row, &s, &v);
                     axpy(rc, &s, &combo);
@@ -360,8 +360,8 @@ fn solve_recipe(space: &mut WeightSpace, members: &[Vec<usize>]) -> Result<(), L
 /// `x −= s · y` over the nonzero entries of `y`.
 fn axpy(x: &mut [Q], s: &Q, y: &[Q]) {
     for (x, y) in x.iter_mut().zip(y) {
-        if *y != 0 {
-            *x -= s * y;
+        if !y.is_zero() {
+            x.sub_mul(s, y);
         }
     }
 }

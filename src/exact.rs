@@ -378,22 +378,11 @@ pub(crate) fn checked_integral_quotient(
     (den == 1).then_some(num)
 }
 
-/// `a / b`, in a hardware `u64` division whenever both operands fit.
-fn div(a: u128, b: u128) -> u128 {
-    match (u64::try_from(a), u64::try_from(b)) {
-        (Ok(a), Ok(b)) => u128::from(a / b),
-        _ => a / b,
-    }
-}
-
-/// Euclid in hardware `u64` whenever both operands fit; otherwise binary gcd,
-/// since a `u128` division is a slow library call and shifts are not.
+/// [`word_gcd`] whenever both operands fit; otherwise binary gcd, since a
+/// `u128` division is a slow library call and shifts are not.
 fn gcd(mut a: u128, mut b: u128) -> u128 {
-    if let (Ok(mut x), Ok(mut y)) = (u64::try_from(a), u64::try_from(b)) {
-        while y != 0 {
-            (x, y) = (y, x % y);
-        }
-        return u128::from(x);
+    if let (Ok(x), Ok(y)) = (u64::try_from(a), u64::try_from(b)) {
+        return u128::from(word_gcd(x, y));
     }
     if a == 0 || b == 0 {
         return a | b;
@@ -409,6 +398,24 @@ fn gcd(mut a: u128, mut b: u128) -> u128 {
         if b == 0 {
             return a << shift;
         }
+    }
+}
+
+/// Euclid in hardware `u64` division: the crate's one word gcd, shared by
+/// the Weyl-dimension quotient and the Cartan rational. The installed
+/// binary gcd measured slower on the Weyl-dimension factors.
+pub(crate) fn word_gcd(mut a: u64, mut b: u64) -> u64 {
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
+}
+
+/// `a / b`, in a hardware `u64` division whenever both operands fit.
+fn div(a: u128, b: u128) -> u128 {
+    match (u64::try_from(a), u64::try_from(b)) {
+        (Ok(a), Ok(b)) => u128::from(a / b),
+        _ => a / b,
     }
 }
 
@@ -434,11 +441,13 @@ mod tests {
         assert_eq!(q([(1, 3), (3 << 126, 1)]), Some(1 << 126));
         // Exact result fits, but the reduced intermediate 2¹²⁸ does not.
         assert_eq!(q([(1 << 127, 1), (2, 1), (1, 4)]), None);
-        // Both the u64 and the u128 branches of gcd and division.
+        // Both width branches of gcd and division, and the shared word gcd.
         assert_eq!(gcd(12, 18), 6);
         assert_eq!(gcd(3 << 100, 3 << 91), 3 << 91);
         assert_eq!(gcd(u128::MAX, 1 << 64), 1);
         assert_eq!(gcd(0, 1 << 100), 1 << 100);
+        assert_eq!(gcd(0, 7), 7);
+        assert_eq!((word_gcd(1, 6), word_gcd(6, 1), word_gcd(0, 6)), (1, 1, 6));
         assert_eq!(div(1 << 100, 1 << 36), 1 << 64);
         assert_eq!(div(18, 6), 3);
     }
