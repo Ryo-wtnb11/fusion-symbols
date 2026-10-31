@@ -87,12 +87,10 @@ jobs:
           key: release
           cache-targets: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Category identities through N >= 2 vertices (lib)
+      - name: Category identities (lib)
         run: >
           cargo test --release --all-features --lib --
           --ignored --exact
-          lie::general::cgc::tests::g2_multiplicity_two_gates_through_frcore
-          lie::general::cgc::tests::f4_26_unitarity_and_hexagon_through_frcore
           lie::general::cgc::tests::e6_27_unitarity_and_hexagon_through_frcore
       - name: Category identities and regressions (integration)
         run: >
@@ -102,6 +100,7 @@ jobs:
           bcd_fr::c2_35_multiplicity_three_f_unitarity_closes
           bcd_fr::sp4_81x81_every_channel
           lie_exceptional::g2::gates_through_a_multiplicity_two_vertex
+          lie_exceptional::self_dual::f4_hexagon_on_the_smallest_irrep
 
   # Bitwise goldens and cross-process bytes on two architectures (x86_64 Linux,
   # arm64 macOS): values must not depend on the platform.

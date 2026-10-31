@@ -6,8 +6,8 @@
 
 use super::*;
 use crate::category::{
-    f_unitarity_residual, hexagon_residual, pentagon_residual, BraidingStyle, FBlock,
-    FusionCategory, FusionStyle, RBlock, SymbolBlock,
+    f_unitarity_residual, hexagon_residual, BraidingStyle, FBlock, FusionCategory, FusionStyle,
+    RBlock, SymbolBlock,
 };
 use crate::frcore::{f_block_raw, r_block_raw};
 use std::collections::BTreeMap;
@@ -871,38 +871,6 @@ fn timed(gate: &str, run: impl FnOnce() -> Result<f64, LieError>) -> f64 {
     let r = run().unwrap();
     eprintln!("{gate} residual {r:e} in {:?}", t.elapsed());
     r
-}
-
-#[test]
-fn g2_gates_through_frcore() {
-    let cat = Cat::new(RootSystem::G2);
-    let (v, adj) = (G7.to_vec(), G14.to_vec());
-    assert!(timed("P", || pentagon_residual(&cat, &v, &v, &v, &v)) <= TOL);
-    assert!(timed("H", || hexagon_residual(&cat, &v, &v, &v)) <= TOL);
-    assert!(timed("H", || hexagon_residual(&cat, &v, &v, &adj)) <= TOL);
-    assert!(timed("F", || f_unitarity_residual(&cat, &v, &v, &v, &v)) <= TOL);
-    assert!(timed("F", || f_unitarity_residual(&cat, &v, &adj, &v, &adj)) <= TOL);
-}
-
-/// Gates through a multiplicity-2 vertex `27 ⊗ 27 → 27`.
-#[test]
-#[ignore = "release 14 s, debug 122 s"]
-fn g2_multiplicity_two_gates_through_frcore() {
-    let cat = Cat::new(RootSystem::G2);
-    let (v, x) = (G7.to_vec(), G27.to_vec());
-    assert_eq!(cat.nsymbol(&x, &x, &x).unwrap(), 2);
-    assert!(timed("F", || f_unitarity_residual(&cat, &v, &x, &x, &x)) <= TOL);
-    assert!(timed("H", || hexagon_residual(&cat, &x, &x, &v)) <= TOL);
-    assert!(timed("P", || pentagon_residual(&cat, &v, &v, &x, &x)) <= TOL);
-}
-
-#[test]
-#[ignore = "release 9 s"]
-fn f4_26_unitarity_and_hexagon_through_frcore() {
-    let f4 = Cat::new(RootSystem::F4);
-    let v = unit(4, 3);
-    assert!(timed("F", || f_unitarity_residual(&f4, &v, &v, &v, &v)) <= TOL);
-    assert!(timed("H", || hexagon_residual(&f4, &v, &v, &v)) <= TOL);
 }
 
 #[test]
