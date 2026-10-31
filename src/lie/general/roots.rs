@@ -32,10 +32,7 @@ use std::sync::Arc;
 pub(crate) mod classical;
 use classical::Series;
 
-use super::rational::Q;
-
 use malachite_nz::integer::Integer;
-#[cfg(test)]
 use malachite_q::Rational;
 
 use crate::lie::group::cartan;
@@ -992,25 +989,25 @@ fn coefficient_sum(rank: usize, roots: &[Vec<i64>]) -> Vec<i64> {
 /// along the edges of each connected component.
 fn symmetrizer(rank: usize, cartan: &[i64]) -> Vec<i64> {
     // Zero marks a node not yet reached; every reached d is positive.
-    let mut d = vec![Q::from(0); rank];
+    let mut d = vec![Rational::from(0); rank];
     for start in 0..rank {
         if d[start].numerator_ref() != &0 {
             continue;
         }
-        d[start] = Q::from(1);
+        d[start] = Rational::from(1);
         let mut stack = vec![start];
         while let Some(i) = stack.pop() {
             for j in 0..rank {
                 let (cij, cji) = (cartan[i * rank + j], cartan[j * rank + i]);
                 if j != i && cij != 0 && d[j].numerator_ref() == &0 {
-                    d[j] = &d[i] * Q::from_signeds(cji, cij);
+                    d[j] = &d[i] * Rational::from_signeds(cji, cij);
                     stack.push(j);
                 }
             }
         }
     }
     // Finite type: every ratio d_i / d_j is 1, 2 or 3, so d / min d is integral.
-    let min = d.iter().min().cloned().unwrap_or_else(|| Q::from(1));
+    let min = d.iter().min().cloned().unwrap_or_else(|| Rational::from(1));
     d.iter()
         .map(|x| {
             i64::try_from(

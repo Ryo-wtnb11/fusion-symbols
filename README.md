@@ -49,7 +49,7 @@ fusion-symbols = "0.10"
 | `anyonwiki-unitary` | no | 303 rank 5–7 table categories, data only |
 
 The required dependencies include Malachite 0.14 (`malachite-base`,
-`malachite-nz`, `malachite-q`) for all exact arithmetic, `num-traits`,
+`malachite-nz`, `malachite-q`) for exact arithmetic beyond machine words, `num-traits`,
 `num-complex` and `quick_cache`; no feature adds a dependency.
 Use `default-features = false` for the base build without higher-rank groups.
 

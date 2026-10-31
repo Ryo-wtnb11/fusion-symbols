@@ -24,10 +24,9 @@ pub(super) fn labels_bytes(v: &[i64]) -> usize {
     std::mem::size_of::<Vec<i64>>() + std::mem::size_of_val(v)
 }
 
-/// Estimated heap bytes of one rational: its numerator and denominator digits.
+/// Heap bytes of one rational beyond its slot (see [`Q::heap_bytes`]).
 pub(super) fn q_heap(q: &Q) -> usize {
-    (q.numerator_ref().limbs().len() + q.denominator_ref().limbs().len())
-        * std::mem::size_of::<malachite_nz::platform::Limb>()
+    q.heap_bytes()
 }
 
 /// Estimated bytes of a vector of rationals, capacity-based.
@@ -152,6 +151,21 @@ impl IrrepModule {
             .map(|k| labels_bytes(k) + std::mem::size_of::<usize>())
             .sum();
         self.weights.capacity() * std::mem::size_of::<WeightSpace>() + spaces + index
+    }
+
+    /// Re-allocates every retained rational at its length (see [`Q::compact`]).
+    pub(super) fn compact(&mut self) {
+        for s in &mut self.weights {
+            let lower = s.lower.iter_mut().flatten().flat_map(|(_, f)| f.iter_mut());
+            for x in s
+                .norms
+                .iter_mut()
+                .chain(s.recipe.iter_mut().flatten())
+                .chain(lower.flatten())
+            {
+                x.compact();
+            }
+        }
     }
 
     /// Builds `L(λ)` for a dominant `λ` in the Gram–Schmidt basis of §3.2.
@@ -358,11 +372,11 @@ fn build_space(
         if let (Some((tau, f1)), Some((_, f2))) = (&w1.lower[kk], &w2.lower[j]) {
             let n_tau = &weights[*tau].norms;
             for (p, n_p) in n_tau.iter().enumerate() {
-                if f1[q][p].numerator_ref() != &0 && f2[q2][p].numerator_ref() != &0 {
+                if !f1[q][p].is_zero() && !f2[q2][p].is_zero() {
                     g += &f1[q][p] * &f2[q2][p] / n_p;
                 }
             }
-            if g.numerator_ref() != &0 {
+            if !g.is_zero() {
                 g *= &w1.norms[q] * &w2.norms[q2];
             }
         }
@@ -389,27 +403,27 @@ fn build_space(
             .zip(&norms)
             .map(|(row, n_l)| {
                 let proj = &row[t];
-                if proj.numerator_ref() == &0 {
+                if proj.is_zero() {
                     return Q::from(0);
                 }
                 let scale = proj / n_l;
-                n -= &scale * proj;
+                n.sub_mul(&scale, proj);
                 scale
             })
             .collect();
-        if n < 0 {
+        if n.signum().is_lt() {
             return Err(ModuleError::IndefiniteForm { weight: mu }.into());
         }
-        if n.numerator_ref() == &0 {
+        if n.is_zero() {
             continue;
         }
         let mut coeffs = vec![Q::from(0); gs.len() + 1];
         coeffs[gs.len()] = Q::from(1);
         for (scale, r) in scales.iter().zip(&gs) {
-            if scale.numerator_ref() != &0 {
+            if !scale.is_zero() {
                 for (x, y) in coeffs.iter_mut().zip(r) {
-                    if y.numerator_ref() != &0 {
-                        *x -= scale * y;
+                    if !y.is_zero() {
+                        x.sub_mul(scale, y);
                     }
                 }
             }
@@ -422,8 +436,8 @@ fn build_space(
         for col in t + 1..c {
             row[col] = form(t, col);
             for (scale, prev) in scales.iter().zip(&inner) {
-                if scale.numerator_ref() != &0 && prev[col].numerator_ref() != &0 {
-                    row[col] -= scale * &prev[col];
+                if !scale.is_zero() && !prev[col].is_zero() {
+                    row[col].sub_mul(scale, &prev[col]);
                 }
             }
         }

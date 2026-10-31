@@ -121,7 +121,11 @@ impl Ladders {
 
     /// Flattens `module`'s ladders; `public` is the magnetic index of each
     /// engine index.
-    pub(super) fn from_module(module: IrrepModule, public: Vec<u32>) -> Self {
+    ///
+    /// Every rational is compacted here, the one point where a module and its
+    /// ladders become cache-owned, so that [`Ladders::bytes`] bounds them.
+    pub(super) fn from_module(mut module: IrrepModule, public: Vec<u32>) -> Self {
+        module.compact();
         let rank = module.weights[0].mu.len();
         let mut norm = Vec::with_capacity(module.dim);
         let mut space = Vec::with_capacity(module.dim);
@@ -150,7 +154,7 @@ impl Ladders {
                 let src = &module.weights[*src];
                 for (a, row) in f.iter().enumerate() {
                     for (b, x) in row.iter().enumerate() {
-                        if x.numerator_ref() == &0 {
+                        if x.is_zero() {
                             continue;
                         }
                         let (ma, mb) = (s.offset + a, src.offset + b);
@@ -159,6 +163,9 @@ impl Ladders {
                     }
                 }
             }
+        }
+        for x in raise.iter_mut().flatten().flatten().map(|(_, x)| x) {
+            x.compact();
         }
         Self {
             module,
@@ -228,19 +235,19 @@ impl Ladders {
             let mut next = vec![Q::from(0); self.dim()];
             for op in &self.lower {
                 for (m, x) in v.iter().enumerate() {
-                    if x.numerator_ref() == &0 {
+                    if x.is_zero() {
                         continue;
                     }
                     for (m2, y) in &op[m] {
-                        next[*m2] += x * y;
+                        next[*m2].add_mul(x, y);
                     }
                 }
             }
             v = next;
         }
         match v.last() {
-            Some(x) if x > &0 => Ok(1),
-            Some(x) if x < &0 => Ok(-1),
+            Some(x) if x.signum().is_gt() => Ok(1),
+            Some(x) if x.signum().is_lt() => Ok(-1),
             _ => Err(CgcError::ZeroPrincipalLadder {
                 lambda: lambda.to_vec(),
             }
@@ -353,14 +360,14 @@ impl PairRows<'_> {
 fn coproduct(op_a: &Op, op_b: &Op, from: &ProductSpace, to: &PairRows, v: &[Q]) -> Vec<Q> {
     let mut out = vec![Q::from(0); to.len()];
     for (&(p, q), x) in from.pairs.iter().zip(v) {
-        if x.numerator_ref() == &0 {
+        if x.is_zero() {
             continue;
         }
         for (p2, y) in &op_a[p] {
-            out[to.at((*p2, q))] += x * y;
+            out[to.at((*p2, q))].add_mul(x, y);
         }
         for (q2, y) in &op_b[q] {
-            out[to.at((p, *q2))] += x * y;
+            out[to.at((p, *q2))].add_mul(x, y);
         }
     }
     out
@@ -419,7 +426,7 @@ fn descend(
         x.iter()
             .zip(y)
             .zip(&metric)
-            .filter(|((u, v), _)| u.numerator_ref() != &0 && v.numerator_ref() != &0)
+            .filter(|((u, v), _)| !u.is_zero() && !v.is_zero())
             .map(|((u, v), g)| u * v * g)
             .fold(Q::from(0), |acc, x| acc + x)
     };
@@ -429,11 +436,11 @@ fn descend(
         let mut v = e.clone();
         for (s, n) in seeds.iter().zip(&seed_norms) {
             let scale = dot(&e, s) / n;
-            if scale.numerator_ref() == &0 {
+            if scale.is_zero() {
                 continue;
             }
             for (x, y) in v.iter_mut().zip(s) {
-                *x -= &scale * y;
+                x.sub_mul(&scale, y);
             }
         }
         seed_norms.push(dot(&v, &v));
@@ -514,19 +521,16 @@ fn descend(
         let mut uses = vec![0usize; lowered.len()];
         for coeffs in &space.recipe {
             for (t, r) in coeffs.iter().enumerate() {
-                if r.numerator_ref() != &0 {
+                if !r.is_zero() {
                     uses[t] += 1;
                 }
             }
         }
         for (k, coeffs) in space.recipe.iter().enumerate() {
             let m = space.offset + k;
-            let mut terms = coeffs
-                .iter()
-                .enumerate()
-                .filter(|(_, r)| r.numerator_ref() != &0);
+            let mut terms = coeffs.iter().enumerate().filter(|(_, r)| !r.is_zero());
             if let (Some((t, r)), None) = (terms.next(), terms.next()) {
-                if *r == 1 && uses[t] == 1 {
+                if r.is_one() && uses[t] == 1 {
                     complete(&mut phi, &readers, m, &to, std::mem::take(&mut lowered[t]))?;
                     continue;
                 }
@@ -536,18 +540,18 @@ fn descend(
                     // b_k = Σ_t recipe[k][t] c_t, so Φ(b_k) = Σ_t recipe[k][t] Δ(f_{j_t}) Φ(b_{q_t}).
                     let mut v = vec![Q::from(0); to.len()];
                     for (r, cand) in coeffs.iter().zip(&lowered) {
-                        if r.numerator_ref() == &0 {
+                        if r.is_zero() {
                             continue;
                         }
-                        let unit = *r == 1;
+                        let unit = r.is_one();
                         for (x, y) in v.iter_mut().zip(&cand[mu]) {
-                            if y.numerator_ref() == &0 {
+                            if y.is_zero() {
                                 continue;
                             }
                             if unit {
                                 *x += y;
                             } else {
-                                *x += r * y;
+                                x.add_mul(r, y);
                             }
                         }
                     }
@@ -598,10 +602,10 @@ pub(super) fn rounded_entries(
         for (mu, v) in per_mu.iter().enumerate() {
             let scale = &seed_norms[mu] * &c.norm[m];
             let column = &mut columns[mu * dc + mc as usize];
-            column.reserve_exact(v.iter().filter(|x| x.numerator_ref() != &0).count());
+            column.reserve_exact(v.iter().filter(|x| !x.is_zero()).count());
             let mu = magnetic_index(mu)?;
             for (&(pa, pb), x) in space.pairs.iter().zip(v) {
-                if x.numerator_ref() == &0 {
+                if x.is_zero() {
                     continue;
                 }
                 column.push(MEntry {
@@ -688,7 +692,7 @@ impl ExactChannel {
                 let space = &self.spaces[c.space[mc]];
                 let scale = &self.seed_norms[mu] * &c.norm[mc];
                 for (&(pa, pb), x) in space.pairs.iter().zip(&self.phi[mc][mu]) {
-                    if x.numerator_ref() == &0 {
+                    if x.is_zero() {
                         continue;
                     }
                     out.push((
@@ -915,7 +919,7 @@ fn raising_rows(
         }
     }
     for row in &mut rows {
-        row.retain(|_, x| x.numerator_ref() != &0);
+        row.retain(|_, x| !x.is_zero());
     }
     rows
 }
@@ -956,8 +960,8 @@ fn echelon_nullspace(mut m: Vec<BTreeMap<usize, Q>>, cols: usize) -> (Vec<usize>
                     continue;
                 }
                 let x = row.entry(j).or_insert_with(|| Q::from(0));
-                *x -= &scale * y;
-                if x.numerator_ref() == &0 {
+                x.sub_mul(&scale, y);
+                if x.is_zero() {
                     row.remove(&j);
                 }
             }
