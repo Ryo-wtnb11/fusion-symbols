@@ -720,7 +720,7 @@ mod tests {
     /// One rounding over the whole range, against the independent grid oracle:
     /// subnormal midpoints of both parities, the `2^-1075` and `2^-1022`
     /// boundaries, carries into the normal range, deep underflow and random
-    /// subnormal and normal ratios (#262).
+    /// subnormal and normal ratios.
     #[test]
     fn sqrt_ratio_to_f64_is_nearest_over_whole_range() {
         use rand::{Rng, SeedableRng};
@@ -735,7 +735,7 @@ mod tests {
                 "-sqrt({n}/{d})"
             );
         };
-        // The issue's example, just above 2^-1075: the smallest subnormal.
+        // Just above 2^-1075: the smallest subnormal.
         let (n, d) = (p2(120) + Natural::ONE, p2(2270));
         assert_eq!(sqrt_ratio_to_f64(&n, &d).to_bits(), 1);
         assert_eq!(signed_sqrt_to_f64(-1, &n, &d).to_bits(), 1 << 63 | 1);

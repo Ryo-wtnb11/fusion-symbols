@@ -39,7 +39,7 @@ fn named_and_general_lattices_agree() {
         GroupId::pso(6).unwrap(),
         GroupId::new(&[D(3)], 0, &d3_q).unwrap()
     );
-    // The former D-odd Z2 and DVector descriptions are the same sublattice.
+    // The D-odd Z2 and DVector descriptions are the same sublattice.
     assert_eq!(
         GroupId::so(6).unwrap(),
         GroupId::new(&[D(3)], 0, &[vec![1, 0, 0], vec![0, 1, 1], vec![0, 0, 2]]).unwrap()

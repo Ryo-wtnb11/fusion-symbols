@@ -9,7 +9,7 @@
 //! This exercises the *base* tiers on the real global caches. Forcing eviction
 //! here is intentionally NOT attempted: the production caps are 1M entries /
 //! 64 MiB per tier, and reaching them needs millions of big-rational Wigner
-//! computations (measured: 1.2M `wigner_3j` calls collapse to ~35k distinct
+//! computations (many `wigner_3j` calls collapse to far fewer distinct
 //! Regge classes). The eviction counter itself is covered deterministically on
 //! local caches in `src/cache.rs`; here we prove the aggregate retained-charge cap, the
 //! per-tier statistics, hit/miss accounting, and reset zeroing.

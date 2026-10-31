@@ -59,9 +59,9 @@ fn parse_channels(s: &str) -> Channels {
         .collect()
 }
 
-/// racah dimensions and product channels for a group token, so both the SU(N)
+/// This crate's dimensions and product channels for a group token, so both the SU(N)
 /// and B/C/D pipelines feed one comparison. Returns `(dim_a, dim_b, channels)`.
-fn racah_side(group: &str, a: &[i64], b: &[i64]) -> (Natural, Natural, Channels) {
+fn crate_side(group: &str, a: &[i64], b: &[i64]) -> (Natural, Natural, Channels) {
     // B/C/D groups: (series, expected rank is implied by the label length).
     let bcd_series = match group {
         "SO5" | "SO7" => Some(Series::B),
@@ -135,9 +135,9 @@ fn rows_cover_every_family() {
 }
 
 #[test]
-fn racah_reproduces_groupmath_products() {
+fn crate_reproduces_groupmath_products() {
     for r in parse() {
-        let (dim_a, dim_b, channels) = racah_side(&r.group, &r.a, &r.b);
+        let (dim_a, dim_b, channels) = crate_side(&r.group, &r.a, &r.b);
         assert_eq!(dim_a, r.dim_a, "{} {:?} dim_a", r.group, r.a);
         assert_eq!(dim_b, r.dim_b, "{} {:?} dim_b", r.group, r.b);
         assert_eq!(
@@ -147,7 +147,7 @@ fn racah_reproduces_groupmath_products() {
         );
         let sum: Natural = channels
             .iter()
-            .map(|(c, &n)| racah_side(&r.group, c, &r.b).0 * Natural::from(n))
+            .map(|(c, &n)| crate_side(&r.group, c, &r.b).0 * Natural::from(n))
             .sum();
         assert_eq!(sum, &dim_a * &dim_b, "{} dimension sum rule", r.group);
     }

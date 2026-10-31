@@ -2,12 +2,12 @@
 //!
 //! Role (see `tools/README.md` matrix): *internal consistency* strand. Each of
 //! the three exceptional low-rank Lie-algebra isomorphisms is a fact of
-//! representation theory, so the two racah code paths joined by the
+//! representation theory, so the two code paths joined by the
 //! isomorphism must produce the **same** integer data (dimensions, product
 //! decompositions, and the fusion multiplicities `N^c_{ab}` — the "N-symbols")
-//! exactly. No external tool is involved: the oracle is racah's own SU(N)
-//! pipeline ([`fusion_symbols::lie`]) checking racah's B/C/D pipeline ([`fusion_symbols::lie`]),
-//! and racah's two independent SU(2) implementations checking each other.
+//! exactly. No external tool is involved: the oracle is this crate's own SU(N)
+//! pipeline ([`fusion_symbols::lie`]) checking the B/C/D pipeline ([`fusion_symbols::lie`]),
+//! and this crate's two independent SU(2) implementations checking each other.
 //!
 //! This strand verifies only the *tensor* (linear, non-spinor) image of each
 //! isomorphism: [`fusion_symbols::lie`] represents tensor irreps of `SO(N)`/`Sp(2N)`
@@ -70,7 +70,7 @@
 //! `SO(4)` is the excluded rank `D_2` in [`fusion_symbols::lie`] (redirected to the
 //! SU(2) machinery). The isomorphism content — an `SO(4)` tensor irrep is a
 //! pair of `SU(2)` irreps with `SO(4)` products factoring as independent
-//! `SU(2)` products — is checked in `src/lie/sun/su2_embedding_tests.rs` between racah's **two independent
+//! `SU(2)` products — is checked in `src/lie/sun/su2_embedding_tests.rs` between the **two independent
 //! `SU(2)` code paths**: the general Gelfand–Tsetlin engine ([`fusion_symbols::lie`]
 //! at `N = 2`) and the exact closed-form base module ([`fusion_symbols::lie::su2`],
 //! reached through [`fusion_symbols::lie::su2::clebsch_gordan`]). An `SO(4)` label `(p, q)`
@@ -258,7 +258,7 @@ fn sp4_to_spin5(c: &[i64]) -> Bcd {
 }
 
 /// `SU(4)` labels spanning **both** classes, including the fundamental `4` and
-/// its conjugate — the labels that were out of scope before `Spin(N)`.
+/// its conjugate — the labels reachable only through `Spin(N)`.
 const SPIN6_LABELS: &[[i64; 3]] = &[
     [1, 0, 0], // 4     = Spin(6) half-spinor
     [0, 0, 1], // 4bar  = the other chirality

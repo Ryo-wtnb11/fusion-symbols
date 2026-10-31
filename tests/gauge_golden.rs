@@ -245,7 +245,7 @@ fn n2_golden_channels_are_certified() {
 ///
 /// A manual pre-release gate on a machine with at least 48 GB, not run by CI
 /// (`docs/gauge_cartan.md` §8, oracle 9): R builds both orders of the channel,
-/// about 19 minutes and 31 GB peak RSS in total on Apple M-series. The literals are
+/// which needs the 48 GB. The literals are
 /// the values of the gated engine (generation gates 1–7 of §7 pass on both
 /// channels and on the R block), recorded once; like every golden they pin the
 /// gauge rather than check it against an independent oracle.

@@ -403,27 +403,16 @@ mod against_bcd {
         }
     }
 
-    /// **Diagnostic, not an assertion of policy** (a flagged verification gap). Run with `--ignored`.
-    ///
-    /// The hand example: for `B₂ = so(5)` the adjoint `10` has both the
-    /// spinor `4` and the vector `5` strictly below it in `≺` (box counts
-    /// 1, 1 versus 2), and both `4⊗4` and `5⊗5` contain it. Under a
-    /// cover-wide parent search (option (A)) the pair key `dim_a+dim_b`
-    /// would pick `(4,4) = 8` over `(5,5) = 10`, moving the canonical parent
-    /// of the SO(5) adjoint and hence its frame.
-    ///
-    /// racah cannot build Spin(5) spinors today, so this is measured through
-    /// the isomorphism `Spin(5) ≅ Sp(4)`, where the `B₂` spinor is the `Sp(4)`
-    /// defining rep `(1,0)` and the `B₂` vector is `(0,1)`.
+    /// `Spin(5)` spinor and vector products both contain the adjoint `10`, and
+    /// the spinor is constructible: `4 ⊗ 4 = 1 + 5 + 10`, `5 ⊗ 5 = 1 + 10 + 14`.
     #[test]
-    #[ignore = "light diagnostic, no assertion on policy; no CI job"]
-    fn so5_canonical_parent_hand_example() {
+    fn spin5_spinor_and_vector_squares_decompose_with_adjoint() {
         use malachite_nz::natural::Natural;
-        let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
+        let cat = LieGroup::new(GroupId::spin(5).unwrap()).unwrap();
         let irrep = |a: i64, b: i64| cat.irrep(&[a, b]).unwrap();
-        let spinor = irrep(1, 0); // B₂ ω₂, the 4
-        let vector = irrep(0, 1); // B₂ ω₁, the 5
-        let adjoint = irrep(2, 0); // B₂ 2ω₂, the 10
+        let spinor = irrep(0, 1);
+        let vector = irrep(1, 0);
+        let adjoint = irrep(0, 2);
 
         assert_eq!(spinor.dim_exact(), Natural::from(4u32));
         assert_eq!(vector.dim_exact(), Natural::from(5u32));
@@ -439,19 +428,9 @@ mod against_bcd {
             d.sort_unstable();
             d
         };
-        assert_eq!(dims(&ss), vec![1, 5, 10], "4⊗4 = 1+5+10");
-        assert_eq!(dims(&vv), vec![1, 10, 14], "5⊗5 = 1+10+14");
+        assert_eq!(dims(&ss), vec![1, 5, 10]);
+        assert_eq!(dims(&vv), vec![1, 10, 14]);
         assert!(ss.contains_key(&adjoint) && vv.contains_key(&adjoint));
-
-        let key_ss = 4 + 4;
-        let key_vv = 5 + 5;
-        println!(
-            "SO(5) adjoint (10): (spinor,spinor) pair key {key_ss}, (V,V) pair key {key_vv} \
-             — spinor pair {} under the shipped `dim_a+dim_b` rule; box counts are 1, 1, 2 \
-             so both parents are ≺ the adjoint.",
-            if key_ss < key_vv { "WINS" } else { "loses" }
-        );
-        assert!(key_ss < key_vv, "the spinor pair wins: {key_ss} < {key_vv}");
     }
 }
 
@@ -860,7 +839,7 @@ mod cross_form_coefficients {
         let warm = lie_test::cgc(&three, &threebar, &adj).unwrap();
         assert!(!lie_test::entries(&warm).is_empty());
 
-        // The quotient still cannot name the fundamental — before, and after.
+        // The quotient cannot name the fundamental, with or without a warmed cache.
         for label in [[1i64, 0], [0, 1], [2, 0], [0, 2]] {
             assert!(matches!(
                 lie_test::irrep_in(&psu3, &label),

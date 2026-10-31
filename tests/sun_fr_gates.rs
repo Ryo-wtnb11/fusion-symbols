@@ -81,15 +81,14 @@ fn su3_octet_f_unitarity_om2() {
 #[test]
 fn su3_octet_hexagon_om2() {
     // Full hexagon on the octet triple (drags in the 8⊗8→8 OM=2 vertices and
-    // the 10/10̄/27 intermediates). ~0.4s release.
+    // the 10/10̄/27 intermediates).
     let e8 = irr(&[1, 1]);
     check_hexagon(&e8, &e8, &e8).unwrap();
 }
 
 #[test]
 fn su3_octet_pentagon_om2() {
-    // Full pentagon on the octet quadruple: the OM≥2 gate the issue names
-    // explicitly. ~2s release.
+    // Full pentagon on the octet quadruple: the OM≥2 gate.
     let e8 = irr(&[1, 1]);
     check_pentagon(&e8, &e8, &e8, &e8).unwrap();
 }

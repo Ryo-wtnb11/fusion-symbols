@@ -32,7 +32,7 @@ fn irr(s: Series, d: &[i64]) -> Irrep {
 // D3 84 = (0,2,2) channel and the OM=2 D3-adjoint family.
 // ---------------------------------------------------------------------------
 
-/// The identity closes; an error here is a generation regression.
+/// The identity closes; an error here is a generation failure.
 #[track_caller]
 fn assert_closes(r: Result<(), LieError>) {
     if let Err(error) = r {
@@ -339,8 +339,8 @@ fn isometry_residual(c: &fusion_symbols::lie::LieCgc) -> f64 {
         .fold(0.0, f64::max)
 }
 
-/// Sp(4) `16 ⊗ 80 → 14` and `80 ⊗ 16 → 14` (`[1,1] ⊗ [1,3] → [0,2]`), a
-/// former generation failure: both orders succeed, are shaped and isometric.
+/// Sp(4) `16 ⊗ 80 → 14` and `80 ⊗ 16 → 14` (`[1,1] ⊗ [1,3] → [0,2]`): both
+/// orders succeed, are shaped and isometric.
 #[test]
 fn sp4_16x80_to_14_both_orders() {
     use fusion_symbols::category::{CgcBlock, GroupRepresentations};
@@ -353,7 +353,7 @@ fn sp4_16x80_to_14_both_orders() {
     }
 }
 
-/// Sp(4) `81 ⊗ 81` (`[2,2] ⊗ [2,2]`), a former generation failure: every
+/// Sp(4) `81 ⊗ 81` (`[2,2] ⊗ [2,2]`): every
 /// channel succeeds with its N and shape, and the channels up to dimension
 /// 220 are isometric.
 #[test]
