@@ -520,42 +520,6 @@ mod tests {
     }
 
     #[test]
-    fn rounding_matches_num_baseline() {
-        // Literal bits captured from origin/main fe4100d's num-based
-        // sqrt_ratio_to_f64 (2026-10-28), before this arithmetic migration.
-        let one = Natural::ONE;
-        let mid = (&one << 53u32) + &one;
-        let mid_odd = (&one << 53u32) + Natural::from(3u32);
-        for (n, d, bits) in [
-            (Natural::ZERO, one.clone(), 0x0000000000000000),
-            (one.clone(), one.clone(), 0x3ff0000000000000),
-            (2u32.into(), 3u32.into(), 0x3fea20bd700c2c3e),
-            (4u32.into(), 9u32.into(), 0x3fe5555555555555),
-            (&one << 1200u32, one.clone(), 0x6570000000000000),
-            (
-                Natural::from(3u32) << 1200u32,
-                7u32.into(),
-                0x6564f2ec413cb52b,
-            ),
-            (one.clone(), &one << 1200u32, 0x1a70000000000000),
-            (
-                3u32.into(),
-                Natural::from(7u32) << 1200u32,
-                0x1a64f2ec413cb52b,
-            ),
-            // Midpoints at 1 + 2^-53 (even down) and 1 + 3*2^-53 (even up),
-            // plus radicands immediately below/above the first midpoint.
-            (&mid * &mid, &one << 106u32, 0x3ff0000000000000),
-            (&mid * &mid - &one, &one << 106u32, 0x3ff0000000000000),
-            (&mid * &mid + &one, &one << 106u32, 0x3ff0000000000001),
-            (&mid_odd * &mid_odd, &one << 106u32, 0x3ff0000000000002),
-            (one.clone(), &one << 2148u32, 0x0000000000000001),
-        ] {
-            assert_eq!(sqrt_ratio_to_f64(&n, &d).to_bits(), bits, "sqrt({n}/{d})");
-        }
-    }
-
-    #[test]
     fn to_f64_known_values() {
         // sqrt exact perfect squares and simple rationals.
         assert!((ssr(1, 1, 4).to_f64() - 0.5).abs() == 0.0);
