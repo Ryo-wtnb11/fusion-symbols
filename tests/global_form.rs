@@ -679,7 +679,6 @@ fn psp_rejection_uses_the_generic_not_admissible_error() {
             .irrep(&label)
             .unwrap_err();
         assert_eq!(error, LieError::NotAdmissible);
-        assert!(!error.to_string().to_lowercase().contains("spinor"));
     }
 }
 

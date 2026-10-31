@@ -24,6 +24,27 @@ fn complex_close(a: Complex64, b: Complex64) {
     assert!((a - b).norm() < 1e-12, "{a} != {b}");
 }
 
+/// Position of the twelve-tuple factor a `ProductError` blames.
+macro_rules! factor_position {
+    ($e:expr) => {
+        match $e {
+            ProductError::Factor0(_) => Some(0usize),
+            ProductError::Factor1(_) => Some(1),
+            ProductError::Factor2(_) => Some(2),
+            ProductError::Factor3(_) => Some(3),
+            ProductError::Factor4(_) => Some(4),
+            ProductError::Factor5(_) => Some(5),
+            ProductError::Factor6(_) => Some(6),
+            ProductError::Factor7(_) => Some(7),
+            ProductError::Factor8(_) => Some(8),
+            ProductError::Factor9(_) => Some(9),
+            ProductError::Factor10(_) => Some(10),
+            ProductError::Factor11(_) => Some(11),
+            _ => None,
+        }
+    };
+}
+
 #[test]
 fn fermionic_closed_forms_and_complex_promotion() {
     let fu1 = Product::new((U1, FermionParity));
@@ -339,7 +360,7 @@ impl FusionCategory for Probe {
     fn frobenius_schur_phase(&self, a: &u8) -> Result<f64, Self::Error> {
         self.dim(a);
         if self.phase_fail {
-            Err(std::io::Error::other("probe phase failure"))
+            Err(std::io::Error::from(std::io::ErrorKind::InvalidData))
         } else {
             Ok(1.0)
         }
@@ -652,16 +673,19 @@ fn every_factor_position_obeys_validation_and_overflow_precedence() {
         });
         factors[position].fail = true;
         let cat = cat!();
-        let prefix = format!("Factor{position}(");
-        assert!(format!("{:?}", cat.fusion(&zero, &zero).unwrap_err()).starts_with(&prefix));
-        assert!(format!(
-            "{:?}",
-            cat.f_symbol(&zero, &zero, &zero, &zero, &zero, &zero)
-                .unwrap_err()
-        )
-        .starts_with(&prefix));
-        assert!(
-            format!("{:?}", cat.r_symbol(&zero, &zero, &zero).unwrap_err()).starts_with(&prefix)
+        assert_eq!(
+            factor_position!(cat.fusion(&zero, &zero).unwrap_err()),
+            Some(position)
+        );
+        assert_eq!(
+            factor_position!(cat
+                .f_symbol(&zero, &zero, &zero, &zero, &zero, &zero)
+                .unwrap_err()),
+            Some(position)
+        );
+        assert_eq!(
+            factor_position!(cat.r_symbol(&zero, &zero, &zero).unwrap_err()),
+            Some(position)
         );
         factors.iter_mut().for_each(|c| {
             c.n = [1; 4];
@@ -962,8 +986,10 @@ fn u1_overflow_in_every_immediate_position() {
                 )
             };
         }
-        assert!(format!("{:?}", cat.fusion(&obj!(a), &obj!(b)).unwrap_err())
-            .starts_with(&format!("Factor{position}(")));
+        assert_eq!(
+            factor_position!(cat.fusion(&obj!(a), &obj!(b)).unwrap_err()),
+            Some(position)
+        );
     }
 }
 
@@ -1417,7 +1443,7 @@ fn phase_failures_keep_factor_paths_and_reach_a() {
         phase_fail: true,
         ..Probe::default()
     };
-    let is_probe = |e: &std::io::Error| e.to_string() == "probe phase failure";
+    let is_probe = |e: &std::io::Error| e.kind() == std::io::ErrorKind::InvalidData;
     // The leaf's default A propagates its phase failure; B has no phase.
     assert!(is_probe(&failing.a_symbol(&0, &0, &0).unwrap_err()));
     assert!(failing.b_symbol(&0, &0, &0).is_ok());

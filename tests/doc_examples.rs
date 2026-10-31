@@ -20,7 +20,10 @@ fn readme_1() -> Result<(), Box<dyn std::error::Error>> {
     let u2 = LieGroup::new(GroupId::u(2)?)?;
     let fundamental = u2.irrep_with_charges(&[1], &[1])?; // SU(2) label 1, U(1) charge 1
     assert_eq!(u2.dim(&fundamental), 2.0);
-    assert!(u2.irrep_with_charges(&[1], &[0]).is_err()); // charge must match the SU(2) label mod 2
+    assert_eq!(
+        u2.irrep_with_charges(&[1], &[0]),
+        Err(fusion_symbols::lie::LieError::NotAdmissible)
+    ); // charge must match the SU(2) label mod 2
     Ok(())
 }
 
@@ -109,7 +112,10 @@ fn guide_labels_1() -> Result<(), Box<dyn std::error::Error>> {
     // The global form decides which labels exist: Spin(5) has the spinor, SO(5) not.
     let spinor = [0, 1];
     assert!(LieGroup::new(GroupId::spin(5)?)?.irrep(&spinor).is_ok());
-    assert!(LieGroup::new(GroupId::so(5)?)?.irrep(&spinor).is_err());
+    assert_eq!(
+        LieGroup::new(GroupId::so(5)?)?.irrep(&spinor),
+        Err(fusion_symbols::lie::LieError::NotAdmissible)
+    );
     Ok(())
 }
 
@@ -526,10 +532,12 @@ fn contract_labels_spin7_spinor() {
     assert_eq!(s.dim_exact(), 8u32);
 
     // The same label is not a representation of SO(7).
-    assert!(LieGroup::new(GroupId::so(7).unwrap())
-        .unwrap()
-        .irrep(&[0, 0, 1])
-        .is_err());
+    assert_eq!(
+        LieGroup::new(GroupId::so(7).unwrap())
+            .unwrap()
+            .irrep(&[0, 0, 1]),
+        Err(fusion_symbols::lie::LieError::NotAdmissible)
+    );
 }
 
 #[test]
@@ -784,7 +792,10 @@ fn contract_labels_spin5_spinor() {
 
     // The same label is not a representation of SO(5).
     let so5 = GroupId::so(5).unwrap();
-    assert!(LieGroup::new(so5).unwrap().irrep(&[0, 1]).is_err());
+    assert_eq!(
+        LieGroup::new(so5).unwrap().irrep(&[0, 1]),
+        Err(fusion_symbols::lie::LieError::NotAdmissible)
+    );
 }
 
 #[test]
@@ -822,7 +833,10 @@ fn contract_labels_psu3_admission() {
     assert!(LieGroup::new(psu3.clone()).unwrap().irrep(&[1, 1]).is_ok());
 
     // The fundamental 3 has triality 1: PSU(3) has no such representation.
-    assert!(LieGroup::new(psu3.clone()).unwrap().irrep(&[1, 0]).is_err());
+    assert_eq!(
+        LieGroup::new(psu3.clone()).unwrap().irrep(&[1, 0]),
+        Err(fusion_symbols::lie::LieError::NotAdmissible)
+    );
 }
 
 #[test]
@@ -1176,7 +1190,10 @@ fn labels_rank_one_and_spins_1() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(three_halves.spin(), Some(HalfInt::half(3)));
 
     let so3 = LieGroup::new(GroupId::so(3)?)?;
-    assert!(so3.irrep_spin(HalfInt::half(1)).is_err());
+    assert_eq!(
+        so3.irrep_spin(HalfInt::half(1)),
+        Err(fusion_symbols::lie::LieError::NotAdmissible)
+    );
     Ok(())
 }
 

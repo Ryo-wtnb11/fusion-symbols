@@ -151,12 +151,9 @@ fn sp4_so5_vector_f_coboundary_fit_signed() {
                 if !vf.contains_key(d) {
                     continue; // d must lie in both e⊗v and v⊗f
                 }
-                // Skip sextets that pull an incoherent channel (the guard's
-                // typed error) — the signed comparison is over coherence-verified
-                // sextets only. Any other error is a real failure.
+                // Every error is a real failure.
                 let fb = match f_symbol(&cb, &vb, &vb, &vb, d, e, f) {
                     Ok(x) => x,
-                    Err(e) if e.to_string().contains("could not be aligned") => continue,
                     Err(e) => panic!("unexpected B2 error: {e:?}"),
                 };
                 if fb.dims() != [1, 1, 1, 1] {
@@ -164,7 +161,6 @@ fn sp4_so5_vector_f_coboundary_fit_signed() {
                 }
                 let fc = match f_symbol(&cc, &vc, &vc, &vc, &swap(d), &swap(e), &swap(f)) {
                     Ok(x) => x,
-                    Err(e) if e.to_string().contains("could not be aligned") => continue,
                     Err(e) => panic!("unexpected C2 error: {e:?}"),
                 };
                 let (b, c) = (fb.get([0, 0, 0, 0]), fc.get([0, 0, 0, 0]));

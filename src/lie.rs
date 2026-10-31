@@ -1645,9 +1645,11 @@ mod tests {
                 "test failure",
             )))),
         });
-        assert!(error.to_string().contains("factor 2"));
         let source = error.source().unwrap().source().unwrap();
-        assert!(source.downcast_ref::<CompositeError>().is_some());
+        assert!(matches!(
+            source.downcast_ref::<CompositeError>(),
+            Some(CompositeError(ProductError::Factor { index: 2, .. }))
+        ));
         assert!(source
             .source()
             .unwrap()
@@ -2111,11 +2113,13 @@ mod tests {
     #[test]
     fn generation_error_keeps_its_reason() {
         let error = LieError::from(crate::frcore::GateError::NonFinite { gate: "R" });
+        assert!(matches!(error, LieError::Generation(_)));
+        let gate = error.source().unwrap().source().unwrap();
+        assert!(matches!(
+            gate.downcast_ref::<crate::frcore::GateError>(),
+            Some(crate::frcore::GateError::NonFinite { gate: "R" })
+        ));
         assert_eq!(error.to_string(), "R gate: nonfinite value");
-        assert_eq!(
-            error.source().unwrap().source().unwrap().to_string(),
-            error.to_string()
-        );
     }
 }
 
