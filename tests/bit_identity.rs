@@ -95,7 +95,7 @@ fn emit(fresh_groups: bool) -> Vec<u8> {
 /// The child process: bytes cold, after a reset, after a zero trim of every
 /// tier and from fresh group values must agree before they are written.
 #[test]
-#[ignore = "child of separate_processes_emit_identical_bytes"]
+#[ignore = "child process of separate_processes_emit_identical_bytes; light; run by that test"]
 fn emit_child() {
     let Ok(path) = std::env::var(OUT) else {
         return;

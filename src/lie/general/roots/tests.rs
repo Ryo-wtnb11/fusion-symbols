@@ -716,7 +716,7 @@ fn labels_reuse_live_root_context_without_retaining_its_tables() {
 }
 
 #[test]
-#[ignore = "isolated Product cache and root-context counters"]
+#[ignore = "needs an isolated global cache; light; CI test_suites default job runs it by exact name, single thread"]
 fn warm_adapter_does_not_rebuild_context_after_group_drop() {
     let data = CartanData::new(RootSystem::A(2));
     let a = data.irrep(&[1, 0]).unwrap();

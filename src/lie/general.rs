@@ -32,12 +32,6 @@ mod tests {
     use super::cgc::BUILDS;
     use super::*;
     use crate::category::SymbolBlock;
-    #[cfg(feature = "lie-generated")]
-    use crate::category::{f_unitarity_residual, FusionCategory};
-    #[cfg(feature = "lie-generated")]
-    use crate::lie::{GroupId, LieGroup};
-    #[cfg(feature = "lie-generated")]
-    use std::time::Instant;
 
     fn builds() -> [usize; 2] {
         BUILDS.with(std::cell::Cell::get)
@@ -91,60 +85,6 @@ mod tests {
         assert_eq!(symbols(), expected);
         assert_eq!(builds(), warm, "warm F/R must not rebuild channels");
     }
-
-    #[cfg(feature = "lie-generated")]
-    #[test]
-    #[ignore = "release timing and generation-count report"]
-    fn e8_workload_report() {
-        let g = LieGroup::new(GroupId::e8()).unwrap();
-        let a = g.irrep(&[0, 0, 0, 0, 0, 0, 0, 1]).unwrap();
-        let t = Instant::now();
-        let residual = f_unitarity_residual(&g, &a, &a, &a, &a).unwrap();
-        assert!(residual < 1e-12);
-        let cgc = crate::cache::tier_stats(crate::cache::CoefficientCacheTier::Cgc);
-        eprintln!(
-            "E8: {:?}, residual {residual:e}, module/channel builds {:?}, retained ({}, {})",
-            t.elapsed(),
-            builds(),
-            cgc.entries,
-            cgc.bytes
-        );
-    }
-
-    #[cfg(feature = "lie-generated")]
-    #[test]
-    #[ignore = "release cold/warm timing report"]
-    fn small_workload_report() {
-        for (id, label) in [
-            (GroupId::g2(), vec![1, 0]),
-            (GroupId::f4(), vec![0, 0, 0, 1]),
-            (GroupId::e6(), vec![1, 0, 0, 0, 0, 0]),
-        ] {
-            for _ in 0..5 {
-                crate::cache::reset();
-                let g = LieGroup::new(id.clone()).unwrap();
-                let a = g.irrep(&label).unwrap();
-                let query = || {
-                    if label.len() == 6 {
-                        assert_eq!(g.frobenius_schur_phase(&a).unwrap(), 1.0);
-                    } else {
-                        std::hint::black_box(g.r_symbol(&a, &a, &g.unit()).unwrap());
-                    }
-                };
-                let t = Instant::now();
-                query();
-                let cold = t.elapsed();
-                let before = builds();
-                let t = Instant::now();
-                for _ in 0..128 {
-                    query();
-                }
-                let warm = t.elapsed() / 128;
-                assert_eq!(builds(), before);
-                eprintln!("{label:?}: cold {cold:?}, warm {warm:?}, builds {before:?}");
-            }
-        }
-    }
 }
 
 #[cfg(all(test, feature = "lie-generated"))]
@@ -158,7 +98,7 @@ mod product_contract_tests {
     use std::sync::atomic::Ordering;
 
     #[test]
-    #[ignore = "isolated global product producer counter; required migration gate"]
+    #[ignore = "needs an isolated global producer counter; medium; CI test_suites default job runs it by exact name, single thread"]
     fn exceptional_product_cache_counted() {
         let builds = || roots::PRODUCT_BUILDS.load(Ordering::SeqCst);
         for (id, label) in [

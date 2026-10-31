@@ -29,9 +29,20 @@ RUSTDOCFLAGS="-D warnings --html-in-header doc/katex-header.html" \
 The KaTeX header matches `Cargo.toml::package.metadata.docs.rs`.
 Criterion harnesses in `benches/` are measurements, not CI gates:
 `torus`, `cache_concurrency`, `wigner`, `sun_cgc`, `sun_fr`, `sun_product`,
-`bcd_fr`, `exceptional`. All but the first three require `lie-generated`. Test-only cache measurement
-harnesses remain in `src/cache_audit.rs`, `src/cache_budget_pressure.rs`, and
-`src/cache_trim_pressure.rs`; their ignored entry points describe how to run them.
+`bcd_fr`, `exceptional`. All but the first three require `lie-generated`.
+`exceptional` also covers the cold-query rows of G2, E6 and E8 (select a row
+with `FS_PERF_CASE`). Cache timing, live-allocation and RSS reports are the
+`cache_pressure` example (`cargo run --release --example cache_pressure --
+audit|budget|trim|cgc|d4`); run one report per process. Measurements never live
+in `#[ignore]` tests.
+
+Every `#[ignore = "..."]` test names a size class and the CI job that runs it.
+Size classes, in release builds: light is seconds, medium is tens of seconds,
+heavy is minutes or GiB-scale memory. CI runs ignored tests only by exact name:
+`release_checks` (release, medium category identities), `bit_identity` (release
+goldens) and the default `test_suites` job (isolated-cache counters, run
+single-threaded). Cases with no CI job are run by hand with
+`cargo test --release --all-features -- --ignored <name>`.
 
 ## Integration-test targets
 
@@ -166,8 +177,8 @@ The `sun_product` benchmark/test target names remain stable; their tier control
 is `CoefficientCacheTier::Product`. Product retention includes all simple
 Lie families.
 
-The reset-sensitive producer-count gate runs alone in the default CI job:
+The reset-sensitive producer-count and root-context gates run alone in the default CI job:
 
 ```sh
-cargo test --release --offline --lib lie::general::product_contract_tests::exceptional_product_cache_counted -- --ignored --exact --test-threads=1
+cargo test --release --offline --lib -- --ignored --exact --test-threads=1 lie::general::product_contract_tests::exceptional_product_cache_counted lie::general::roots::tests::warm_adapter_does_not_rebuild_context_after_group_drop
 ```

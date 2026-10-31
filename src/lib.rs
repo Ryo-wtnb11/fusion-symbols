@@ -136,9 +136,10 @@
 //! [`docs/gauge.md`]: https://github.com/Ryo-wtnb11/fusion-symbols/blob/main/docs/gauge.md
 #![warn(missing_docs)]
 
-// The audit harness measures only allocations routed through Rust's System
-// allocator. Keeping it test-only avoids changing the library allocator
-// contract or attributing C/backend allocations to Racah.
+// Per-thread allocation counters for the allocation tests. Test-only, so the
+// library allocator contract is unchanged, and per-thread, so concurrently
+// running tests do not disturb each other. Only requests that reach Rust's
+// System allocator are seen.
 #[cfg(all(test, feature = "lie-generated"))]
 #[global_allocator]
 static TEST_ALLOCATOR: audit_alloc::TrackingAllocator = audit_alloc::TrackingAllocator;
@@ -146,12 +147,6 @@ static TEST_ALLOCATOR: audit_alloc::TrackingAllocator = audit_alloc::TrackingAll
 #[cfg(all(test, feature = "lie-generated"))]
 mod audit_alloc {
     use std::alloc::{GlobalAlloc, Layout, System};
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    static LIVE: AtomicUsize = AtomicUsize::new(0);
-    static PEAK: AtomicUsize = AtomicUsize::new(0);
-    static ALLOC_CALLS: AtomicUsize = AtomicUsize::new(0);
-    static ALLOC_BYTES: AtomicUsize = AtomicUsize::new(0);
 
     std::thread_local! {
         static THREAD_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -172,12 +167,8 @@ mod audit_alloc {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
             let ptr = unsafe { System.alloc(layout) };
             if !ptr.is_null() {
-                ALLOC_CALLS.fetch_add(1, Ordering::Relaxed);
                 count_thread_call();
                 count_thread_live(layout.size() as isize);
-                ALLOC_BYTES.fetch_add(layout.size(), Ordering::Relaxed);
-                let live = LIVE.fetch_add(layout.size(), Ordering::Relaxed) + layout.size();
-                PEAK.fetch_max(live, Ordering::Relaxed);
             }
             ptr
         }
@@ -185,12 +176,8 @@ mod audit_alloc {
         unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
             let ptr = unsafe { System.alloc_zeroed(layout) };
             if !ptr.is_null() {
-                ALLOC_CALLS.fetch_add(1, Ordering::Relaxed);
                 count_thread_call();
                 count_thread_live(layout.size() as isize);
-                ALLOC_BYTES.fetch_add(layout.size(), Ordering::Relaxed);
-                let live = LIVE.fetch_add(layout.size(), Ordering::Relaxed) + layout.size();
-                PEAK.fetch_max(live, Ordering::Relaxed);
             }
             ptr
         }
@@ -198,7 +185,6 @@ mod audit_alloc {
         unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
             unsafe { System.dealloc(ptr, layout) };
             count_thread_live(-(layout.size() as isize));
-            LIVE.fetch_sub(layout.size(), Ordering::Relaxed);
         }
 
         unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
@@ -206,30 +192,14 @@ mod audit_alloc {
             if !new.is_null() {
                 count_thread_live(size as isize - layout.size() as isize);
                 if size >= layout.size() {
-                    let delta = size - layout.size();
-                    ALLOC_CALLS.fetch_add(1, Ordering::Relaxed);
                     count_thread_call();
-                    ALLOC_BYTES.fetch_add(delta, Ordering::Relaxed);
-                    let live = LIVE.fetch_add(delta, Ordering::Relaxed) + delta;
-                    PEAK.fetch_max(live, Ordering::Relaxed);
-                } else {
-                    LIVE.fetch_sub(layout.size() - size, Ordering::Relaxed);
                 }
             }
             new
         }
     }
 
-    pub(crate) fn snapshot() -> (usize, usize) {
-        (LIVE.load(Ordering::Relaxed), PEAK.load(Ordering::Relaxed))
-    }
-
-    pub(crate) fn reset_peak_to_live() {
-        PEAK.store(LIVE.load(Ordering::Relaxed), Ordering::Relaxed);
-    }
-
-    /// Successful allocation requests made by the calling thread, counted
-    /// like [`allocation_totals`] but immune to concurrently running tests.
+    /// Successful allocation requests made by the calling thread.
     pub(crate) fn thread_allocation_calls() -> usize {
         THREAD_CALLS.try_with(std::cell::Cell::get).unwrap_or(0)
     }
@@ -237,15 +207,6 @@ mod audit_alloc {
     /// Bytes allocated minus bytes freed by the calling thread.
     pub(crate) fn thread_live_bytes() -> isize {
         THREAD_LIVE.try_with(std::cell::Cell::get).unwrap_or(0)
-    }
-
-    /// Cumulative successful allocation requests. `realloc` contributes only
-    /// its growth delta; deallocations never subtract from these counters.
-    pub(crate) fn allocation_totals() -> (usize, usize) {
-        (
-            ALLOC_CALLS.load(Ordering::Relaxed),
-            ALLOC_BYTES.load(Ordering::Relaxed),
-        )
     }
 }
 
@@ -255,13 +216,6 @@ pub mod lie;
 
 mod exact;
 mod primefactor;
-
-#[cfg(all(test, feature = "lie-generated"))]
-mod cache_audit;
-#[cfg(all(test, feature = "lie-generated"))]
-mod cache_budget_pressure;
-#[cfg(all(test, feature = "lie-generated"))]
-mod cache_trim_pressure;
 
 // F and R contractions and block gates of the Cartan engine.
 mod frcore;

@@ -94,6 +94,11 @@ name = "exceptional"
 harness = false
 required-features = ["lie-generated"]
 
+# Cache timing, live-allocation and RSS reports (not tests).
+[[example]]
+name = "cache_pressure"
+required-features = ["lie-generated"]
+
 [profile.dev]
 debug = "line-tables-only"
 

@@ -72,10 +72,10 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo test ${{ matrix.args }}
       - if: matrix.name == 'default'
-        run: cargo test ${{ matrix.args }} --lib lie::general::product_contract_tests::exceptional_product_cache_counted -- --ignored --exact --test-threads=1
+        run: cargo test ${{ matrix.args }} --lib -- --ignored --exact --test-threads=1 lie::general::product_contract_tests::exceptional_product_cache_counted lie::general::roots::tests::warm_adapter_does_not_rebuild_context_after_group_drop
 
   # Release-only category identities and regressions, selected by exact name
-  # (never a blanket --ignored, which would also run timing reports).
+  # (never a blanket --ignored, which would also run the heavy cases).
   release_checks:
     runs-on: ubuntu-latest
     timeout-minutes: 30
