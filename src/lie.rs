@@ -102,7 +102,7 @@ pub struct LieIrrep {
 }
 
 // A group fixes its engine, so only values within a variant are compared after
-// GroupId. Their ordering is the former field ordering, including signed charges.
+// GroupId. Within a variant the ordering is field order, including signed charges.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 // Avoid niche-discriminant decoding on the inline symbol paths.
 #[repr(u8)]

@@ -1,7 +1,7 @@
 //! SU(N) Frobenius–Schur phase and indicator.
 //!
 //! Oracles: SUNRepresentations 0.4.0 / TensorKitSectors 0.3.9 values, the sign
-//! of racah's own `F[a, ā, a, a, 1, 1]` (the reference definition,
+//! of this crate's own `F[a, ā, a, a, 1, 1]` (the reference definition,
 //! `sectors.jl:frobenius_schur_phase_from_Fsymbol`), and `phase`.
 
 #![cfg(feature = "lie-generated")]
@@ -103,7 +103,7 @@ fn indicator_is_phase_on_self_dual_irreps_and_zero_otherwise() {
     );
 }
 
-/// The reference definition, evaluated on racah's own F-symbols:
+/// The reference definition, evaluated on this crate's own F-symbols:
 /// `phase = sign(F[a, ā, a, a, 1, 1])` with `|F| = 1 / dim(a)`.
 #[test]
 fn phase_is_sign_of_f_symbol() {

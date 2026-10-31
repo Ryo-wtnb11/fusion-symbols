@@ -629,7 +629,7 @@ mod e6 {
             let a = l(&g, label);
             let indicator = if label == dual { 1.0 } else { 0.0 };
             assert_eq!(g.frobenius_schur_indicator(&a), indicator, "{label:?}");
-            // 7371's first phase query is `first_phase_query_report`'s (17 s release).
+            // 7371's first phase query is `first_phase_query_report`'s.
             if dim != 7371 {
                 assert_eq!(g.frobenius_schur_phase(&a).unwrap(), 1.0, "{label:?}");
             }

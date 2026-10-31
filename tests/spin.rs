@@ -10,7 +10,7 @@
 //! non-base spinor.
 //!
 //! Each public operation gets its own focused test rather than one umbrella
-//! run, so a regression names the operation that broke.
+//! run, so a failure names the operation that broke.
 //!
 //! # Recoupling through the defining channel
 //!

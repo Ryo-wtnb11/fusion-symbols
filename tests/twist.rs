@@ -2,7 +2,7 @@
 //! TensorKitSectors generic definition
 //! `src/sectors.jl:twist_from_Rsymbol`,
 //! θ_a = Σ_{c ∈ a⊗a} (d_c / d_a) tr R^{aa}_c,
-//! evaluated here from racah's own R-symbols and fusion rules. The R-symbol
+//! evaluated here from this crate's own R-symbols and fusion rules. The R-symbol
 //! sum is independent of the `twist()` implementations, which return a
 //! constant without generating any R-symbol.
 

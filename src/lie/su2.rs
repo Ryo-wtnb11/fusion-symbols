@@ -696,7 +696,7 @@ impl ReggePhase {
 /// bounds `|dm| <= dj <= u16::MAX`, so `i32` holds it losslessly.
 ///
 /// Deviation from the reference: WignerSymbols.jl keys on the derived
-/// `(β1,β2,β3,α1,α2)` reparametrization of these same canonical labels; racah
+/// `(β1,β2,β3,α1,α2)` reparametrization of these same canonical labels; this crate
 /// stores the labels directly (a 1-1 re-encoding), which the orbit test can
 /// read against without reconstructing alphas. (WignerSymbols.jl v2.0.0
 /// `WignerSymbols.jl:_wigner3j`.)
@@ -720,7 +720,7 @@ pub(crate) struct Regge3j {
 /// Deviation from the reference: `reorder3j` sorts only by `j` and leaves the
 /// m-order among equal-`j` columns unbroken, so it is *not* a full orbit
 /// invariant (two column-permutations of an equal-`j` symbol get distinct
-/// keys). racah completes the canonicalization — breaking every tie and
+/// keys). this crate completes the canonicalization — breaking every tie and
 /// tracking the extra permutation's sign — so the acceptance-required
 /// "all 12 images share one key" holds, at the cost of enumerating 12 tuples
 /// (a fixed, tiny constant) instead of the reference's bubble sort.
@@ -948,8 +948,8 @@ mod tests {
 
     /// A stretched coupling, `j3 = j1 + j2` with `m1 = -j1`, `m2 = j2`, is
     /// `sqrt(1 / binomial(2 j3, j3 + m3))`; here `1/binomial(2050, 1015)` lies
-    /// below 2^-1022. Before #262 the subnormal result was rounded twice and
-    /// returned `0x000f_d1dc_1567_2826`, one subnormal step above the nearest.
+    /// below 2^-1022. Rounding twice would return
+    /// `0x000f_d1dc_1567_2826`, one subnormal step above the nearest.
     #[test]
     fn subnormal_cgc_rounds_once() {
         let cg = clebsch_gordan(1035, -1035, 1015, 1015, 2050, -20);

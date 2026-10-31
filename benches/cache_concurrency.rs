@@ -1,5 +1,4 @@
-//! Warm public-API F throughput, shared and per-thread distinct keys; the same
-//! file also builds against 255792e.
+//! Warm public-API F throughput, shared and per-thread distinct keys.
 //! Reports median/min/max aggregate queries/s from five 500 ms rounds.
 use fusion_symbols::{
     category::FusionCategory,
