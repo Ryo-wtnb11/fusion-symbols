@@ -1587,7 +1587,11 @@ fn failed_block_gates_are_not_retained() {
     CORRUPT_BLOCK.with(|x| x.set(None));
     assert!(matches!(
         bad_r,
-        Err(LieError::Generation(ref e)) if e.to_string().contains("R gate: residual")
+        Err(ref e @ LieError::Generation(_)) if matches!(
+            std::error::Error::source(e).and_then(|g| g.source())
+                .and_then(|g| g.downcast_ref::<GateError>()),
+            Some(GateError::Residual { gate: "R", .. })
+        )
     ));
     assert_eq!(
         bad_f_inf,
