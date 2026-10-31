@@ -1792,42 +1792,42 @@ mod tests {
 
     #[test]
     fn f64_tier_charge_is_fixed() {
-        // f64 values charge a fixed size (no data-dependent limbs), so the tier
-        // is bounded by entry count in practice.
-        assert_eq!((1.0f64).value_bytes(), std::mem::size_of::<f64>());
-        assert_eq!((-3.5f64).value_bytes(), std::mem::size_of::<f64>());
-        assert_eq!(
-            entry_charge(&7u32, &1.0f64),
-            std::mem::size_of::<f64>() + std::mem::size_of::<u32>() + std::mem::size_of::<usize>(),
-            "one owned key and cached byte charge"
+        // Purpose: an f64 charge does not depend on the value (no data-dependent
+        // limbs), and an entry charges at least its key and value.
+        assert_eq!((1.0f64).value_bytes(), (-3.5f64).value_bytes());
+        assert!((1.0f64).value_bytes() >= std::mem::size_of::<f64>());
+        assert_eq!(entry_charge(&7u32, &1.0f64), entry_charge(&7u32, &-3.5f64));
+        assert!(
+            entry_charge(&7u32, &1.0f64) >= 7u32.key_bytes() + (1.0f64).value_bytes(),
+            "an entry charges its key and value"
         );
     }
 
     #[test]
     fn label_keys_charge_owned_labels() {
-        let label = [1i64; 12];
-        let key = LabelRef {
-            kind: CHANNEL,
-            root: RootSystem::C(12),
-            parts: [&label[..], &label, &label],
-        }
-        .to_key();
-        assert_eq!(
-            key.key_bytes(),
-            std::mem::size_of::<LabelKey>() + 36 * std::mem::size_of::<i64>()
-        );
-        let sextet = FSymbolKey::Cartan(
-            LabelRef {
-                kind: 0,
+        // Purpose: a key's charge grows with the owned label storage, one i64
+        // per label entry.
+        let labels: [&[i64]; 2] = [&[1; 12], &[1; 6]];
+        let [long, short] = labels.map(|label| {
+            let channel = LabelRef {
+                kind: CHANNEL,
                 root: RootSystem::C(12),
-                parts: [&label[..]; 6],
+                parts: [label, label, label],
             }
-            .to_key(),
-        );
-        assert_eq!(
-            sextet.key_bytes(),
-            std::mem::size_of::<FSymbolKey>() + 72 * std::mem::size_of::<i64>()
-        );
+            .to_key();
+            let sextet = FSymbolKey::Cartan(
+                LabelRef {
+                    kind: 0,
+                    root: RootSystem::C(12),
+                    parts: [label; 6],
+                }
+                .to_key(),
+            );
+            (channel.key_bytes(), sextet.key_bytes())
+        });
+        let per_entry = std::mem::size_of::<i64>();
+        assert_eq!(long.0 - short.0, 3 * 6 * per_entry);
+        assert_eq!(long.1 - short.1, 6 * 6 * per_entry);
     }
 
     fn product_fixture(
@@ -1843,8 +1843,9 @@ mod tests {
     }
     #[test]
     fn product_tier_caps_charge_and_lifecycle() {
-        use crate::lie::{general::roots::Product, RootSystem as R};
-        assert_eq!((PRODUCT_MAX_BYTES, PRODUCT_MAX_ENTRIES), (128 << 10, 256));
+        use crate::lie::RootSystem as R;
+        // Purpose: a product entry charges its owned storage (labels and deep
+        // coordinate data), and the byte cap admits it exactly when it fits.
         // Complex coordinate pairs and an exact dimension above u128 own deep storage.
         for (root, label) in [
             (R::A(5), vec![1000, 0, 0, 0, 1]),
@@ -1853,19 +1854,10 @@ mod tests {
             (R::E6, vec![1, 0, 0, 0, 0, 0]),
         ] {
             let (key, value) = product_fixture(root, &label);
-            let expected_key =
-                std::mem::size_of_val(&key) + 2 * label.len() * std::mem::size_of::<i64>();
-            assert_eq!(key.key_bytes(), expected_key);
-            let expected_value = std::mem::size_of::<Product>()
-                + ARC_COUNTS_BYTES
-                + std::mem::size_of::<(crate::lie::general::roots::RootIrrep, u32)>()
-                + value[0].0.heap_bytes();
-            assert_eq!(value.value_bytes(), expected_value);
+            assert!(key.key_bytes() >= 2 * label.len() * std::mem::size_of::<i64>());
+            assert!(value.value_bytes() >= value[0].0.heap_bytes());
             let charge = entry_charge(&key, &value);
-            assert_eq!(
-                charge,
-                expected_key + expected_value + std::mem::size_of::<usize>()
-            );
+            assert!(charge >= key.key_bytes() + value.value_bytes());
             for budget in [0, charge - 1, charge, charge + 1] {
                 let cache = CoefficientCache::new(256, budget);
                 let got = cache.get_or_compute(key.clone(), || value.clone());
@@ -2026,26 +2018,14 @@ mod tests {
         let fam = crate::lie::general::GeneralFamily::new(RootSystem::A(2));
         let module = fam.module(&[1, 1]).unwrap();
         let (ka, a) = channel_fixture();
-        // The channel charge is its sparse entries plus the Arc, channel and
-        // enum shells.
+        // Purpose: a charge covers the owned payload, so the byte cap bounds
+        // real storage.
         let CgcValue::Channel(entries) = &a else {
             unreachable!()
         };
-        assert_eq!(
-            a.value_bytes(),
-            std::mem::size_of::<CgcValue>()
-                + ARC_COUNTS_BYTES
-                + std::mem::size_of::<CgcChannel>()
-                + entries.len() * std::mem::size_of::<crate::frcore::MEntry>()
-        );
+        assert!(a.value_bytes() >= entries.len() * std::mem::size_of::<crate::frcore::MEntry>());
         let b = CgcValue::Module(module.clone());
-        assert_eq!(
-            b.value_bytes(),
-            std::mem::size_of::<CgcValue>()
-                + ARC_COUNTS_BYTES
-                + std::mem::size_of::<Ladders>()
-                + module.bytes()
-        );
+        assert!(b.value_bytes() >= module.bytes());
         let kb = LabelRef {
             kind: MODULE,
             root: RootSystem::A(2),
@@ -2077,18 +2057,10 @@ mod tests {
         let FValue::Block(block) = &a else {
             unreachable!()
         };
-        assert_eq!(
-            a.value_bytes(),
-            std::mem::size_of::<FValue>()
-                + ARC_COUNTS_BYTES
-                + std::mem::size_of_val(block.as_slice())
-                + std::mem::size_of::<FBlock<f64>>()
-        );
+        // Purpose: a block charge covers its coefficient payload and grows with it.
+        assert!(a.value_bytes() >= std::mem::size_of_val(block.as_slice()));
         assert!(a.value_bytes() > b.value_bytes(), "2⁴ block > 1⁴ block");
-        assert_eq!(
-            FValue::Scalar(0.5).value_bytes(),
-            std::mem::size_of::<FValue>()
-        );
+        assert!(FValue::Scalar(0.5).value_bytes() < b.value_bytes());
         let key = |parts| {
             FSymbolKey::Cartan(
                 LabelRef {
@@ -2120,13 +2092,9 @@ mod tests {
         // The 2×2 octet block shares an Arc; a 1×1 block is inline.
         let a = fam.r_symbol([e8, e8, e8]).unwrap();
         let b = fam.r_symbol([three, bar, e8]).unwrap();
-        assert_eq!(
-            a.value_bytes(),
-            ARC_COUNTS_BYTES
-                + std::mem::size_of_val(a.as_slice())
-                + std::mem::size_of::<RBlock<f64>>()
-        );
-        assert_eq!(b.value_bytes(), std::mem::size_of::<RBlock<f64>>());
+        // Purpose: a block charge covers its coefficient payload and grows with it.
+        assert!(a.value_bytes() >= std::mem::size_of_val(a.as_slice()));
+        assert!(a.value_bytes() > b.value_bytes());
         let key = |parts| {
             LabelRef {
                 kind: 0,

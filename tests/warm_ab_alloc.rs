@@ -1,4 +1,4 @@
-//! Warm leaf A/B allocate only their returned block; a product level adds only its own.
+//! Purpose: warm leaf A/B allocate only their returned block, and a product level adds only its own (counted in allocations).
 #![cfg(feature = "lie-generated")]
 
 use crate::common::counting_alloc;
@@ -10,22 +10,15 @@ use fusion_symbols::{
     product::Product,
 };
 
-use std::sync::atomic::AtomicUsize;
-
 fn measure<T>(f: impl FnOnce() -> T) -> ((usize, usize), T) {
     let (calls, bytes, _, result) = counting_alloc::measure(f);
     ((calls, bytes), result)
 }
 
-// Each non-inline Arc<[f64]> owns two reference counts and its coefficient payload.
-fn buffers(lengths: &[usize]) -> (usize, usize) {
-    let allocated = lengths.iter().filter(|&&n| n > 1);
-    (
-        allocated.clone().count(),
-        allocated
-            .map(|&n| std::mem::size_of::<[AtomicUsize; 2]>() + n * std::mem::size_of::<f64>())
-            .sum(),
-    )
+// Every block of more than one element is one owned buffer. Byte totals depend
+// on std layouts and are not asserted.
+fn buffers(lengths: &[usize]) -> usize {
+    lengths.iter().filter(|&&n| n > 1).count()
 }
 
 fn check<C: FusionCategory<Scalar = f64>>(
@@ -56,14 +49,8 @@ fn check<C: FusionCategory<Scalar = f64>>(
         } else {
             composition_buffers
         });
-        println!(
-            "{name} {}: {}/{}, elements {elements}",
-            if is_a { "A" } else { "B" },
-            allocation.0,
-            allocation.1
-        );
         assert_eq!(
-            allocation,
+            allocation.0,
             expected,
             "{name} {}",
             if is_a { "A" } else { "B" }
@@ -89,7 +76,6 @@ fn check<C: FusionCategory<Scalar = f64>>(
     for object in [a, b, c] {
         let ((calls, bytes), (dim, phase)) =
             measure(|| (cat.dim(object), cat.frobenius_schur_phase(object).unwrap()));
-        println!("{name} dim/FS: {calls}/{bytes}");
         assert_eq!((calls, bytes), (0, 0), "{name}: warm dimension and phase");
         assert_eq!(
             (dim, phase),
@@ -101,7 +87,8 @@ fn check<C: FusionCategory<Scalar = f64>>(
     elements
 }
 
-// The serial guard isolates the cache lifecycle checks.
+// Purpose: allocation counts follow the structure (leaf blocks plus one output
+// buffer per product level). The serial guard isolates the cache lifecycle checks.
 #[test]
 fn warm_ab_allocate_only_leaf_blocks_and_one_buffer_per_product_level() {
     let _serial = crate::common::counting_alloc::serial();

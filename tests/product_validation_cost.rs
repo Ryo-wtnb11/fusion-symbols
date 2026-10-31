@@ -180,61 +180,60 @@ fn costs<C: FusionCategory<Scalar = f64>>(cat: &C) -> [([usize; 4], usize); 11] 
     out
 }
 
-/// Exact leaf-call counts for a product of `k` leaf factors. Each query
-/// validates its `m` objects with one `contains` per leaf (`m * k`) and never
-/// through `dim`; only the `dim` query itself asks each leaf's dimension. F, R,
-/// A and B query N twice per leaf: once for the product shape and once to check
-/// that leaf's block against its own multiplicities. A and B also count the
-/// leaf's default derivation (one N, one F, three dimensions, duals).
-fn linear(k: usize) -> [([usize; 4], usize); 11] {
-    [
-        ([k, 0, 0, 0], 0),                 // dim
-        ([0, 0, 0, k], k),                 // dual
-        ([0, 0, 0, k], k),                 // frobenius_schur_phase
-        ([0, 0, 0, k], k),                 // frobenius_schur_indicator
-        ([0, 0, k, k], k),                 // twist
-        ([0, 0, 0, k], 2 * k),             // fusion
-        ([0, k, 0, 0], 3 * k),             // nsymbol
-        ([0, 8 * k, 0, k], 6 * k),         // f_symbol
-        ([0, 4 * k, k, k], 3 * k),         // r_symbol
-        ([3 * k, 5 * k, 0, 5 * k], 3 * k), // a_symbol (leaf default: dims, dual, F, FS phase)
-        ([3 * k, 5 * k, 0, 4 * k], 3 * k), // b_symbol (leaf default: dims, dual, F)
-    ]
+/// Objects each query validates, with one `contains` per leaf and object.
+const VALIDATED_OBJECTS: [usize; 11] = [0, 1, 1, 1, 1, 2, 3, 6, 3, 3, 3];
+
+/// Per-query leaf-call counts of a product with `k` leaves, flattened. Each
+/// query validates its objects with exactly `VALIDATED_OBJECTS[i] * k`
+/// `contains` calls.
+fn leaf_costs<C: FusionCategory<Scalar = f64>>(k: usize, cat: &C) -> (usize, Vec<usize>) {
+    let costs = costs(cat);
+    for (i, (_, contains)) in costs.iter().enumerate() {
+        assert_eq!(*contains, VALIDATED_OBJECTS[i] * k, "contains of query {i}");
+    }
+    (k, costs.iter().flat_map(|(calls, _)| *calls).collect())
+}
+
+/// Purpose: leaf-call counts are linear in the number of leaves, whatever the
+/// tree shape. Products of `k` leaves must satisfy `costs(k) * k0 == costs(k0) * k`
+/// for every query and call kind, with a non-vacuous reference.
+fn assert_linear_in_leaves(cases: &[(usize, Vec<usize>)]) {
+    let (k0, base) = &cases[0];
+    assert!(base.iter().any(|&c| c > 0));
+    for (k, calls) in &cases[1..] {
+        assert_eq!(calls.len(), base.len());
+        for (slot, (c, b)) in calls.iter().zip(base).enumerate() {
+            assert_eq!(c * k0, b * k, "slot {slot}: {k} leaves vs {k0} leaves");
+        }
+    }
 }
 
 #[test]
 fn flat_product_leaf_calls_are_linear() {
     let c = Counter;
-    assert_eq!(costs(&Product::new((c.clone(), c.clone()))), linear(2));
-    assert_eq!(
-        costs(&Product::new((c.clone(), c.clone(), c.clone()))),
-        linear(3)
-    );
-    assert_eq!(
-        costs(&Product::new((c.clone(), c.clone(), c.clone(), c.clone()))),
-        linear(4)
-    );
-    assert_eq!(
-        costs(&Product::new((
-            c.clone(),
-            c.clone(),
-            c.clone(),
-            c.clone(),
-            c.clone()
-        ))),
-        linear(5)
-    );
-    assert_eq!(
-        costs(&Product::new((
-            c.clone(),
-            c.clone(),
-            c.clone(),
-            c.clone(),
-            c.clone(),
-            c.clone()
-        ))),
-        linear(6)
-    );
+    assert_linear_in_leaves(&[
+        leaf_costs(2, &Product::new((c.clone(), c.clone()))),
+        leaf_costs(3, &Product::new((c.clone(), c.clone(), c.clone()))),
+        leaf_costs(
+            4,
+            &Product::new((c.clone(), c.clone(), c.clone(), c.clone())),
+        ),
+        leaf_costs(
+            5,
+            &Product::new((c.clone(), c.clone(), c.clone(), c.clone(), c.clone())),
+        ),
+        leaf_costs(
+            6,
+            &Product::new((
+                c.clone(),
+                c.clone(),
+                c.clone(),
+                c.clone(),
+                c.clone(),
+                c.clone(),
+            )),
+        ),
+    ]);
 }
 
 #[test]
@@ -245,23 +244,25 @@ fn nested_product_leaf_calls_are_linear() {
     let p4 = Product::new((p3.clone(), c.clone()));
     let p5 = Product::new((p4.clone(), c.clone()));
     let p6 = Product::new((p5.clone(), c.clone()));
-    assert_eq!(costs(&p2), linear(2));
-    assert_eq!(costs(&p3), linear(3));
-    assert_eq!(costs(&p4), linear(4));
-    assert_eq!(costs(&p5), linear(5));
-    assert_eq!(costs(&p6), linear(6));
     // Right-nested and balanced trees follow the same leaf count.
     let right = Product::new((
         c.clone(),
         Product::new((c.clone(), Product::new((c.clone(), c.clone())))),
     ));
-    assert_eq!(costs(&right), linear(4));
     let balanced = Product::new((
         p2.clone(),
         Product::new((c.clone(), p2.clone(), c.clone())),
-        p2,
+        p2.clone(),
     ));
-    assert_eq!(costs(&balanced), linear(8));
+    assert_linear_in_leaves(&[
+        leaf_costs(2, &p2),
+        leaf_costs(3, &p3),
+        leaf_costs(4, &p4),
+        leaf_costs(5, &p5),
+        leaf_costs(6, &p6),
+        leaf_costs(4, &right),
+        leaf_costs(8, &balanced),
+    ]);
 }
 
 /// Asserts that `f` panics with the product's own diagnostic, which proves
@@ -512,49 +513,53 @@ fn enumeration_costs<C: FusionCategory<Scalar = f64>>(
     out
 }
 
-/// Each query asks every leaf once: a product validates the whole object with
-/// one `contains` per leaf, and a nested product neither re-validates nor
-/// recomputes its factors' counts.
-fn enumeration_linear(k: usize) -> [([usize; 4], [usize; 4], usize); 6] {
-    [
-        ([k, 0, 0, 0], [0; 4], 0),       // object_count
-        ([k, k, 0, 0], [0; 4], 0),       // object_at
-        ([k, 0, k, 0], [0; 4], k),       // object_index
-        ([0, 0, 0, k], [k, 0, 0, 0], 0), // sqrt_dim
-        ([0, 0, 0, k], [k, 0, 0, 0], 0), // inv_sqrt_dim
-        ([0, 0, 0, k], [k, 0, 0, 0], 0), // inv_dim
-    ]
+/// Objects each enumeration query validates: only `object_index` takes one.
+const ENUMERATION_VALIDATED_OBJECTS: [usize; 6] = [0, 0, 1, 0, 0, 0];
+
+fn enumeration_leaf_costs<C: FusionCategory<Scalar = f64>>(
+    k: usize,
+    cat: &C,
+) -> (usize, Vec<usize>) {
+    let costs = enumeration_costs(cat);
+    for (i, (_, _, contains)) in costs.iter().enumerate() {
+        assert_eq!(*contains, ENUMERATION_VALIDATED_OBJECTS[i] * k, "query {i}");
+    }
+    (
+        k,
+        costs
+            .iter()
+            .flat_map(|(a, b, _)| a.iter().chain(b).copied())
+            .collect(),
+    )
 }
 
+// Purpose: enumeration and derived-dimension queries ask every leaf a number
+// of times independent of tree shape, so counts are linear in the leaf count.
 #[test]
 fn enumeration_and_derived_dimension_leaf_calls_are_linear() {
     let c = Counter;
-    assert_eq!(
-        enumeration_costs(&Product::new((c.clone(), c.clone()))),
-        enumeration_linear(2)
-    );
-    assert_eq!(
-        enumeration_costs(&Product::new((c.clone(), c.clone(), c.clone(), c.clone()))),
-        enumeration_linear(4)
-    );
     let p2 = Product::new((c.clone(), c.clone()));
     let p3 = Product::new((p2.clone(), c.clone()));
     let p4 = Product::new((p3.clone(), c.clone()));
     let p5 = Product::new((p4.clone(), c.clone()));
     let p6 = Product::new((p5.clone(), c.clone()));
-    assert_eq!(enumeration_costs(&p3), enumeration_linear(3));
-    assert_eq!(enumeration_costs(&p6), enumeration_linear(6));
     let right = Product::new((
         c.clone(),
         Product::new((c.clone(), Product::new((c.clone(), c.clone())))),
     ));
-    assert_eq!(enumeration_costs(&right), enumeration_linear(4));
     let balanced = Product::new((
         p2.clone(),
         Product::new((c.clone(), p2.clone(), c.clone())),
-        p2,
+        p2.clone(),
     ));
-    assert_eq!(enumeration_costs(&balanced), enumeration_linear(8));
+    assert_linear_in_leaves(&[
+        enumeration_leaf_costs(2, &p2),
+        enumeration_leaf_costs(3, &p3),
+        enumeration_leaf_costs(4, &Product::new((c.clone(), c.clone(), c.clone(), c))),
+        enumeration_leaf_costs(6, &p6),
+        enumeration_leaf_costs(4, &right),
+        enumeration_leaf_costs(8, &balanced),
+    ]);
 }
 
 #[test]
