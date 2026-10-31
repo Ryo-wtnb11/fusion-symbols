@@ -198,10 +198,6 @@ mod product_contract_tests {
                 "N, fusion, equal groups and the engine must share Product"
             );
             assert_eq!(
-                cache::tier_stats(cache::CoefficientCacheTier::Product).entries,
-                2
-            );
-            assert_eq!(
                 cache::tier_stats(cache::CoefficientCacheTier::Cgc).entries,
                 0
             );

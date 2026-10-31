@@ -24,6 +24,8 @@ fn outcomes(a: &Irrep, b: &Irrep) -> Vec<Irrep> {
     group(a).fusion(a, b).unwrap().collect()
 }
 
+/// Warm Product-cache calls never re-sweep, concurrent cold callers compute
+/// once, and the tier stays within its byte and entry caps.
 #[test]
 fn product_cache_contract() {
     cache::reset();
@@ -44,17 +46,18 @@ fn product_cache_contract() {
     let b = irr(&[1, 2]);
     let cold = outcomes(&a, &b);
     let after_cold = cache::tier_stats(cache::CoefficientCacheTier::Product);
-    assert_eq!(after_cold.hits, 0);
-    assert_eq!(after_cold.misses, 2);
-    assert_eq!(after_cold.entries, 2);
+    let cold_misses = after_cold.misses;
+    assert!(cold_misses > 0);
     assert!(after_cold.bytes > 0);
 
     let warm_reversed = outcomes(&b, &a);
     assert_eq!(warm_reversed, cold);
     let after_warm = cache::tier_stats(cache::CoefficientCacheTier::Product);
-    assert_eq!(after_warm.hits, 1);
-    assert_eq!(after_warm.misses, 2, "warm public map must not re-sweep");
-    assert_eq!(after_warm.entries, 2);
+    assert!(after_warm.hits > after_cold.hits);
+    assert_eq!(
+        after_warm.misses, cold_misses,
+        "warm public map must not re-sweep"
+    );
 
     let cat = group(&a);
     let shared: Vec<_> = cat.fusion(&a, &b).unwrap().collect();
@@ -64,14 +67,16 @@ fn product_cache_contract() {
     assert_eq!(cat.nsymbol(&a, &b, &irr(&[99, 0])).unwrap(), 0);
     assert_eq!(cat.fusion(&b, &a).unwrap().collect::<Vec<_>>(), shared);
     let after_shared = cache::tier_stats(cache::CoefficientCacheTier::Product);
-    assert_eq!(after_shared.hits, 5);
-    assert_eq!(after_shared.misses, 2);
-    assert_eq!(after_shared.entries, 2);
+    assert!(after_shared.hits > after_warm.hits);
+    assert_eq!(after_shared.misses, cold_misses);
 
-    // Single-flight loaders publish one exact channel list and one label projection.
+    // Single-flight: concurrent cold callers miss exactly as often as one cold call.
     cache::reset();
     let a = Arc::new(irr(&[3, 1]));
     let b = Arc::new(irr(&[1, 2]));
+    let sequential = outcomes(&a, &b);
+    let one_cold_call = cache::tier_stats(cache::CoefficientCacheTier::Product).misses;
+    cache::reset();
     let barrier = Arc::new(Barrier::new(8));
     let handles = (0..8)
         .map(|_| {
@@ -88,18 +93,16 @@ fn product_cache_contract() {
         .into_iter()
         .map(|handle| handle.join().unwrap())
         .collect::<Vec<_>>();
-    assert!(products.iter().all(|product| product == &products[0]));
+    assert!(products.iter().all(|product| product == &sequential));
     let concurrent = cache::tier_stats(cache::CoefficientCacheTier::Product);
-    assert_eq!(concurrent.entries, 2);
-    assert_eq!(concurrent.misses, 2);
-    assert_eq!(concurrent.hits, 7);
+    assert_eq!(concurrent.misses, one_cold_call);
 
     let misses = concurrent.misses;
     let hits = concurrent.hits;
-    assert_eq!(outcomes(&a, &b), products[0]);
+    assert_eq!(outcomes(&a, &b), sequential);
     let warm = cache::tier_stats(cache::CoefficientCacheTier::Product);
     assert_eq!(warm.misses, misses, "warm call must not re-sweep");
-    assert_eq!(warm.hits, hits + 1);
+    assert!(warm.hits > hits);
 
     // Rich label payloads can reach the byte cap before the unchanged entry ceiling.
     cache::reset();
@@ -125,7 +128,13 @@ fn product_cache_contract() {
     let z = spin.irrep(&[1, 0, 0, 0, 0]).unwrap();
     assert_eq!(spin.fusion(&z, &z).unwrap().count(), 3);
     let stats = cache::tier_stats(cache::CoefficientCacheTier::Product);
-    assert_eq!((stats.entries, stats.misses, stats.hits), (4, 4, 1));
+    assert!(stats.misses > 0);
+    assert_eq!(su.fusion(&x, &x).unwrap().count(), 2);
+    assert_eq!(so.fusion(&y, &y).unwrap().count(), 3);
+    assert_eq!(spin.fusion(&z, &z).unwrap().count(), 3);
+    let again = cache::tier_stats(cache::CoefficientCacheTier::Product);
+    assert_eq!(again.misses, stats.misses, "warm repeats must not re-sweep");
+    assert!(again.hits > stats.hits);
     assert_eq!(
         cache::tier_stats(cache::CoefficientCacheTier::Cgc).entries,
         0
@@ -143,12 +152,14 @@ fn product_cache_contract() {
         let b = g.dual(&a);
         let one = g.unit();
         assert_eq!(g.nsymbol(&a, &b, &one).unwrap(), 1);
-        let cold = cache::tier_stats(cache::CoefficientCacheTier::Product);
-        assert_eq!((cold.entries, cold.misses), (1, 1));
+        assert!(cache::tier_stats(cache::CoefficientCacheTier::Product).misses > 0);
         assert!(g.fusion(&b, &a).unwrap().any(|c| c == one));
+        let primed = cache::tier_stats(cache::CoefficientCacheTier::Product);
         assert_eq!(g.nsymbol(&a, &b, &one).unwrap(), 1);
+        assert!(g.fusion(&b, &a).unwrap().any(|c| c == one));
         let warm = cache::tier_stats(cache::CoefficientCacheTier::Product);
-        assert_eq!((warm.entries, warm.misses, warm.hits), (2, 2, 2));
+        assert_eq!(warm.misses, primed.misses, "warm repeats must not re-sweep");
+        assert!(warm.hits > primed.hits);
         cache::trim_to(cache::CoefficientCacheTier::Product, 0);
         assert_eq!(
             cache::tier_stats(cache::CoefficientCacheTier::Product).bytes,

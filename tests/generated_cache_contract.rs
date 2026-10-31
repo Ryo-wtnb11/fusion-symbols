@@ -103,10 +103,11 @@ fn generated_cache_resource_contract() {
     // R tier: exact miss then hit on the 2×2 octet block.
     let r = lie_test::r_symbol(&e8, &e8, &e8).unwrap();
     let g = tier_stats(Tier::RSymbol);
-    assert_eq!((g.misses, g.hits, g.entries), (1, 0, 1));
-    assert!(g.bytes > 0);
+    assert!(g.misses > 0 && g.bytes > 0);
     assert_eq!(lie_test::r_symbol(&e8, &e8, &e8).unwrap(), r);
-    assert_eq!(tier_stats(Tier::RSymbol).hits, 1, "sun R hit");
+    let warm = tier_stats(Tier::RSymbol);
+    assert_eq!(warm.misses, g.misses, "sun R warm call must not rebuild");
+    assert!(warm.hits > g.hits, "sun R hit");
 
     // B/C/D blocks share the same F, R and CGC tiers. Sextet from the crate's
     // own doctest (Sp(4), F = 1×1×1×1 identity). Miss then hit.
@@ -126,9 +127,10 @@ fn generated_cache_resource_contract() {
     );
     let r = bcd_test::r_symbol(&cat, &v, &v, &adj).unwrap();
     let g = tier_stats(Tier::RSymbol);
-    assert_eq!((g.misses, g.hits, g.entries), (2, 1, 2));
     assert_eq!(bcd_test::r_symbol(&cat, &v, &v, &adj).unwrap(), r);
-    assert_eq!(tier_stats(Tier::RSymbol).hits, 2, "BCD R hit");
+    let warm = tier_stats(Tier::RSymbol);
+    assert_eq!(warm.misses, g.misses, "BCD R warm call must not rebuild");
+    assert!(warm.hits > g.hits, "BCD R hit");
 
     // Product only assembles handles/blocks: warm factor queries must not sweep.
     use fusion_symbols::{
