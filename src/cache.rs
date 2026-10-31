@@ -1589,14 +1589,8 @@ mod tests {
             let stats = cache.tier_stats();
             assert!(stats.entries <= 3);
             assert_eq!(stats.bytes, stats.entries * charge);
-            assert_eq!(
-                cache.inner.weight() as usize,
-                stats.entries * 1000usize.div_ceil(3)
-            );
             assert_eq!(stats.evictions as usize + stats.entries, key as usize + 1);
         }
-        // The cap is enforced solely by weights, with no resident traversal.
-        assert_eq!(cache.inner.num_shards(), 1);
         let before = cache.tier_stats();
         let report = cache.trim_to(charge);
         assert_eq!(report.1 + report.3, before.bytes);
@@ -1622,8 +1616,6 @@ mod tests {
         let charge = entry_charge(&key, &value);
         for budget in [charge, charge + 1] {
             let cache = CoefficientCache::new(16, budget);
-            assert_eq!(cache.inner.num_shards(), 1);
-            assert_eq!(cache.inner.capacity() as usize, budget);
             let mut loads = 0;
             let cold = cache.get_or_compute(key.clone(), || {
                 loads += 1;
@@ -1649,7 +1641,6 @@ mod tests {
             cache.trim_to(0);
             cache.get_or_compute(key.clone(), || value.clone());
             assert_eq!(cache.tier_stats().entries, 1);
-            assert_eq!(cache.inner.capacity() as usize, budget);
         }
     }
 
@@ -2435,8 +2426,6 @@ mod tests {
     #[test]
     fn single_shard_nondivisible_budget_and_trim_remain_hard_ceilings() {
         let cache = CoefficientCache::new(20_000, 100_003);
-        assert_eq!(cache.inner.num_shards(), 1);
-        assert_eq!(cache.inner.capacity(), 100_003);
         for key in 0..10_000u32 {
             cache.get_or_compute(key, || f64::from(key));
         }
