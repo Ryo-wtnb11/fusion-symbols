@@ -121,7 +121,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: >
           cargo test --release --all-features --test integration --
-          --include-ignored --skip print_golden --skip e8_n2_golden bit_identity:: gauge_golden::
+          --include-ignored --skip e8_n2_golden bit_identity:: gauge_golden::
 
   # Keep the required check name; failed, cancelled or skipped suites must fail it.
   test:

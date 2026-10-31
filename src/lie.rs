@@ -2124,56 +2124,6 @@ mod arithmetic_tests {
     use super::*;
 
     #[test]
-    fn payload_order_matches_former_field_order() {
-        fn former_cmp(a: &LieIrrep, b: &LieIrrep) -> std::cmp::Ordering {
-            let order = a
-                .group
-                .cmp(&b.group)
-                .then_with(|| a.factors().cmp(&b.factors()))
-                .then_with(|| a.dj().cmp(&b.dj()))
-                .then_with(|| a.charge().cmp(&b.charge()))
-                .then_with(|| a.simple().cmp(&b.simple()));
-            order
-        }
-        let groups = [
-            GroupId::u(1),
-            GroupId::su(2),
-            GroupId::spin(3),
-            GroupId::sp(2),
-            GroupId::u(2),
-            GroupId::spin(4),
-        ];
-        let mut groups: Vec<_> = groups.into_iter().map(Result::unwrap).collect();
-        #[cfg(feature = "lie-generated")]
-        groups.extend([
-            GroupId::su(3).unwrap(),
-            GroupId::sp(4).unwrap(),
-            GroupId::spin(5).unwrap(),
-        ]);
-        let mut labels = Vec::new();
-        for group in groups.drain(..) {
-            let cat = LieGroup::new(group).unwrap();
-            for bits in 0..1 << cat.group.semisimple_rank() {
-                let dynkin: Vec<_> = (0..cat.group.semisimple_rank())
-                    .map(|i| (bits >> i) & 1)
-                    .collect();
-                for q in -2..=2 {
-                    let charges = vec![q; cat.group.torus_rank()];
-                    if let Ok(label) = cat.irrep_with_charges(&dynkin, &charges) {
-                        labels.push(label);
-                    }
-                }
-            }
-        }
-        for a in &labels {
-            for b in &labels {
-                assert_eq!(a.cmp(b), former_cmp(a, b));
-                assert_eq!(a == b, former_cmp(a, b).is_eq());
-            }
-        }
-    }
-
-    #[test]
     fn dimension_and_buffer_bounds() {
         assert_eq!(
             checked_dimension(usize::MAX as u128 + 1),

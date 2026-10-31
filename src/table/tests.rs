@@ -547,6 +547,8 @@ const GOLDEN_UNITARY: &[(&str, u64, u64, u64)] = &[
 #[cfg(not(feature = "anyonwiki-unitary"))]
 const GOLDEN_UNITARY: &[(&str, u64, u64, u64)] = &[];
 
+/// Pins the digests of the shipped AnyonWiki input data (a format contract of
+/// the catalog), not of any output of this crate.
 #[test]
 fn shipped_tables_are_pinned() {
     let golden: Vec<_> = GOLDEN.iter().chain(GOLDEN_UNITARY).copied().collect();

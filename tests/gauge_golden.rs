@@ -16,7 +16,7 @@
 //! with
 //!
 //! ```text
-//! cargo test --release --all-features --test integration gauge_golden::print_golden -- --ignored --nocapture
+//! cargo run --release --all-features --example print_golden
 //! ```
 
 // The golden values are literals on purpose.
@@ -28,8 +28,8 @@ use fusion_symbols::lie::{GroupId, LieGroup, LieIrrep};
 /// One pinned case: the group, the channel `a ⊗ b → c` whose CGC is pinned,
 /// and how many nonzero entries of each multiplicity copy (in §4.7 entry
 /// order, over the first two coupled states) are pinned.
-struct Case {
-    name: &'static str,
+pub struct Case {
+    pub name: &'static str,
     group: fn() -> GroupId,
     a: &'static [i64],
     b: &'static [i64],
@@ -83,7 +83,7 @@ fn block_rows(out: &mut Vec<(String, u64)>, name: &str, values: &[f64]) {
 /// The rows of `case`: its CGC entries, the F blocks of the B- and A-symbol
 /// sextets, `F^{a b b̄}_a[c, 𝟙]` and `F^{ā a b}_b[𝟙, c]`, and `R^{ab}_c`,
 /// `A^{ab}_c` and `B^{ab}_c`.
-fn rows(case: &Case) -> Vec<(String, u64)> {
+pub fn rows(case: &Case) -> Vec<(String, u64)> {
     let g = LieGroup::new((case.group)()).unwrap();
     let [a, b, c] = [case.a, case.b, case.c].map(|l| g.irrep(l).unwrap());
     let one = g.unit();
@@ -129,7 +129,7 @@ fn compare(name: &str, got: &[(String, u64)], golden: Golden) {
 
 macro_rules! cases {
     ($($test:ident $(#[$attr:meta])* : $name:literal, $group:expr, $a:expr, $b:expr, $c:expr, $k:expr, $golden:ident;)+) => {
-        const CASES: &[Case] = &[$(Case {
+        pub const CASES: &[Case] = &[$(Case {
             name: $name,
             group: $group,
             a: &$a,
@@ -235,18 +235,6 @@ fn n2_golden_channels_are_certified() {
             .map(|x| f64::from(g.nsymbol(&a, &b, &x).unwrap()) * g.dim(&x))
             .sum();
         assert_eq!(total, g.dim(&a) * g.dim(&b), "{name}: sum rule");
-    }
-}
-
-/// Print every table; run in release (see the module docs).
-#[test]
-#[ignore = "golden generator"]
-fn print_golden() {
-    for case in CASES {
-        println!("// {}", case.name);
-        for (k, v) in rows(case) {
-            println!("    (\"{k}\", 0x{v:016x}),");
-        }
     }
 }
 
