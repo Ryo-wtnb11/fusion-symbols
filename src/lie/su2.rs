@@ -1246,25 +1246,6 @@ mod tests {
     }
 
     #[test]
-    fn public_stats_and_reset_smoke() {
-        let _guard = crate::cache::TEST_CACHE_LOCK
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        // Exercise the global wrappers; exact counts are covered on local caches
-        // in cache::tests because unrelated tests also populate the global tiers.
-        let _ = wigner_6j(2, 2, 2, 2, 2, 2);
-        let _ = wigner_3j(2, 2, 2, 2, 0, -2);
-        let stats = || {
-            for &tier in crate::cache::CoefficientCacheTier::ALL {
-                let _ = crate::cache::tier_stats(tier);
-            }
-        };
-        stats();
-        crate::cache::reset();
-        stats();
-    }
-
-    #[test]
     fn regge3j_overflow_reported() {
         let big = 200_000u32;
         assert_eq!(
@@ -1801,21 +1782,55 @@ mod regge_orbit_tests {
     }
 
     #[test]
-    fn regge_keys_never_panic_on_arbitrary_input() {
+    fn regge_keys_exist_exactly_for_admissible_labels() {
         let mut rng = ChaCha8Rng::seed_from_u64(0x5EED_4E66);
-        for _ in 0..2000 {
+        let (mut keyed_6j, mut keyed_3j) = (0, 0);
+        for iter in 0..2000 {
             let dj = |r: &mut ChaCha8Rng| r.gen_range(0u32..=40);
             let dm = |r: &mut ChaCha8Rng| r.gen_range(-50i64..=50);
-            let (a, b, c, d, e, f) = (
+            let l = [
                 dj(&mut rng),
                 dj(&mut rng),
                 dj(&mut rng),
                 dj(&mut rng),
                 dj(&mut rng),
                 dj(&mut rng),
-            );
-            let _ = canonical_regge_6j(a, b, c, d, e, f);
-            let _ = canonical_regge_3j(a, b, c, dm(&mut rng), dm(&mut rng), dm(&mut rng));
+            ];
+            let key = canonical_regge_6j(l[0], l[1], l[2], l[3], l[4], l[5]);
+            if admissible_6j(l) {
+                let key = key.expect("admissible 6j has a key");
+                for img in tetrahedral_images(l) {
+                    assert_eq!(
+                        canonical_regge_6j(img[0], img[1], img[2], img[3], img[4], img[5]),
+                        Ok(key),
+                        "{l:?} -> {img:?}"
+                    );
+                }
+                keyed_6j += 1;
+            } else {
+                assert_eq!(key, Err(super::ReggeError::NonAdmissible), "{l:?}");
+            }
+
+            // Odd iterations build projections that satisfy every 3j constraint
+            // except possibly the triangle, so the admissible side is sampled.
+            let m = if iter % 2 == 0 {
+                [dm(&mut rng), dm(&mut rng), dm(&mut rng)]
+            } else {
+                let mut pick = |j: u32| i64::from(j) - 2 * rng.gen_range(0..=i64::from(j));
+                let (m0, m1) = (pick(l[0]), pick(l[1]));
+                [m0, m1, -(m0 + m1)]
+            };
+            let admissible_3j = tri(l[0], l[1], l[2])
+                && (0..3)
+                    .all(|i| m[i].abs() <= i64::from(l[i]) && (i64::from(l[i]) + m[i]) % 2 == 0)
+                && m.iter().sum::<i64>() == 0;
+            let key = canonical_regge_3j(l[0], l[1], l[2], m[0], m[1], m[2]);
+            assert_eq!(key.is_ok(), admissible_3j, "{l:?} {m:?}");
+            if !admissible_3j {
+                assert_eq!(key.unwrap_err(), super::ReggeError::NonAdmissible);
+            }
+            keyed_3j += usize::from(admissible_3j);
         }
+        assert!(keyed_6j > 0 && keyed_3j > 0, "no admissible case sampled");
     }
 }
