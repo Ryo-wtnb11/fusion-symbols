@@ -29,6 +29,7 @@ mod product_cgc;
 mod product_validation_cost;
 mod product_vec;
 mod properties;
+mod residual_negative_controls;
 mod spin;
 mod sun_cgc_gauge;
 mod sun_fr_gates;
