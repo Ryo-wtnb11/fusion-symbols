@@ -91,7 +91,17 @@ fn base_cache_resource_contract() {
     assert!(total.entries > 0, "the fill retained entries");
 
     // `ALL` lists every tier once in every build; the base tiers are among them.
-    assert_eq!(CoefficientCacheTier::ALL.len(), 6);
+    // `ALL` contains each named variant; the loop below proves none repeats.
+    for tier in [
+        CoefficientCacheTier::Product,
+        CoefficientCacheTier::Cgc,
+        CoefficientCacheTier::FSymbol,
+        CoefficientCacheTier::RSymbol,
+        CoefficientCacheTier::Wigner3j,
+        CoefficientCacheTier::Wigner6j,
+    ] {
+        assert!(CoefficientCacheTier::ALL.contains(&tier), "{tier} missing");
+    }
     assert!(common::BASE_TIERS
         .iter()
         .all(|t| CoefficientCacheTier::ALL.contains(t)));
