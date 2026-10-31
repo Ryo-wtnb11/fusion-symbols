@@ -168,12 +168,15 @@ mod g2 {
 
     const TOL: f64 = 1e-12;
 
+    /// Pentagon, hexagon and F-unitarity close on the multiplicity-free `7` and `14` channels.
     #[test]
     fn gates_on_small_irreps() {
         let g = g2();
         let (v, adj) = (l(&g, 1, 0), l(&g, 0, 1));
         assert!(timed("P", || pentagon_residual(&g, &v, &v, &v, &v).unwrap()) <= TOL);
+        assert!(timed("H", || hexagon_residual(&g, &v, &v, &v).unwrap()) <= TOL);
         assert!(timed("H", || hexagon_residual(&g, &v, &v, &adj).unwrap()) <= TOL);
+        assert!(timed("F", || f_unitarity_residual(&g, &v, &v, &v, &v).unwrap()) <= TOL);
         assert!(
             timed("F", || f_unitarity_residual(&g, &v, &adj, &v, &adj)
                 .unwrap())
@@ -190,7 +193,7 @@ mod g2 {
         assert!(timed("F", || f_unitarity_residual(&g, &v, &x, &x, &x).unwrap()) <= TOL);
     }
 
-    /// The vertex `27 ⊗ 27 → 27` has `N = 2`.
+    /// Pentagon, hexagon and F-unitarity close through the `N = 2` vertex `27 ⊗ 27 → 27`.
     #[test]
     #[ignore = "release 14 s, debug 121 s"]
     fn gates_through_a_multiplicity_two_vertex() {
@@ -453,8 +456,9 @@ mod self_dual {
         assert!(timed("F", || f_unitarity_residual(&g, &v, &v, &v, &v).unwrap()) <= TOL);
     }
 
+    /// The hexagon closes on the `26` of F4 (release gate).
     #[test]
-    #[ignore = "release 9.6 s, debug 61 s"]
+    #[ignore = "release gate; heavy, run by the release_checks CI job"]
     fn f4_hexagon_on_the_smallest_irrep() {
         let (g, v) = irrep(GroupId::f4(), F4[1].0);
         assert!(timed("H", || hexagon_residual(&g, &v, &v, &v).unwrap()) <= TOL);
