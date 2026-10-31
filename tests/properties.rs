@@ -1,6 +1,6 @@
 //! Self-consistency and robustness gates that do not depend on the oracle:
-//! exact orthogonality identities, the zero convention, and a no-panic
-//! property over arbitrary inputs. Regge orbit invariance is a unit test of the
+//! exact orthogonality identities, the zero convention, and bounded values with
+//! exact zeros outside the selection rules over arbitrary inputs. Regge orbit invariance is a unit test of the
 //! crate-private key in `src/lie/su2.rs`.
 
 use malachite_base::num::{
@@ -242,24 +242,71 @@ fn zero_convention() {
 }
 
 #[test]
-fn no_panic_arbitrary_inputs() {
-    // Arbitrary (bounded) doubled labels, including negative and out-of-range
-    // projections, must never panic and must produce a well-formed value.
+fn arbitrary_labels_give_bounded_values_and_exact_zero_when_inadmissible() {
+    // For every sampled label set, each symbol is a finite value of modulus at
+    // most 1 (orthogonal-matrix entries), and is exactly zero whenever the
+    // selection rules, restated independently here, are violated.
     let mut rng = ChaCha8Rng::seed_from_u64(0xDEAD_BEEF);
-    for _ in 0..20_000 {
+    let (mut admissible_6j, mut admissible_3j) = (0, 0);
+    for iter in 0..20_000 {
         let dj = |r: &mut ChaCha8Rng| r.gen_range(0u32..=40);
-        let dm = |r: &mut ChaCha8Rng| r.gen_range(-50i32..=50);
-        let (a, b, c, d, e, f) = (
+        let l = [
             dj(&mut rng),
             dj(&mut rng),
             dj(&mut rng),
             dj(&mut rng),
             dj(&mut rng),
             dj(&mut rng),
-        );
-        let _ = wigner_6j(a, b, c, d, e, f).to_f64();
-        let (m1, m2, m3) = (dm(&mut rng), dm(&mut rng), dm(&mut rng));
-        let _ = wigner_3j(a, b, c, m1, m2, m3).to_f64();
-        let _ = clebsch_gordan(a, m1, b, m2, c, m3).to_f64();
+        ];
+        let v6 = wigner_6j(l[0], l[1], l[2], l[3], l[4], l[5]);
+        let ok6 = tri(l[0], l[1], l[2])
+            && tri(l[0], l[4], l[5])
+            && tri(l[3], l[1], l[5])
+            && tri(l[3], l[4], l[2]);
+        let f = v6.to_f64();
+        assert!(f.is_finite() && f.abs() <= 1.0, "6j {l:?} = {f}");
+        if ok6 {
+            admissible_6j += 1;
+        } else {
+            assert_eq!(v6, SignedSqrtRational::zero(), "6j {l:?}");
+        }
+
+        // Odd iterations draw projections of the right parity and range, so
+        // the admissible side of the 3j / CG selection rules is sampled too.
+        let m: [i32; 3] = if iter % 2 == 0 {
+            [
+                rng.gen_range(-50i32..=50),
+                rng.gen_range(-50i32..=50),
+                rng.gen_range(-50i32..=50),
+            ]
+        } else {
+            let mut pick = |j: u32| j as i32 - 2 * rng.gen_range(0..=j as i32);
+            let (m0, m1) = (pick(l[0]), pick(l[1]));
+            [m0, m1, -(m0 + m1)]
+        };
+        let ok3 = tri(l[0], l[1], l[2])
+            && (0..3).all(|i| m[i].abs() <= l[i] as i32 && (l[i] as i32 + m[i]) % 2 == 0)
+            && m.iter().sum::<i32>() == 0;
+        let v3 = wigner_3j(l[0], l[1], l[2], m[0], m[1], m[2]);
+        let f = v3.to_f64();
+        assert!(f.is_finite() && f.abs() <= 1.0, "3j {l:?} {m:?} = {f}");
+        // CG <j1 m1 j2 m2 | j3 m3> couples m3 = m1 + m2.
+        let cg = clebsch_gordan(l[0], m[0], l[1], m[1], l[2], m[0] + m[1]);
+        let f = cg.to_f64();
+        assert!(f.is_finite() && f.abs() <= 1.0, "CG {l:?} {m:?} = {f}");
+        if ok3 {
+            admissible_3j += 1;
+        } else {
+            assert_eq!(v3, SignedSqrtRational::zero(), "3j {l:?} {m:?}");
+        }
+        if !(tri(l[0], l[1], l[2])
+            && (0..3).all(|i| {
+                let mm = if i == 2 { m[0] + m[1] } else { m[i] };
+                mm.abs() <= l[i] as i32 && (l[i] as i32 + mm) % 2 == 0
+            }))
+        {
+            assert_eq!(cg, SignedSqrtRational::zero(), "CG {l:?} {m:?}");
+        }
     }
+    assert!(admissible_6j > 0 && admissible_3j > 0, "vacuous sample");
 }
