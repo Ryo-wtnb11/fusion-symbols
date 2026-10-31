@@ -1,7 +1,8 @@
 //! Supplemental cold/warm wall-time and allocation report, three samples by default.
 //! Run with `cargo bench --offline --bench exceptional`; FS_PERF_CASE selects
-//! one row and FS_PERF_SAMPLES changes the repetition count. Module-only costs
-//! are in `lie::general::module::tests::performance_modules` (ignored).
+//! one row and FS_PERF_SAMPLES changes the repetition count. Module construction
+//! is inside each cold row; the E8 rows are the heaviest (select them with
+//! FS_PERF_CASE).
 #[path = "../tests/common/mod.rs"]
 mod common;
 
@@ -142,6 +143,40 @@ fn main() {
             vec![1, 0, 0, 0, 1, 0],
             vec![0; 6],
             vec![0; 6],
+        ),
+        ("G2-7-F", GroupId::g2(), vec![1, 0], vec![1, 0], vec![1, 0]),
+        ("G2-7-R", GroupId::g2(), vec![1, 0], vec![1, 0], vec![1, 0]),
+        ("G2-14-F", GroupId::g2(), vec![0, 1], vec![0, 1], vec![0, 1]),
+        ("G2-14-R", GroupId::g2(), vec![0, 1], vec![0, 1], vec![0, 1]),
+        ("G2-27-F", GroupId::g2(), vec![2, 0], vec![2, 0], vec![2, 0]),
+        ("G2-27-R", GroupId::g2(), vec![2, 0], vec![2, 0], vec![2, 0]),
+        (
+            "E6-27-phase",
+            GroupId::e6(),
+            vec![1, 0, 0, 0, 0, 0],
+            vec![0, 0, 0, 0, 0, 0],
+            vec![0, 0, 0, 0, 0, 0],
+        ),
+        (
+            "E6-351-phase",
+            GroupId::e6(),
+            vec![0, 0, 0, 0, 1, 0],
+            vec![0, 0, 0, 0, 0, 0],
+            vec![0, 0, 0, 0, 0, 0],
+        ),
+        (
+            "E8-27000-cgc",
+            GroupId::e8(),
+            vec![0, 0, 0, 0, 0, 0, 0, 1],
+            vec![0, 0, 0, 0, 0, 0, 0, 2],
+            vec![0, 0, 0, 0, 0, 0, 0, 1],
+        ),
+        (
+            "E8-30380-cgc",
+            GroupId::e8(),
+            vec![0, 0, 0, 0, 0, 0, 0, 1],
+            vec![0, 0, 0, 0, 0, 0, 1, 0],
+            vec![0, 0, 0, 0, 0, 0, 0, 1],
         ),
     ] {
         if std::env::var("FS_PERF_CASE").is_ok_and(|filter| filter != name) {

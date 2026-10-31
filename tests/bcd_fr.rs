@@ -213,7 +213,7 @@ fn sp4_so5_vector_f_coboundary_fit_signed() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "heavy: materializes many CGC; run with --release --ignored"]
+#[ignore = "light; release only (materializes many CGC); no CI job"]
 fn c2_vector_hexagon_closes() {
     let cat = bcd_test::group(Series::C, 2).unwrap();
     let v = irr(Series::C, &[0, 1]);
@@ -221,7 +221,7 @@ fn c2_vector_hexagon_closes() {
 }
 
 #[test]
-#[ignore = "heavy: materializes many CGC; run with --release --ignored"]
+#[ignore = "light; release only (materializes many CGC); no CI job"]
 fn c2_vector_pentagon_closes() {
     let cat = bcd_test::group(Series::C, 2).unwrap();
     let v = irr(Series::C, &[0, 1]);
@@ -229,7 +229,7 @@ fn c2_vector_pentagon_closes() {
 }
 
 #[test]
-#[ignore = "heavy: materializes many CGC; run with --release --ignored"]
+#[ignore = "light; release only (materializes many CGC); no CI job"]
 fn b2_vector_hexagon_closes() {
     let cat = bcd_test::group(Series::B, 2).unwrap();
     let v = irr(Series::B, &[1, 0]);
@@ -239,7 +239,7 @@ fn b2_vector_hexagon_closes() {
 /// The B2 vector pentagon: it checks the F-contractions across channels, which
 /// the goldens (single CGC values) do not.
 #[test]
-#[ignore = "heavy: materializes many CGC; run with --release --ignored"]
+#[ignore = "light; release only (materializes many CGC); no CI job"]
 fn b2_vector_pentagon_closes() {
     let cat = bcd_test::group(Series::B, 2).unwrap();
     let v = irr(Series::B, &[1, 0]);
@@ -248,7 +248,7 @@ fn b2_vector_pentagon_closes() {
 
 /// The D3 vector pentagon — the D-series counterpart of the B2 gate above.
 #[test]
-#[ignore = "heavy: materializes many CGC; run with --release --ignored"]
+#[ignore = "light; release only (materializes many CGC); no CI job"]
 fn d3_vector_pentagon_closes() {
     let cat = bcd_test::group(Series::D, 3).unwrap();
     let v = irr(Series::D, &[1, 0, 0]);
@@ -261,7 +261,7 @@ fn d3_vector_pentagon_closes() {
 ///
 /// `#[ignore]` (release-only): materializes the adjoint CGC chain.
 #[test]
-#[ignore = "heavy OM>=2 family: run with --release --ignored"]
+#[ignore = "light; release only (OM >= 2 family); CI release_checks job"]
 fn d3_adjoint_om2_hexagon_closes() {
     let g = irr(Series::D, &[0, 1, 1]);
     let cat = bcd_test::group(Series::D, 3).unwrap();
@@ -280,7 +280,7 @@ fn d3_adjoint_om2_hexagon_closes() {
 /// F-unitarity through the `N = 3` vertex Sp(4) `35 ⊗ 35 → 35`
 /// (`docs/gauge_cartan.md` §8 oracle 7).
 #[test]
-#[ignore = "heavy N=3 family: run with --release --ignored"]
+#[ignore = "light; release only (N = 3 family); CI release_checks job"]
 fn c2_35_multiplicity_three_f_unitarity_closes() {
     let cat = bcd_test::group(Series::C, 2).unwrap();
     let a = irr(Series::C, &[2, 1]);
@@ -361,7 +361,7 @@ fn sp4_16x80_to_14_both_orders() {
 /// channel succeeds with its N and shape, and the channels up to dimension
 /// 220 are isometric.
 #[test]
-#[ignore = "release regression, about 1 s: run with --release --ignored"]
+#[ignore = "light; release only; CI release_checks job"]
 fn sp4_81x81_every_channel() {
     use fusion_symbols::category::{CgcBlock, FusionCategory, GroupRepresentations};
     let cat = bcd_test::group(Series::C, 2).unwrap();

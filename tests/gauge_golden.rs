@@ -200,12 +200,12 @@ cases! {
     d3_golden: "D3 15x15->15 N=2", so6, [0, 1, 1], [0, 1, 1], [0, 1, 1], 8, D3;
     g2_golden: "G2 27x27->27 N=2", g2, [2, 0], [2, 0], [2, 0], 8, G2;
     f4_golden: "F4 26x26->26", f4, [0, 0, 0, 1], [0, 0, 0, 1], [0, 0, 0, 1], 8, F4;
-    f4_n2_golden #[ignore = "release golden"]: "F4 273x273->273 N=2", f4, [0, 0, 1, 0], [0, 0, 1, 0], [0, 0, 1, 0], 8, F4_N2;
+    f4_n2_golden #[ignore = "medium; release only; CI bit_identity job"]: "F4 273x273->273 N=2", f4, [0, 0, 1, 0], [0, 0, 1, 0], [0, 0, 1, 0], 8, F4_N2;
     e6_golden: "E6 27x27bar->78", e6, [1, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 1], [0, 1, 0, 0, 0, 0], 8, E6;
-    e6_n2_golden #[ignore = "release golden"]: "E6 78x650->650 N=2", e6, [0, 1, 0, 0, 0, 0], [1, 0, 0, 0, 0, 1], [1, 0, 0, 0, 0, 1], 8, E6_N2;
+    e6_n2_golden #[ignore = "medium; release only; CI bit_identity job"]: "E6 78x650->650 N=2", e6, [0, 1, 0, 0, 0, 0], [1, 0, 0, 0, 0, 1], [1, 0, 0, 0, 0, 1], 8, E6_N2;
     e7_golden: "E7 56x56->133", e7, [0, 0, 0, 0, 0, 0, 1], [0, 0, 0, 0, 0, 0, 1], [1, 0, 0, 0, 0, 0, 0], 8, E7;
-    e7_n2_golden #[ignore = "release golden"]: "E7 1539x1539->1539 N=2", e7, [0, 0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1, 0], 8, E7_N2;
-    e8_golden #[ignore = "release golden"]: "E8 248x248->248", e8, [0, 0, 0, 0, 0, 0, 0, 1], [0, 0, 0, 0, 0, 0, 0, 1], [0, 0, 0, 0, 0, 0, 0, 1], 8, E8;
+    e7_n2_golden #[ignore = "medium; release only; CI bit_identity job"]: "E7 1539x1539->1539 N=2", e7, [0, 0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1, 0], 8, E7_N2;
+    e8_golden #[ignore = "medium; release only; CI bit_identity job"]: "E8 248x248->248", e8, [0, 0, 0, 0, 0, 0, 0, 1], [0, 0, 0, 0, 0, 0, 0, 1], [0, 0, 0, 0, 0, 0, 0, 1], 8, E8;
 }
 
 /// The multiplicity of every `N ≥ 2` golden channel, certified twice: the
@@ -251,7 +251,7 @@ fn n2_golden_channels_are_certified() {
 /// gauge rather than check it against an independent oracle.
 #[cfg(feature = "lie-generated")]
 #[test]
-#[ignore = "manual pre-release gate: about 19 minutes and 31 GB peak RSS"]
+#[ignore = "heavy (tens of minutes, tens of GiB); release only; no CI job, run from the pre-release checklist"]
 fn e8_n2_golden() {
     let g = LieGroup::new(GroupId::e8()).unwrap();
     let [a, b] = [[1, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 1, 0]].map(|l| g.irrep(&l).unwrap());

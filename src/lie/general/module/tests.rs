@@ -420,75 +420,6 @@ fn invalid_and_huge_labels() {
     }
 }
 
-/// Release build times (`cargo test --release -- --ignored --nocapture`).
-#[test]
-#[ignore]
-fn build_times() {
-    for (root, lambda) in [
-        (RootSystem::G2, vec![1, 1]),
-        (RootSystem::F4, unit(4, 3)),
-        (RootSystem::E7, unit(7, 6)),
-        (RootSystem::E8, unit(8, 7)),
-    ] {
-        let data = CartanData::new(root);
-        let t = std::time::Instant::now();
-        let m = IrrepModule::new(&data, &lambda).unwrap();
-        println!("{root:?} {lambda:?} dim {} in {:?}", m.dim, t.elapsed());
-    }
-}
-
-/// Single-thread release module-build measurements. Filter a
-/// case with FS_PERF_CASE (e.g. E8-27000); repeat with FS_PERF_SAMPLES.
-#[test]
-#[ignore = "release performance report"]
-fn performance_modules() {
-    let samples: usize = std::env::var("FS_PERF_SAMPLES")
-        .unwrap_or_else(|_| "3".into())
-        .parse()
-        .unwrap();
-    for (name, root, lambda) in [
-        ("G2-27", RootSystem::G2, vec![2, 0]),
-        ("G2-64", RootSystem::G2, vec![1, 1]),
-        ("F4-273", RootSystem::F4, unit(4, 2)),
-        ("F4-324", RootSystem::F4, vec![0, 0, 0, 2]),
-        ("E7-912", RootSystem::E7, unit(7, 1)),
-        ("E7-1539", RootSystem::E7, unit(7, 5)),
-        ("E8-3875", RootSystem::E8, unit(8, 0)),
-        ("E8-27000", RootSystem::E8, vec![0, 0, 0, 0, 0, 0, 0, 2]),
-        ("E8-30380", RootSystem::E8, unit(8, 6)),
-        ("E6-7371", RootSystem::E6, vec![1, 0, 0, 0, 1, 0]),
-    ] {
-        if std::env::var("FS_PERF_CASE").is_ok_and(|filter| filter != name) {
-            continue;
-        }
-        let data = CartanData::new(root);
-        for sample in 0..samples {
-            let t = std::time::Instant::now();
-            let m = IrrepModule::new(&data, &lambda).unwrap();
-            let elapsed = t.elapsed();
-            let max_candidates = m
-                .weights
-                .iter()
-                .map(|w| {
-                    w.lower
-                        .iter()
-                        .flatten()
-                        .map(|(src, _)| m.weights[*src].norms.len())
-                        .sum::<usize>()
-                })
-                .max()
-                .unwrap();
-            let mut depths = BTreeMap::<i64, usize>::new();
-            let mut max_mult = 0;
-            for w in &m.weights {
-                *depths.entry(w.k.iter().sum()).or_default() += 1;
-                max_mult = max_mult.max(w.norms.len());
-            }
-            println!("{name} sample={sample} seconds={:.9} dim={} spaces={} depths={} max_width={} max_mult={max_mult} max_candidates={max_candidates} bytes={}", elapsed.as_secs_f64(), m.dim, m.weights.len(), depths.len(), depths.values().max().unwrap(), m.bytes());
-        }
-    }
-}
-
 fn q(n: i64, d: i64) -> Q {
     Q::from(malachite_q::Rational::from_integers(n.into(), d.into()))
 }
@@ -548,7 +479,7 @@ fn entries(m: &IrrepModule) -> Vec<SignedSqrtRational> {
 
 /// Gate 1 and the recipe identity on large modules (release).
 #[test]
-#[ignore = "large exact modules; run in release"]
+#[ignore = "heavy (E8 modules); release only; no CI job"]
 fn large_modules_satisfy_rank_gates_and_recipes() {
     for (root, lambda, weyl) in [
         (RootSystem::E8, unit(8, 0), 3875),
@@ -747,7 +678,7 @@ fn lazy_gram_schmidt_matches_eager_oracle() {
 
 /// Lazy against eager on larger profile modules (release).
 #[test]
-#[ignore = "large exact modules; run in release"]
+#[ignore = "medium (F4, E7, G2 modules); release only; no CI job"]
 fn lazy_gram_schmidt_matches_eager_oracle_large() {
     for (root, lambda) in [
         (RootSystem::F4, vec![1, 1, 0, 0]),

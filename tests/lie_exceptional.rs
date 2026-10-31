@@ -195,7 +195,7 @@ mod g2 {
 
     /// Pentagon, hexagon and F-unitarity close through the `N = 2` vertex `27 ⊗ 27 → 27`.
     #[test]
-    #[ignore = "release 14 s, debug 121 s"]
+    #[ignore = "medium; release only; CI release_checks job"]
     fn gates_through_a_multiplicity_two_vertex() {
         let g = g2();
         let (v, x) = (l(&g, 1, 0), l(&g, 2, 0));
@@ -203,29 +203,6 @@ mod g2 {
         assert!(timed("F", || f_unitarity_residual(&g, &v, &x, &x, &x).unwrap()) <= TOL);
         assert!(timed("H", || hexagon_residual(&g, &x, &x, &v).unwrap()) <= TOL);
         assert!(timed("P", || pentagon_residual(&g, &v, &v, &x, &x).unwrap()) <= TOL);
-    }
-
-    /// Cold cost of one F and one R query on a fresh group per irrep.
-    #[test]
-    #[ignore = "timing report; run in release with --nocapture"]
-    fn cold_query_report() {
-        for (a, b) in [(1, 0), (0, 1), (2, 0)] {
-            let g = g2();
-            let x = l(&g, a, b);
-            let t = Instant::now();
-            let f = g.f_symbol(&x, &x, &x, &x, &x, &x).unwrap();
-            let tf = t.elapsed();
-            let g = g2();
-            let t = Instant::now();
-            let r = g.r_symbol(&x, &x, &x).unwrap();
-            println!(
-                "G2 {}: F^xxx_x[x,x] {:?} cold {tf:?}; R^xx_x {:?} cold {:?}",
-                g.dim(&x),
-                f.dims(),
-                r.dims(),
-                t.elapsed()
-            );
-        }
     }
 
     /// Two group values generate the same bits, and A/B agree with F.
@@ -458,14 +435,14 @@ mod self_dual {
 
     /// The hexagon closes on the `26` of F4 (release gate).
     #[test]
-    #[ignore = "release gate; heavy, run by the release_checks CI job"]
+    #[ignore = "medium; release only; CI release_checks job"]
     fn f4_hexagon_on_the_smallest_irrep() {
         let (g, v) = irrep(GroupId::f4(), F4[1].0);
         assert!(timed("H", || hexagon_residual(&g, &v, &v, &v).unwrap()) <= TOL);
     }
 
     #[test]
-    #[ignore = "release 533 s, peak RSS 2.9 GiB"]
+    #[ignore = "heavy (minutes, GiB-scale memory); release only; no CI job"]
     fn e8_f_unitarity_on_the_adjoint() {
         let (g, v) = irrep(GroupId::e8(), E8[1].0);
         assert!(timed("F", || f_unitarity_residual(&g, &v, &v, &v, &v).unwrap()) <= TOL);
@@ -718,7 +695,7 @@ mod e6 {
     }
 
     #[test]
-    #[ignore = "release 18 s, debug 97 s"]
+    #[ignore = "medium; release only; no CI job"]
     fn hexagon_on_27_27_27bar() {
         let g = e6();
         let (v, w) = (l(&g, V27), l(&g, V27B));
@@ -781,26 +758,5 @@ mod e6 {
             cat.frobenius_schur_phase(&a).unwrap(),
             product.frobenius_schur_phase(&pa).unwrap()
         );
-    }
-
-    /// Cost of the first and second phase query on a fresh group per irrep.
-    #[test]
-    #[ignore = "timing report; run in release with --nocapture"]
-    fn first_phase_query_report() {
-        for label in [V27, V351, V1728, V7371] {
-            let g = e6();
-            let a = l(&g, label);
-            let t = Instant::now();
-            let kappa = g.frobenius_schur_phase(&a).unwrap();
-            let first = t.elapsed();
-            let t = Instant::now();
-            assert_eq!(g.frobenius_schur_phase(&g.dual(&a)).unwrap(), kappa);
-            assert_eq!(kappa, 1.0);
-            println!(
-                "E6 {}: κ = {kappa}, first query {first:?}, dual query {:?}",
-                g.dim(&a),
-                t.elapsed()
-            );
-        }
     }
 }
