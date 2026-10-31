@@ -86,3 +86,26 @@ constraints, and unreachable-by-construction assumptions). Every port PR must:
   are exempt.
 - `cargo fmt` and `cargo test` (all feature combinations touched) before
   every commit; fine-grained commits, each building and testing green.
+
+## Test style
+
+A test exists to protect a stated purpose; write the purpose first, then the
+assertion that checks exactly it. Reviewers judge every test by that pair.
+
+Rules 2–3 extend `tools/README.md` "Test oracles", which stays binding, together with the guard-inventory rule.
+
+1. Each test protects one purpose, stated in its name. The assertion checks exactly that purpose.
+2. Expected values are independent and inline: closed forms, identities, dense expansion, or a few literals naming the external reference they were re-checked against. Never use a past output of this crate or of a previous implementation as an oracle.
+3. The only recorded values allowed are declared format or specification contracts: the frozen gauge goldens (`gauge_golden.rs`), cross-process bit identity, and shipped-data digests. Each says so in its module doc.
+4. Allocation tests assert `== 0` on warm paths, `largest < payload` for sharing, or a count derived from the fixture's structure (levels, leaves, outputs). Never assert byte totals built from `size_of`, `Arc` header sizes, or other std/dependency layouts.
+5. Cache tests assert: warm misses unchanged; rebuild counters `== 0`; `bytes <= budget` and `entries <= cap`; trim/reset accounting identities; single-flight `misses == one cold call`. Do not assert internal hit, entry-kind or eviction totals that a valid refactor may change.
+6. A cost-scaling contract ("linear in leaves", "independent of size") is asserted as a relation between two fixture sizes, not as recorded per-query coefficients.
+7. Do not test the configuration or internals of dependencies (quick_cache shards, capacity, weight; malachite arithmetic).
+8. Each category identity (pentagon, hexagon, F-unitarity, FS, twist) runs through the public `category::residual` functions or the conformance harness, once per family. The residual functions themselves have negative controls.
+9. Do not run the same gate through both the internal engine and the public API; keep the public one.
+10. Error tests assert the variant (`matches!`). Use at most one `Display` test per error type. Never branch on error text.
+11. A test asserts something beyond "no panic"; random-input tests assert a stated property of every output.
+12. Measurements, timing and RSS reports live in `benches/` or `examples/`, never as `#[ignore]` tests. Every `#[ignore = "…"]` gives a reason, a size class, and the CI job that runs it, if any.
+13. Global-cache tests run in an isolated binary or under the serial guard. Use no sleeps or timeouts for ordering; use barriers and assert the reached state.
+14. No issue numbers, commit hashes, "former/migration/baseline" wording, measured timings, or the old crate name in test names, comments or ignore reasons.
+15. Documentation examples are compiled from the documentation source. Contract tests are not duplicated in the doc-example file.
