@@ -416,7 +416,7 @@ mod against_bcd {
     /// the isomorphism `Spin(5) ≅ Sp(4)`, where the `B₂` spinor is the `Sp(4)`
     /// defining rep `(1,0)` and the `B₂` vector is `(0,1)`.
     #[test]
-    #[ignore = "diagnostic: SO(5) canonical-parent hand example; run with --ignored"]
+    #[ignore = "light diagnostic, no assertion on policy; no CI job"]
     fn so5_canonical_parent_hand_example() {
         use malachite_nz::natural::Natural;
         let cat = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();

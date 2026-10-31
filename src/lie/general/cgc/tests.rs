@@ -306,7 +306,7 @@ fn e8_248x248_to_1_and_248_is_exact() {
 
 /// §8 oracle 5 on E8 `248 ⊗ 248 → 3875`.
 #[test]
-#[ignore = "release 1.2 s, debug 9.2 s"]
+#[ignore = "light in release, slow in debug; release only; no CI job"]
 fn e8_248x248_to_3875_is_exact() {
     let v = unit(8, 7);
     let fam = GeneralFamily::new(RootSystem::E8);
@@ -727,7 +727,7 @@ fn round_only_formation_skips_the_exact_temporary() {
 }
 
 #[test]
-#[ignore = "large E8 channels; run in release"]
+#[ignore = "heavy (large E8 channels); release only; no CI job"]
 fn radical_formation_preserves_large_e8_entries() {
     let a = unit(8, 7);
     for b in [vec![0, 0, 0, 0, 0, 0, 0, 2], unit(8, 6)] {
@@ -874,7 +874,7 @@ fn timed(gate: &str, run: impl FnOnce() -> Result<f64, LieError>) -> f64 {
 }
 
 #[test]
-#[ignore = "release 18 s"]
+#[ignore = "medium; release only; CI release_checks job"]
 fn e6_27_unitarity_and_hexagon_through_frcore() {
     let e6 = Cat::new(RootSystem::E6);
     let (v, w) = (unit(6, 0), unit(6, 5));
@@ -951,60 +951,6 @@ fn frobenius_schur_phase_matches_f_sign_e6_351_and_e7_56() {
     }
     let e7 = Cat::new(RootSystem::E7);
     assert_eq!(kappa_from_f(&e7, &unit(7, 6)), -1.0);
-}
-
-/// §9 resource report: build time and nonzero count per channel.
-#[test]
-#[ignore = "timing report; run in release with --nocapture"]
-fn resource_report() {
-    type Case = (RootSystem, Vec<i64>, Vec<i64>, Vec<Vec<i64>>);
-    let cases: Vec<Case> = vec![
-        (RootSystem::G2, G27.to_vec(), G27.to_vec(), Vec::new()),
-        (RootSystem::F4, unit(4, 3), unit(4, 3), Vec::new()),
-        (
-            RootSystem::E7,
-            unit(7, 6),
-            unit(7, 6),
-            vec![vec![0, 0, 0, 0, 0, 0, 2], unit(7, 5)],
-        ),
-    ];
-    for (root, a, b, only) in cases {
-        let fam = GeneralFamily::new(root);
-        let t = Instant::now();
-        for l in [&a, &b] {
-            fam.module(l).unwrap();
-        }
-        println!("{root:?} {a:?} modules: {:?}", t.elapsed());
-        let outcomes: Vec<Vec<i64>> = fam
-            .product(&a, &b)
-            .unwrap()
-            .iter()
-            .map(|(c, _)| c.dynkin().to_vec())
-            .collect();
-        for c in outcomes {
-            if !only.is_empty() && !only.contains(&c) {
-                continue;
-            }
-            let t = Instant::now();
-            fam.module(&c).unwrap();
-            let tm = t.elapsed();
-            let t = Instant::now();
-            let (ch, ma, mb, mc) = fam.channel(&a, &b, &c).unwrap();
-            let tc = t.elapsed();
-            let entries = ch.exact_entries(&ma, &mb, &mc);
-            let max_den = entries
-                .iter()
-                .map(|e| e.4.radicand().clone())
-                .max_by_key(|r| r.denominator_ref().clone());
-            println!(
-                "{root:?} {a:?}⊗{b:?}→{c:?} (dim {}, N {}): module {tm:?}, channel {tc:?}, nonzeros {}, max-denominator radicand {}",
-                mc.dim(),
-                ch.mult,
-                entries.len(),
-                max_den.map_or(String::new(), |r| r.to_string()),
-            );
-        }
-    }
 }
 
 // Frozen pre-sparse algorithm: drift reference, not a mathematical oracle.
@@ -1124,7 +1070,7 @@ fn sparse_nullspace_matches_dense_channels() {
 }
 
 #[test]
-#[ignore = "large E8 dense-reference comparisons; run in release"]
+#[ignore = "heavy (large E8 dense comparison); release only; no CI job"]
 fn sparse_nullspace_matches_dense_e8_channels() {
     let data = CartanData::new(RootSystem::E8);
     let a = Ladders::new(&data, &unit(8, 7)).unwrap();
@@ -1166,31 +1112,9 @@ fn sparse_nullspace_degenerate_matrices() {
     }
 }
 
-#[test]
-#[ignore = "large E8 channel timing; run in release with --nocapture"]
-fn performance_large_e8_channels() {
-    let a = unit(8, 7);
-    let samples: usize = std::env::var("FS_PERF_SAMPLES")
-        .unwrap_or_else(|_| "3".into())
-        .parse()
-        .unwrap();
-    for b in [vec![0, 0, 0, 0, 0, 0, 0, 2], unit(8, 6)] {
-        for _ in 0..samples {
-            let fam = GeneralFamily::new(RootSystem::E8);
-            let t = Instant::now();
-            let entries = fam.cgc_entries(&a, &b, &a).unwrap();
-            eprintln!(
-                "CHANNEL {b:?}: {} entries in {:.9} s",
-                entries.len(),
-                t.elapsed().as_secs_f64()
-            );
-        }
-    }
-}
-
 /// §8 oracle 5 on large E8 channels `248 ⊗ λ → 248` and `λ ⊗ 248 → 248` (release).
 #[test]
-#[ignore = "large E8 exact channels; run in release"]
+#[ignore = "heavy (large E8 exact channels); release only; no CI job"]
 fn large_e8_channels_are_exact() {
     let data = CartanData::new(RootSystem::E8);
     let adjoint = Ladders::new(&data, &unit(8, 7)).unwrap();

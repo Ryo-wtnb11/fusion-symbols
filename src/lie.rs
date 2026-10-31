@@ -1739,7 +1739,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "child of cache_reset_drops_cartan_construction_data"]
+    #[ignore = "child process of cache_reset_drops_cartan_construction_data; light; run by that test in every CI test job"]
     fn cache_reset_drops_cartan_construction_data_isolated() {
         let _guard = crate::cache::TEST_CACHE_LOCK
             .lock()
