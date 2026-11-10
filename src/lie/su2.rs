@@ -1372,7 +1372,7 @@ mod tests {
 #[cfg(test)]
 mod checked_tests {
     use super::*;
-    use rand::{Rng, SeedableRng};
+    use rand::{RngExt, SeedableRng};
     use rand_chacha::ChaCha8Rng;
 
     // -- A1Irrep basics ----------------------------------------------------
@@ -1600,7 +1600,7 @@ mod checked_tests {
         let mut tested_6j = 0;
         let mut tested_3j = 0;
         for _ in 0..40_000 {
-            let d = [(); 6].map(|_| rng.gen_range(0..=8u32));
+            let d = [(); 6].map(|_| rng.random_range(0..=8u32));
             let admissible = tri(d[0], d[1], d[2])
                 && tri(d[0], d[4], d[5])
                 && tri(d[3], d[1], d[5])
@@ -1614,8 +1614,8 @@ mod checked_tests {
                 tested_6j += 1;
             }
 
-            let dj = [(); 3].map(|_| rng.gen_range(0..=6u32));
-            let dm = [(); 3].map(|_| rng.gen_range(-6..=6i32));
+            let dj = [(); 3].map(|_| rng.random_range(0..=6u32));
+            let dm = [(); 3].map(|_| rng.random_range(-6..=6i32));
             let admissible = dm.iter().map(|&m| i64::from(m)).sum::<i64>() == 0
                 && (0..3).all(|i| on_ladder(dj[i], dm[i]))
                 && tri(dj[0], dj[1], dj[2]);
@@ -1649,7 +1649,7 @@ mod checked_tests {
 #[cfg(test)]
 mod regge_orbit_tests {
     use super::{canonical_regge_3j, canonical_regge_6j, wigner_6j};
-    use rand::{Rng, SeedableRng};
+    use rand::{RngExt, SeedableRng};
     use rand_chacha::ChaCha8Rng;
 
     fn tri(a: u32, b: u32, c: u32) -> bool {
@@ -1741,12 +1741,12 @@ mod regge_orbit_tests {
         while tested < 200 && attempts < 200_000 {
             attempts += 1;
             let dj = [
-                rng.gen_range(0..=20),
-                rng.gen_range(0..=20),
-                rng.gen_range(0..=20),
-                rng.gen_range(0..=20),
-                rng.gen_range(0..=20),
-                rng.gen_range(0..=20),
+                rng.random_range(0..=20),
+                rng.random_range(0..=20),
+                rng.random_range(0..=20),
+                rng.random_range(0..=20),
+                rng.random_range(0..=20),
+                rng.random_range(0..=20),
             ];
             if !admissible_6j(dj) {
                 continue;
@@ -1786,8 +1786,8 @@ mod regge_orbit_tests {
         let mut rng = ChaCha8Rng::seed_from_u64(0x5EED_4E66);
         let (mut keyed_6j, mut keyed_3j) = (0, 0);
         for iter in 0..2000 {
-            let dj = |r: &mut ChaCha8Rng| r.gen_range(0u32..=40);
-            let dm = |r: &mut ChaCha8Rng| r.gen_range(-50i64..=50);
+            let dj = |r: &mut ChaCha8Rng| r.random_range(0u32..=40);
+            let dm = |r: &mut ChaCha8Rng| r.random_range(-50i64..=50);
             let l = [
                 dj(&mut rng),
                 dj(&mut rng),
@@ -1816,7 +1816,7 @@ mod regge_orbit_tests {
             let m = if iter % 2 == 0 {
                 [dm(&mut rng), dm(&mut rng), dm(&mut rng)]
             } else {
-                let mut pick = |j: u32| i64::from(j) - 2 * rng.gen_range(0..=i64::from(j));
+                let mut pick = |j: u32| i64::from(j) - 2 * rng.random_range(0..=i64::from(j));
                 let (m0, m1) = (pick(l[0]), pick(l[1]));
                 [m0, m1, -(m0 + m1)]
             };

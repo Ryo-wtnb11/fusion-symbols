@@ -16,7 +16,7 @@
 
 use malachite_nz::integer::Integer;
 use malachite_q::Rational;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
 use fusion_symbols::lie::su2::{clebsch_gordan, wigner_3j, wigner_6j, SignedSqrtRational};
@@ -292,7 +292,7 @@ fn six_j_obey_racah_sum_rule() {
     let mut rng = ChaCha8Rng::seed_from_u64(0xA55A_1234);
     let mut samples = 0;
     while samples < 40 {
-        let l = [(); 6].map(|_| rng.gen_range(0..=254u32));
+        let l = [(); 6].map(|_| rng.random_range(0..=254u32));
         if let Some((sum, want)) = racah_sum_rule(l) {
             assert!((sum - want).abs() < 1e-12, "{l:?}: {sum} vs {want}");
             samples += 1;
