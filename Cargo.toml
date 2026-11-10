@@ -5,6 +5,7 @@
 name = "fusion-symbols"
 version = "0.10.0"
 edition = "2021"
+rust-version = "1.99"
 autotests = false
 license = "MIT OR Apache-2.0"
 description = "Fusion-category and representation data for symmetric tensors: exact SU(2) recoupling; runtime Clebsch-Gordan, F and R symbols for compact connected Lie groups (SU(N), U(N), Spin/SO(N), Sp(2N), tori, products, quotients); closed-form cyclic groups and fermion parity; tabulated anyon categories"
