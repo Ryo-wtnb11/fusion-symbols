@@ -1800,22 +1800,22 @@ mod tests {
 
     // The in-place countdown must equal a Kronecker product that decodes every
     // output index independently (`axis = l * right + r`), for any shapes.
-    fn kron_matches_naive<const R: usize>(rng: &mut impl rand::Rng) {
+    fn kron_matches_naive<const R: usize>(rng: &mut impl rand::RngExt) {
         for trial in 0..200 {
             let left: [usize; R] = std::array::from_fn(|_| {
                 if trial % 5 == 0 {
                     1
                 } else {
-                    rng.gen_range(1..=3)
+                    rng.random_range(1..=3)
                 }
             });
-            let right: [usize; R] = std::array::from_fn(|_| rng.gen_range(1..=3));
+            let right: [usize; R] = std::array::from_fn(|_| rng.random_range(1..=3));
             let (l_len, r_len) = (
                 left.iter().product::<usize>(),
                 right.iter().product::<usize>(),
             );
-            let l: Vec<f64> = (0..l_len).map(|_| rng.gen_range(-2.0..2.0)).collect();
-            let r: Vec<f64> = (0..r_len).map(|_| rng.gen_range(-2.0..2.0)).collect();
+            let l: Vec<f64> = (0..l_len).map(|_| rng.random_range(-2.0..2.0)).collect();
+            let r: Vec<f64> = (0..r_len).map(|_| rng.random_range(-2.0..2.0)).collect();
             let dims: [usize; R] = std::array::from_fn(|a| left[a] * right[a]);
             let offset =
                 |idx: [usize; R], dims: [usize; R]| (0..R).fold(0, |o, a| o * dims[a] + idx[a]);
@@ -1857,10 +1857,10 @@ mod tests {
     #[test]
     fn real_prefix_promotes_once_into_multi_element_complex_block() {
         use num_complex::Complex64;
-        use rand::{Rng, SeedableRng};
+        use rand::{RngExt, SeedableRng};
         let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(1790);
         let mut real =
-            |n: usize| -> Vec<f64> { (0..n).map(|_| rng.gen_range(-2.0..2.0)).collect() };
+            |n: usize| -> Vec<f64> { (0..n).map(|_| rng.random_range(-2.0..2.0)).collect() };
         let (a, b) = (real(4), real(2));
         let c: Vec<Complex64> = real(4)
             .chunks(2)

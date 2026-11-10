@@ -10,7 +10,7 @@ use malachite_base::num::{
 use malachite_nz::integer::Integer;
 use malachite_q::Rational;
 
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
 use fusion_symbols::lie::su2::{clebsch_gordan, wigner_3j, wigner_6j, SignedSqrtRational};
@@ -86,12 +86,12 @@ fn six_j_orthogonality_exact() {
     let mut attempts = 0;
     while cases < 40 && attempts < 200_000 {
         attempts += 1;
-        let dj1 = rng.gen_range(0..=12);
-        let dj2 = rng.gen_range(0..=12);
-        let dj4 = rng.gen_range(0..=12);
-        let dj5 = rng.gen_range(0..=12);
-        let dj3 = rng.gen_range(0..=12);
-        let dj6 = rng.gen_range(0..=12);
+        let dj1 = rng.random_range(0..=12);
+        let dj2 = rng.random_range(0..=12);
+        let dj4 = rng.random_range(0..=12);
+        let dj5 = rng.random_range(0..=12);
+        let dj3 = rng.random_range(0..=12);
+        let dj6 = rng.random_range(0..=12);
         // j3 must be admissible with (j4,j5) and (j1,j2)-reachable via some x;
         // require both dj3 and dj6 valid outer couplings.
         if !tri(dj1, dj5, dj6) || !tri(dj4, dj2, dj6) {
@@ -143,15 +143,15 @@ fn cg_orthogonality_sum_of_squares_is_one() {
     let mut attempts = 0;
     while cases < 60 && attempts < 200_000 {
         attempts += 1;
-        let dj1 = rng.gen_range(0..=14);
-        let dj2 = rng.gen_range(0..=14);
-        let dj3 = rng.gen_range(0..=14);
+        let dj1 = rng.random_range(0..=14);
+        let dj2 = rng.random_range(0..=14);
+        let dj3 = rng.random_range(0..=14);
         if !tri(dj1, dj2, dj3) {
             continue;
         }
         // pick m3 with valid parity/range
         let m3choices: Vec<i32> = (-(dj3 as i32)..=dj3 as i32).step_by(2).collect();
-        let dm3 = m3choices[rng.gen_range(0..m3choices.len())];
+        let dm3 = m3choices[rng.random_range(0..m3choices.len())];
 
         let mut sum: Rational = Rational::ZERO;
         let mut dm1 = -(dj1 as i32);
@@ -184,10 +184,10 @@ fn cg_cross_j3_orthogonality_zero() {
     let mut attempts = 0;
     while cases < 30 && attempts < 200_000 {
         attempts += 1;
-        let dj1 = rng.gen_range(0..=12);
-        let dj2 = rng.gen_range(0..=12);
-        let dj3 = rng.gen_range(0..=12);
-        let dj3p = rng.gen_range(0..=12);
+        let dj1 = rng.random_range(0..=12);
+        let dj2 = rng.random_range(0..=12);
+        let dj3 = rng.random_range(0..=12);
+        let dj3p = rng.random_range(0..=12);
         if dj3 == dj3p || !tri(dj1, dj2, dj3) || !tri(dj1, dj2, dj3p) {
             continue;
         }
@@ -197,7 +197,7 @@ fn cg_cross_j3_orthogonality_zero() {
         if mchoices.is_empty() {
             continue;
         }
-        let big_m = mchoices[rng.gen_range(0..mchoices.len())];
+        let big_m = mchoices[rng.random_range(0..mchoices.len())];
 
         let mut terms = Vec::new();
         let mut dm1 = -(dj1 as i32);
@@ -249,7 +249,7 @@ fn arbitrary_labels_give_bounded_values_and_exact_zero_when_inadmissible() {
     let mut rng = ChaCha8Rng::seed_from_u64(0xDEAD_BEEF);
     let (mut admissible_6j, mut admissible_3j) = (0, 0);
     for iter in 0..20_000 {
-        let dj = |r: &mut ChaCha8Rng| r.gen_range(0u32..=40);
+        let dj = |r: &mut ChaCha8Rng| r.random_range(0u32..=40);
         let l = [
             dj(&mut rng),
             dj(&mut rng),
@@ -275,12 +275,12 @@ fn arbitrary_labels_give_bounded_values_and_exact_zero_when_inadmissible() {
         // the admissible side of the 3j / CG selection rules is sampled too.
         let m: [i32; 3] = if iter % 2 == 0 {
             [
-                rng.gen_range(-50i32..=50),
-                rng.gen_range(-50i32..=50),
-                rng.gen_range(-50i32..=50),
+                rng.random_range(-50i32..=50),
+                rng.random_range(-50i32..=50),
+                rng.random_range(-50i32..=50),
             ]
         } else {
-            let mut pick = |j: u32| j as i32 - 2 * rng.gen_range(0..=j as i32);
+            let mut pick = |j: u32| j as i32 - 2 * rng.random_range(0..=j as i32);
             let (m0, m1) = (pick(l[0]), pick(l[1]));
             [m0, m1, -(m0 + m1)]
         };

@@ -1,7 +1,7 @@
 use super::*;
 use malachite_base::num::arithmetic::traits::Gcd;
 use malachite_nz::integer::Integer;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 
 fn r(n: impl Into<Integer>, d: impl Into<Integer>) -> Rational {
     Rational::from_integers(n.into(), d.into())
@@ -75,16 +75,16 @@ fn boundary() -> Vec<Rational> {
 fn random(seed: u64, count: usize) -> Vec<Rational> {
     let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
     let bits = |rng: &mut rand_chacha::ChaCha8Rng| -> Integer {
-        let b = rng.gen_range(1..=70u32);
-        let lo: u64 = rng.gen();
-        let hi: u64 = rng.gen();
+        let b = rng.random_range(1..=70u32);
+        let lo: u64 = rng.random();
+        let hi: u64 = rng.random();
         let x = (Integer::from(hi) << 64u64) + Integer::from(lo);
         (x >> (128 - u64::from(b))) | (Integer::from(1) << u64::from(b - 1))
     };
     (0..count)
         .map(|_| {
             let n = bits(&mut rng);
-            let n = if rng.gen() { -n } else { n };
+            let n = if rng.random() { -n } else { n };
             Rational::from_integers(n, bits(&mut rng))
         })
         .collect()
@@ -311,8 +311,8 @@ fn word_arithmetic_does_not_allocate() {
     let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(0x8b03);
     let xs: Vec<Q> = (0..2000)
         .map(|_| {
-            let n: i64 = rng.gen_range(-(1 << 30)..1 << 30);
-            let d: i64 = rng.gen_range(1..1 << 30);
+            let n: i64 = rng.random_range(-(1 << 30)..1 << 30);
+            let d: i64 = rng.random_range(1..1 << 30);
             Q::from(r(if n == 0 { 1 } else { n }, d))
         })
         .collect();

@@ -647,12 +647,12 @@ mod tests {
     /// subnormal range.
     #[test]
     fn unreduced_ratio_rounds_like_reduced() {
-        use rand::{Rng, SeedableRng};
+        use rand::{RngExt, SeedableRng};
         let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(0x256e);
         let mut nat = |bits: u64| -> Natural {
             let mut x = Natural::ZERO;
             for _ in 0..bits.div_ceil(64) {
-                x = (x << 64u32) + Natural::from(rng.gen::<u64>());
+                x = (x << 64u32) + Natural::from(rng.random::<u64>());
             }
             (x >> (bits.div_ceil(64) * 64 - bits)) | (Natural::ONE << (bits - 1))
         };
@@ -723,7 +723,7 @@ mod tests {
     /// subnormal and normal ratios.
     #[test]
     fn sqrt_ratio_to_f64_is_nearest_over_whole_range() {
-        use rand::{Rng, SeedableRng};
+        use rand::{RngExt, SeedableRng};
         let p2 = |k: u64| Natural::ONE << k;
         let sq = |x: &Natural| x * x;
         let check = |n: &Natural, d: &Natural| {
@@ -798,7 +798,7 @@ mod tests {
         let mut nat = |bits: u64| -> Natural {
             let mut x = Natural::ZERO;
             for _ in 0..bits.div_ceil(64) {
-                x = (x << 64u32) + Natural::from(rng.gen::<u64>());
+                x = (x << 64u32) + Natural::from(rng.random::<u64>());
             }
             (x >> (bits.div_ceil(64) * 64 - bits)) | (Natural::ONE << (bits - 1))
         };
@@ -883,7 +883,7 @@ mod tests {
     /// of the `2^64` boundary of each input, and over random bit lengths.
     #[test]
     fn word_and_big_inputs_round_alike() {
-        use rand::{Rng, SeedableRng};
+        use rand::{RngExt, SeedableRng};
         let mut values: Vec<Natural> = [1u64, 2, 3, 4, 9, 1 << 32, 0xffff_ffff]
             .map(Natural::from)
             .to_vec();
@@ -904,7 +904,8 @@ mod tests {
         }
         let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(0x8a);
         let mut nat = |bits: u64| -> Natural {
-            let x = Natural::from(rng.gen::<u64>()) << 64u32 | Natural::from(rng.gen::<u64>());
+            let x =
+                Natural::from(rng.random::<u64>()) << 64u32 | Natural::from(rng.random::<u64>());
             (x >> (128 - bits)) | (Natural::ONE << (bits - 1))
         };
         for i in 0..4000u64 {
@@ -986,7 +987,7 @@ mod tests {
     #[cfg(feature = "lie-generated")]
     #[test]
     fn word_conversion_does_not_allocate() {
-        use rand::{Rng, SeedableRng};
+        use rand::{RngExt, SeedableRng};
         let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(0x8a1);
         let p63 = 1u64 << 63;
         let mut pairs: Vec<(u64, u64)> = vec![
@@ -1001,7 +1002,7 @@ mod tests {
         for i in 0..2000u32 {
             let (nb, db) = (1 + i % 64, 1 + (i * 37) % 64);
             let r = |b: u32, x: u64| (x >> (64 - b)) | 1 << (b - 1);
-            pairs.push((r(nb, rng.gen()), r(db, rng.gen())));
+            pairs.push((r(nb, rng.random()), r(db, rng.random())));
         }
         let inputs: Vec<(Natural, Natural)> = pairs
             .iter()

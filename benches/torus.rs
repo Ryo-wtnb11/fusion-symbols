@@ -1,8 +1,9 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use fusion_symbols::{
     category::FusionCategory,
     lie::{GroupId, LieGroup, U1Irrep, U1},
 };
+use std::hint::black_box;
 fn torus(c: &mut Criterion) {
     let g = LieGroup::new(GroupId::u(1).unwrap()).unwrap();
     let a = g.irrep_with_charges(&[], &[3]).unwrap();

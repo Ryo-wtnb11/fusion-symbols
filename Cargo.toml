@@ -48,11 +48,11 @@ malachite-q = "0.14"
 malachite-base = "0.14"
 
 [dev-dependencies]
-rand = "0.8"
-rand_chacha = "0.3"
+rand = "0.10"
+rand_chacha = "0.10"
 # Benchmark harness (not a CI gate): small-spin, thousands-tier and cache-hit
 # timings. Run with `cargo bench`.
-criterion = "0.5"
+criterion = "0.8"
 
 [[bench]]
 name = "torus"

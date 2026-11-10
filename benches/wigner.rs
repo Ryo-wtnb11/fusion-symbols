@@ -3,7 +3,8 @@
 //! Exact-value evaluation on doubled spins <= 254, the thousands tier, and the
 //! repeated-label (cache hit) regime. Run with `cargo bench`.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
 
 use fusion_symbols::lie::su2::{wigner_3j, wigner_6j};
 
