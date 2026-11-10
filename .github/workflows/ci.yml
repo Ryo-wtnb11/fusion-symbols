@@ -147,3 +147,14 @@ jobs:
           # Same KaTeX header as docs.rs (Cargo.toml [package.metadata.docs.rs]);
           # space-separated flags compose in the one RUSTDOCFLAGS env var.
           RUSTDOCFLAGS: -D warnings --html-in-header doc/katex-header.html
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install 1.99.1 --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo +1.99.1 check --all-targets --all-features
