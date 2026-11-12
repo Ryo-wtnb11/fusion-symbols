@@ -578,7 +578,7 @@ fn payload_identity_and_legacy_product_order() {
         let unit = data.irrep(&vec![0; root.rank()]).unwrap();
         let unit_product = data
             .load_product(
-                data.multiplicities(unit.dynkin(), a.dynkin(), Some((&unit, &a)))
+                data.multiplicities(unit.label(), a.label(), Some((&unit, &a)))
                     .unwrap(),
                 Some((&unit, &a)),
             )
@@ -769,12 +769,13 @@ fn coefficient_checks_use_dimension_free_multiplicities() {
     assert_eq!(roots.multiplicity(&a, &a, &one).unwrap(), 1);
     EVALUATIONS.with(|n| assert_eq!(n.get(), (0, 0)));
     let family = super::super::cgc::GeneralFamily::new(RootSystem::G2);
+    let [v, one] = [&[1, 0], &[0, 0]].map(|x| Label::new(x));
     crate::cache::reset();
     LABEL_PROJECTIONS.set(0);
     EVALUATIONS.with(|n| n.set((0, 0)));
-    assert_eq!(family.mult(&[1, 0], &[1, 0], &[0, 0]).unwrap(), 1);
+    assert_eq!(family.mult(v, v, one).unwrap(), 1);
     EVALUATIONS.with(|n| n.set((0, 0)));
-    assert_eq!(family.mult(&[1, 0], &[1, 0], &[0, 0]).unwrap(), 1);
+    assert_eq!(family.mult(v, v, one).unwrap(), 1);
     EVALUATIONS.with(|n| assert_eq!(n.get(), (0, 0)));
     // Observe this key and this thread; unrelated tests may populate other projections.
     assert!(crate::cache::product_multiplicities_are_resident(
@@ -786,11 +787,8 @@ fn coefficient_checks_use_dimension_free_multiplicities() {
 
     crate::cache::reset();
     LABEL_PROJECTIONS.set(0);
-    let first = family.cgc_entries(&[1, 0], &[1, 0], &[0, 0]).unwrap();
-    assert_eq!(
-        family.cgc_entries(&[1, 0], &[1, 0], &[0, 0]).unwrap(),
-        first
-    );
+    let first = family.cgc_entries(v, v, one).unwrap();
+    assert_eq!(family.cgc_entries(v, v, one).unwrap(), first);
     assert!(crate::cache::product_multiplicities_are_resident(
         RootSystem::G2,
         &[1, 0],
@@ -865,5 +863,33 @@ fn classical_products_checked_against_oscar() {
             Integer::from(want),
             "{root:?} {d:?}"
         );
+    }
+}
+
+/// Purpose: each coordinate view stores the fingerprint of its own words, so a
+/// warm query by the label, its toggled dual or an independently constructed
+/// conjugate hashes like the owned key built from those words.
+#[test]
+fn stored_label_hash_matches_its_words() {
+    let check = |x: &RootIrrep| assert_eq!(x.label().hash, label_hash(x.dynkin()), "{x:?}");
+    // Self-dual: G2 7 = ω1.
+    let g2 = CartanData::new(RootSystem::G2);
+    let seven = g2.irrep(&[1, 0]).unwrap();
+    check(&seven);
+    check(&seven.dual());
+    // Complex pairs, conjugates by −w₀: A3 ω1 ↔ ω3, D5 ω4 ↔ ω5, E6 ω1 ↔ ω6.
+    for (root, a, conjugate) in [
+        (RootSystem::A(3), vec![1, 0, 0], vec![0, 0, 1]),
+        (RootSystem::D(5), unit(5, 3, 1), unit(5, 4, 1)),
+        (RootSystem::E6, unit(6, 0, 1), unit(6, 5, 1)),
+    ] {
+        let data = CartanData::new(root);
+        let x = data.irrep(&a).unwrap();
+        let y = data.irrep(&conjugate).unwrap();
+        let toggled = x.dual();
+        assert_eq!(toggled, y, "{root:?}");
+        for z in [&x, &toggled, &y, &y.dual()] {
+            check(z);
+        }
     }
 }

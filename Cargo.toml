@@ -95,6 +95,13 @@ name = "exceptional"
 harness = false
 required-features = ["lie-generated"]
 
+# Warm public-entry hits of every category kind, label construction, and the
+# label-tier hash distribution report (FS_WARM_MODE).
+[[bench]]
+name = "warm_hits"
+harness = false
+required-features = ["lie-generated"]
+
 # Cache timing, live-allocation and RSS reports (not tests).
 [[example]]
 name = "cache_pressure"

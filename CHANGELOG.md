@@ -7,6 +7,17 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Performance
+
+- Warm F, R, CGC and Product-tier lookups from Cartan labels hash one stored
+  64-bit fingerprint per label instead of every Dynkin word, so their query
+  hash no longer grows with rank. Each Cartan label payload computes the
+  fingerprints of its coordinate views once at construction (16 more bytes per
+  Cartan label payload, charged where a cached value holds labels). Rank-one
+  (A1) CGC queries build three temporary one-word fingerprints per query, and
+  SU(2) F keys hash their packed Regge key. Keys still compare every word. The
+  Wigner tiers are unchanged.
+
 ## [0.11.0] - 2026-11-12
 
 ### Breaking

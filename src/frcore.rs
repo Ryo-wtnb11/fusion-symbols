@@ -42,6 +42,7 @@ pub(crate) struct MEntry {
     pub value: f64,
 }
 
+use crate::cache::Label;
 use crate::category::{FBlock, RBlock, SymbolBlock};
 use crate::lie::general::{GeneralFamily, RequestModules};
 use crate::lie::LieError;
@@ -131,7 +132,7 @@ pub(crate) fn check_r_block(block: &RBlock<f64>) -> Result<(), GateError> {
 /// ```
 pub(crate) fn f_block_raw(
     fam: &GeneralFamily,
-    [a, b, c, d, e, f]: [&[i64]; 6],
+    [a, b, c, d, e, f]: [Label<'_>; 6],
 ) -> Result<FBlock<f64>, LieError> {
     let n1 = fam.mult(a, b, e)?;
     let n2 = fam.mult(e, c, d)?;
@@ -267,7 +268,7 @@ pub(crate) fn f_block_raw(
 /// ```
 pub(crate) fn r_block_raw(
     fam: &GeneralFamily,
-    [a, b, c]: [&[i64]; 3],
+    [a, b, c]: [Label<'_>; 3],
 ) -> Result<RBlock<f64>, LieError> {
     let n1 = fam.mult(a, b, c)?; // rows μ
     let n2 = fam.mult(b, a, c)?; // cols ν  (== n1: fusion multiplicities are symmetric)

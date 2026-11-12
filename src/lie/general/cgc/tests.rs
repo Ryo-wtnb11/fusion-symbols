@@ -5,6 +5,7 @@
 //! sign of `F^{a ā a}_a[𝟙, 𝟙]`.
 
 use super::*;
+use crate::cache::Label;
 use crate::category::{
     f_unitarity_residual, hexagon_residual, BraidingStyle, FBlock, FusionCategory, FusionStyle,
     RBlock, SymbolBlock,
@@ -469,7 +470,10 @@ fn exact_vectors_live_only_through_their_readers() {
     ] {
         let data = CartanData::new(root);
         let [a, b, c] = [x, y, z].map(|l| Ladders::new(&data, l).unwrap());
-        let n = data.multiplicities(x, y, None).unwrap().multiplicity(z) as usize;
+        let n = data
+            .multiplicities(Label::new(x), Label::new(y), None)
+            .unwrap()
+            .multiplicity(z) as usize;
         assert_eq!(n, 2, "{root:?}");
         let weights = &c.module.weights;
         let depth = |w: usize| weights[w].k.iter().sum::<i64>() as usize;
@@ -568,7 +572,9 @@ fn g2_7x7_to_7_hand_entries_and_order() {
 #[test]
 fn entry_order_is_mu_then_mc_then_a_slow() {
     let fam = GeneralFamily::new(RootSystem::G2);
-    let e = fam.cgc_entries(&G14, &G14, &G27).unwrap();
+    let e = fam
+        .cgc_entries(Label::new(&G14), Label::new(&G14), Label::new(&G27))
+        .unwrap();
     let keys: Vec<_> = e.iter().map(|x| (x.mu, x.m3, x.m1, x.m2)).collect();
     assert!(keys.windows(2).all(|w| w[0] < w[1]));
     assert!(e.iter().all(|x| x.value != 0.0));
@@ -599,7 +605,8 @@ fn regeneration_is_byte_identical() {
         let fam = GeneralFamily::new(RootSystem::G2);
         let mut out = Vec::new();
         for c in [G7, G14, G27, [0, 0]] {
-            for e in fam.cgc_entries(&G7, &G7, &c).unwrap().iter() {
+            let g7 = Label::new(&G7);
+            for e in fam.cgc_entries(g7, g7, Label::new(&c)).unwrap().iter() {
                 out.push((e.m1, e.m2, e.m3, e.mu, e.value.to_bits()));
             }
         }
@@ -644,7 +651,7 @@ fn check_radical_formation(root: RootSystem, a: &[i64], b: &[i64], c: &[i64]) {
         })
         .collect();
     let got: Vec<_> = fam
-        .cgc_entries(a, b, c)
+        .cgc_entries(Label::new(a), Label::new(b), Label::new(c))
         .unwrap()
         .iter()
         .map(|e| (e.m1, e.m2, e.m3, e.mu, e.value.to_bits()))
@@ -823,7 +830,7 @@ impl FusionCategory for Cat {
     }
     fn frobenius_schur_phase(&self, a: &Vec<i64>) -> Result<f64, LieError> {
         self.fam
-            .frobenius_schur_phase(a, &self.dual(a))
+            .frobenius_schur_phase(Label::new(a), Label::new(&self.dual(a)))
             .map(f64::from)
     }
     fn frobenius_schur_indicator(&self, a: &Vec<i64>) -> f64 {
@@ -846,7 +853,7 @@ impl FusionCategory for Cat {
             .into_iter())
     }
     fn nsymbol(&self, a: &Vec<i64>, b: &Vec<i64>, c: &Vec<i64>) -> Result<u32, LieError> {
-        Ok(self.fam.mult(a, b, c)? as u32)
+        Ok(self.fam.mult(Label::new(a), Label::new(b), Label::new(c))? as u32)
     }
     fn f_symbol(
         &self,
@@ -857,10 +864,10 @@ impl FusionCategory for Cat {
         e: &Vec<i64>,
         f: &Vec<i64>,
     ) -> Result<FBlock<f64>, LieError> {
-        f_block_raw(&self.fam, [a, b, c, d, e, f].map(|x| x.as_slice()))
+        f_block_raw(&self.fam, [a, b, c, d, e, f].map(|x| Label::new(x)))
     }
     fn r_symbol(&self, a: &Vec<i64>, b: &Vec<i64>, c: &Vec<i64>) -> Result<RBlock<f64>, LieError> {
-        r_block_raw(&self.fam, [a.as_slice(), b, c])
+        r_block_raw(&self.fam, [a, b, c].map(|x| Label::new(x)))
     }
 }
 
@@ -896,7 +903,7 @@ fn kappa_from_f(cat: &Cat, a: &[i64]) -> f64 {
 /// §8 oracle 8 literals: G2 irreps real (+1); E7 56 pseudo-real (−1); E6 27, 78 and
 /// both 351 pairs +1 with their duals.
 fn kappa(fam: &GeneralFamily, l: &[i64]) -> i8 {
-    fam.frobenius_schur_phase(l, &fam.data().dual(l).unwrap())
+    fam.frobenius_schur_phase(Label::new(l), Label::new(&fam.data().dual(l).unwrap()))
         .unwrap()
 }
 
@@ -1060,7 +1067,10 @@ fn sparse_nullspace_matches_dense_channels() {
     ] {
         let fam = GeneralFamily::new(root);
         let outcomes = fam.product(&a, &b).unwrap().clone();
-        let (ma, mb) = (fam.module(&a).unwrap(), fam.module(&b).unwrap());
+        let (ma, mb) = (
+            fam.module(Label::new(&a)).unwrap(),
+            fam.module(Label::new(&b)).unwrap(),
+        );
         for (c, n) in outcomes.iter() {
             compare_nullspace(&fam.data, &ma, &mb, c.dynkin(), *n as usize);
             count += 1;
@@ -1144,7 +1154,10 @@ fn rounded(
 ) -> (Vec<MEntry>, [Ladders; 3], usize) {
     let data = CartanData::new(root);
     let [ma, mb, mc] = [a, b, c].map(|l| Ladders::new(&data, l).unwrap());
-    let n = data.multiplicities(a, b, None).unwrap().multiplicity(c) as usize;
+    let n = data
+        .multiplicities(Label::new(a), Label::new(b), None)
+        .unwrap()
+        .multiplicity(c) as usize;
     let entries = rounded_entries(&data, &ma, &mb, &mc, n).unwrap();
     (entries, [ma, mb, mc], n)
 }
@@ -1547,10 +1560,11 @@ fn failed_gate_is_not_retained_and_retry_succeeds() {
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let fam = GeneralFamily::new(RootSystem::G2);
     let (a, b, c) = (G7.to_vec(), G77P.to_vec(), vec![2, 1]);
-    assert_eq!(fam.mult(&a, &b, &c).unwrap(), 1);
+    let [la, lb, lc] = [&a, &b, &c].map(|x| Label::new(x));
+    assert_eq!(fam.mult(la, lb, lc).unwrap(), 1);
     let resident = || crate::cache::cgc_channel_is_resident(RootSystem::G2, [&a, &b, &c]);
     CORRUPT.with(|x| x.set(Some(|e| e[0].value = f64::NAN)));
-    let err = fam.cgc_entries(&a, &b, &c).err();
+    let err = fam.cgc_entries(la, lb, lc).err();
     CORRUPT.with(|x| x.set(None));
     let err = err.unwrap();
     assert_eq!(
@@ -1559,10 +1573,10 @@ fn failed_gate_is_not_retained_and_retry_succeeds() {
     );
     assert!(matches!(err, LieError::Generation(_)));
     assert!(!resident());
-    let good = fam.cgc_entries(&a, &b, &c).unwrap();
+    let good = fam.cgc_entries(la, lb, lc).unwrap();
     assert!(resident());
     let builds = BUILDS.with(std::cell::Cell::get);
-    let again = fam.cgc_entries(&a, &b, &c).unwrap();
+    let again = fam.cgc_entries(la, lb, lc).unwrap();
     assert_eq!(
         BUILDS.with(std::cell::Cell::get),
         builds,
@@ -1578,6 +1592,7 @@ fn failed_block_gates_are_not_retained() {
     let fam = GeneralFamily::new(RootSystem::C(3));
     let v: &[i64] = &[1, 0, 0];
     let sym: &[i64] = &[2, 0, 0];
+    let (v, sym) = (Label::new(v), Label::new(sym));
     let f = [v, v, v, v, sym, sym];
     let r = [v, v, sym];
     CORRUPT_BLOCK.with(|x| x.set(Some(|x| x * 2.0)));
@@ -1647,7 +1662,9 @@ fn channel_request_builds_each_module_label_once() {
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let fam = GeneralFamily::new(RootSystem::G2);
     let bits = |a: &[i64], b: &[i64], c: &[i64]| {
-        let ch = fam.cgc_entries(a, b, c).unwrap();
+        let ch = fam
+            .cgc_entries(Label::new(a), Label::new(b), Label::new(c))
+            .unwrap();
         (
             ch.mult,
             ch.iter().map(|e| e.value.to_bits()).collect::<Vec<_>>(),
@@ -1694,7 +1711,7 @@ fn f_and_r_requests_build_each_module_label_once() {
     let a2 = GeneralFamily::new(RootSystem::A(2));
     let builds = || BUILDS.with(std::cell::Cell::get)[0];
     let r = |fam: &GeneralFamily, [a, b, c]: [&[i64]; 3]| {
-        let block = r_block_raw(fam, [a, b, c]).unwrap();
+        let block = r_block_raw(fam, [a, b, c].map(Label::new)).unwrap();
         block
             .as_slice()
             .iter()
@@ -1702,7 +1719,7 @@ fn f_and_r_requests_build_each_module_label_once() {
             .collect::<Vec<_>>()
     };
     let f = |fam: &GeneralFamily, l: [[i64; 2]; 6]| {
-        let block = f_block_raw(fam, l.each_ref().map(|x| &x[..])).unwrap();
+        let block = f_block_raw(fam, l.each_ref().map(|x| Label::new(x))).unwrap();
         block
             .as_slice()
             .iter()
@@ -1753,7 +1770,7 @@ fn resident_channels_load_no_module() {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let fam = GeneralFamily::new(RootSystem::A(2));
-    let labels = A2_F6.each_ref().map(|x| &x[..]);
+    let labels = A2_F6.each_ref().map(|x| Label::new(x));
     crate::cache::reset();
     let warm = f_block_raw(&fam, labels).unwrap();
     REQUEST_MODULES.with(|c| c.set([0; 2]));

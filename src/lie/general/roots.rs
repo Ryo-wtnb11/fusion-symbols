@@ -35,6 +35,7 @@ use classical::Series;
 use malachite_nz::integer::Integer;
 use malachite_q::Rational;
 
+use crate::cache::{label_hash, Label};
 use crate::lie::group::cartan;
 use crate::lie::gt::gt_enumerate;
 use crate::lie::{LieError, RootSystem};
@@ -749,6 +750,7 @@ impl CartanData {
         let label = Coordinates {
             dynkin: lambda.into(),
             classical: self.classical(lambda)?.into(),
+            hash: label_hash(lambda),
         };
         let dual = self.opposition(lambda);
         let dual = if dual == lambda {
@@ -756,6 +758,7 @@ impl CartanData {
         } else {
             Some(Coordinates {
                 classical: self.classical(&dual)?.into(),
+                hash: label_hash(&dual),
                 dynkin: dual.into(),
             })
         };
@@ -786,8 +789,8 @@ impl CartanData {
     ) -> Result<Product, LieError> {
         crate::cache::product(
             self.root,
-            a,
-            b,
+            Label::new(a),
+            Label::new(b),
             || self.compute_multiplicities(a, b, None),
             |channels| self.load_product(channels, None),
         )
@@ -799,8 +802,8 @@ impl CartanData {
     ) -> Result<Product, LieError> {
         crate::cache::product(
             self.root,
-            a.dynkin(),
-            b.dynkin(),
+            a.label(),
+            b.label(),
             || self.compute_multiplicities(a.dynkin(), b.dynkin(), Some((a, b))),
             |channels| self.load_product(channels, Some((a, b))),
         )
@@ -829,12 +832,12 @@ impl CartanData {
     }
     pub(super) fn multiplicities(
         &self,
-        a: &[i64],
-        b: &[i64],
+        a: Label<'_>,
+        b: Label<'_>,
         inputs: Option<(&RootIrrep, &RootIrrep)>,
     ) -> Result<Multiplicities, LieError> {
         crate::cache::product_multiplicities(self.root, a, b, || {
-            self.compute_multiplicities(a, b, inputs)
+            self.compute_multiplicities(a.words, b.words, inputs)
         })
     }
     fn compute_multiplicities(
@@ -861,7 +864,7 @@ impl CartanData {
             return Ok(0);
         }
         Ok(self
-            .multiplicities(a.dynkin(), b.dynkin(), Some((a, b)))?
+            .multiplicities(a.label(), b.label(), Some((a, b)))?
             .multiplicity(c.dynkin()))
     }
     /// The Dynkin weight of an `A_r` pattern: `μ_j = w_{j+1} − w_{j+2}` with
@@ -1049,6 +1052,9 @@ mod tests;
 struct Coordinates {
     dynkin: Box<[i64]>,
     classical: Box<[i64]>,
+    /// The cache fingerprint of `dynkin`, so warm coefficient queries hash
+    /// one word per label.
+    hash: u64,
 }
 #[derive(Debug)]
 struct IrrepData {
@@ -1083,6 +1089,14 @@ impl RootIrrep {
     }
     pub(crate) fn dynkin(&self) -> &[i64] {
         &self.coordinates().dynkin
+    }
+    /// The selected view's Dynkin label with its stored cache fingerprint.
+    pub(crate) fn label(&self) -> Label<'_> {
+        let c = self.coordinates();
+        Label {
+            words: &c.dynkin,
+            hash: c.hash,
+        }
     }
     pub(crate) fn dim(&self) -> &Natural {
         &self.data.dim
@@ -1271,8 +1285,8 @@ pub(crate) fn shared_product(a: &RootIrrep, b: &RootIrrep) -> Result<Product, Li
     };
     crate::cache::product(
         a.root(),
-        a.dynkin(),
-        b.dynkin(),
+        a.label(),
+        b.label(),
         || data().compute_multiplicities(a.dynkin(), b.dynkin(), Some((a, b))),
         |channels| data().load_product(channels, Some((a, b))),
     )
