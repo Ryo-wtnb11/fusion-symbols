@@ -3,7 +3,7 @@
 # covers every symmetry family this crate provides.
 [package]
 name = "fusion-symbols"
-version = "0.10.0"
+version = "0.11.0"
 edition = "2021"
 rust-version = "1.99"
 autotests = false
