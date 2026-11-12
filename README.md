@@ -40,7 +40,7 @@ non-abelian groups Rep(G) are not provided.
 
 ```toml
 [dependencies]
-fusion-symbols = "0.10"
+fusion-symbols = "0.11"
 ```
 
 | Feature | Default | Adds |

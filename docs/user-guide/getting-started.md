@@ -13,7 +13,7 @@ Every example compiles with the default features and is mirrored in
 
 ```toml
 [dependencies]
-fusion-symbols = "0.10"
+fusion-symbols = "0.11"
 ```
 
 | You use | Feature |

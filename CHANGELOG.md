@@ -7,6 +7,8 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-12
+
 ### Breaking
 
 - Every simple Lie factor computes its CGC with one exact pipeline, the
@@ -33,8 +35,9 @@ value/gauge rule noted below.
     (SU(3) `64 ⊗ 64`), about 90% of entries in their last bits.
   - SU(2) and every A(1) presentation: block CGC now come from the same
     engine with the vertex sign `(−1)^{j_1+j_2−j_3}` and are bit-identical to
-    the former Condon–Shortley values; F, R and the Frobenius–Schur phase stay
-    closed forms.
+    the former Condon–Shortley values, except values below `2^-1022` (see the
+    subnormal rounding correction below); F, R and the Frobenius–Schur phase
+    stay closed forms.
   - D(r), r odd: the Frobenius–Schur phase of a complex irrep is computed as
     `(−1)^{⟨λ, 2ρ∨⟩} σ_a σ_ā` (§5.3). Complex D(r) labels above `u32::MAX`
     dimensions now return `LieError::LabelOverflow`, as complex E6 labels do.
@@ -78,8 +81,8 @@ value/gauge rule noted below.
   engine and A(1) block CGC are cached in the CGC tier in every build.
 
 - Rename `CoefficientCacheTier::SunProduct` to `Product` (Display `"sun_product"`
-  to `"product"`), without an alias. It now owns all materialized simple-Lie
-  products; `BcdCgc` retains only raw/CGC coefficients, and duals are label-owned.
+  to `"product"`), without an alias. It owns the materialized products of every
+  simple Lie type; duals are label-owned.
 
 - Public exact types now use Malachite: dimensions return `Natural` and
   `SignedSqrtRational` exposes `Rational`. Users name the types through
@@ -119,6 +122,11 @@ value/gauge rule noted below.
     `ZNError::NonCanonicalCharge`; use `ZNIrrep::new` and check `charge < N`
     first where a noncanonical input must be rejected.
 
+### Changed
+
+- The minimum supported Rust version is declared as 1.99
+  (`rust-version` in `Cargo.toml`) and checked in CI.
+
 ### Fixed
 
 - `lie::su2::{wigner_3j, clebsch_gordan}` returned by overflow panic, instead
@@ -132,6 +140,12 @@ value/gauge rule noted below.
   for valid data whose `N ≥ 2` R blocks between different irreps are not
   symmetric, for example SU(3) `27` (0.035), SU(4) `15` (1.0) and G2 `27`
   (0.68).
+
+### Documentation
+
+- A task-oriented getting-started guide and runnable examples for the
+  user-facing API, and an explanation of Dynkin labels; the docs state the
+  exceptional-group support.
 
 ### Dependencies
 
@@ -248,52 +262,19 @@ value/gauge rule noted below.
   N, fusion and coefficient multiplicity checks share the bounded Product tier;
   warm dimensions read stored values. Values, label order and gauges are unchanged.
 
-- Reuse SU(N) descent QR per active target weight and omit unused SVD U,
-  preserving coefficient bits and full right-nullspace vectors.
-
-- Reuse each resident ordered B/C/D decomposition across canonical parents and
-  requested channels, reducing repeated sweeps while preserving coefficient bits.
-
-- B/C/D projections reuse basis transposes and guarded overlaps, preserving
-  every coefficient bit while avoiding repeated allocations and products.
-- Enumerate each B/C/D Weyl-orbit weight once and expand the smaller product
-  factor, with exact identity products and unchanged values, fingerprints and
-  cache keys.
-- B/C/D product ladders use ordered exact-nonzero adjacency for application,
-  preserving coefficient bits and fingerprints while removing dense product storage.
-- Reuse each distinct SU(N) GT basis and ladder within CGC generation and index
-  descent contributions once, preserving coefficient bits and fingerprints.
-- Unifying exact arithmetic removes the exceptional num-conversion boundary.
-  A single-thread release smoke run of 100 large-j Wigner 6j evaluations
-  improved from 0.113 s on `fe4100d` to 0.080 s.
-
-- B/C/D commutator verification keeps Cartans diagonal and uses sequential
-  dense kernels for ladder products, preserving coefficient bits and
-  fingerprints.
+- Malachite exact arithmetic: a single-thread release smoke run of 100
+  large-j Wigner 6j evaluations improved from 0.113 s to 0.080 s.
 - Exceptional modules, nullspaces, descent and radical formation use Malachite
-  rationals throughout. All exact data,
-  coefficient bits and fingerprints are unchanged. A sequential release E₈
-  `248⁴` F-unitarity smoke run improved from 6.176 s to 2.879 s (2.15×).
-- Exceptional module construction reuses exact residual inner products for
-  Gram–Schmidt and lowering, storing only kept-candidate coordinates. CGC
-  descent scans the smaller weight set and copies the unit-coefficient
-  candidate before adding corrections. Every rational, coefficient bit and
-  fingerprint is unchanged.
-- SU(N) CGC orthonormality verification validates exact weight support once
-  and compares columns only within output-weight blocks, preserving every
-  coefficient bit, tolerance and authority fingerprint.
-- Exceptional highest-weight assembly and exact elimination retain only
-  nonzero rational coordinates, preserving the canonical pivot basis and every
-  coefficient bit. Sequential release E₈ `248⁴` F-unitarity improved from
-  13.026 s to 10.475 s (1.24×), with median peak RSS reduced from 2.65 to
-  0.85 GiB; `248 ⊗ 27000/30380 → 248` queries improved by 1.28×.
-- Exceptional per-group memos evict whole completed entries after queries
-  within the existing 512-entry/256 MiB estimated-retention limits, keeping
-  rounded channels and paired E₆ phases ahead of modules. Retained channel
-  clones and policy metadata are charged. Sequential release E₈ `248⁴`
-  F-unitarity improved from 74.61 s to 15.80 s (4.72×), with module builds
-  reduced from 38 to 8 and channel builds from 64 to 13. Values, fingerprints,
-  `reset_catalog` and poison recovery are unchanged.
+  rationals throughout; module construction reuses exact residual inner
+  products for Gram–Schmidt and lowering, and highest-weight assembly and
+  exact elimination retain only nonzero rational coordinates. Every
+  coefficient bit and the canonical pivot basis are unchanged.
+
+- Regression: a warm `nsymbol` on a simple Lie group of rank at least two
+  binary-searches the Product-tier channel list through one extra pointer
+  per comparison and costs about 10–20 ns more than before the shared
+  root-system layer (1.24–1.67× on SU(6), SO(12) and Sp(8)). It does not
+  allocate (#252).
 
 ## [0.10.0] - 2026-10-28
 
@@ -1289,12 +1270,12 @@ Coefficient *values* are floating point, but the *computation* is exact:
 combinatorial structure, discrete data (duals, signs, Frobenius–Schur phases),
 and gauge fixing are deterministic. Any change that can alter a coefficient
 value, its normalization, or its canonical gauge is a **breaking** change, so
-consumers may key caches and persisted data on the crate version. For the base
-SU(2) provider this rule is mechanized by `su2_authority_fingerprint()`: its
-epoch is bumped only on such a value-affecting release, so a fingerprint change
-and a breaking release are one reviewable event.
+consumers may key caches and persisted data on the crate version. Such a
+change ships as a specification edit, a breaking entry in this file,
+regenerated golden values and a semver-breaking release, in one pull request.
 
-[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.9.0...v0.9.1
