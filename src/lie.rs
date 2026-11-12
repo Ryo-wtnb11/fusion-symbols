@@ -983,7 +983,7 @@ impl FusionCategory for LieGroup {
             }
             return self
                 .engine()
-                .frobenius_schur_phase(x.dynkin(), x.dual().dynkin())
+                .frobenius_schur_phase(x.label(), x.dual().label())
                 .map(f64::from);
         }
         Ok(su2::fs_phase(a.dj()))
@@ -1158,7 +1158,7 @@ impl FusionCategory for LieGroup {
         {
             return self
                 .engine()
-                .f_symbol([a, b, c, d, e, f].map(|x| x.dynkin()));
+                .f_symbol([a, b, c, d, e, f].map(|x| x.label()));
         }
         unreachable!("higher-rank labels have a generated payload")
     }
@@ -1207,7 +1207,7 @@ impl FusionCategory for LieGroup {
             });
         }
         if let (Some(a), Some(b), Some(c)) = (a.simple(), b.simple(), c.simple()) {
-            return self.engine().r_symbol([a.dynkin(), b.dynkin(), c.dynkin()]);
+            return self.engine().r_symbol([a.label(), b.label(), c.label()]);
         }
         unreachable!("higher-rank labels have a generated payload")
     }
@@ -1368,9 +1368,7 @@ impl GroupRepresentations for LieGroup {
         }
         if let (Some(a), Some(b), Some(c)) = (a.simple(), b.simple(), c.simple()) {
             let [da, db, dc] = [a, b, c].map(|x| checked_dimension(x.dim()));
-            let channel = self
-                .engine()
-                .cgc_entries(a.dynkin(), b.dynkin(), c.dynkin())?;
+            let channel = self.engine().cgc_entries(a.label(), b.label(), c.label())?;
             return Ok(LieCgc {
                 composite: None,
                 dims: [da?, db?, dc?, channel.mult],
@@ -1386,8 +1384,12 @@ impl GroupRepresentations for LieGroup {
             });
         }
         let [da, db, dc] = [a, b, c].map(a1_dimension);
-        let channel =
-            general::a1().cgc_entries(&[i64::from(a)], &[i64::from(b)], &[i64::from(c)])?;
+        let [a, b, c] = [a, b, c].map(|x| [i64::from(x)]);
+        let channel = general::a1().cgc_entries(
+            crate::cache::Label::new(&a),
+            crate::cache::Label::new(&b),
+            crate::cache::Label::new(&c),
+        )?;
         Ok(LieCgc {
             composite: None,
             dims: [da?, db?, dc?, channel.mult],
@@ -1690,18 +1692,20 @@ mod tests {
     /// G2 values through `LieGroup` are the engine's values, bit for bit.
     #[test]
     fn exceptional_values_are_the_engine_values() {
+        use crate::cache::Label;
         use crate::frcore::f_block_raw;
         let g = LieGroup::new(GroupId::g2()).unwrap();
         let fam = general::GeneralFamily::new(RootSystem::G2);
         let (v, adj) = (vec![1, 0], vec![0, 1]);
         let [lv, ladj] = [&v, &adj].map(|x| g.irrep(x).unwrap());
         let got = g.f_symbol(&lv, &lv, &lv, &lv, &ladj, &ladj).unwrap();
-        let want = f_block_raw(&fam, [&v, &v, &v, &v, &adj, &adj]).unwrap();
+        let (v, adj) = (Label::new(&v), Label::new(&adj));
+        let want = f_block_raw(&fam, [v, v, v, v, adj, adj]).unwrap();
         assert_eq!(got.dims(), want.dims());
         let bits = |x: &[f64]| x.iter().map(|y| y.to_bits()).collect::<Vec<_>>();
         assert_eq!(bits(got.as_slice()), bits(want.as_slice()));
         let cgc = g.cgc(&lv, &lv, &ladj).unwrap();
-        let entries = fam.cgc_entries(&v, &v, &adj).unwrap();
+        let entries = fam.cgc_entries(v, v, adj).unwrap();
         for e in entries.iter() {
             let at = [e.m1, e.m2, e.m3, e.mu].map(|i| i as usize);
             assert_eq!(cgc.get(at).to_bits(), e.value.to_bits());

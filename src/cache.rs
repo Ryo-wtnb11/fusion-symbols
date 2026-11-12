@@ -84,7 +84,7 @@
 //! [`reset`].
 
 use malachite_base::num::logic::traits::SignificantBits;
-use std::hash::Hash;
+use std::hash::{BuildHasher, Hash};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, OnceLock};
 
@@ -94,6 +94,10 @@ use crate::lie::general::cgc::{CgcChannel, Ladders};
 use crate::lie::general::roots::{Multiplicities, Product, ProductValue};
 use crate::lie::su2::{FKey, Regge3j, Regge6j};
 use crate::lie::RootSystem;
+
+mod fingerprint;
+use fingerprint::{key_hash, FoldBuild};
+pub(crate) use fingerprint::{label_hash, Label};
 
 /// Default entry cap of the Wigner and F tiers. Matches the reference order of
 /// magnitude (WignerSymbols.jl uses `10^6`); the retained-charge cap is the real
@@ -567,28 +571,17 @@ fn hit_stripe() -> usize {
     STRIPE.try_with(|stripe| *stripe).unwrap_or(0) % HIT_STRIPES
 }
 
-type Guard<'a, K, V> = quick_cache::sync::PlaceholderGuard<
-    'a,
-    K,
-    Charged<V>,
-    ByteWeighter,
-    quick_cache::DefaultHashBuilder,
-    Evictions,
->;
+type Guard<'a, K, V, B> =
+    quick_cache::sync::PlaceholderGuard<'a, K, Charged<V>, ByteWeighter, B, Evictions>;
 
-type Store<K, V> = quick_cache::sync::Cache<
-    K,
-    Charged<V>,
-    ByteWeighter,
-    quick_cache::DefaultHashBuilder,
-    Evictions,
->;
+type Store<K, V, B> = quick_cache::sync::Cache<K, Charged<V>, ByteWeighter, B, Evictions>;
 
 /// Byte-weighted Clock-PRO cache. Hits take one quick_cache reader stripe and
 /// one hit-counter stripe. Publication, explicit removal and snapshots share a
-/// miss-path-only lock.
-struct CoefficientCache<K, V> {
-    inner: Store<K, V>,
+/// miss-path-only lock. `B` hashes keys: the label tiers use [`FoldBuild`],
+/// the Wigner tiers keep quick_cache's foldhash.
+struct CoefficientCache<K, V, B = quick_cache::DefaultHashBuilder> {
+    inner: Store<K, V, B>,
     publication: std::sync::Mutex<()>,
     /// The reset epoch, shared by every process-wide tier ([`RESETS`]).
     epoch: &'static AtomicU64,
@@ -618,20 +611,27 @@ struct Probes {
 /// in every tier it touches.
 static RESETS: AtomicU64 = AtomicU64::new(0);
 
+#[cfg(test)]
 impl<K: Clone + Eq + Hash + CacheKeyCharge, V: Clone + CacheCharge> CoefficientCache<K, V> {
-    /// A process-wide tier, invalidated with the others.
-    fn shared(max_entries: usize, max_bytes: usize) -> Self {
-        Self::with_epoch(max_entries, max_bytes, &RESETS)
-    }
-
     /// A test-local cache with its own reset epoch.
-    #[cfg(test)]
     fn new(max_entries: usize, max_bytes: usize) -> Self {
         Self::with_epoch(
             max_entries,
             max_bytes,
             Box::leak(Box::new(AtomicU64::new(0))),
         )
+    }
+}
+
+impl<K, V, B> CoefficientCache<K, V, B>
+where
+    K: Clone + Eq + Hash + CacheKeyCharge,
+    V: Clone + CacheCharge,
+    B: BuildHasher + Clone + Default,
+{
+    /// A process-wide tier, invalidated with the others.
+    fn shared(max_entries: usize, max_bytes: usize) -> Self {
+        Self::with_epoch(max_entries, max_bytes, &RESETS)
     }
 
     fn with_epoch(max_entries: usize, max_bytes: usize, epoch: &'static AtomicU64) -> Self {
@@ -654,7 +654,7 @@ impl<K: Clone + Eq + Hash + CacheKeyCharge, V: Clone + CacheCharge> CoefficientC
             ByteWeighter {
                 minimum: max_bytes.div_ceil(max_entries),
             },
-            quick_cache::DefaultHashBuilder::default(),
+            B::default(),
             Evictions(evictions.clone(), retained_bytes.clone()),
         );
         Self {
@@ -711,7 +711,7 @@ impl<K: Clone + Eq + Hash + CacheKeyCharge, V: Clone + CacheCharge> CoefficientC
         &self,
         key: &Q,
         own: impl FnOnce() -> K,
-        compute: impl FnOnce(&Publisher<'_, K, V>) -> Result<V, E>,
+        compute: impl FnOnce(&Publisher<'_, K, V, B>) -> Result<V, E>,
     ) -> Result<V, E> {
         match self.get(key) {
             Some(value) => Ok(value),
@@ -731,7 +731,7 @@ impl<K: Clone + Eq + Hash + CacheKeyCharge, V: Clone + CacheCharge> CoefficientC
     fn miss<E>(
         &self,
         own: impl FnOnce() -> K,
-        compute: impl FnOnce(&Publisher<'_, K, V>) -> Result<V, E>,
+        compute: impl FnOnce(&Publisher<'_, K, V, B>) -> Result<V, E>,
     ) -> Result<V, E> {
         let epoch = GENERATION
             .with(std::cell::Cell::get)
@@ -743,7 +743,7 @@ impl<K: Clone + Eq + Hash + CacheKeyCharge, V: Clone + CacheCharge> CoefficientC
     /// waited-for value. A sibling publication replaces a placeholder without
     /// filling it, so a guard (possibly handed off) may cover a resident key;
     /// its winner is then delivered to the waiters instead of recomputed.
-    fn guard(&self, key: &K) -> Result<Guard<'_, K, V>, Charged<V>> {
+    fn guard(&self, key: &K) -> Result<Guard<'_, K, V, B>, Charged<V>> {
         #[cfg(test)]
         self.probes.attempts.fetch_add(1, Ordering::SeqCst);
         let guard = match self.inner.get_value_or_guard(key, None) {
@@ -767,7 +767,7 @@ impl<K: Clone + Eq + Hash + CacheKeyCharge, V: Clone + CacheCharge> CoefficientC
     }
 
     /// Publish through a guard; the caller holds the publication mutex.
-    fn fill(&self, guard: Guard<'_, K, V>, key: &K, value: V) -> V {
+    fn fill(&self, guard: Guard<'_, K, V, B>, key: &K, value: V) -> V {
         if let Some(stored) = self.inner.peek(key) {
             let _ = guard.insert(stored.clone());
             return self.hit(stored);
@@ -792,7 +792,7 @@ impl<K: Clone + Eq + Hash + CacheKeyCharge, V: Clone + CacheCharge> CoefficientC
     }
 
     #[cfg(test)]
-    fn publisher(&self) -> Publisher<'_, K, V> {
+    fn publisher(&self) -> Publisher<'_, K, V, B> {
         Publisher {
             cache: self,
             epoch: self.epoch.load(Ordering::SeqCst),
@@ -814,10 +814,11 @@ trait TierControl: Sync {
     }
 }
 
-impl<K, V> TierControl for CoefficientCache<K, V>
+impl<K, V, B> TierControl for CoefficientCache<K, V, B>
 where
     K: Clone + Eq + Hash + CacheKeyCharge + Send + Sync,
     V: Clone + CacheCharge + Send + Sync,
+    B: BuildHasher + Clone + Default + Send + Sync,
 {
     fn reset(&self) {
         let _publication = self.publication.lock().unwrap();
@@ -876,12 +877,17 @@ where
 
 /// The reset epoch of one generation, inherited by its nested loads in every
 /// tier: a value generated after a reset began is returned but not retained.
-struct Publisher<'a, K, V> {
-    cache: &'a CoefficientCache<K, V>,
+struct Publisher<'a, K, V, B> {
+    cache: &'a CoefficientCache<K, V, B>,
     epoch: u64,
 }
 
-impl<K: Clone + Eq + Hash + CacheKeyCharge, V: Clone + CacheCharge> Publisher<'_, K, V> {
+impl<K, V, B> Publisher<'_, K, V, B>
+where
+    K: Clone + Eq + Hash + CacheKeyCharge,
+    V: Clone + CacheCharge,
+    B: BuildHasher + Clone + Default,
+{
     /// Nested work inherits this generation's epoch even if reset precedes
     /// acquisition of its own placeholder.
     fn get_or_try_compute<Q: Hash + quick_cache::Equivalent<K> + ?Sized, E>(
@@ -961,9 +967,22 @@ pub(crate) struct LabelKey {
     labels: Box<[i64]>,
 }
 
+impl LabelKey {
+    /// The hash of this key in key form `form`, from fingerprints recomputed
+    /// per rank-sized label. Owned keys store no hash: they are hashed only
+    /// off the warm path.
+    fn key_hash(&self, form: u64) -> u64 {
+        key_hash(
+            form | u64::from(self.kind),
+            self.root,
+            self.labels.chunks_exact(self.root.rank()).map(label_hash),
+        )
+    }
+}
+
 impl Hash for LabelKey {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        hash_labels(self.kind, self.root, [&self.labels[..]], state);
+        state.write_u64(self.key_hash(0));
     }
 }
 
@@ -973,30 +992,36 @@ impl CacheKeyCharge for LabelKey {
     }
 }
 
-/// The same key, borrowed, so a warm lookup owns no label buffer.
+/// The same key, borrowed, so a warm lookup owns no label buffer and hashes
+/// the stored fingerprints only.
 struct LabelRef<'a, const N: usize> {
     kind: u8,
     root: RootSystem,
-    parts: [&'a [i64]; N],
+    parts: [Label<'a>; N],
 }
 
-/// One hash for [`LabelKey`] and [`LabelRef`]: equivalent keys must agree.
-fn hash_labels<H: std::hash::Hasher, const N: usize>(
-    kind: u8,
-    root: RootSystem,
-    parts: [&[i64]; N],
-    state: &mut H,
-) {
-    kind.hash(state);
-    root.hash(state);
-    for x in parts.iter().flat_map(|p| p.iter()) {
-        x.hash(state);
+impl<const N: usize> LabelRef<'_, N> {
+    /// [`LabelKey::key_hash`] of the owned form, from the stored fingerprints.
+    fn key_hash(&self, form: u64) -> u64 {
+        key_hash(
+            form | u64::from(self.kind),
+            self.root,
+            self.parts.iter().map(|p| p.hash),
+        )
+    }
+
+    fn to_key(&self) -> LabelKey {
+        LabelKey {
+            kind: self.kind,
+            root: self.root,
+            labels: self.parts.map(|p| p.words).concat().into_boxed_slice(),
+        }
     }
 }
 
 impl<const N: usize> Hash for LabelRef<'_, N> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        hash_labels(self.kind, self.root, self.parts, state);
+        state.write_u64(self.key_hash(0));
     }
 }
 
@@ -1007,18 +1032,8 @@ impl<const N: usize> quick_cache::Equivalent<LabelKey> for LabelRef<'_, N> {
             && self
                 .parts
                 .iter()
-                .flat_map(|p| p.iter())
+                .flat_map(|p| p.words)
                 .eq(key.labels.iter())
-    }
-}
-
-impl<const N: usize> LabelRef<'_, N> {
-    fn to_key(&self) -> LabelKey {
-        LabelKey {
-            kind: self.kind,
-            root: self.root,
-            labels: self.parts.concat().into_boxed_slice(),
-        }
     }
 }
 
@@ -1079,18 +1094,16 @@ enum FSymbolKey {
     Cartan(LabelKey),
 }
 
+/// Key forms of the shared F tier, so SU(2) and Cartan keys hash apart.
+const F_CARTAN: u64 = 0x100;
+const F_SU2: u64 = 0x200;
+
 impl Hash for FSymbolKey {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        match self {
-            Self::Su2(key) => {
-                0u8.hash(state);
-                key.hash(state);
-            }
-            Self::Cartan(key) => {
-                1u8.hash(state);
-                key.hash(state);
-            }
-        }
+        state.write_u64(match self {
+            Self::Su2(key) => key_hash(F_SU2, RootSystem::A(1), key.words()),
+            Self::Cartan(key) => key.key_hash(F_CARTAN),
+        });
     }
 }
 
@@ -1108,8 +1121,7 @@ struct FCartanRef<'a>(LabelRef<'a, 6>);
 
 impl Hash for FCartanRef<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        1u8.hash(state);
-        self.0.hash(state);
+        state.write_u64(self.0.key_hash(F_CARTAN));
     }
 }
 
@@ -1139,7 +1151,7 @@ impl CacheCharge for FValue {
 /// The F tier. A warm SU(2) hit returns a `Copy` scalar without re-running the
 /// big-integer `sqrt` of [`SignedSqrtRational::to_f64`]; a warm Cartan hit
 /// returns the shared block without recontracting four CGC.
-static CACHE_F: LazyLock<CoefficientCache<FSymbolKey, FValue>> = LazyLock::new(|| {
+static CACHE_F: LazyLock<CoefficientCache<FSymbolKey, FValue, FoldBuild>> = LazyLock::new(|| {
     CoefficientCache::shared(DEFAULT_MAX_ENTRIES, effective_budgets().f_symbol_bytes)
 });
 
@@ -1157,7 +1169,7 @@ pub(crate) fn su2_f<E>(key: FKey, compute: impl FnOnce() -> Result<f64, E>) -> R
 #[inline]
 pub(crate) fn f_block<E>(
     root: RootSystem,
-    parts: [&[i64]; 6],
+    parts: [Label<'_>; 6],
     compute: impl FnOnce() -> Result<FBlock<f64>, E>,
 ) -> Result<FBlock<f64>, E> {
     let key = FCartanRef(LabelRef {
@@ -1178,14 +1190,14 @@ pub(crate) fn f_block<E>(
 /// The R tier: Cartan-engine blocks keyed by the ordered triple, since
 /// `R^{ab}_c` and `R^{ba}_c` are different blocks. SUNRepresentations
 /// (`sector.jl:Rsymbol`, `RCACHE`) caches R blocks for the same reason.
-static CACHE_R: LazyLock<CoefficientCache<LabelKey, RBlock<f64>>> =
+static CACHE_R: LazyLock<CoefficientCache<LabelKey, RBlock<f64>, FoldBuild>> =
     LazyLock::new(|| CoefficientCache::shared(R_MAX_ENTRIES, effective_budgets().r_symbol_bytes));
 
 /// Cartan-engine R block of the three labels as given.
 #[inline]
 pub(crate) fn r_block<E>(
     root: RootSystem,
-    parts: [&[i64]; 3],
+    parts: [Label<'_>; 3],
     compute: impl FnOnce() -> Result<RBlock<f64>, E>,
 ) -> Result<RBlock<f64>, E> {
     let key = LabelRef {
@@ -1225,13 +1237,13 @@ const MODULE: u8 = 0;
 const CHANNEL: u8 = 1;
 const PHASE: u8 = 2;
 
-static CACHE_CGC: LazyLock<CoefficientCache<LabelKey, CgcValue>> =
+static CACHE_CGC: LazyLock<CoefficientCache<LabelKey, CgcValue, FoldBuild>> =
     LazyLock::new(|| CoefficientCache::shared(CGC_MAX_ENTRIES, effective_budgets().cgc_bytes));
 
 fn cgc_load<const N: usize, E>(
     kind: u8,
     root: RootSystem,
-    parts: [&[i64]; N],
+    parts: [Label<'_>; N],
     compute: impl FnOnce() -> Result<CgcValue, E>,
 ) -> Result<CgcValue, E> {
     let key = LabelRef { kind, root, parts };
@@ -1241,7 +1253,7 @@ fn cgc_load<const N: usize, E>(
 /// The irrep module of `label`.
 pub(crate) fn cgc_module<E>(
     root: RootSystem,
-    label: &[i64],
+    label: Label<'_>,
     compute: impl FnOnce() -> Result<Arc<Ladders>, E>,
 ) -> Result<Arc<Ladders>, E> {
     match cgc_load(MODULE, root, [label], || compute().map(CgcValue::Module))? {
@@ -1253,7 +1265,7 @@ pub(crate) fn cgc_module<E>(
 /// The completed, gated channel of the ordered triple.
 pub(crate) fn cgc_channel<E>(
     root: RootSystem,
-    parts: [&[i64]; 3],
+    parts: [Label<'_>; 3],
     compute: impl FnOnce() -> Result<Arc<CgcChannel>, E>,
 ) -> Result<Arc<CgcChannel>, E> {
     match cgc_load(CHANNEL, root, parts, || compute().map(CgcValue::Channel))? {
@@ -1265,7 +1277,7 @@ pub(crate) fn cgc_channel<E>(
 /// The computed phase `κ` of a complex pair, keyed by its smaller label.
 pub(crate) fn cgc_phase<E>(
     root: RootSystem,
-    label: &[i64],
+    label: Label<'_>,
     compute: impl FnOnce() -> Result<i8, E>,
 ) -> Result<i8, E> {
     match cgc_load(PHASE, root, [label], || compute().map(CgcValue::Phase))? {
@@ -1276,13 +1288,29 @@ pub(crate) fn cgc_phase<E>(
 
 /// Bounded exact simple-Lie products. Keys omit global form and distinguish
 /// root presentations; the flag selects the label-free projection.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct ProductKey(RootSystem, Box<[i64]>, Box<[i64]>, bool);
-#[derive(Hash)]
-struct ProductRef<'a>(RootSystem, &'a [i64], &'a [i64], bool);
+/// The borrowed key; its labels are already in the canonical word order.
+struct ProductRef<'a>(RootSystem, Label<'a>, Label<'a>, bool);
+const PRODUCT: u64 = 0x300;
+impl Hash for ProductKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let parts = [label_hash(&self.1), label_hash(&self.2)];
+        state.write_u64(key_hash(PRODUCT | u64::from(self.3), self.0, parts));
+    }
+}
+impl Hash for ProductRef<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let parts = [self.1.hash, self.2.hash];
+        state.write_u64(key_hash(PRODUCT | u64::from(self.3), self.0, parts));
+    }
+}
 impl quick_cache::Equivalent<ProductKey> for ProductRef<'_> {
     fn equivalent(&self, k: &ProductKey) -> bool {
-        self.0 == k.0 && self.1 == k.1.as_ref() && self.2 == k.2.as_ref() && self.3 == k.3
+        self.0 == k.0
+            && self.1.words == k.1.as_ref()
+            && self.2.words == k.2.as_ref()
+            && self.3 == k.3
     }
 }
 impl CacheKeyCharge for ProductKey {
@@ -1292,27 +1320,28 @@ impl CacheKeyCharge for ProductKey {
             .saturating_add(std::mem::size_of_val(self.2.as_ref()))
     }
 }
-static CACHE_PRODUCT: LazyLock<CoefficientCache<ProductKey, ProductValue>> = LazyLock::new(|| {
-    CoefficientCache::shared(PRODUCT_MAX_ENTRIES, effective_budgets().product_bytes)
-});
+static CACHE_PRODUCT: LazyLock<CoefficientCache<ProductKey, ProductValue, FoldBuild>> =
+    LazyLock::new(|| {
+        CoefficientCache::shared(PRODUCT_MAX_ENTRIES, effective_budgets().product_bytes)
+    });
 
 /// One form-free, symmetric exact product store; the loader takes no other lock.
 pub(crate) fn product<E>(
     root: RootSystem,
-    a: &[i64],
-    b: &[i64],
+    a: Label<'_>,
+    b: Label<'_>,
     compute: impl FnOnce() -> Result<Multiplicities, E>,
     labels: impl FnOnce(Multiplicities) -> Result<Product, E>,
 ) -> Result<Product, E> {
-    let (a, b) = if a <= b { (a, b) } else { (b, a) };
+    let (a, b) = if a.words <= b.words { (a, b) } else { (b, a) };
     match CACHE_PRODUCT.get_or_try_sweep(
         &ProductRef(root, a, b, false),
-        || ProductKey(root, a.into(), b.into(), false),
+        || ProductKey(root, a.words.into(), b.words.into(), false),
         |publisher| {
             // The child inherits the label loader's reset epoch, including before its own guard.
             let raw = publisher.get_or_try_compute(
                 &ProductRef(root, a, b, true),
-                || ProductKey(root, a.into(), b.into(), true),
+                || ProductKey(root, a.words.into(), b.words.into(), true),
                 || compute().map(ProductValue::Multiplicities),
             )?;
             match raw {
@@ -1328,13 +1357,13 @@ pub(crate) fn product<E>(
 
 pub(crate) fn product_multiplicities<E>(
     root: RootSystem,
-    a: &[i64],
-    b: &[i64],
+    a: Label<'_>,
+    b: Label<'_>,
     compute: impl FnOnce() -> Result<Multiplicities, E>,
 ) -> Result<Multiplicities, E> {
-    let (a, b) = if a <= b { (a, b) } else { (b, a) };
+    let (a, b) = if a.words <= b.words { (a, b) } else { (b, a) };
     let key = ProductRef(root, a, b, true);
-    let own = || ProductKey(root, a.into(), b.into(), true);
+    let own = || ProductKey(root, a.words.into(), b.words.into(), true);
     let compute = || compute().map(ProductValue::Multiplicities);
     let value = CACHE_PRODUCT.get_or_try_compute(&key, own, compute)?;
     match value {
@@ -1481,7 +1510,7 @@ pub(crate) fn product_multiplicities_are_resident(root: RootSystem, a: &[i64], b
     let (a, b) = if a <= b { (a, b) } else { (b, a) };
     CACHE_PRODUCT
         .inner
-        .peek(&ProductRef(root, a, b, true))
+        .peek(&ProductRef(root, Label::new(a), Label::new(b), true))
         .is_some()
 }
 
@@ -1493,7 +1522,7 @@ pub(crate) fn cgc_channel_is_resident(root: RootSystem, parts: [&[i64]; 3]) -> b
         .peek(&LabelRef {
             kind: CHANNEL,
             root,
-            parts,
+            parts: parts.map(Label::new),
         })
         .is_some()
 }
@@ -1506,7 +1535,7 @@ pub(crate) fn cgc_phase_is_resident(root: RootSystem, label: &[i64]) -> bool {
         .peek(&LabelRef {
             kind: PHASE,
             root,
-            parts: [label],
+            parts: [Label::new(label)],
         })
         .is_some()
 }
@@ -1519,7 +1548,7 @@ pub(crate) fn cgc_module_is_resident(root: RootSystem, label: &[i64]) -> bool {
         .peek(&LabelRef {
             kind: MODULE,
             root,
-            parts: [label],
+            parts: [Label::new(label)],
         })
         .is_some()
 }
@@ -1599,7 +1628,7 @@ mod tests {
 
     fn channel_fixture() -> (LabelKey, CgcValue) {
         let fam = crate::lie::general::GeneralFamily::new(RootSystem::A(2));
-        let eight: &[i64] = &[1, 1];
+        let eight = Label::new(&[1, 1]);
         let value = CgcValue::Channel(fam.cgc_entries(eight, eight, eight).unwrap());
         let key = LabelRef {
             kind: CHANNEL,
@@ -1800,6 +1829,7 @@ mod tests {
         // per label entry.
         let labels: [&[i64]; 2] = [&[1; 12], &[1; 6]];
         let [long, short] = labels.map(|label| {
+            let label = Label::new(label);
             let channel = LabelRef {
                 kind: CHANNEL,
                 root: RootSystem::C(12),
@@ -1980,7 +2010,7 @@ mod tests {
             LabelRef {
                 kind: CHANNEL,
                 root: RootSystem::A(12),
-                parts: [&label[..], &label, &label],
+                parts: [Label::new(&label); 3],
             }
             .to_key()
         };
@@ -2007,7 +2037,7 @@ mod tests {
     #[test]
     fn cgc_tier_charges_storage_bytes_and_evicts_by_bytes() {
         let fam = crate::lie::general::GeneralFamily::new(RootSystem::A(2));
-        let module = fam.module(&[1, 1]).unwrap();
+        let module = fam.module(Label::new(&[1, 1])).unwrap();
         let (ka, a) = channel_fixture();
         // Purpose: a charge covers the owned payload, so the byte cap bounds
         // real storage.
@@ -2020,7 +2050,7 @@ mod tests {
         let kb = LabelRef {
             kind: MODULE,
             root: RootSystem::A(2),
-            parts: [&[1i64, 1][..]],
+            parts: [Label::new(&[1, 1])],
         }
         .to_key();
         // A budget that fits only one entry must evict or reject one.
@@ -2040,8 +2070,7 @@ mod tests {
     #[test]
     fn f_tier_charges_block_bytes_and_evicts_by_bytes() {
         let fam = crate::lie::general::GeneralFamily::new(RootSystem::A(2));
-        let (e8, three, six, one): (&[i64], &[i64], &[i64], &[i64]) =
-            (&[1, 1], &[1, 0], &[2, 0], &[0, 0]);
+        let [e8, three, six, one] = [&[1, 1], &[1, 0], &[2, 0], &[0, 0]].map(|x| Label::new(x));
         // The 2×2×2×2 block of 8⊗8→8 and a multiplicity-free one.
         let a = FValue::Block(fam.f_symbol([e8; 6]).unwrap());
         let b = FValue::Block(fam.f_symbol([one, three, three, six, three, six]).unwrap());
@@ -2079,7 +2108,7 @@ mod tests {
     #[test]
     fn r_tier_charges_block_bytes_and_evicts_by_bytes() {
         let fam = crate::lie::general::GeneralFamily::new(RootSystem::A(2));
-        let (e8, three, bar): (&[i64], &[i64], &[i64]) = (&[1, 1], &[1, 0], &[0, 1]);
+        let [e8, three, bar] = [&[1, 1], &[1, 0], &[0, 1]].map(|x| Label::new(x));
         // The 2×2 octet block shares an Arc; a 1×1 block is inline.
         let a = fam.r_symbol([e8, e8, e8]).unwrap();
         let b = fam.r_symbol([three, bar, e8]).unwrap();
@@ -2348,7 +2377,7 @@ mod tests {
                 Ok(1.0)
             );
         }
-        let (a, b): (&[i64], &[i64]) = (&[0, 0], &[1, 0]);
+        let [a, b] = [&[0, 0], &[1, 0]].map(|x| Label::new(x));
         let root = RootSystem::A(2);
         for kind in [MODULE, CHANNEL, PHASE] {
             let three = LabelRef {
@@ -2365,23 +2394,8 @@ mod tests {
         };
         hit(FSymbolKey::Cartan(six.to_key()), &FCartanRef(six));
         hit(
-            ProductKey(root, a.into(), b.into(), false),
+            ProductKey(root, a.words.into(), b.words.into(), false),
             &ProductRef(root, a, b, false),
-        );
-        // Labels are compared by content, not by their split into parts.
-        let split = LabelRef {
-            kind: CHANNEL,
-            root,
-            parts: [&[0i64, 0, 1][..], &[0, 1], &[0]],
-        };
-        hit(
-            LabelRef {
-                kind: CHANNEL,
-                root,
-                parts: [a, b, b],
-            }
-            .to_key(),
-            &split,
         );
         // Different kinds and root presentations never collide.
         let cache = CoefficientCache::new(16, 1 << 20);
@@ -2462,11 +2476,11 @@ mod tests {
             quick_cache::sync::DefaultLifecycle::default(),
         );
         let regge = canonical_regge_6j(1, 1, 0, 1, 1, 0).unwrap();
-        let positive = FKey::new(regge, 1, false);
-        let negative = FKey::new(regge, 1, true);
-        cache.insert(positive, 0.5f64);
-        cache.insert(negative, -0.5f64);
-        // &FKey uses the same borrowed Equivalent path as the base F tier.
+        let positive = FSymbolKey::Su2(FKey::new(regge, 1, false));
+        let negative = FSymbolKey::Su2(FKey::new(regge, 1, true));
+        cache.insert(positive.clone(), 0.5f64);
+        cache.insert(negative.clone(), -0.5f64);
+        // The same key and Equivalent path as the base F tier.
         assert_eq!(cache.get(&positive), Some(0.5));
         assert_eq!(cache.get(&negative), Some(-0.5));
     }
@@ -2701,5 +2715,94 @@ mod tests {
         }
         let stats = cache.tier_stats();
         assert_eq!((stats.hits, stats.misses), (16_000, 1));
+    }
+
+    /// Purpose: for every root type and key form, a borrowed query (stored
+    /// fingerprints) hashes like its owned key (fingerprints recomputed from
+    /// the words) on the tier hasher and is equivalent to it; a forced-equal
+    /// hash never makes unequal keys equivalent.
+    #[test]
+    fn label_keys_hash_alike_and_compare_exactly() {
+        use quick_cache::Equivalent;
+        fn agree<K: Hash, Q: Hash + Equivalent<K>>(owned: &K, borrowed: &Q, at: RootSystem) {
+            assert_eq!(
+                FoldBuild.hash_one(owned),
+                FoldBuild.hash_one(borrowed),
+                "{at:?}"
+            );
+            assert!(borrowed.equivalent(owned), "{at:?}");
+        }
+        let roots = [
+            RootSystem::A(1),
+            RootSystem::A(3),
+            RootSystem::B(3),
+            RootSystem::C(4),
+            RootSystem::D(4),
+            RootSystem::D(5),
+            RootSystem::G2,
+            RootSystem::F4,
+            RootSystem::E6,
+            RootSystem::E7,
+            RootSystem::E8,
+        ];
+        for root in roots {
+            let r = root.rank();
+            let words: Vec<Vec<i64>> = (0..3)
+                .map(|i| (0..r as i64).map(|j| (i * 7 + j * 3) % 5 - i).collect())
+                .collect();
+            let [a, b, c] = [0, 1, 2].map(|i| Label::new(&words[i]));
+            for kind in [MODULE, CHANNEL, PHASE] {
+                let one = LabelRef {
+                    kind,
+                    root,
+                    parts: [a],
+                };
+                agree(&one.to_key(), &one, root);
+                let three = LabelRef {
+                    kind,
+                    root,
+                    parts: [a, b, c],
+                };
+                agree(&three.to_key(), &three, root);
+            }
+            let six = FCartanRef(LabelRef {
+                kind: 0,
+                root,
+                parts: [a, b, c, c, b, a],
+            });
+            agree(&FSymbolKey::Cartan(six.0.to_key()), &six, root);
+            for flag in [false, true] {
+                agree(
+                    &ProductKey(root, a.words.into(), b.words.into(), flag),
+                    &ProductRef(root, a, b, flag),
+                    root,
+                );
+            }
+            // Unequal keys forced to one hash: the exact compare separates them.
+            let forged = LabelRef {
+                kind: CHANNEL,
+                root,
+                parts: [Label { hash: a.hash, ..b }, b, c],
+            };
+            let owned = LabelRef {
+                kind: CHANNEL,
+                root,
+                parts: [a, b, c],
+            }
+            .to_key();
+            assert_eq!(FoldBuild.hash_one(&forged), FoldBuild.hash_one(&owned));
+            assert!(!forged.equivalent(&owned), "{root:?}");
+            let forged = ProductRef(root, Label { hash: a.hash, ..c }, b, true);
+            let owned = ProductKey(root, a.words.into(), b.words.into(), true);
+            assert_eq!(FoldBuild.hash_one(&forged), FoldBuild.hash_one(&owned));
+            assert!(!forged.equivalent(&owned), "{root:?}");
+        }
+        // The SU(2) form shares the F tier: its hash covers every determinant.
+        use crate::lie::su2::canonical_regge_6j;
+        let regge = canonical_regge_6j(1, 1, 0, 1, 1, 0).unwrap();
+        let keys = [(1, false), (1, true), (2, false)]
+            .map(|(dim, phase)| FSymbolKey::Su2(FKey::new(regge, dim, phase)));
+        let hashes = keys.each_ref().map(|k| FoldBuild.hash_one(k));
+        assert!(hashes[0] != hashes[1] && hashes[0] != hashes[2] && hashes[1] != hashes[2]);
     }
 }

@@ -531,12 +531,6 @@ pub(crate) struct FKey {
     dim: u64,
 }
 
-impl std::hash::Hash for FKey {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        std::hash::Hash::hash(&(self.packed, self.dim), state);
-    }
-}
-
 impl PartialEq for FKey {
     fn eq(&self, other: &Self) -> bool {
         self.packed == other.packed && self.dim == other.dim
@@ -550,6 +544,11 @@ impl FKey {
             packed |= u128::from(label) << (16 * i);
         }
         Self { packed, dim }
+    }
+
+    /// Every determinant of the key, for the F tier's hash.
+    pub(crate) fn words(&self) -> [u64; 3] {
+        [self.packed as u64, (self.packed >> 64) as u64, self.dim]
     }
 }
 

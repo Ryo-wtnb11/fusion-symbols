@@ -84,10 +84,17 @@ after trimming. Each removed entry increments evictions; hits/misses are preserv
 after either call. **The application owns this process-wide policy; libraries
 must not call reset or trim.** Neither operation promises to lower RSS.
 
-All tiers use `quick_cache` 0.7 with its foldhash hasher, its `sharded-lock`
-reader-sharded lock (see [Concurrency](#concurrency)) and exactly one shard per
-tier. Hits use borrowed `Equivalent` queries and a read lock, without
-constructing owned keys or copying coefficient buffers.
+All tiers use `quick_cache` 0.7 with its `sharded-lock` reader-sharded lock
+(see [Concurrency](#concurrency)) and exactly one shard per tier. The Wigner
+tiers hash with quick_cache's foldhash. The label tiers (F, R, CGC, Product)
+combine one 64-bit fingerprint per label with the key form and root, so a hit
+hashes one word per label at any rank; owned keys recompute the same
+fingerprints from their words on a miss. Cartan label payloads store their
+fingerprints; rank-one (A1) CGC queries build three temporary one-word
+fingerprints per query, and SU(2) F keys hash their packed Regge key. Every lookup still compares the
+complete key, so a hash collision never returns another key's value. Hits use
+borrowed `Equivalent` queries and a read lock, without constructing owned keys
+or copying coefficient buffers.
 Exact SU(2) values share their immutable rational payload; F and R blocks
 and CGC channels are stored directly, sharing their coefficient storage.
 Concurrent misses on a key share one successful computation; waiters count as
@@ -180,7 +187,9 @@ The cache charge includes the allocation shell retained by each weak
 reference.
 
 Labels own exact dimension, rounded `f64` dimension, principal sign and both
-coordinate views for a complex conjugate pair. `dim()` reads stored data
+coordinate views for a complex conjugate pair. In Cartan label payloads each
+view also stores the 64-bit cache fingerprint of its Dynkin label, computed at
+construction (16 bytes per payload); rank-one labels store none. `dim()` reads stored data
 without a lock. `dim_exact()` clones the stored Natural and can allocate for
 large values. Construction evaluates one exact Weyl quotient in checked
 `u128`, with an unbounded rational fallback. `dual()` clones the shared

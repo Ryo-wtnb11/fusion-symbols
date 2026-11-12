@@ -47,7 +47,7 @@ mod tests {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let fam = GeneralFamily::new(RootSystem::G2);
-        let (a, b, one): (&[i64], &[i64], &[i64]) = (&[1, 0], &[0, 1], &[0, 0]);
+        let [a, b, one] = [&[1, 0], &[0, 1], &[0, 0]].map(|x| crate::cache::Label::new(x));
         let bits = || {
             fam.cgc_entries(a, a, b)
                 .unwrap()
@@ -62,7 +62,7 @@ mod tests {
         for n in 1..=600 {
             // Absent R channels request no CGC and build no module.
             assert!(fam
-                .r_symbol([one, &[n, 0], one])
+                .r_symbol([one, crate::cache::Label::new(&[n, 0]), one])
                 .unwrap()
                 .as_slice()
                 .is_empty());
@@ -128,8 +128,12 @@ mod product_contract_tests {
             let fam = GeneralFamily::new(root);
             let zero = vec![0; label.len()];
             assert_eq!(
-                fam.mult(&label, &b.dynkin().collect::<Vec<_>>(), &zero)
-                    .unwrap(),
+                fam.mult(
+                    crate::cache::Label::new(&label),
+                    crate::cache::Label::new(&b.dynkin().collect::<Vec<_>>()),
+                    crate::cache::Label::new(&zero)
+                )
+                .unwrap(),
                 1
             );
             assert_eq!(

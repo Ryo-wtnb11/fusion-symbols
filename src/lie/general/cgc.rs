@@ -23,6 +23,7 @@ use std::sync::Arc;
 
 use super::module::{q_heap, qs_bytes, IrrepModule, Q};
 use super::roots::CartanData;
+use crate::cache::Label;
 use crate::category::{FBlock, RBlock};
 #[cfg(test)]
 use crate::exact::SignedSqrtRational;
@@ -1051,13 +1052,13 @@ fn count_build(kind: usize) {
 /// Holding is strong: a weak handle would not keep a rejected module alive.
 #[derive(Default)]
 pub(crate) struct RequestModules<'l> {
-    held: Vec<(&'l [i64], Arc<Ladders>)>,
+    held: Vec<(Label<'l>, Arc<Ladders>)>,
 }
 
 impl<'l> RequestModules<'l> {
     /// The module of `label`, from this request or else loaded and held.
-    fn load(&mut self, fam: &GeneralFamily, label: &'l [i64]) -> Result<Arc<Ladders>, LieError> {
-        if let Some((_, m)) = self.held.iter().find(|(l, _)| *l == label) {
+    fn load(&mut self, fam: &GeneralFamily, label: Label<'l>) -> Result<Arc<Ladders>, LieError> {
+        if let Some((_, m)) = self.held.iter().find(|(l, _)| l.words == label.words) {
             return Ok(m.clone());
         }
         let m = fam.module(label)?;
@@ -1069,8 +1070,9 @@ impl<'l> RequestModules<'l> {
 
     /// Releases every module whose label is not in `later`, the labels of
     /// the channels this request may still load.
-    pub(crate) fn retain(&mut self, later: &[&[i64]]) {
-        self.held.retain(|(l, _)| later.contains(l));
+    pub(crate) fn retain(&mut self, later: &[Label<'_>]) {
+        self.held
+            .retain(|(l, _)| later.iter().any(|x| x.words == l.words));
         #[cfg(test)]
         self.count();
     }
@@ -1079,7 +1081,7 @@ impl<'l> RequestModules<'l> {
     #[cfg(test)]
     pub(crate) fn observe_before_fourth(&self) {
         BEFORE_FOURTH
-            .with(|b| *b.borrow_mut() = self.held.iter().map(|(l, _)| l.to_vec()).collect());
+            .with(|b| *b.borrow_mut() = self.held.iter().map(|(l, _)| l.words.to_vec()).collect());
     }
 
     #[cfg(test)]
@@ -1130,7 +1132,7 @@ impl GeneralFamily {
     }
 
     /// The module of `lambda`, shared through the CGC tier.
-    pub(crate) fn module(&self, lambda: &[i64]) -> Result<Arc<Ladders>, LieError> {
+    pub(crate) fn module(&self, lambda: Label<'_>) -> Result<Arc<Ladders>, LieError> {
         #[cfg(test)]
         if let Some(hook) = BEFORE_LOAD.with(std::cell::Cell::get) {
             hook();
@@ -1138,7 +1140,7 @@ impl GeneralFamily {
         crate::cache::cgc_module(self.root(), lambda, || {
             #[cfg(test)]
             count_build(0);
-            Ladders::new(&self.data, lambda).map(Arc::new)
+            Ladders::new(&self.data, lambda.words).map(Arc::new)
         })
     }
 
@@ -1149,16 +1151,16 @@ impl GeneralFamily {
     }
 
     /// `N^c_{ab}`: the triangle rule for `A_1`, Brauer–Klimyk otherwise.
-    pub(crate) fn mult(&self, a: &[i64], b: &[i64], c: &[i64]) -> Result<usize, LieError> {
+    pub(crate) fn mult(&self, a: Label<'_>, b: Label<'_>, c: Label<'_>) -> Result<usize, LieError> {
         if self.root() == RootSystem::A(1) {
-            let dj = |x: &[i64]| u32::try_from(x[0]).map_err(|_| LieError::LabelOverflow);
+            let dj = |x: Label<'_>| u32::try_from(x.words[0]).map_err(|_| LieError::LabelOverflow);
             return Ok(usize::from(crate::lie::su2::triangle_ok(
                 dj(a)?,
                 dj(b)?,
                 dj(c)?,
             )));
         }
-        Ok(self.data.multiplicities(a, b, None)?.multiplicity(c) as usize)
+        Ok(self.data.multiplicities(a, b, None)?.multiplicity(c.words) as usize)
     }
 
     /// The rational channel with its three modules, gated by the exact
@@ -1170,6 +1172,7 @@ impl GeneralFamily {
         b: &[i64],
         c: &[i64],
     ) -> Result<BuiltChannel, LieError> {
+        let [a, b, c] = [a, b, c].map(Label::new);
         let mut modules = RequestModules::default();
         let ma = modules.load(self, a)?;
         let mb = modules.load(self, b)?;
@@ -1186,9 +1189,9 @@ impl GeneralFamily {
     /// weight of `c`, or the highest-weight nullity is zero (§7 gate 2).
     pub(crate) fn cgc_entries(
         &self,
-        a: &[i64],
-        b: &[i64],
-        c: &[i64],
+        a: Label<'_>,
+        b: Label<'_>,
+        c: Label<'_>,
     ) -> Result<Arc<CgcChannel>, LieError> {
         self.cgc_entries_in(a, b, c, &mut RequestModules::default())
     }
@@ -1197,9 +1200,9 @@ impl GeneralFamily {
     /// modules from, and adds them to, `modules`; a hit leaves it untouched.
     pub(crate) fn cgc_entries_in<'l>(
         &self,
-        a: &'l [i64],
-        b: &'l [i64],
-        c: &'l [i64],
+        a: Label<'l>,
+        b: Label<'l>,
+        c: Label<'l>,
         modules: &mut RequestModules<'l>,
     ) -> Result<Arc<CgcChannel>, LieError> {
         #[cfg(test)]
@@ -1210,8 +1213,9 @@ impl GeneralFamily {
             #[cfg(test)]
             count_build(1);
             let n = self.mult(a, b, c)?;
-            let dimension = |l: &[i64]| -> Result<usize, LieError> {
-                usize::try_from(&self.data.weyl_dimension(l)?).map_err(|_| LieError::LabelOverflow)
+            let dimension = |l: Label<'_>| -> Result<usize, LieError> {
+                usize::try_from(&self.data.weyl_dimension(l.words)?)
+                    .map_err(|_| LieError::LabelOverflow)
             };
             crate::lie::checked_size([dimension(a)?, dimension(b)?, dimension(c)?, n])?;
             let empty = || {
@@ -1227,14 +1231,14 @@ impl GeneralFamily {
             // the channel then reuses.
             let a1 = self.root() == RootSystem::A(1);
             if n == 0 && a1 && {
-                let s = a[0] + b[0] - c[0];
+                let s = a.words[0] + b.words[0] - c.words[0];
                 s < 0 || s % 2 != 0
             } {
                 return empty();
             }
             let ma = modules.load(self, a)?;
             let mb = modules.load(self, b)?;
-            if n == 0 && !a1 && ProductSpace::new(&ma, &mb, c).len() == 0 {
+            if n == 0 && !a1 && ProductSpace::new(&ma, &mb, c.words).len() == 0 {
                 return empty();
             }
             let mc = modules.load(self, c)?;
@@ -1242,7 +1246,9 @@ impl GeneralFamily {
             // rounded entries and the modules only.
             #[allow(unused_mut)]
             let mut entries = rounded_entries(&self.data, &ma, &mb, &mc, n)?;
-            if self.root() == RootSystem::A(1) && (a[0] + b[0] - c[0]) / 2 % 2 != 0 {
+            if self.root() == RootSystem::A(1)
+                && (a.words[0] + b.words[0] - c.words[0]) / 2 % 2 != 0
+            {
                 // §4.6: the A_1 vertex sign (−1)^{j_a + j_b − j_c}, once per
                 // channel. Rounding is odd, so negating the rounded value is
                 // negating the exact one.
@@ -1266,9 +1272,13 @@ impl GeneralFamily {
     /// self-dual irrep and for every `A_r` irrep, otherwise
     /// `(−1)^{⟨λ, 2ρ∨⟩} σ_a σ_ā`, computed once per dual pair and shared
     /// through the CGC tier.
-    pub(crate) fn frobenius_schur_phase(&self, a: &[i64], dual: &[i64]) -> Result<i8, LieError> {
-        let closed = self.data.two_rho_vee_sign(a)?;
-        if dual == a || matches!(self.root(), RootSystem::A(_)) {
+    pub(crate) fn frobenius_schur_phase(
+        &self,
+        a: Label<'_>,
+        dual: Label<'_>,
+    ) -> Result<i8, LieError> {
+        let closed = self.data.two_rho_vee_sign(a.words)?;
+        if dual.words == a.words || matches!(self.root(), RootSystem::A(_)) {
             return Ok(closed);
         }
         #[cfg(test)]
@@ -1276,15 +1286,16 @@ impl GeneralFamily {
             return Err(fail());
         }
         // κ_ā = κ_a (§5.3), so one generation answers both labels.
-        crate::cache::cgc_phase(self.root(), a.min(dual), || {
-            let sigma_a = self.module(a)?.principal_sign(a)?;
-            let sigma_dual = self.module(dual)?.principal_sign(dual)?;
+        let key = if a.words <= dual.words { a } else { dual };
+        crate::cache::cgc_phase(self.root(), key, || {
+            let sigma_a = self.module(a)?.principal_sign(a.words)?;
+            let sigma_dual = self.module(dual)?.principal_sign(dual.words)?;
             Ok(closed * sigma_a * sigma_dual)
         })
     }
 
     /// `F^{abc}_d[e, f]` (§6), gated by gate 7 before it is retained.
-    pub(crate) fn f_symbol(&self, labels: [&[i64]; 6]) -> Result<FBlock<f64>, LieError> {
+    pub(crate) fn f_symbol(&self, labels: [Label<'_>; 6]) -> Result<FBlock<f64>, LieError> {
         crate::cache::f_block(self.root(), labels, || {
             let block = f_block_raw(self, labels)?;
             #[cfg(test)]
@@ -1304,7 +1315,7 @@ impl GeneralFamily {
     }
 
     /// `R^{ab}_c` (§6), gated by gate 6 before it is retained.
-    pub(crate) fn r_symbol(&self, labels: [&[i64]; 3]) -> Result<RBlock<f64>, LieError> {
+    pub(crate) fn r_symbol(&self, labels: [Label<'_>; 3]) -> Result<RBlock<f64>, LieError> {
         crate::cache::r_block(self.root(), labels, || {
             let block = r_block_raw(self, labels)?;
             #[cfg(test)]
