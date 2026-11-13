@@ -380,29 +380,29 @@ fn coproduct(op_a: &Op, op_b: &Op, from: &ProductSpace, to: &PairRows, v: &[Q]) 
 /// space and `√N_μ Φ_μ(b^c_{m_c})` per `μ`.
 type Emit<'e> = dyn FnMut(&[Q], usize, &ProductSpace, &[Vec<Q>]) -> Result<(), LieError> + 'e;
 
-/// The rational CGC of `a ⊗ b → c` (§4.2–§4.4), streamed: every coupled
-/// state is passed to `emit` once, in engine order, as soon as it completes.
-///
-/// A state at depth `ℓ` is lowered only from states at depth `ℓ − 1`, and a
-/// recipe may mix several of them, so a rounded column cannot replace an
-/// exact parent. Each exact vector is therefore kept exactly until its last
-/// kept candidate has been lowered, and a weight's product space until its
-/// last reader: the live exact set is at most two depth layers plus one
-/// weight's candidates (`docs/gauge_cartan.md` §9). Returns the pivots of §4.3.
-fn descend(
+/// The highest-weight states of `a ⊗ b → c` (§4.2–§4.3): `P`, `√N_μ Φ_μ(v_λ)`
+/// per `μ` and `N_μ`.
+struct Seeds {
+    p: ProductSpace,
+    seeds: Vec<Vec<Q>>,
+    norms: Vec<Q>,
+}
+
+/// §4.2–§4.3 for both descents: the pivots, and the seeds unless the
+/// multiplicity is zero.
+fn highest(
     data: &CartanData,
     a: &Ladders,
     b: &Ladders,
     c: &Ladders,
     multiplicity: usize,
-    emit: &mut Emit<'_>,
-) -> Result<Vec<usize>, LieError> {
+    scratch: &mut RowScratch,
+) -> Result<(Vec<usize>, Option<Seeds>), LieError> {
     let top = &c.module.weights[0].mu;
     let p = ProductSpace::new(a, b, top);
-    let mut scratch = RowScratch::new(a);
 
     // §4.2: H is the nullspace of the stacked Δ(e_i) on span(P).
-    let rows = raising_rows(data, a, b, &p, top, &mut scratch);
+    let rows = raising_rows(data, a, b, &p, top, scratch);
     let (pivots, echelon) = echelon_nullspace(rows, p.len());
     if echelon.len() != multiplicity {
         return Err(CgcError::NullityMismatch {
@@ -416,7 +416,7 @@ fn descend(
     }
     if multiplicity == 0 {
         // Gate 2 proved the channel absent; there is nothing to lower.
-        return Ok(pivots);
+        return Ok((pivots, None));
     }
 
     // §4.3: Gram–Schmidt of E_1, …, E_N in pivot order, metric n^a n^b.
@@ -434,10 +434,10 @@ fn descend(
             .fold(Q::from(0), |acc, x| acc + x)
     };
     let mut seeds: Vec<Vec<Q>> = Vec::with_capacity(multiplicity);
-    let mut seed_norms: Vec<Q> = Vec::with_capacity(multiplicity);
+    let mut norms: Vec<Q> = Vec::with_capacity(multiplicity);
     for e in echelon {
         let mut v = e.clone();
-        for (s, n) in seeds.iter().zip(&seed_norms) {
+        for (s, n) in seeds.iter().zip(&norms) {
             let scale = dot(&e, s) / n;
             if scale.is_zero() {
                 continue;
@@ -446,19 +446,23 @@ fn descend(
                 x.sub_mul(&scale, y);
             }
         }
-        seed_norms.push(dot(&v, &v));
+        norms.push(dot(&v, &v));
         seeds.push(v);
     }
-    drop(metric);
+    Ok((pivots, Some(Seeds { p, seeds, norms })))
+}
 
-    // The kept candidates reading each state, and each weight's product space.
+/// The source weight space of the kept candidate `(j, ·)` of `space`.
+fn source(space: &super::module::WeightSpace, j: usize) -> usize {
+    space.lower[j]
+        .as_ref()
+        .expect("a kept candidate's source weight space exists (§4.1)")
+        .0
+}
+
+/// The kept candidates reading each state of `c`, and each weight space.
+fn readers(c: &Ladders) -> (Vec<usize>, Vec<usize>) {
     let weights = &c.module.weights;
-    let source = |space: &super::module::WeightSpace, j: usize| -> usize {
-        space.lower[j]
-            .as_ref()
-            .expect("a kept candidate's source weight space exists (§4.1)")
-            .0
-    };
     let mut readers = vec![0usize; c.dim()];
     let mut space_readers = vec![0usize; weights.len()];
     for space in &weights[1..] {
@@ -468,6 +472,85 @@ fn descend(
             space_readers[src] += 1;
         }
     }
+    (readers, space_readers)
+}
+
+/// How often each kept candidate of a weight space enters its recipe.
+fn recipe_uses(space: &super::module::WeightSpace) -> Vec<usize> {
+    let mut uses = vec![0usize; space.kept.len()];
+    for coeffs in &space.recipe {
+        for (t, r) in coeffs.iter().enumerate() {
+            if !r.is_zero() {
+                uses[t] += 1;
+            }
+        }
+    }
+    uses
+}
+
+/// The candidate a recipe row `b_k = c_t` takes as it is, when only that row
+/// uses it: the general sum would rebuild the same exact vector.
+fn moved_candidate(coeffs: &[Q], uses: &[usize]) -> Option<usize> {
+    let mut terms = coeffs.iter().enumerate().filter(|(_, r)| !r.is_zero());
+    match (terms.next(), terms.next()) {
+        (Some((t, r)), None) if r.is_one() && uses[t] == 1 => Some(t),
+        _ => None,
+    }
+}
+
+/// `Φ(b_k) = Σ_t recipe[k][t] Δ(f_{j_t}) Φ(b_{q_t})` for one `μ`, from the
+/// lowered candidates `cand(t)` of the weight space, over `len` pairs.
+fn recipe_row<'v>(coeffs: &[Q], cand: impl Fn(usize) -> &'v [Q], len: usize) -> Vec<Q> {
+    let mut v = vec![Q::from(0); len];
+    for (t, r) in coeffs.iter().enumerate() {
+        if r.is_zero() {
+            continue;
+        }
+        let unit = r.is_one();
+        for (x, y) in v.iter_mut().zip(cand(t)) {
+            if y.is_zero() {
+                continue;
+            }
+            if unit {
+                *x += y;
+            } else {
+                x.add_mul(r, y);
+            }
+        }
+    }
+    v
+}
+
+/// The rational CGC of `a ⊗ b → c` (§4.2–§4.4), streamed: every coupled
+/// state is passed to `emit` once, in engine order, as soon as it completes.
+///
+/// A state at depth `ℓ` is lowered only from states at depth `ℓ − 1`, and a
+/// recipe may mix several of them, so a rounded column cannot replace an
+/// exact parent. Each exact vector is therefore kept exactly until its last
+/// kept candidate has been lowered, and a weight's product space until its
+/// last reader: the live exact set is at most two depth layers plus one
+/// weight's candidates (`docs/gauge_cartan.md` §9). Returns the pivots of §4.3.
+fn descend(
+    data: &CartanData,
+    a: &Ladders,
+    b: &Ladders,
+    c: &Ladders,
+    multiplicity: usize,
+    emit: &mut Emit<'_>,
+) -> Result<Vec<usize>, LieError> {
+    let mut scratch = RowScratch::new(a);
+    let (pivots, seeded) = highest(data, a, b, c, multiplicity, &mut scratch)?;
+    let Some(Seeds {
+        p,
+        seeds,
+        norms: seed_norms,
+    }) = seeded
+    else {
+        return Ok(pivots);
+    };
+
+    let weights = &c.module.weights;
+    let (mut readers, mut space_readers) = readers(c);
     let mut phi: Vec<Vec<Vec<Q>>> = vec![Vec::new(); c.dim()];
     let mut spaces: Vec<Option<ProductSpace>> = (0..weights.len()).map(|_| None).collect();
     // Emits a completed state and keeps it only while a reader remains.
@@ -519,47 +602,15 @@ fn descend(
                 spaces[src] = None;
             }
         }
-        // A candidate used only by one recipe row `b_k = c_t` moves into
-        // place: the general sum would rebuild the same exact vector.
-        let mut uses = vec![0usize; lowered.len()];
-        for coeffs in &space.recipe {
-            for (t, r) in coeffs.iter().enumerate() {
-                if !r.is_zero() {
-                    uses[t] += 1;
-                }
-            }
-        }
+        let uses = recipe_uses(space);
         for (k, coeffs) in space.recipe.iter().enumerate() {
             let m = space.offset + k;
-            let mut terms = coeffs.iter().enumerate().filter(|(_, r)| !r.is_zero());
-            if let (Some((t, r)), None) = (terms.next(), terms.next()) {
-                if r.is_one() && uses[t] == 1 {
-                    complete(&mut phi, &readers, m, &to, std::mem::take(&mut lowered[t]))?;
-                    continue;
-                }
+            if let Some(t) = moved_candidate(coeffs, &uses) {
+                complete(&mut phi, &readers, m, &to, std::mem::take(&mut lowered[t]))?;
+                continue;
             }
             let per_mu: Vec<Vec<Q>> = (0..multiplicity)
-                .map(|mu| {
-                    // b_k = Σ_t recipe[k][t] c_t, so Φ(b_k) = Σ_t recipe[k][t] Δ(f_{j_t}) Φ(b_{q_t}).
-                    let mut v = vec![Q::from(0); to.len()];
-                    for (r, cand) in coeffs.iter().zip(&lowered) {
-                        if r.is_zero() {
-                            continue;
-                        }
-                        let unit = r.is_one();
-                        for (x, y) in v.iter_mut().zip(&cand[mu]) {
-                            if y.is_zero() {
-                                continue;
-                            }
-                            if unit {
-                                *x += y;
-                            } else {
-                                x.add_mul(r, y);
-                            }
-                        }
-                    }
-                    v
-                })
+                .map(|mu| recipe_row(coeffs, |t| &lowered[t][mu], to.len()))
                 .collect();
             track(&per_mu, true);
             complete(&mut phi, &readers, m, &to, per_mu)?;
@@ -574,12 +625,316 @@ fn descend(
     Ok(pivots)
 }
 
+/// Stores a completed column in its slot, which each column fills once: the
+/// rounded payload is moved, never copied.
+fn place(slot: &mut Vec<MEntry>, column: Vec<MEntry>) {
+    debug_assert!(slot.is_empty(), "a column is written once");
+    #[cfg(test)]
+    COLUMNS.with(|c| {
+        let [writes, entries] = c.get();
+        c.set([writes + 1, entries + column.len()]);
+    });
+    *slot = column;
+}
+
+/// The rounded column `(μ, m_c)` of the state `v = √N_μ Φ_μ(b^c_{m_c})` over
+/// `space`, with `scale = N_μ n^c_{m_c}`: one entry per exactly nonzero
+/// coordinate, a-slow.
+fn round_column(
+    a: &Ladders,
+    b: &Ladders,
+    mc: u32,
+    mu: usize,
+    scale: &Q,
+    space: &ProductSpace,
+    v: &[Q],
+) -> Result<Vec<MEntry>, LieError> {
+    let mut column = Vec::with_capacity(v.iter().filter(|x| !x.is_zero()).count());
+    let mu = magnetic_index(mu)?;
+    for (&(pa, pb), x) in space.pairs.iter().zip(v) {
+        if x.is_zero() {
+            continue;
+        }
+        column.push(MEntry {
+            m1: a.public[pa],
+            m2: b.public[pb],
+            m3: mc,
+            mu,
+            value: super::rational::rounded_radical(x, &a.norm[pa], &b.norm[pb], scale),
+        });
+    }
+    Ok(column)
+}
+
+/// Per-participant row starts of [`descend_layers`]' phase A, bound to the
+/// last target weight it lowered into.
+struct BoundRows {
+    rows: RowScratch,
+    bound: Option<usize>,
+}
+
+/// The rounded columns of [`descend`], one depth layer at a time, on a team
+/// token (`docs/gauge_cartan.md` §9).
+///
+/// A layer runs as two stages of [`crate::stage::run_stage`]: phase A lowers
+/// every kept candidate × `μ` of the layer, phase B combines every recipe row
+/// × `μ` and rounds its column. Every item computes exactly the operations
+/// [`descend`] does for it, so the entries are bit-identical at every width.
+/// The live exact set is at most two layers plus one layer's candidates; the
+/// leader frees a parent after phase A, when all its readers have run.
+fn descend_layers(
+    data: &CartanData,
+    a: &Ladders,
+    b: &Ladders,
+    c: &Ladders,
+    n: usize,
+    exec: &mut Exec<'_>,
+) -> Result<Vec<Vec<MEntry>>, LieError> {
+    use crate::stage::{run_stage, StageBuf, SystemClock};
+    let dc = c.dim();
+    let mut columns: Vec<Vec<MEntry>> = vec![Vec::new(); n * dc];
+    let mut scratch = RowScratch::new(a);
+    let Some(Seeds {
+        p,
+        seeds,
+        norms: seed_norms,
+    }) = highest(data, a, b, c, n, &mut scratch)?.1
+    else {
+        return Ok(columns);
+    };
+    // The leader's phase-A rows reuse the raising rows' scratch.
+    let mut leader = Some(BoundRows {
+        rows: scratch,
+        bound: None,
+    });
+    let weights = &c.module.weights;
+    let (mut readers, mut space_readers) = readers(c);
+    let mut phi: Vec<Vec<Vec<Q>>> = vec![Vec::new(); c.dim()];
+    let mut spaces: Vec<Option<ProductSpace>> = (0..weights.len()).map(|_| None).collect();
+    let scale = |mu: usize, m: usize| &seed_norms[mu] * &c.norm[m];
+
+    track(&seeds, true);
+    for (mu, v) in seeds.iter().enumerate() {
+        place(
+            &mut columns[mu * dc + c.public[0] as usize],
+            round_column(a, b, c.public[0], mu, &scale(mu, 0), &p, v)?,
+        );
+    }
+    if readers[0] > 0 {
+        phi[0] = seeds;
+    } else {
+        track(&seeds, false);
+    }
+    if space_readers[0] > 0 {
+        spaces[0] = Some(p);
+    }
+
+    // Per-layer tables and stage buffers, refilled per layer, so a layer
+    // whose items all run on the leader allocates only what `descend` does.
+    let mut tos: Vec<ProductSpace> = Vec::new();
+    let mut lowered: Vec<Vec<Vec<Q>>> = Vec::new();
+    let mut uses: Vec<Vec<usize>> = Vec::new();
+    let mut lowering = StageBuf::default();
+    let mut combining = StageBuf::default();
+    let mut cands: Vec<(usize, usize)> = Vec::new();
+    let mut rows: Vec<(usize, usize)> = Vec::new();
+    let mut base: Vec<usize> = Vec::new();
+    let mut units: Vec<u64> = Vec::new();
+    let depth = |w: usize| weights[w].k.iter().sum::<i64>();
+    let mut lo = 1;
+    while lo < weights.len() {
+        let hi = lo
+            + weights[lo..]
+                .iter()
+                .take_while(|s| s.k.iter().sum::<i64>() == depth(lo))
+                .count();
+        let layer = &weights[lo..hi];
+        tos.extend(layer.iter().map(|s| ProductSpace::new(a, b, &s.mu)));
+
+        // Phase A: item `i` lowers candidate `i / n` for `μ = i % n`.
+        cands.clear();
+        cands.extend(
+            layer
+                .iter()
+                .enumerate()
+                .flat_map(|(w, s)| (0..s.kept.len()).map(move |t| (w, t))),
+        );
+        units.clear();
+        units.extend(
+            cands
+                .iter()
+                .flat_map(|&(w, _)| std::iter::repeat_n(tos[w].len() as u64, n)),
+        );
+        // Layer-relative targets: the leader's binding is stale.
+        if let Some(l) = &mut leader {
+            l.bound = None;
+        }
+        run_stage(
+            exec,
+            &units,
+            &SystemClock,
+            &mut leader,
+            &mut lowering,
+            || BoundRows {
+                rows: RowScratch::new(a),
+                bound: None,
+            },
+            |s, i| {
+                let (w, t) = cands[i / n];
+                let space = &layer[w];
+                let (j, q) = space.kept[t];
+                let src = source(space, j);
+                let from = spaces[src]
+                    .as_ref()
+                    .expect("a product space outlives its last reader");
+                let rows = if s.bound == Some(w) {
+                    PairRows {
+                        start: &s.rows.0,
+                        pairs: &tos[w].pairs,
+                        rank: &b.rank,
+                    }
+                } else {
+                    s.bound = Some(w);
+                    s.rows.rows(&tos[w], b)
+                };
+                let v = &phi[weights[src].offset + q][i % n];
+                coproduct(&a.lower[j], &b.lower[j], from, &rows, v)
+            },
+        );
+        // Every candidate of the layer is live once the stage returns,
+        // before any parent is released.
+        track(lowering.results(), true);
+        let mut flat = lowering.drain();
+        for _ in &cands {
+            lowered.push(flat.by_ref().take(n).collect());
+        }
+        for &(w, t) in &cands {
+            let (j, q) = layer[w].kept[t];
+            let src = source(&layer[w], j);
+            let m = weights[src].offset + q;
+            readers[m] -= 1;
+            if readers[m] == 0 {
+                track(&phi[m], false);
+                phi[m] = Vec::new();
+            }
+            space_readers[src] -= 1;
+            if space_readers[src] == 0 {
+                spaces[src] = None;
+            }
+        }
+
+        // Phase B: item `i` is recipe row `i / n` for `μ = i % n`.
+        drop(flat);
+        base.clear();
+        rows.clear();
+        let mut start = 0;
+        for (w, s) in layer.iter().enumerate() {
+            base.push(start);
+            start += s.kept.len();
+            uses.push(recipe_uses(s));
+            rows.extend((0..s.recipe.len()).map(|k| (w, k)));
+        }
+        units.clear();
+        units.extend(
+            rows.iter()
+                .flat_map(|&(w, _)| std::iter::repeat_n(tos[w].len() as u64, n)),
+        );
+        let _ran = run_stage(
+            exec,
+            &units,
+            &SystemClock,
+            &mut None,
+            &mut combining,
+            || (),
+            |(), i| {
+                let (w, k) = rows[i / n];
+                let mu = i % n;
+                let space = &layer[w];
+                let m = space.offset + k;
+                let coeffs = &space.recipe[k];
+                let cand = |t: usize| -> &[Q] { &lowered[base[w] + t][mu] };
+                let (v, kept) = match moved_candidate(coeffs, &uses[w]) {
+                    Some(t) => (None, cand(t)),
+                    None => {
+                        let v = recipe_row(coeffs, cand, tos[w].len());
+                        (Some(v), &[][..])
+                    }
+                };
+                let column = round_column(
+                    a,
+                    b,
+                    c.public[m],
+                    mu,
+                    &scale(mu, m),
+                    &tos[w],
+                    v.as_deref().unwrap_or(kept),
+                )?;
+                // A state no candidate reads dies with its share.
+                let transient = v.as_ref().filter(|_| readers[m] == 0).map_or(0, Vec::len);
+                Ok::<_, LieError>((column, v.filter(|_| readers[m] > 0), transient))
+            },
+        );
+        #[cfg(test)]
+        let mut transient = Vec::with_capacity(units.len());
+        let mut done = combining.drain();
+        for &(w, k) in &rows {
+            let m = layer[w].offset + k;
+            let mut states = Vec::with_capacity(if readers[m] > 0 { n } else { 0 });
+            for mu in 0..n {
+                let (column, state, _t) = done.next().expect("one result per item")?;
+                #[cfg(test)]
+                transient.push(_t);
+                place(&mut columns[mu * dc + c.public[m] as usize], column);
+                if readers[m] == 0 {
+                    continue;
+                }
+                states.push(match state {
+                    Some(v) => {
+                        track(std::slice::from_ref(&v), true);
+                        v
+                    }
+                    None => {
+                        let t = moved_candidate(&layer[w].recipe[k], &uses[w])
+                            .expect("a row without a state moves its candidate");
+                        std::mem::take(&mut lowered[base[w] + t][mu])
+                    }
+                });
+            }
+            if readers[m] > 0 {
+                phi[m] = states;
+            }
+        }
+        #[cfg(test)]
+        {
+            // Every participant holds at most one dropped state at a time.
+            transient.sort_unstable_by(|x, y| y.cmp(x));
+            let peak: usize = transient.iter().take(_ran.width.get()).sum();
+            LIVE_EXACT.with(|cell| {
+                let [now, max] = cell.get();
+                cell.set([now, max.max(now + peak)]);
+            });
+        }
+        for cand in &lowered {
+            track(cand, false);
+        }
+        lowered.clear();
+        uses.clear();
+        for (w, to) in (lo..hi).zip(tos.drain(..)) {
+            if space_readers[w] > 0 {
+                spaces[w] = Some(to);
+            }
+        }
+        lo = hi;
+    }
+    Ok(columns)
+}
+
 /// Test accounting of the live exact slots of [`descend`] (current, maximum).
 #[cfg_attr(not(test), allow(unused_variables))]
-fn track(v: &[Vec<Q>], live: bool) {
+fn track<'v>(v: impl IntoIterator<Item = &'v Vec<Q>>, live: bool) {
     #[cfg(test)]
     LIVE_EXACT.with(|cell| {
-        let n: usize = v.iter().map(Vec::len).sum();
+        let n: usize = v.into_iter().map(Vec::len).sum();
         let [now, max] = cell.get();
         let now = if live { now + n } else { now - n };
         cell.set([now, max.max(now)]);
@@ -591,6 +946,10 @@ fn track(v: &[Vec<Q>], live: bool) {
 /// concatenated in §4.7 order, `μ`, then public `m_c`, then `(m_a, m_b)`
 /// a-slow (§4.1). The entry `x·√(n^a n^b/(N_μ n^c))` of an exactly nonzero
 /// coordinate `x` is kept even when it rounds to zero.
+///
+/// This is the descent's split point: a token that carries a team of two or
+/// more descends layer by layer ([`descend_layers`]); any other token, and
+/// `None`, runs [`descend`] on the calling thread.
 pub(super) fn rounded_entries(
     data: &CartanData,
     a: &Ladders,
@@ -599,32 +958,27 @@ pub(super) fn rounded_entries(
     n: usize,
     exec: Option<&mut Exec<'_>>,
 ) -> Result<Vec<MEntry>, LieError> {
-    // Inline on every token: this is the descent's split point.
-    let _ = exec;
-    let dc = c.dim();
-    let mut columns: Vec<Vec<MEntry>> = vec![Vec::new(); n * dc];
-    descend(data, a, b, c, n, &mut |seed_norms, m, space, per_mu| {
-        let mc = c.public[m];
-        for (mu, v) in per_mu.iter().enumerate() {
-            let scale = &seed_norms[mu] * &c.norm[m];
-            let column = &mut columns[mu * dc + mc as usize];
-            column.reserve_exact(v.iter().filter(|x| !x.is_zero()).count());
-            let mu = magnetic_index(mu)?;
-            for (&(pa, pb), x) in space.pairs.iter().zip(v) {
-                if x.is_zero() {
-                    continue;
-                }
-                column.push(MEntry {
-                    m1: a.public[pa],
-                    m2: b.public[pb],
-                    m3: mc,
-                    mu,
-                    value: super::rational::rounded_radical(x, &a.norm[pa], &b.norm[pb], &scale),
-                });
-            }
+    let columns = match exec {
+        Some(exec) if exec.carries_team() && !exec.is_serial() => {
+            descend_layers(data, a, b, c, n, exec)?
         }
-        Ok(())
-    })?;
+        _ => {
+            let dc = c.dim();
+            let mut columns: Vec<Vec<MEntry>> = vec![Vec::new(); n * dc];
+            descend(data, a, b, c, n, &mut |seed_norms, m, space, per_mu| {
+                let mc = c.public[m];
+                for (mu, v) in per_mu.iter().enumerate() {
+                    let scale = &seed_norms[mu] * &c.norm[m];
+                    place(
+                        &mut columns[mu * dc + mc as usize],
+                        round_column(a, b, mc, mu, &scale, space, v)?,
+                    );
+                }
+                Ok(())
+            })?;
+            columns
+        }
+    };
     // The flattening copy briefly doubles the rounded payload (24 B per
     // entry, counted in §9); reordering in place would avoid it.
     let mut entries = Vec::with_capacity(columns.iter().map(Vec::len).sum());
@@ -1002,6 +1356,8 @@ type Fault<T> = std::cell::Cell<Option<T>>;
 thread_local! {
     /// Modules and channels this thread generated (not loaded from the cache).
     pub(crate) static BUILDS: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
+    /// Columns placed by [`rounded_entries`] on this thread: `[writes, entries]`.
+    pub(super) static COLUMNS: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
     /// Live exact slots of [`descend`] on this thread: `[current, maximum]`.
     pub(super) static LIVE_EXACT: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
     /// Largest weight block of entries [`check_rounded`] held, as capacity.

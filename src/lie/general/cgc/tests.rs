@@ -1815,3 +1815,137 @@ fn published_ladders_are_charged_what_they_own() {
         "{freed} > {charged}"
     );
 }
+
+/// A real team of `width` threads for the layer descent.
+fn layer_team(width: usize) -> threadteam::Team {
+    threadteam::Pool::builder()
+        .threads(width)
+        .acquire_timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap()
+        .into_team(width)
+        .unwrap()
+}
+
+/// Channels with `N = 2` in the GT (`A_r`) and Gram–Schmidt (G2) bases,
+/// with several layers and several weights per layer.
+fn layer_channels() -> Vec<(RootSystem, [Vec<i64>; 3])> {
+    let l = |x: &[i64]| x.to_vec();
+    vec![
+        (RootSystem::A(2), [l(&[1, 1]), l(&[1, 1]), l(&[1, 1])]),
+        (
+            RootSystem::A(3),
+            [l(&[1, 0, 1]), l(&[1, 0, 1]), l(&[1, 0, 1])],
+        ),
+        (RootSystem::G2, [l(&G27), l(&G27), l(&G64)]),
+        (RootSystem::G2, [l(&G27), l(&G27), l(&G27)]),
+    ]
+}
+
+fn bits(entries: &[MEntry]) -> Vec<(u32, u32, u32, u32, u64)> {
+    entries
+        .iter()
+        .map(|e| (e.m1, e.m2, e.m3, e.mu, e.value.to_bits()))
+        .collect()
+}
+
+/// The layer descent emits the serial entries bit for bit and in order,
+/// through real sections of widths 2–5, widths above a stage's items, and a
+/// narrow child token of a team section; each forced stage really opened a
+/// section, under the shares' no-cache guard.
+#[test]
+fn layer_descent_matches_the_serial_bits_at_every_width() {
+    for (root, [x, y, z]) in layer_channels() {
+        let data = CartanData::new(root);
+        let [a, b, c] = [&x, &y, &z].map(|l| Ladders::new(&data, l).unwrap());
+        let n = data
+            .multiplicities(Label::new(&x), Label::new(&y), None)
+            .unwrap()
+            .multiplicity(&z) as usize;
+        assert!(n >= 2, "{root:?}");
+        let serial = bits(&rounded_entries(&data, &a, &b, &c, n, None).unwrap());
+        assert!(!serial.is_empty());
+        let team = layer_team(5);
+        for width in [2, 3, 4, 5, 64] {
+            let _force = crate::stage::force_width(width);
+            crate::stage::SECTIONS.with(|s| s.borrow_mut().clear());
+            let got = rounded_entries(&data, &a, &b, &c, n, Some(&mut team.exec(5))).unwrap();
+            assert_eq!(bits(&got), serial, "{root:?} width {width}");
+            let sections = crate::stage::SECTIONS.with(|s| s.take());
+            assert!(!sections.is_empty(), "{root:?} width {width}");
+            assert!(
+                sections.iter().all(|&k| (2..=width.min(5)).contains(&k)),
+                "{root:?} width {width}: {sections:?}"
+            );
+        }
+        // Children of width 2 and 3 of one team section.
+        team.exec(5)
+            .fork_sized(&[2, 3], |_, mut child| {
+                let _force = crate::stage::force_width(3);
+                let got = rounded_entries(&data, &a, &b, &c, n, Some(&mut child)).unwrap();
+                assert_eq!(bits(&got), serial, "{root:?} child");
+            })
+            .unwrap();
+        // Calibrated on the real clock with zero dispatch costs.
+        let zero = threadteam::WidthCosts::flat(std::time::Duration::ZERO);
+        let free = threadteam::Pool::builder()
+            .threads(3)
+            .acquire_timeout(std::time::Duration::from_secs(10))
+            .dispatch_costs(threadteam::DispatchCosts::new(zero, zero, zero))
+            .build()
+            .unwrap()
+            .into_team(3)
+            .unwrap();
+        let got = rounded_entries(&data, &a, &b, &c, n, Some(&mut free.exec(3))).unwrap();
+        assert_eq!(bits(&got), serial, "{root:?} calibrated");
+    }
+}
+
+/// The layer descent's live exact set, with every candidate counted as soon
+/// as its stage returns and every share's dropped states merged on the
+/// leader, stays within two depth layers plus one layer's candidates and
+/// ends at zero; its rounded columns are each placed once
+/// (`docs/gauge_cartan.md` §9). Row-start scratch, one per participant, is
+/// `stage::tests::sections_reuse_the_leaders_scratch`.
+#[test]
+fn layer_descent_holds_two_layers_plus_one_layers_candidates() {
+    for (root, [x, y, z]) in layer_channels() {
+        let data = CartanData::new(root);
+        let [a, b, c] = [&x, &y, &z].map(|l| Ladders::new(&data, l).unwrap());
+        let n = data
+            .multiplicities(Label::new(&x), Label::new(&y), None)
+            .unwrap()
+            .multiplicity(&z) as usize;
+        let weights = &c.module.weights;
+        let depth = |w: usize| weights[w].k.iter().sum::<i64>() as usize;
+        let mut states = vec![0usize; depth(weights.len() - 1) + 1];
+        let mut cands = states.clone();
+        for (w, s) in weights.iter().enumerate() {
+            let pairs = ProductSpace::new(&a, &b, &s.mu).len();
+            states[depth(w)] += s.norms.len() * pairs;
+            cands[depth(w)] += s.kept.len() * pairs;
+        }
+        let bound = n
+            * (1..states.len())
+                .map(|l| states[l - 1] + states[l] + cands[l])
+                .max()
+                .unwrap();
+        let team = layer_team(4);
+        let _force = crate::stage::force_width(4);
+        LIVE_EXACT.with(|l| l.set([0, 0]));
+        COLUMNS.with(|l| l.set([0, 0]));
+        let entries = rounded_entries(&data, &a, &b, &c, n, Some(&mut team.exec(4))).unwrap();
+        let [live, max] = LIVE_EXACT.with(std::cell::Cell::get);
+        assert_eq!(live, 0, "{root:?}: an exact vector outlived the descent");
+        assert!(max <= bound, "{root:?}: live {max} > {bound}");
+        // The rounded payload: every column `(μ, m_c)` is placed once, by
+        // move, and holds exactly the returned entries.
+        assert_eq!(
+            COLUMNS.with(std::cell::Cell::get),
+            [n * c.dim(), entries.len()],
+            "{root:?}"
+        );
+        // The bound restricts: it is below the whole channel.
+        assert!(bound < n * states.iter().sum::<usize>(), "{root:?}");
+    }
+}

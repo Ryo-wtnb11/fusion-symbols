@@ -66,6 +66,10 @@ dependency has `default-features = false`). Build the pool inside the test
 (`threadteam::Pool::builder().threads(n).build()`) and pass `team.exec(n)`,
 a plain `Exec::new(&pool, n)` and `Exec::serial()` alike, as
 `src/lie/prefill.rs::tests::on_every_token` does; never assert timing.
+Unit tests that need a section regardless of measured cost hold
+`src/stage.rs::force_width`, and read the widths that ran from
+`stage::SECTIONS`; an integration test builds its pool with zero
+`dispatch_costs` instead, as `tests/bit_identity.rs::free_team` does.
 
 Allocation tests take `tests/common/counting_alloc.rs::serial` before any work;
 the single allocator counts calls, bytes and largest allocation per thread.
