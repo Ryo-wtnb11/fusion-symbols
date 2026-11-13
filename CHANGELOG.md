@@ -7,6 +7,11 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Changed
+
+- The minimum supported Rust version is now 1.100 (`rust-version` in
+  `Cargo.toml`), checked in CI.
+
 ### Performance
 
 - Warm F, R, CGC and Product-tier lookups from Cartan labels hash one stored
