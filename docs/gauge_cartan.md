@@ -898,7 +898,17 @@ column.
        grouped by pair row and its `(N m_c(w))²` Gram matrix, so
        `O(N d_c + max_w (nnz_w + N² m_c(w)²))` beyond the entries instead of
        a second copy of the channel; then the residual map of one
-       first-descent column at a time.
+       first-descent column at a time. The three buffers of a block (entries,
+       column order, Gram matrix) are reused across blocks while their
+       componentwise maxima fit the largest block seen, in requested bytes
+       `σ_w`, and otherwise released before being requested at the block's
+       sizes, so the serial gate holds at most `max_w σ_w`. On a team token
+       `lie::prefill` checks the weight blocks in a section whose
+       participants each hold such buffers: a section of width `k` holds at
+       most the `k` largest `σ_w` of its blocks, and runs only at widths
+       where that sum is within `max_w σ_w` plus the CGC tier's byte
+       budget. The first failing block in weight order is the result at
+       every width.
 - **F and R requests.** The channel misses of one F or R request (§6) share
   their modules by label: each distinct label is loaded once per request
   instead of once per missed channel, and a channel served from the tier

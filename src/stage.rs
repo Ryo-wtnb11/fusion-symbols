@@ -105,6 +105,7 @@ pub(crate) fn run_stage<S: Send, T: Send + Sync>(
         |e, k| e.dispatch_cost(k),
         units,
         clock,
+        None,
         leader,
         buf,
         scratch,
@@ -112,13 +113,64 @@ pub(crate) fn run_stage<S: Send, T: Send + Sync>(
     )
 }
 
-/// [`run_stage`] with the section price `D(k)` of `exec` given by `price`.
+/// The widest section a stage's participants' scratch allows over the items
+/// still to run, given as their indices; at least 1.
+pub(crate) type MemoryWidth<'a> = &'a (dyn Fn(&[usize]) -> usize + Sync);
+
+/// The widest section over the items `rest` whose participants' scratch fits
+/// `ceiling`, when a participant holds at most the largest `charge` of the
+/// items it ran: the largest `k` whose `k` largest charges sum to at most
+/// `ceiling`, and at least 1.
+pub(crate) fn memory_width(charge: &[usize], rest: &[usize], ceiling: usize) -> usize {
+    let mut s: Vec<usize> = rest.iter().map(|&i| charge[i]).collect();
+    s.sort_unstable_by(|x, y| y.cmp(x));
+    let mut total = 0usize;
+    s.iter()
+        .take_while(|&&x| {
+            total = total.saturating_add(x);
+            total <= ceiling
+        })
+        .count()
+        .max(1)
+}
+
+/// [`run_stage`] for a stage whose scratch is bounded by `memory`: the
+/// planner and a forced width see only widths up to `memory(rest)`, and a
+/// section's scratch is its own, so the leader's is dropped before dispatch
+/// and every participant drops its own before the section returns.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_bounded_stage<S: Send, T: Send + Sync>(
+    exec: &mut Exec<'_>,
+    units: &[u64],
+    clock: &impl Clock,
+    memory: MemoryWidth<'_>,
+    leader: &mut Option<S>,
+    buf: &mut StageBuf<T>,
+    scratch: impl Fn() -> S + Sync,
+    kernel: impl Fn(&mut S, usize) -> T + Sync,
+) -> Ran {
+    run_priced(
+        exec,
+        |e, k| e.dispatch_cost(k),
+        units,
+        clock,
+        Some(memory),
+        leader,
+        buf,
+        scratch,
+        kernel,
+    )
+}
+
+/// [`run_stage`] with the section price `D(k)` of `exec` given by `price`,
+/// and, with `memory`, as [`run_bounded_stage`].
 #[allow(clippy::too_many_arguments)]
 fn run_priced<S: Send, T: Send + Sync>(
     exec: &mut Exec<'_>,
     price: impl Fn(&Exec<'_>, NonZeroUsize) -> Duration,
     units: &[u64],
     clock: &impl Clock,
+    memory: Option<MemoryWidth<'_>>,
     leader: &mut Option<S>,
     buf: &mut StageBuf<T>,
     scratch: impl Fn() -> S + Sync,
@@ -145,9 +197,17 @@ fn run_priced<S: Send, T: Send + Sync>(
     }
     let width = 'run: {
         let budget = exec.budget();
-        let feasible = |n: usize| NonZeroUsize::new(n).map(|n| n.min(budget));
+        // `min(B, n, k_mem)`: the planner never sees a wider width, so no
+        // choice is clipped afterwards.
+        let feasible = |items: &[usize]| {
+            let n = NonZeroUsize::new(items.len())?;
+            let mem = memory.map_or(n, |m| {
+                NonZeroUsize::new(m(items)).unwrap_or(NonZeroUsize::MIN)
+            });
+            Some(n.min(budget).min(mem))
+        };
         let cost = |k| price(exec, k);
-        let Some(cap) = feasible(rest.len()).filter(|_| exec.carries_team()) else {
+        let Some(cap) = exec.carries_team().then(|| feasible(rest)).flatten() else {
             rest.iter().for_each(|&i| inline(i, out, leader));
             break 'run NonZeroUsize::MIN;
         };
@@ -156,7 +216,7 @@ fn run_priced<S: Send, T: Send + Sync>(
             let k = k.min(cap);
             if k.get() >= 2 && cost(k) != Duration::MAX {
                 lpt(rest, units);
-                break 'run section(exec, k, rest, leader, &attempt, out);
+                break 'run section(exec, k, rest, leader, memory.is_some(), &attempt, out);
             }
         }
         let Some(d_g) = cheapest_section(cap, cost) else {
@@ -183,7 +243,7 @@ fn run_priced<S: Send, T: Send + Sync>(
         let rest = &mut rest[done..];
         lpt(rest, units);
         let sorted: Vec<u64> = rest.iter().map(|&i| units[i]).collect();
-        let cap = feasible(rest.len()).unwrap_or(NonZeroUsize::MIN);
+        let cap = feasible(rest).unwrap_or(NonZeroUsize::MIN);
         let k = choose_width(&sorted, sample, cap, cost);
         #[cfg(test)]
         PLANS.with(|p| p.borrow_mut().push((done, sample, k)));
@@ -193,7 +253,7 @@ fn run_priced<S: Send, T: Send + Sync>(
             rest.iter().for_each(|&i| inline(i, out, leader));
             break 'run k;
         }
-        section(exec, k, rest, leader, &attempt, out)
+        section(exec, k, rest, leader, memory.is_some(), &attempt, out)
     };
     // Every item was attempted; now report the lowest-index panic.
     if let Some((_, payload)) = panics
@@ -249,7 +309,9 @@ fn attempt_item<S, T>(
 
 /// One section of width `k` over `items` (in LPT order); returns the width.
 /// Participant 0 runs on the leader's scratch, so a section holds at most
-/// `k` scratch values.
+/// `k` scratch values. With `own`, the section's scratch is its own: the
+/// leader's is dropped first, and every participant drops its scratch
+/// before its share ends.
 ///
 /// Shares record no busy time: a per-share slowdown measured against a
 /// one-item calibration sample amplifies that item's noise, and the planner
@@ -260,20 +322,32 @@ fn section<S: Send, T: Send + Sync>(
     k: NonZeroUsize,
     items: &[usize],
     leader: &mut Option<S>,
+    own: bool,
     attempt: &(impl Fn(&mut Option<S>, usize) -> Option<T> + Sync),
     out: &mut [Option<T>],
 ) -> NonZeroUsize {
     #[cfg(test)]
     QUEUES.with(|q| q.borrow_mut().push(items.to_vec()));
+    if own {
+        *leader = None;
+    }
     let next = AtomicUsize::new(0);
     let slots: Vec<OnceLock<T>> = items.iter().map(|_| OnceLock::new()).collect();
     let lead = Mutex::new(leader.take());
+    #[cfg(all(test, feature = "lie-generated"))]
+    let peaks: Vec<Mutex<Option<[isize; 2]>>> = (0..k.get()).map(|_| Mutex::new(None)).collect();
     let ran = exec.reborrow().limit(k).team(|team| {
         team.run_with(|p| {
             #[cfg(test)]
             let _no_cache = crate::cache::forbid_cache_access();
             let lock = || lead.lock().unwrap_or_else(PoisonError::into_inner);
-            let mut s = if p.index() == 0 { lock().take() } else { None };
+            let mut s = if p.index() == 0 && !own {
+                lock().take()
+            } else {
+                None
+            };
+            #[cfg(all(test, feature = "lie-generated"))]
+            let base = crate::audit_alloc::start_peak();
             loop {
                 let t = next.fetch_add(1, Ordering::Relaxed);
                 let Some(&i) = items.get(t) else { break };
@@ -281,12 +355,31 @@ fn section<S: Send, T: Send + Sync>(
                     let _ = slots[t].set(v);
                 }
             }
-            if p.index() == 0 {
+            if own {
+                drop(s);
+            } else if p.index() == 0 {
                 *lock() = s;
+            }
+            #[cfg(all(test, feature = "lie-generated"))]
+            {
+                let peak = crate::audit_alloc::thread_peak_bytes() - base;
+                let live = crate::audit_alloc::thread_live_bytes() - base;
+                if let Some(slot) = peaks.get(p.index()) {
+                    *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some([peak, live]);
+                }
             }
         });
     });
     *leader = lead.into_inner().unwrap_or_else(PoisonError::into_inner);
+    #[cfg(all(test, feature = "lie-generated"))]
+    SHARE_PEAKS.with(|s| {
+        s.borrow_mut().push(
+            peaks
+                .into_iter()
+                .filter_map(|m| m.into_inner().unwrap_or_else(PoisonError::into_inner))
+                .collect(),
+        );
+    });
     // A carried team is entered without acquisition, so this never refuses;
     // if it did, nothing ran and the leader takes every item.
     if ran.is_err() {
@@ -312,6 +405,10 @@ thread_local! {
     pub(crate) static QUEUES: std::cell::RefCell<Vec<Vec<usize>>> = const { std::cell::RefCell::new(Vec::new()) };
     /// Widths of the sections this leader ran.
     pub(crate) static SECTIONS: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// Per section of this leader, each share's requested-byte peak and final
+    /// live bytes above its live bytes on entry, in participant order.
+    #[cfg(feature = "lie-generated")]
+    pub(crate) static SHARE_PEAKS: std::cell::RefCell<Vec<Vec<[isize; 2]>>> = const { std::cell::RefCell::new(Vec::new()) };
     /// Per planned stage of this leader: items in the sample, the sample, the width.
     pub(crate) static PLANS: std::cell::RefCell<Vec<(usize, Sample, NonZeroUsize)>> = const { std::cell::RefCell::new(Vec::new()) };
 }

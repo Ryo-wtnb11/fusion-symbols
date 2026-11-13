@@ -1526,31 +1526,370 @@ fn split_column_is_a_support_failure() {
     assert_eq!(gate(RootSystem::G2, &l, n, &e), Err(GateError::Support));
 }
 
-/// The isometry gate holds one weight block of entries at a time: its peak
-/// is the largest block, not the whole channel.
+/// Column runs and shape of each synthetic block.
+#[cfg(feature = "lie-generated")]
+type SyntheticBlocks = Vec<(Vec<(usize, usize)>, GateBlock)>;
+
+/// Synthetic isometry blocks of shapes `(k, e)`: `k` columns sharing `e`
+/// entries on distinct rows, laid out one block after another, with each
+/// block's column runs.
+#[cfg(feature = "lie-generated")]
+fn gate_blocks(shapes: &[(usize, usize)]) -> (Vec<MEntry>, SyntheticBlocks) {
+    let mut entries = Vec::new();
+    let mut blocks = Vec::new();
+    for &(k, e) in shapes {
+        let cols = (0..k)
+            .map(|col| {
+                let s = entries.len();
+                let len = e / k + usize::from(col < e % k);
+                entries.extend((0..len).map(|r| MEntry {
+                    m1: (s + r) as u32,
+                    m2: 0,
+                    m3: col as u32,
+                    mu: 0,
+                    value: 1.0,
+                }));
+                (s, entries.len())
+            })
+            .collect();
+        blocks.push((cols, GateBlock { offset: 0, k, e }));
+    }
+    (entries, blocks)
+}
+
+#[cfg(feature = "lie-generated")]
+/// Requested-byte peak above the start and the final live bytes of `run` on
+/// this thread.
+fn scratch_peak(run: impl FnOnce()) -> (isize, isize) {
+    let base = crate::audit_alloc::start_peak();
+    run();
+    (
+        crate::audit_alloc::thread_peak_bytes() - base,
+        crate::audit_alloc::thread_live_bytes() - base,
+    )
+}
+
+#[cfg(feature = "lie-generated")]
+/// The serial gate never holds more than its largest block's account: after
+/// a long single column, a square block replaces the retained buffers
+/// instead of adding the componentwise maxima.
 #[test]
-fn rounded_gate_holds_one_weight_block() {
-    for (root, a, b) in [
-        (RootSystem::G2, G27.to_vec(), G27.to_vec()),
-        (RootSystem::F4, unit(4, 3), unit(4, 3)),
-    ] {
-        let fam = GeneralFamily::new(root);
-        for (c, _) in fam.product(&a, &b).unwrap().iter() {
-            let (e, l, n) = rounded(root, &a, &b, c.dynkin());
-            let mut per_weight = vec![0usize; l[2].module.weights.len()];
-            for x in &e {
-                let pc = l[2].public.iter().position(|&p| p == x.m3).unwrap();
-                per_weight[l[2].space[pc]] += 1;
+fn incompatible_blocks_hold_one_blocks_account() {
+    let (entries, blocks) = gate_blocks(&[(1, 1000), (50, 50)]);
+    let sigma = blocks.iter().map(|(_, w)| gate_bytes(w.need()));
+    let largest = sigma.max().unwrap();
+    let maxima = gate_bytes(std::array::from_fn(|c| {
+        blocks.iter().map(|(_, w)| w.need()[c]).max().unwrap()
+    }));
+    let (peak, live) = scratch_peak(|| {
+        let mut s = GateScratch::default();
+        for (cols, w) in &blocks {
+            let _ = isometry_block(&mut s, &entries, cols, *w);
+        }
+    });
+    assert!(peak as usize <= largest, "{peak} > {largest}");
+    assert!(
+        (peak as usize) < maxima,
+        "{peak} reached the retained maxima {maxima}"
+    );
+    assert_eq!(live, 0);
+}
+
+#[cfg(feature = "lie-generated")]
+/// Repeated block shapes reuse the three buffers: one construction each.
+#[test]
+fn repeated_blocks_reuse_three_buffers() {
+    let (entries, blocks) = gate_blocks(&[(4, 8); 100]);
+    let calls = crate::audit_alloc::thread_allocation_calls;
+    let before = calls();
+    let mut s = GateScratch::default();
+    for (cols, w) in &blocks {
+        let _ = isometry_block(&mut s, &entries, cols, *w);
+    }
+    assert_eq!(calls() - before, 3);
+}
+
+/// Every assignment of four differently shaped blocks to three
+/// participants, run in block order with idle participants keeping their
+/// buffers, holds at most the three largest accounts at every transition,
+/// and each participant at most its own largest block's.
+#[test]
+fn gate_buffers_fit_the_largest_blocks_under_every_assignment() {
+    let needs: Vec<GateCounts> = [(1, 1000), (50, 50), (4, 8), (20, 400)]
+        .iter()
+        .map(|&(k, e)| GateBlock { offset: 0, k, e }.need())
+        .collect();
+    let mut sigma: Vec<usize> = needs.iter().map(|&c| gate_bytes(c)).collect();
+    sigma.sort_unstable_by(|x, y| y.cmp(x));
+    let s3: usize = sigma[..3].iter().sum();
+    for code in 0..81usize {
+        let owner: Vec<usize> = (0..4).map(|w| code / 3usize.pow(w as u32) % 3).collect();
+        let mut held = [[0usize; 3]; 3];
+        let mut high = [0usize; 3];
+        let total = |held: &[GateCounts; 3]| held.iter().map(|&c| gate_bytes(c)).sum::<usize>();
+        for (w, &p) in owner.iter().enumerate() {
+            let need = needs[w];
+            high[p] = high[p].max(gate_bytes(need));
+            let replace = gate_replaced(held[p], need, high[p]);
+            // Every replaced buffer is released, then each is requested.
+            for c in 0..3 {
+                if replace[c] {
+                    held[p][c] = 0;
+                }
             }
-            let largest = per_weight.iter().copied().max().unwrap();
-            GATE_BLOCK.with(|x| x.set(0));
-            gate(root, &l, n, &e).unwrap();
-            assert_eq!(GATE_BLOCK.with(std::cell::Cell::get), largest);
-            if per_weight.iter().filter(|&&k| k > 0).count() > 1 {
-                assert!(largest < e.len());
+            for c in 0..=3 {
+                if c > 0 && replace[c - 1] {
+                    held[p][c - 1] = need[c - 1];
+                }
+                assert!(gate_bytes(held[p]) <= high[p], "{owner:?} block {w}");
+                assert!(total(&held) <= s3, "{owner:?} block {w}");
             }
+            assert!((0..3).all(|c| held[p][c] >= need[c]), "{owner:?} block {w}");
         }
     }
+}
+
+#[cfg(feature = "lie-generated")]
+/// The gate account of every weight block of a channel, from its entries.
+fn block_accounts(l: &[Ladders; 3], n: usize, entries: &[MEntry]) -> Vec<usize> {
+    let c = &l[2];
+    let mut e = vec![0usize; c.module.weights.len()];
+    for x in entries {
+        let pc = c.public.iter().position(|&p| p == x.m3).unwrap();
+        e[c.space[pc]] += 1;
+    }
+    c.module
+        .weights
+        .iter()
+        .zip(e)
+        .map(|(space, e)| {
+            let k = space.norms.len() * n;
+            gate_bytes([e, k, k * k])
+        })
+        .collect()
+}
+
+#[cfg(feature = "lie-generated")]
+/// Sum of the `k` largest of `sigma`.
+fn largest_sum(sigma: &[usize], k: usize) -> usize {
+    let mut s = sigma.to_vec();
+    s.sort_unstable_by(|x, y| y.cmp(x));
+    s.iter().take(k).sum()
+}
+
+#[cfg(feature = "lie-generated")]
+/// On real teams, at odd widths and in a narrow child team, the isometry
+/// section runs at the widest width whose `k` largest block accounts fit
+/// the serial peak plus the allowance, and its shares' requested-byte
+/// peaks sum to at most those `k` accounts, with every share's buffers
+/// released inside it. A zero allowance keeps the gate on the leader.
+#[test]
+fn team_gate_scratch_fits_the_allowance() {
+    // Several weight blocks of different sizes, with `N = 2` and `N = 1`.
+    for (root, [x, y, z]) in [
+        (RootSystem::G2, [G27.to_vec(), G27.to_vec(), G27.to_vec()]),
+        (RootSystem::F4, [unit(4, 3), unit(4, 3), unit(4, 3)]),
+    ] {
+        let (entries, l, n) = rounded(root, &x, &y, &z);
+        let data = CartanData::new(root);
+        let sigma = block_accounts(&l, n, &entries);
+        assert!(sigma.len() >= 6, "{root:?}");
+        let top = largest_sum(&sigma, 1);
+        let team = layer_team(5);
+        // Allowance, then the width it permits, `S_k ≤ σ_max + allowance`.
+        let undersized = largest_sum(&sigma, 2) - top;
+        for (allowance, permits) in [(0, 1), (undersized, 2), (usize::MAX / 2, usize::MAX)] {
+            let check = |exec: &mut threadteam::Exec<'_>, width: usize| {
+                let _allow = AllowanceGuard::set(allowance);
+                crate::stage::SECTIONS.with(|s| s.borrow_mut().clear());
+                crate::stage::SHARE_PEAKS.with(|s| s.borrow_mut().clear());
+                let _force = crate::stage::force_width(width);
+                check_rounded(&data, &l[0], &l[1], &l[2], n, &entries, Some(exec)).unwrap();
+                let sections = crate::stage::SECTIONS.with(|s| s.take());
+                let peaks = crate::stage::SHARE_PEAKS.with(|s| s.take());
+                let k = width.min(permits);
+                if k == 1 {
+                    assert!(sections.is_empty(), "{root:?} {allowance} {sections:?}");
+                    return;
+                }
+                assert_eq!(
+                    sections,
+                    [k],
+                    "{root:?} allowance {allowance} width {width}"
+                );
+                let [shares] = &peaks[..] else {
+                    panic!("{peaks:?}")
+                };
+                assert_eq!(shares.len(), k);
+                assert!(shares.iter().all(|&[_, live]| live == 0), "{shares:?}");
+                let sum: isize = shares.iter().map(|&[peak, _]| peak).sum();
+                assert!(sum > 0);
+                assert!(
+                    sum as usize <= largest_sum(&sigma, k),
+                    "{root:?} width {k}: {sum} > S_k"
+                );
+            };
+            for width in [3, 5] {
+                check(&mut team.exec(5), width);
+            }
+            team.exec(5)
+                .fork_sized(&[2, 3], |i, mut child| {
+                    if i == 1 {
+                        check(&mut child, 3);
+                    }
+                })
+                .unwrap();
+        }
+    }
+}
+
+/// Sets the isometry gate's allowance on this thread (a leader's) until
+/// dropped.
+struct AllowanceGuard(Option<usize>);
+
+impl AllowanceGuard {
+    fn set(bytes: usize) -> Self {
+        Self(GATE_ALLOWANCE.with(|a| a.replace(Some(bytes))))
+    }
+}
+
+impl Drop for AllowanceGuard {
+    fn drop(&mut self) {
+        GATE_ALLOWANCE.with(|a| a.set(self.0));
+    }
+}
+
+/// Runs `check` on the serial token, then on team tokens at forced widths
+/// 2, 3 and 5, in a child team of width 3, and calibrated on a zero-cost
+/// team, asserting that each team run opened a section.
+fn on_gate_tokens(check: impl Fn(Option<&mut threadteam::Exec<'_>>, &str) + Sync) {
+    let _allow = AllowanceGuard::set(usize::MAX / 2);
+    check(None, "serial");
+    let team = layer_team(5);
+    for width in [2, 3, 5] {
+        let _force = crate::stage::force_width(width);
+        crate::stage::SECTIONS.with(|s| s.borrow_mut().clear());
+        check(Some(&mut team.exec(5)), &format!("width {width}"));
+        assert!(!crate::stage::SECTIONS.with(|s| s.take()).is_empty());
+    }
+    team.exec(5)
+        .fork_sized(&[2, 3], |i, mut child| {
+            if i == 1 {
+                let _allow = AllowanceGuard::set(usize::MAX / 2);
+                let _force = crate::stage::force_width(3);
+                check(Some(&mut child), "child");
+            }
+        })
+        .unwrap();
+    let zero = threadteam::WidthCosts::flat(std::time::Duration::ZERO);
+    let free = threadteam::Pool::builder()
+        .threads(3)
+        .acquire_timeout(std::time::Duration::from_secs(10))
+        .dispatch_costs(threadteam::DispatchCosts::new(zero, zero, zero))
+        .build()
+        .unwrap()
+        .into_team(3)
+        .unwrap();
+    check(Some(&mut free.exec(3)), "calibrated");
+}
+
+/// The first failing block in weight order is the gate's result at every
+/// width: against a later block with a larger residual, and against a later
+/// block whose finite entries overflow the Gram sum.
+#[test]
+fn isometry_gate_reports_the_first_failing_block_at_every_width() {
+    let root = RootSystem::G2;
+    let (good, l, n) = rounded(root, &G27, &G27, &G27);
+    let data = CartanData::new(root);
+    let c = &l[2];
+    let weight_of = |m: u32| c.space[c.public.iter().position(|&p| p == m).unwrap()];
+    // A column of the first weight block and one of the last.
+    let early = c.public[0];
+    let late = *c.public.iter().max_by_key(|&&m| weight_of(m)).unwrap();
+    assert!(weight_of(early) < weight_of(late));
+    let scaled = |e: &mut Vec<MEntry>, m: u32, f: f64| {
+        e.iter_mut()
+            .filter(|x| (x.m3, x.mu) == (m, 0))
+            .for_each(|x| x.value *= f)
+    };
+    let mut larger_later = good.clone();
+    scaled(&mut larger_later, early, 1.01);
+    scaled(&mut larger_later, late, 1.1);
+    let mut overflow_later = good.clone();
+    scaled(&mut overflow_later, early, 1.01);
+    let i = overflow_later.iter().position(|x| x.m3 == late).unwrap();
+    overflow_later[i].value = 1e200;
+    on_gate_tokens(|mut exec, token| {
+        for (name, e) in [
+            ("larger later", &larger_later),
+            ("overflow later", &overflow_later),
+        ] {
+            match check_rounded(&data, &l[0], &l[1], &l[2], n, e, exec.as_deref_mut()) {
+                Err(GateError::Residual {
+                    gate: "isometry",
+                    residual,
+                }) => assert!(
+                    (residual - 0.0201).abs() < 1e-6,
+                    "{token} {name}: {residual}"
+                ),
+                other => panic!("{token} {name}: {other:?}"),
+            }
+        }
+    });
+}
+
+/// On team tokens the support check still runs before the isometry gate,
+/// and the ladder gate only after every isometry block passes.
+#[test]
+fn team_gates_keep_support_isometry_ladder_order() {
+    let root = RootSystem::G2;
+    let (good, l, n) = rounded(root, &G7, &G14, &G64);
+    let data = CartanData::new(root);
+    let c = &l[2];
+    // Flipping the first descent's column breaks only the ladder gate.
+    let top = &c.module.weights[0].mu;
+    let nu: Vec<i64> = (0..2).map(|i| top[i] - data.c(0, i)).collect();
+    let descent = c.module.weights[c.module.weight_index(&nu).unwrap()].offset as u32;
+    let mut ladder = good.clone();
+    ladder
+        .iter_mut()
+        .filter(|x| x.m3 == descent)
+        .for_each(|x| x.value = -x.value);
+    // Plus a rescaled column in the last weight block.
+    let last = *c
+        .public
+        .iter()
+        .max_by_key(|&&m| c.space[m as usize])
+        .unwrap();
+    let mut both = ladder.clone();
+    both.iter_mut()
+        .filter(|x| x.m3 == last)
+        .for_each(|x| x.value *= 1.01);
+    // Plus an entry off its weight.
+    let mut support = both.clone();
+    support[0].m1 = if support[0].m1 == 0 { 1 } else { 0 };
+    on_gate_tokens(|mut exec, token| {
+        let mut run =
+            |e: &[MEntry]| check_rounded(&data, &l[0], &l[1], &l[2], n, e, exec.as_deref_mut());
+        assert!(
+            matches!(
+                run(&ladder),
+                Err(GateError::Residual { gate: "ladder", .. })
+            ),
+            "{token}"
+        );
+        assert!(
+            matches!(
+                run(&both),
+                Err(GateError::Residual {
+                    gate: "isometry",
+                    ..
+                })
+            ),
+            "{token}"
+        );
+        assert_eq!(run(&support), Err(GateError::Support), "{token}");
+    });
 }
 
 /// A channel failing a gate is never retained, its error is a typed

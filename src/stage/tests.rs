@@ -60,7 +60,9 @@ fn priced_vec<S: Send, T: Send + Sync>(
     kernel: impl Fn(&mut S, usize) -> T + Sync,
 ) -> (Vec<T>, Ran) {
     let mut buf = StageBuf::default();
-    let ran = run_priced(exec, price, units, clock, leader, &mut buf, scratch, kernel);
+    let ran = run_priced(
+        exec, price, units, clock, None, leader, &mut buf, scratch, kernel,
+    );
     (buf.drain().collect(), ran)
 }
 
@@ -539,4 +541,91 @@ fn reused_stage_buffers_hold_only_the_current_stage() {
     run(2, 500, None, &mut buf);
     assert_eq!(buf.drain().map(|p| p.0).collect::<Vec<_>>(), [500, 501]);
     assert_eq!(live(), 0);
+}
+
+/// The memory width is the planner's ceiling, not a clip of its choice:
+/// eight equal items of 10 units on a team of 8, with `D(4) = 100` and
+/// `D(k) = 1` otherwise, and an allowance of three blocks beyond the serial
+/// peak, so `k_mem = 4`. Width 4 does not pay at `D(4) = 100` against the
+/// serial 70 ns of the seven items left after the one-item sample, so the
+/// planner runs 3 (`T(3) = 1 + 30`), not the clipped 4 (`100 + 20`); without
+/// the ceiling it would run 7.
+#[test]
+fn memory_width_caps_the_planner() {
+    let team = new_team(8);
+    let price = |_: &Exec<'_>, k: NonZeroUsize| ns(if k.get() == 4 { 100 } else { 1 });
+    let charge = [5usize; 8];
+    let memory = |rest: &[usize]| memory_width(&charge, rest, 5 + 3 * 5);
+    assert_eq!(memory(&[1, 2, 3, 4, 5, 6, 7]), 4);
+    let run = |memory: Option<MemoryWidth<'_>>| {
+        // The sample: item 0 of 10 units in 10 ns.
+        let clock = Script::new(&[0, 10, 10]);
+        SECTIONS.with(|s| s.borrow_mut().clear());
+        let mut buf = StageBuf::default();
+        run_priced(
+            &mut team.exec(8),
+            price,
+            &[10; 8],
+            &clock,
+            memory,
+            &mut None,
+            &mut buf,
+            || (),
+            |(), i| i,
+        );
+        assert_eq!(buf.drain().collect::<Vec<_>>(), (0..8).collect::<Vec<_>>());
+        SECTIONS.with(|s| s.take())
+    };
+    assert_eq!(run(Some(&memory)), [3]);
+    assert_eq!(run(None), [7]);
+}
+
+/// A bounded section's scratch is its own: the leader's is dropped before
+/// dispatch, so three participants hold three scratch values, and every
+/// participant drops its own before the section returns.
+#[test]
+fn bounded_sections_own_their_scratch() {
+    static LIVE: AtomicUsize = AtomicUsize::new(0);
+    static PEAK: AtomicUsize = AtomicUsize::new(0);
+    struct Scratch;
+    impl Scratch {
+        fn new() -> Self {
+            let now = LIVE.fetch_add(1, Ordering::SeqCst) + 1;
+            PEAK.fetch_max(now, Ordering::SeqCst);
+            Scratch
+        }
+    }
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            LIVE.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+    let team = new_team(3);
+    let _force = force_width(3);
+    let mut leader = Some(Scratch::new());
+    let entered = AtomicUsize::new(0);
+    let barrier = Barrier::new(3);
+    let ran = run_bounded_stage(
+        &mut team.exec(3),
+        &[1; 9],
+        &SystemClock,
+        &|rest| rest.len(),
+        &mut leader,
+        &mut StageBuf::<()>::default(),
+        Scratch::new,
+        |_, _| {
+            if entered.fetch_add(1, Ordering::SeqCst) < 3 {
+                barrier.wait();
+            }
+        },
+    );
+    assert_eq!(ran.width.get(), 3);
+    assert_eq!(ran.scratches, 3, "every participant built its own");
+    assert_eq!(
+        PEAK.load(Ordering::SeqCst),
+        3,
+        "the leader's was dropped first"
+    );
+    assert!(leader.is_none());
+    assert_eq!(LIVE.load(Ordering::SeqCst), 0, "shares dropped theirs");
 }

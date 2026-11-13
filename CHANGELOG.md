@@ -18,7 +18,9 @@ value/gauge rule noted below.
   in one reset epoch, so a reset at any point retains nothing the call
   generates afterwards. On a token that carries a team, the exact descent of
   each Cartan channel runs one depth layer at a time in team sections, at a
-  width chosen from the measured cost of the layer's first items; any other
+  width chosen from the measured cost of the layer's first items, and its
+  isometry gate checks the weight blocks in team sections whose scratch
+  beyond the serial gate's stays within the CGC tier's byte budget; any other
   token evaluates serially on the calling thread. Values are bit-identical at
   every width. `A^{ab}_c` and `B^{ab}_c` are warmed through the F block and
   phase named in the `PrefillRequest` docs.
