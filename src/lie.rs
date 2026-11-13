@@ -14,6 +14,8 @@ pub mod su2;
 pub use group::{GroupError, GroupId, RootSystem};
 mod half_int;
 pub use half_int::HalfInt;
+mod prefill;
+pub use prefill::{prefill, PrefillRequest};
 
 use crate::category::{
     sealed::Validated, BraidingStyle, CgcBlock, EnumerationError, FBlock, FusionCategory,

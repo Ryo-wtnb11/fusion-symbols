@@ -45,12 +45,13 @@ fusion-symbols = "0.11"
 
 | Feature | Default | Adds |
 |---|---|---|
-| `lie-generated` | yes | Higher-rank SU(N), SO(N), Spin(N), Sp(2r) and G₂, F₄, E₆, E₇, E₈ groups. A capability switch: every build compiles the same exact Cartan engine (sequential; the caller owns parallelism) |
+| `lie-generated` | yes | Higher-rank SU(N), SO(N), Spin(N), Sp(2r) and G₂, F₄, E₆, E₇, E₈ groups. A capability switch: every build compiles the same exact Cartan engine (serial entries; `lie::prefill` runs on the caller's execution token) |
 | `anyonwiki-unitary` | no | 303 rank 5–7 table categories, data only |
 
 The required dependencies include Malachite 0.14 (`malachite-base`,
 `malachite-nz`, `malachite-q`) for exact arithmetic beyond machine words, `num-traits`,
-`num-complex` and `quick_cache`; no feature adds a dependency.
+`num-complex`, `quick_cache` and `threadteam` (without its `parallel`
+feature, so this crate starts no thread pool); no feature adds a dependency.
 Use `default-features = false` for the base build without higher-rank groups.
 
 ## Example

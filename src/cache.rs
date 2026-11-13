@@ -19,6 +19,8 @@
 //!   once, before first use. Shrink-only.
 //! - **Observation.** [`tier_stats`] for one tier; iterate
 //!   [`CoefficientCacheTier::ALL`] for every tier.
+//! - **Warming.** [`crate::lie::prefill`] evaluates a batch of Lie-group
+//!   coefficients in one reset epoch on the caller's execution token.
 //! - **Release.** [`trim_to`] (one tier, unspecified removal order) and [`reset`] (all
 //!   tiers). Both act on process-global state, so **a library must not call
 //!   them** — exactly one component in a process owns that policy.
@@ -938,6 +940,13 @@ thread_local! {
     /// A test hook run once by the next miss of this thread, between
     /// acquiring its guard and generating.
     pub(crate) static AFTER_GUARD: std::cell::Cell<Option<fn()>> = const { std::cell::Cell::new(None) };
+}
+
+/// Runs `compute` as one generation in the reset epoch current now, before
+/// any of its cache accesses: a reset at any later point keeps everything
+/// `compute` generates afterwards from being retained, in every tier.
+pub(crate) fn in_call_epoch<T>(compute: impl FnOnce() -> T) -> T {
+    generation(RESETS.load(Ordering::SeqCst), compute)
 }
 
 /// Runs `compute` as the outermost generation unless one is running on this
