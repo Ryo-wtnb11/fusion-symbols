@@ -15,7 +15,7 @@ use std::cmp::Ordering;
 use std::num::NonZeroU64;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
-use crate::exact::word_gcd as gcd;
+use crate::exact::{word_gcd as gcd, Limbs, INPUT_LIMBS};
 use malachite_base::num::arithmetic::traits::{NegAssign, Reciprocal, Square};
 use malachite_nz::natural::Natural;
 use malachite_q::Rational;
@@ -410,11 +410,33 @@ pub(super) fn radical(s: &Q, a: &Q, b: &Q, scale: &Q) -> crate::exact::SignedSqr
 /// `scale = pt/qt` (`a, b, scale > 0`), the radicand is `U/V` with
 /// `U = ps²·pa·pb·qt` and `V = qs²·qa·qb·pt`; the conversion depends only on
 /// the ratio, so the products are passed unreduced and no gcd is taken.
+/// `U` and `V` are formed in stack limbs when both fit
+/// [`INPUT_LIMBS`](crate::exact::INPUT_LIMBS), so the rounding allocates
+/// nothing (with Malachite's default 64-bit limbs); a zero `s` returns `+0.0`
+/// without forming them, and wider products are formed in big integers.
 pub(super) fn rounded_radical(s: &Q, a: &Q, b: &Q, scale: &Q) -> f64 {
+    if s.is_zero() {
+        return 0.0;
+    }
     let (ps, qs) = s.magnitudes();
     let (pa, qa) = a.magnitudes();
     let (pb, qb) = b.magnitudes();
     let (pt, qt) = scale.magnitudes();
+    let sign = if s.signum() == Ordering::Less { -1 } else { 1 };
+    // Every factor is at least 1, so a partial product overflows only when
+    // the whole one does.
+    let limbs = |f: [&Natural; 5]| {
+        let mut acc = Limbs::<INPUT_LIMBS>::ONE;
+        for x in f {
+            acc.checked_mul_assign(x)?;
+        }
+        Some(acc)
+    };
+    let u = limbs([&ps, &ps, &pa, &pb, &qt]);
+    let v = limbs([&qs, &qs, &qa, &qb, &pt]);
+    if let (Some(u), Some(v)) = (u, v) {
+        return crate::exact::signed_sqrt_limbs_to_f64(sign, u, v);
+    }
     let mut u = ps.as_ref().square();
     u *= pa.as_ref();
     u *= pb.as_ref();
@@ -423,7 +445,6 @@ pub(super) fn rounded_radical(s: &Q, a: &Q, b: &Q, scale: &Q) -> f64 {
     v *= qa.as_ref();
     v *= qb.as_ref();
     v *= pt.as_ref();
-    let sign = if s.signum() == Ordering::Less { -1 } else { 1 };
     crate::exact::signed_sqrt_to_f64(sign, &u, &v)
 }
 
