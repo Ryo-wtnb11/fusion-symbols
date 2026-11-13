@@ -57,6 +57,13 @@ cargo test --test integration gauge_golden::
 cargo test --test allocations lie_a1_alloc::
 ```
 
+Tests that need real execution teams use the `threadteam` dev-dependency,
+which enables its `parallel` feature for test builds only (the library
+dependency has `default-features = false`). Build the pool inside the test
+(`threadteam::Pool::builder().threads(n).build()`) and pass `team.exec(n)`,
+a plain `Exec::new(&pool, n)` and `Exec::serial()` alike, as
+`src/lie/prefill.rs::tests::on_every_token` does; never assert timing.
+
 Allocation tests take `tests/common/counting_alloc.rs::serial` before any work;
 the single allocator counts calls, bytes and largest allocation per thread.
 Only integration tests that measure or reset global caches take

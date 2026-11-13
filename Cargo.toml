@@ -30,7 +30,7 @@ default = ["lie-generated"]
 anyonwiki-unitary = []
 # Higher-rank simple Lie factors (A_r with r >= 2, B/C/D, G2-E8): a capability
 # switch only. Every build compiles the same exact Cartan engine; A(1) needs
-# no feature. Sequential; the caller owns parallelism.
+# no feature. Serial entries; `lie::prefill` runs on the caller's token.
 lie-generated = []
 
 [dependencies]
@@ -46,8 +46,13 @@ num-complex = "0.4"
 malachite-nz = "0.14"
 malachite-q = "0.14"
 malachite-base = "0.14"
+# Execution token of `lie::prefill`. No `parallel` feature: fs starts no
+# scheduler; a consumer that enables it shares its pool through the token.
+threadteam = { version = "0.6", default-features = false }
 
 [dev-dependencies]
+# Real teams for the prefill tests only.
+threadteam = { version = "0.6", features = ["parallel"] }
 rand = "0.10"
 rand_chacha = "0.10"
 # Benchmark harness (not a CI gate): small-spin, thousands-tier and cache-hit

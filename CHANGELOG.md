@@ -7,6 +7,21 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Added
+
+- `lie::prefill(&PrefillRequest, threadteam::Exec<'_>)` makes a batch of
+  Lie-group coefficients resident in one call: CGC channels, F and R blocks,
+  tensor products and Frobenius–Schur phases, built with `PrefillRequest`.
+  Each item is evaluated as its serial entry evaluates it (same dispatch,
+  values, lookups and error). Every item is attempted; the lowest-index error
+  is returned and successful items are not rolled back. The whole call runs
+  in one reset epoch, so a reset at any point retains nothing the call
+  generates afterwards. Every token currently evaluates the items serially on
+  the calling thread. `A^{ab}_c` and `B^{ab}_c` are warmed through the F
+  block and phase named in the `PrefillRequest` docs.
+- New required dependency `threadteam` 0.6 with `default-features = false`,
+  for the execution token; it starts no scheduler.
+
 ### Changed
 
 - The minimum supported Rust version is now 1.100 (`rust-version` in
