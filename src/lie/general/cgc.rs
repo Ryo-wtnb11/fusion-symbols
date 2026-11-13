@@ -21,6 +21,8 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
+use threadteam::Exec;
+
 use super::module::{q_heap, qs_bytes, IrrepModule, Q};
 use super::roots::CartanData;
 use crate::cache::Label;
@@ -595,7 +597,10 @@ pub(super) fn rounded_entries(
     b: &Ladders,
     c: &Ladders,
     n: usize,
+    exec: Option<&mut Exec<'_>>,
 ) -> Result<Vec<MEntry>, LieError> {
+    // Inline on every token: this is the descent's split point.
+    let _ = exec;
     let dc = c.dim();
     let mut columns: Vec<Vec<MEntry>> = vec![Vec::new(); n * dc];
     descend(data, a, b, c, n, &mut |seed_norms, m, space, per_mu| {
@@ -758,7 +763,10 @@ pub(super) fn check_rounded(
     c: &Ladders,
     n: usize,
     entries: &[MEntry],
+    exec: Option<&mut Exec<'_>>,
 ) -> Result<(), GateError> {
+    // Inline on every token: this is the isometry gate's split point.
+    let _ = exec;
     let (ea, eb, ec) = (a.engine(), b.engine(), c.engine());
     // `runs[m_c·n + μ]` (engine `m_c`) is the column's `entries[start..end]`;
     // `end == 0` marks a column not yet seen.
@@ -1192,18 +1200,22 @@ impl GeneralFamily {
         a: Label<'_>,
         b: Label<'_>,
         c: Label<'_>,
+        exec: Option<&mut Exec<'_>>,
     ) -> Result<Arc<CgcChannel>, LieError> {
-        self.cgc_entries_in(a, b, c, &mut RequestModules::default())
+        self.cgc_entries_in(a, b, c, &mut RequestModules::default(), exec)
     }
 
     /// [`Self::cgc_entries`] as one channel of a request: a miss takes its
     /// modules from, and adds them to, `modules`; a hit leaves it untouched.
+    /// Only a miss uses `exec`, for the descent and the isometry gate;
+    /// `None` is the serial token, so a hit never builds one.
     pub(crate) fn cgc_entries_in<'l>(
         &self,
         a: Label<'l>,
         b: Label<'l>,
         c: Label<'l>,
         modules: &mut RequestModules<'l>,
+        mut exec: Option<&mut Exec<'_>>,
     ) -> Result<Arc<CgcChannel>, LieError> {
         #[cfg(test)]
         if let Some(hook) = BEFORE_LOAD.with(std::cell::Cell::get) {
@@ -1245,7 +1257,7 @@ impl GeneralFamily {
             // No exact vector outlives the descent; the gates read the
             // rounded entries and the modules only.
             #[allow(unused_mut)]
-            let mut entries = rounded_entries(&self.data, &ma, &mb, &mc, n)?;
+            let mut entries = rounded_entries(&self.data, &ma, &mb, &mc, n, exec.as_deref_mut())?;
             if self.root() == RootSystem::A(1)
                 && (a.words[0] + b.words[0] - c.words[0]) / 2 % 2 != 0
             {
@@ -1260,7 +1272,7 @@ impl GeneralFamily {
             if let Some(corrupt) = CORRUPT.with(std::cell::Cell::get) {
                 corrupt(&mut entries);
             }
-            check_rounded(&self.data, &ma, &mb, &mc, n, &entries)?;
+            check_rounded(&self.data, &ma, &mb, &mc, n, &entries, exec)?;
             Ok(Arc::new(CgcChannel {
                 mult: n,
                 entries: entries.into_boxed_slice(),
@@ -1295,9 +1307,13 @@ impl GeneralFamily {
     }
 
     /// `F^{abc}_d[e, f]` (§6), gated by gate 7 before it is retained.
-    pub(crate) fn f_symbol(&self, labels: [Label<'_>; 6]) -> Result<FBlock<f64>, LieError> {
+    pub(crate) fn f_symbol(
+        &self,
+        labels: [Label<'_>; 6],
+        exec: Option<&mut Exec<'_>>,
+    ) -> Result<FBlock<f64>, LieError> {
         crate::cache::f_block(self.root(), labels, || {
-            let block = f_block_raw(self, labels)?;
+            let block = f_block_raw(self, labels, exec)?;
             #[cfg(test)]
             let block = match CORRUPT_BLOCK.with(std::cell::Cell::get) {
                 Some(fault) => {
@@ -1315,9 +1331,13 @@ impl GeneralFamily {
     }
 
     /// `R^{ab}_c` (§6), gated by gate 6 before it is retained.
-    pub(crate) fn r_symbol(&self, labels: [Label<'_>; 3]) -> Result<RBlock<f64>, LieError> {
+    pub(crate) fn r_symbol(
+        &self,
+        labels: [Label<'_>; 3],
+        exec: Option<&mut Exec<'_>>,
+    ) -> Result<RBlock<f64>, LieError> {
         crate::cache::r_block(self.root(), labels, || {
-            let block = r_block_raw(self, labels)?;
+            let block = r_block_raw(self, labels, exec)?;
             #[cfg(test)]
             let block = match CORRUPT_BLOCK.with(std::cell::Cell::get) {
                 Some(fault) => {

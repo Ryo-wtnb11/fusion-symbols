@@ -18,6 +18,8 @@
 
 use std::collections::HashMap;
 
+use threadteam::Exec;
+
 /// CGC entries grouped by one magnetic index → `(idx_i, idx_j, mult, value)`.
 type GroupBy4 = HashMap<u32, Vec<(u32, u32, u32, f64)>>;
 
@@ -133,6 +135,7 @@ pub(crate) fn check_r_block(block: &RBlock<f64>) -> Result<(), GateError> {
 pub(crate) fn f_block_raw(
     fam: &GeneralFamily,
     [a, b, c, d, e, f]: [Label<'_>; 6],
+    mut exec: Option<&mut Exec<'_>>,
 ) -> Result<FBlock<f64>, LieError> {
     let n1 = fam.mult(a, b, e)?;
     let n2 = fam.mult(e, c, d)?;
@@ -148,14 +151,14 @@ pub(crate) fn f_block_raw(
     // channel that may need it, so at most five of the six labels' modules
     // are live at once, and none during the contraction.
     let mut modules = RequestModules::default();
-    let cab = fam.cgc_entries_in(a, b, e, &mut modules)?; // A[ma,mb,me,μ]
-    let cecd = fam.cgc_entries_in(e, c, d, &mut modules)?; // B slice at m_d=0: [me,mc,ν]
+    let cab = fam.cgc_entries_in(a, b, e, &mut modules, exec.as_deref_mut())?; // A[ma,mb,me,μ]
+    let cecd = fam.cgc_entries_in(e, c, d, &mut modules, exec.as_deref_mut())?; // B slice at m_d=0: [me,mc,ν]
     modules.retain(&[b, c, f, a, d]);
-    let cbcf = fam.cgc_entries_in(b, c, f, &mut modules)?; // C[mb,mc,mf,κ]
+    let cbcf = fam.cgc_entries_in(b, c, f, &mut modules, exec.as_deref_mut())?; // C[mb,mc,mf,κ]
     modules.retain(&[a, f, d]);
     #[cfg(test)]
     modules.observe_before_fourth();
-    let cafd = fam.cgc_entries_in(a, f, d, &mut modules)?; // D slice at m_d=0: [ma,mf,λ]
+    let cafd = fam.cgc_entries_in(a, f, d, &mut modules, exec)?; // D slice at m_d=0: [ma,mf,λ]
     drop(modules);
     #[cfg(test)]
     crate::lie::general::observe_contraction();
@@ -269,6 +272,7 @@ pub(crate) fn f_block_raw(
 pub(crate) fn r_block_raw(
     fam: &GeneralFamily,
     [a, b, c]: [Label<'_>; 3],
+    mut exec: Option<&mut Exec<'_>>,
 ) -> Result<RBlock<f64>, LieError> {
     let n1 = fam.mult(a, b, c)?; // rows μ
     let n2 = fam.mult(b, a, c)?; // cols ν  (== n1: fusion multiplicities are symmetric)
@@ -281,8 +285,8 @@ pub(crate) fn r_block_raw(
     // Both channels need the same modules, so sharing them adds none to the
     // live set; they are released before the contraction.
     let mut modules = RequestModules::default();
-    let cab = fam.cgc_entries_in(a, b, c, &mut modules)?; // A[ma,mb,mc,μ]
-    let cba = fam.cgc_entries_in(b, a, c, &mut modules)?; // B[mb,ma,mc,ν]
+    let cab = fam.cgc_entries_in(a, b, c, &mut modules, exec.as_deref_mut())?; // A[ma,mb,mc,μ]
+    let cba = fam.cgc_entries_in(b, a, c, &mut modules, exec)?; // B[mb,ma,mc,ν]
     drop(modules);
     #[cfg(test)]
     crate::lie::general::observe_contraction();

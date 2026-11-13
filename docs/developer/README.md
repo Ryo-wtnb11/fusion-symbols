@@ -29,11 +29,14 @@ RUSTDOCFLAGS="-D warnings --html-in-header doc/katex-header.html" \
 The KaTeX header matches `Cargo.toml::package.metadata.docs.rs`.
 Criterion harnesses in `benches/` are measurements, not CI gates:
 `torus`, `cache_concurrency`, `wigner`, `sun_cgc`, `sun_fr`, `sun_product`,
-`bcd_fr`, `exceptional`, `warm_hits`. All but the first three require
+`bcd_fr`, `exceptional`, `warm_hits`, `prefill_small`. All but the first three require
 `lie-generated`. `exceptional` also covers the cold-query rows of G2, E6 and E8
 (select a row with `FS_PERF_CASE`). `warm_hits` times warm public hits of every
 category kind and label construction; `FS_WARM_MODE=allocs` reports their
-allocations and `FS_WARM_MODE=dist` the label-tier hash distribution. Cache timing, live-allocation and RSS reports are the
+allocations and `FS_WARM_MODE=dist` the label-tier hash distribution.
+`prefill_small` times small `lie::prefill` requests against the serial entry
+loop over the same items, on serial, team and child tokens;
+`FS_PREFILL_BUDGET=reduced` runs its reduced-budget rows. Cache timing, live-allocation and RSS reports are the
 `cache_pressure` example (`cargo run --release --example cache_pressure --
 audit|budget|trim|cgc|d4`); run one report per process. Measurements never live
 in `#[ignore]` tests.

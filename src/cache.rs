@@ -678,7 +678,10 @@ where
         value.value
     }
 
+    /// Every coefficient load starts here.
     fn get<Q: Hash + quick_cache::Equivalent<K> + ?Sized>(&self, key: &Q) -> Option<V> {
+        #[cfg(test)]
+        assert_cache_access_allowed();
         self.inner.get(key).map(|value| self.hit(value))
     }
 
@@ -940,6 +943,37 @@ thread_local! {
     /// A test hook run once by the next miss of this thread, between
     /// acquiring its guard and generating.
     pub(crate) static AFTER_GUARD: std::cell::Cell<Option<fn()>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Set on this thread while it runs a forked share; any tier access then
+    /// panics. Shares receive every cached input from their leader.
+    static NO_CACHE_ACCESS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Called at every tier entry: loads, the lifecycle and statistics
+/// functions, and the test residency peeks.
+#[cfg(test)]
+fn assert_cache_access_allowed() {
+    assert!(
+        !NO_CACHE_ACCESS.with(std::cell::Cell::get),
+        "a forked share accessed the coefficient cache"
+    );
+}
+
+/// Forbids tier access on this thread until the returned guard drops, which
+/// restores the previous state. Every forked share holds one.
+#[cfg(test)]
+#[must_use]
+pub(crate) fn forbid_cache_access() -> impl Drop {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            NO_CACHE_ACCESS.with(|f| f.set(self.0));
+        }
+    }
+    Restore(NO_CACHE_ACCESS.with(|f| f.replace(true)))
 }
 
 /// Runs `compute` as one generation in the reset epoch current now, before
@@ -1417,6 +1451,8 @@ fn control(tier: CoefficientCacheTier) -> &'static dyn TierControl {
 /// }
 /// ```
 pub fn reset() {
+    #[cfg(test)]
+    assert_cache_access_allowed();
     // Overlapping resets would restore an even epoch while both are active.
     static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _serial = SERIAL
@@ -1480,6 +1516,8 @@ fn reset_pause(tier: CoefficientCacheTier) {
 /// assert_eq!(tier_stats(CoefficientCacheTier::Wigner6j).entries, 0);
 /// ```
 pub fn trim_to(tier: CoefficientCacheTier, target_charged_bytes: usize) -> CacheTrimReport {
+    #[cfg(test)]
+    assert_cache_access_allowed();
     let (removed_entries, removed_charged_bytes, remaining_entries, remaining_charged_bytes) =
         control(tier).trim_to(target_charged_bytes);
     CacheTrimReport {
@@ -1507,6 +1545,8 @@ pub fn trim_to(tier: CoefficientCacheTier, target_charged_bytes: usize) -> Cache
 /// assert!(after.bytes <= fusion_symbols::cache::cache_budgets().limit(CoefficientCacheTier::Wigner6j));
 /// ```
 pub fn tier_stats(tier: CoefficientCacheTier) -> TierStats {
+    #[cfg(test)]
+    assert_cache_access_allowed();
     control(tier).tier_stats()
 }
 
@@ -1516,6 +1556,7 @@ pub(crate) static TEST_CACHE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(
 
 #[cfg(test)]
 pub(crate) fn product_multiplicities_are_resident(root: RootSystem, a: &[i64], b: &[i64]) -> bool {
+    assert_cache_access_allowed();
     let (a, b) = if a <= b { (a, b) } else { (b, a) };
     CACHE_PRODUCT
         .inner
@@ -1526,6 +1567,7 @@ pub(crate) fn product_multiplicities_are_resident(root: RootSystem, a: &[i64], b
 /// Whether the completed channel of the ordered triple is retained.
 #[cfg(test)]
 pub(crate) fn cgc_channel_is_resident(root: RootSystem, parts: [&[i64]; 3]) -> bool {
+    assert_cache_access_allowed();
     CACHE_CGC
         .inner
         .peek(&LabelRef {
@@ -1539,6 +1581,7 @@ pub(crate) fn cgc_channel_is_resident(root: RootSystem, parts: [&[i64]; 3]) -> b
 /// Whether the computed phase keyed by `label` is retained.
 #[cfg(all(test, feature = "lie-generated"))]
 pub(crate) fn cgc_phase_is_resident(root: RootSystem, label: &[i64]) -> bool {
+    assert_cache_access_allowed();
     CACHE_CGC
         .inner
         .peek(&LabelRef {
@@ -1552,6 +1595,7 @@ pub(crate) fn cgc_phase_is_resident(root: RootSystem, label: &[i64]) -> bool {
 /// Whether the module of `label` is retained.
 #[cfg(all(test, feature = "lie-generated"))]
 pub(crate) fn cgc_module_is_resident(root: RootSystem, label: &[i64]) -> bool {
+    assert_cache_access_allowed();
     CACHE_CGC
         .inner
         .peek(&LabelRef {
@@ -1564,6 +1608,7 @@ pub(crate) fn cgc_module_is_resident(root: RootSystem, label: &[i64]) -> bool {
 
 #[cfg(all(test, feature = "lie-generated"))]
 pub(crate) fn with_publication_locks<T>(f: impl FnOnce() -> T) -> T {
+    assert_cache_access_allowed();
     let _guards = [
         CACHE_3J.publication.lock().unwrap(),
         CACHE_6J.publication.lock().unwrap(),
@@ -1607,6 +1652,41 @@ mod tests {
         assert_eq!((hits, misses, entries), (1, 1, 1));
     }
 
+    /// A forked share cannot reach any tier: a lookup, a statistics read or a
+    /// residency peek under its guard panics, a lookup still does after a
+    /// nested guard drops, and dropping the outer guard allows access again.
+    #[test]
+    fn forbidden_cache_access_panics_until_the_guard_drops() {
+        let c: CoefficientCache<u32, SignedSqrtRational> = CoefficientCache::new(16, 1 << 20);
+        let lookup = || {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                c.get_or_compute(7, || val(7))
+            }))
+            .is_ok()
+        };
+        let panics =
+            |f: &dyn Fn()| std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).is_err();
+        let outer = forbid_cache_access();
+        assert!(!lookup(), "a share's lookup must panic");
+        assert!(
+            panics(&|| {
+                let _ = tier_stats(CoefficientCacheTier::Wigner6j);
+            }),
+            "a share's statistics read must panic"
+        );
+        assert!(
+            panics(&|| {
+                let _ = cgc_channel_is_resident(RootSystem::A(1), [&[1], &[1], &[0]]);
+            }),
+            "a share's residency peek must panic"
+        );
+        drop(forbid_cache_access());
+        assert!(!lookup(), "a nested guard must restore the forbidden state");
+        drop(outer);
+        assert!(lookup(), "the leader may access the cache again");
+        assert_eq!(c.snapshot().1, 1, "only the allowed lookup missed");
+    }
+
     #[test]
     fn entry_bound_evicts() {
         let c: CoefficientCache<u32, SignedSqrtRational> = CoefficientCache::new(3, 3 << 28);
@@ -1638,7 +1718,7 @@ mod tests {
     fn channel_fixture() -> (LabelKey, CgcValue) {
         let fam = crate::lie::general::GeneralFamily::new(RootSystem::A(2));
         let eight = Label::new(&[1, 1]);
-        let value = CgcValue::Channel(fam.cgc_entries(eight, eight, eight).unwrap());
+        let value = CgcValue::Channel(fam.cgc_entries(eight, eight, eight, None).unwrap());
         let key = LabelRef {
             kind: CHANNEL,
             root: RootSystem::A(2),
@@ -2081,8 +2161,11 @@ mod tests {
         let fam = crate::lie::general::GeneralFamily::new(RootSystem::A(2));
         let [e8, three, six, one] = [&[1, 1], &[1, 0], &[2, 0], &[0, 0]].map(|x| Label::new(x));
         // The 2×2×2×2 block of 8⊗8→8 and a multiplicity-free one.
-        let a = FValue::Block(fam.f_symbol([e8; 6]).unwrap());
-        let b = FValue::Block(fam.f_symbol([one, three, three, six, three, six]).unwrap());
+        let a = FValue::Block(fam.f_symbol([e8; 6], None).unwrap());
+        let b = FValue::Block(
+            fam.f_symbol([one, three, three, six, three, six], None)
+                .unwrap(),
+        );
         let FValue::Block(block) = &a else {
             unreachable!()
         };
@@ -2119,8 +2202,8 @@ mod tests {
         let fam = crate::lie::general::GeneralFamily::new(RootSystem::A(2));
         let [e8, three, bar] = [&[1, 1], &[1, 0], &[0, 1]].map(|x| Label::new(x));
         // The 2×2 octet block shares an Arc; a 1×1 block is inline.
-        let a = fam.r_symbol([e8, e8, e8]).unwrap();
-        let b = fam.r_symbol([three, bar, e8]).unwrap();
+        let a = fam.r_symbol([e8, e8, e8], None).unwrap();
+        let b = fam.r_symbol([three, bar, e8], None).unwrap();
         // Purpose: a block charge covers its coefficient payload and grows with it.
         assert!(a.value_bytes() >= std::mem::size_of_val(a.as_slice()));
         assert!(a.value_bytes() > b.value_bytes());

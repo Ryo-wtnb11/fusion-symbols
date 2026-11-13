@@ -49,7 +49,7 @@ mod tests {
         let fam = GeneralFamily::new(RootSystem::G2);
         let [a, b, one] = [&[1, 0], &[0, 1], &[0, 0]].map(|x| crate::cache::Label::new(x));
         let bits = || {
-            fam.cgc_entries(a, a, b)
+            fam.cgc_entries(a, a, b, None)
                 .unwrap()
                 .iter()
                 .map(|e| e.value.to_bits())
@@ -62,7 +62,7 @@ mod tests {
         for n in 1..=600 {
             // Absent R channels request no CGC and build no module.
             assert!(fam
-                .r_symbol([one, crate::cache::Label::new(&[n, 0]), one])
+                .r_symbol([one, crate::cache::Label::new(&[n, 0]), one], None)
                 .unwrap()
                 .as_slice()
                 .is_empty());
@@ -72,8 +72,8 @@ mod tests {
         assert!(crate::cache::tier_stats(crate::cache::CoefficientCacheTier::Cgc).bytes <= limit);
         assert_eq!(bits(), expected);
         let symbols = || {
-            let f = fam.f_symbol([a, a, a, a, b, b]).unwrap();
-            let r = fam.r_symbol([a, a, b]).unwrap();
+            let f = fam.f_symbol([a, a, a, a, b, b], None).unwrap();
+            let r = fam.r_symbol([a, a, b], None).unwrap();
             f.as_slice()
                 .iter()
                 .chain(r.as_slice())

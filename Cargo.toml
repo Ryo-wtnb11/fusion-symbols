@@ -107,6 +107,13 @@ name = "warm_hits"
 harness = false
 required-features = ["lie-generated"]
 
+# Small prefill requests against the serial entry loop, including
+# reduced budgets (FS_PREFILL_BUDGET=reduced) and team tokens.
+[[bench]]
+name = "prefill_small"
+harness = false
+required-features = ["lie-generated"]
+
 # Cache timing, live-allocation and RSS reports (not tests).
 [[example]]
 name = "cache_pressure"
