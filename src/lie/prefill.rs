@@ -3,7 +3,7 @@
 use threadteam::Exec;
 
 use super::{LieError, LieGroup, LieIrrep};
-use crate::category::{FusionCategory, GroupRepresentations};
+use crate::category::FusionCategory;
 
 /// A batch of coefficients of one [`LieGroup`] for [`prefill`] to make
 /// resident: CGC channels, F and R blocks, tensor products (every `N^c_{ab}`
@@ -144,11 +144,8 @@ impl PrefillRequest {
 /// let _ = su3.f_symbol(&adj, &adj, &adj, &adj, &adj, &adj)?;
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-pub fn prefill(request: &PrefillRequest, exec: Exec<'_>) -> Result<(), LieError> {
-    // Each item runs its serial entry unchanged on the calling thread, which
-    // every token permits.
-    let _ = exec;
-    let group = &request.group;
+pub fn prefill(request: &PrefillRequest, mut exec: Exec<'_>) -> Result<(), LieError> {
+    let exec = &mut exec;
     crate::cache::in_call_epoch(|| {
         let mut first = Ok(());
         for item in &request.items {
@@ -156,19 +153,28 @@ pub fn prefill(request: &PrefillRequest, exec: Exec<'_>) -> Result<(), LieError>
             if let Some(hook) = BEFORE_ITEM.with(std::cell::Cell::get) {
                 hook();
             }
-            let result = match item {
-                Item::Cgc([a, b, c]) => group.cgc(a, b, c).map(drop),
-                Item::F([a, b, c, d, e, f]) => group.f_symbol(a, b, c, d, e, f).map(drop),
-                Item::R([a, b, c]) => group.r_symbol(a, b, c).map(drop),
-                Item::Fusion([a, b]) => group.fusion(a, b).map(drop),
-                Item::Phase(a) => group.frobenius_schur_phase(a).map(drop),
-            };
+            let result = evaluate(&request.group, item, exec);
             if first.is_ok() {
                 first = result;
             }
         }
         first
     })
+}
+
+/// One item through its entry's body. Out of line, so the entry bodies,
+/// which the entries inline, do not enlarge the loop that a small request
+/// runs.
+#[inline(never)]
+fn evaluate(group: &LieGroup, item: &Item, exec: &mut Exec<'_>) -> Result<(), LieError> {
+    // Fusion and phase items reach no channel, so they take the serial entry.
+    match item {
+        Item::Cgc([a, b, c]) => group.cgc_in(a, b, c, Some(exec)).map(drop),
+        Item::F(labels) => group.f_symbol_in(labels.each_ref(), Some(exec)).map(drop),
+        Item::R([a, b, c]) => group.r_symbol_in(a, b, c, Some(exec)).map(drop),
+        Item::Fusion([a, b]) => group.fusion(a, b).map(drop),
+        Item::Phase(a) => group.frobenius_schur_phase(a).map(drop),
+    }
 }
 
 #[cfg(test)]
@@ -181,7 +187,7 @@ thread_local! {
 mod tests {
     use super::*;
     use crate::cache::{cgc_channel_is_resident, reset, AFTER_GUARD, TEST_CACHE_LOCK};
-    use crate::category::{CgcBlock, SymbolBlock};
+    use crate::category::{CgcBlock, GroupRepresentations, SymbolBlock};
     use crate::lie::{general, GroupId, RootSystem};
 
     fn lock() -> std::sync::MutexGuard<'static, ()> {

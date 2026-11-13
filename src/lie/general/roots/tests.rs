@@ -787,8 +787,8 @@ fn coefficient_checks_use_dimension_free_multiplicities() {
 
     crate::cache::reset();
     LABEL_PROJECTIONS.set(0);
-    let first = family.cgc_entries(v, v, one).unwrap();
-    assert_eq!(family.cgc_entries(v, v, one).unwrap(), first);
+    let first = family.cgc_entries(v, v, one, None).unwrap();
+    assert_eq!(family.cgc_entries(v, v, one, None).unwrap(), first);
     assert!(crate::cache::product_multiplicities_are_resident(
         RootSystem::G2,
         &[1, 0],

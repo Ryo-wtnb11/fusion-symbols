@@ -493,7 +493,7 @@ fn exact_vectors_live_only_through_their_readers() {
         );
 
         LIVE_EXACT.with(|l| l.set([0, 0]));
-        rounded_entries(&data, &a, &b, &c, n).unwrap();
+        rounded_entries(&data, &a, &b, &c, n, None).unwrap();
         let [live, max] = LIVE_EXACT.with(std::cell::Cell::get);
         assert_eq!(live, 0, "{root:?}: an exact vector outlived the descent");
         assert!(max <= bound, "{root:?}: live {max} > frontier {bound}");
@@ -573,7 +573,7 @@ fn g2_7x7_to_7_hand_entries_and_order() {
 fn entry_order_is_mu_then_mc_then_a_slow() {
     let fam = GeneralFamily::new(RootSystem::G2);
     let e = fam
-        .cgc_entries(Label::new(&G14), Label::new(&G14), Label::new(&G27))
+        .cgc_entries(Label::new(&G14), Label::new(&G14), Label::new(&G27), None)
         .unwrap();
     let keys: Vec<_> = e.iter().map(|x| (x.mu, x.m3, x.m1, x.m2)).collect();
     assert!(keys.windows(2).all(|w| w[0] < w[1]));
@@ -606,7 +606,11 @@ fn regeneration_is_byte_identical() {
         let mut out = Vec::new();
         for c in [G7, G14, G27, [0, 0]] {
             let g7 = Label::new(&G7);
-            for e in fam.cgc_entries(g7, g7, Label::new(&c)).unwrap().iter() {
+            for e in fam
+                .cgc_entries(g7, g7, Label::new(&c), None)
+                .unwrap()
+                .iter()
+            {
                 out.push((e.m1, e.m2, e.m3, e.mu, e.value.to_bits()));
             }
         }
@@ -651,7 +655,7 @@ fn check_radical_formation(root: RootSystem, a: &[i64], b: &[i64], c: &[i64]) {
         })
         .collect();
     let got: Vec<_> = fam
-        .cgc_entries(Label::new(a), Label::new(b), Label::new(c))
+        .cgc_entries(Label::new(a), Label::new(b), Label::new(c), None)
         .unwrap()
         .iter()
         .map(|e| (e.m1, e.m2, e.m3, e.mu, e.value.to_bits()))
@@ -864,10 +868,10 @@ impl FusionCategory for Cat {
         e: &Vec<i64>,
         f: &Vec<i64>,
     ) -> Result<FBlock<f64>, LieError> {
-        f_block_raw(&self.fam, [a, b, c, d, e, f].map(|x| Label::new(x)))
+        f_block_raw(&self.fam, [a, b, c, d, e, f].map(|x| Label::new(x)), None)
     }
     fn r_symbol(&self, a: &Vec<i64>, b: &Vec<i64>, c: &Vec<i64>) -> Result<RBlock<f64>, LieError> {
-        r_block_raw(&self.fam, [a, b, c].map(|x| Label::new(x)))
+        r_block_raw(&self.fam, [a, b, c].map(|x| Label::new(x)), None)
     }
 }
 
@@ -1158,12 +1162,12 @@ fn rounded(
         .multiplicities(Label::new(a), Label::new(b), None)
         .unwrap()
         .multiplicity(c) as usize;
-    let entries = rounded_entries(&data, &ma, &mb, &mc, n).unwrap();
+    let entries = rounded_entries(&data, &ma, &mb, &mc, n, None).unwrap();
     (entries, [ma, mb, mc], n)
 }
 
 fn gate(root: RootSystem, l: &[Ladders; 3], n: usize, e: &[MEntry]) -> Result<(), GateError> {
-    check_rounded(&CartanData::new(root), &l[0], &l[1], &l[2], n, e)
+    check_rounded(&CartanData::new(root), &l[0], &l[1], &l[2], n, e, None)
 }
 
 /// Every channel of the exactly verified products passes both rounded gates.
@@ -1472,7 +1476,7 @@ fn rounded_gates_match_the_copying_loop() {
             for (name, corrupt) in corruptions {
                 let mut e = good.clone();
                 corrupt(&mut e, m);
-                let got = check_rounded(&data, &l[0], &l[1], &l[2], n, &e);
+                let got = check_rounded(&data, &l[0], &l[1], &l[2], n, &e, None);
                 assert_eq!(
                     got,
                     check_rounded_copying(&data, &l[0], &l[1], &l[2], n, &e),
@@ -1506,7 +1510,7 @@ fn duplicate_entry_keeps_the_old_gate_decision() {
     entries.insert(168, duplicate);
     let data = CartanData::new(root);
     assert_eq!(
-        check_rounded(&data, &l[0], &l[1], &l[2], n, &entries),
+        check_rounded(&data, &l[0], &l[1], &l[2], n, &entries, None),
         check_rounded_copying(&data, &l[0], &l[1], &l[2], n, &entries),
     );
 }
@@ -1564,7 +1568,7 @@ fn failed_gate_is_not_retained_and_retry_succeeds() {
     assert_eq!(fam.mult(la, lb, lc).unwrap(), 1);
     let resident = || crate::cache::cgc_channel_is_resident(RootSystem::G2, [&a, &b, &c]);
     CORRUPT.with(|x| x.set(Some(|e| e[0].value = f64::NAN)));
-    let err = fam.cgc_entries(la, lb, lc).err();
+    let err = fam.cgc_entries(la, lb, lc, None).err();
     CORRUPT.with(|x| x.set(None));
     let err = err.unwrap();
     assert_eq!(
@@ -1573,10 +1577,10 @@ fn failed_gate_is_not_retained_and_retry_succeeds() {
     );
     assert!(matches!(err, LieError::Generation(_)));
     assert!(!resident());
-    let good = fam.cgc_entries(la, lb, lc).unwrap();
+    let good = fam.cgc_entries(la, lb, lc, None).unwrap();
     assert!(resident());
     let builds = BUILDS.with(std::cell::Cell::get);
-    let again = fam.cgc_entries(la, lb, lc).unwrap();
+    let again = fam.cgc_entries(la, lb, lc, None).unwrap();
     assert_eq!(
         BUILDS.with(std::cell::Cell::get),
         builds,
@@ -1596,9 +1600,9 @@ fn failed_block_gates_are_not_retained() {
     let f = [v, v, v, v, sym, sym];
     let r = [v, v, sym];
     CORRUPT_BLOCK.with(|x| x.set(Some(|x| x * 2.0)));
-    let bad_r = fam.r_symbol(r);
+    let bad_r = fam.r_symbol(r, None);
     CORRUPT_BLOCK.with(|x| x.set(Some(|_| f64::INFINITY)));
-    let bad_f_inf = fam.f_symbol(f);
+    let bad_f_inf = fam.f_symbol(f, None);
     CORRUPT_BLOCK.with(|x| x.set(None));
     assert!(matches!(
         bad_r,
@@ -1612,9 +1616,9 @@ fn failed_block_gates_are_not_retained() {
         bad_f_inf,
         Err(LieError::from(GateError::NonFinite { gate: "F" }))
     );
-    let good_r = fam.r_symbol(r).unwrap();
+    let good_r = fam.r_symbol(r, None).unwrap();
     assert_eq!(good_r.as_slice(), [1.0]);
-    let good_f = fam.f_symbol(f).unwrap();
+    let good_f = fam.f_symbol(f, None).unwrap();
     assert!(good_f
         .as_slice()
         .iter()
@@ -1663,7 +1667,7 @@ fn channel_request_builds_each_module_label_once() {
     let fam = GeneralFamily::new(RootSystem::G2);
     let bits = |a: &[i64], b: &[i64], c: &[i64]| {
         let ch = fam
-            .cgc_entries(Label::new(a), Label::new(b), Label::new(c))
+            .cgc_entries(Label::new(a), Label::new(b), Label::new(c), None)
             .unwrap();
         (
             ch.mult,
@@ -1711,7 +1715,7 @@ fn f_and_r_requests_build_each_module_label_once() {
     let a2 = GeneralFamily::new(RootSystem::A(2));
     let builds = || BUILDS.with(std::cell::Cell::get)[0];
     let r = |fam: &GeneralFamily, [a, b, c]: [&[i64]; 3]| {
-        let block = r_block_raw(fam, [a, b, c].map(Label::new)).unwrap();
+        let block = r_block_raw(fam, [a, b, c].map(Label::new), None).unwrap();
         block
             .as_slice()
             .iter()
@@ -1719,7 +1723,7 @@ fn f_and_r_requests_build_each_module_label_once() {
             .collect::<Vec<_>>()
     };
     let f = |fam: &GeneralFamily, l: [[i64; 2]; 6]| {
-        let block = f_block_raw(fam, l.each_ref().map(|x| Label::new(x))).unwrap();
+        let block = f_block_raw(fam, l.each_ref().map(|x| Label::new(x)), None).unwrap();
         block
             .as_slice()
             .iter()
@@ -1772,11 +1776,11 @@ fn resident_channels_load_no_module() {
     let fam = GeneralFamily::new(RootSystem::A(2));
     let labels = A2_F6.each_ref().map(|x| Label::new(x));
     crate::cache::reset();
-    let warm = f_block_raw(&fam, labels).unwrap();
+    let warm = f_block_raw(&fam, labels, None).unwrap();
     REQUEST_MODULES.with(|c| c.set([0; 2]));
     LOADS.with(|c| c.set(0));
     BEFORE_LOAD.with(|h| h.set(Some(|| LOADS.with(|c| c.set(c.get() + 1)))));
-    let hit = f_block_raw(&fam, labels).unwrap();
+    let hit = f_block_raw(&fam, labels, None).unwrap();
     BEFORE_LOAD.with(|h| h.set(None));
     assert_eq!(LOADS.with(std::cell::Cell::get), 4);
     assert_eq!(REQUEST_MODULES.with(std::cell::Cell::get), [0; 2]);

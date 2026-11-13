@@ -28,6 +28,7 @@ use malachite_base::{
 use malachite_nz::{integer::Integer, natural::Natural};
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use threadteam::Exec;
 
 /// A Lie group with its global form. A(1), B(1), and C(1) share the exact
 /// SU(2) gauge; their single Dynkin label is doubled spin. Every simple factor
@@ -1117,52 +1118,7 @@ impl FusionCategory for LieGroup {
         e: &LieIrrep,
         f: &LieIrrep,
     ) -> Result<FBlock<f64>, LieError> {
-        for x in [a, b, c, d, e, f] {
-            self.label(x);
-        }
-        if let Some(product) = &self.composite {
-            return product
-                .f_symbol(
-                    self.factor_labels(a),
-                    self.factor_labels(b),
-                    self.factor_labels(c),
-                    self.factor_labels(d),
-                    self.factor_labels(e),
-                    self.factor_labels(f),
-                )
-                .map_err(LieError::from);
-        }
-        if matches!(a.payload, LiePayload::Torus(_)) {
-            let mut dims = [0; 4];
-            for (n, (a, b, c)) in dims
-                .iter_mut()
-                .zip([(a, b, e), (e, c, d), (b, c, f), (a, f, d)])
-            {
-                *n = u1::conserves(&a.torus_label(), &b.torus_label(), &c.torus_label()) as usize;
-            }
-            return Ok(if dims.contains(&0) {
-                FBlock::zeros(dims)
-            } else {
-                FBlock::one(1.0)
-            });
-        }
-        if matches!(a.payload, LiePayload::RankOne(_)) {
-            let [a, b, c, d, e, f] = [a, b, c, d, e, f].map(|x| x.dj());
-            let dims = [(a, b, e), (e, c, d), (b, c, f), (a, f, d)]
-                .map(|(a, b, c)| usize::from(su2::triangle_ok(a, b, c)));
-            if dims.contains(&0) {
-                return Ok(FBlock::zeros(dims));
-            }
-            return Ok(FBlock::one(su2::f_symbol(a, b, c, d, e, f)?));
-        }
-        if let [Some(a), Some(b), Some(c), Some(d), Some(e), Some(f)] =
-            [a, b, c, d, e, f].map(|x| x.simple())
-        {
-            return self
-                .engine()
-                .f_symbol([a, b, c, d, e, f].map(|x| x.label()));
-        }
-        unreachable!("higher-rank labels have a generated payload")
+        self.f_symbol_in([a, b, c, d, e, f], None)
     }
     fn __fusion_symbols_validated_f_symbol(
         &self,
@@ -1180,38 +1136,7 @@ impl FusionCategory for LieGroup {
         Ok((block, [n(a, b, e)?, n(e, c, d)?, n(b, c, f)?, n(a, f, d)?]))
     }
     fn r_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock<f64>, LieError> {
-        self.label(a);
-        self.label(b);
-        self.label(c);
-        if let Some(product) = &self.composite {
-            return product
-                .r_symbol(
-                    self.factor_labels(a),
-                    self.factor_labels(b),
-                    self.factor_labels(c),
-                )
-                .map_err(LieError::from);
-        }
-        if matches!(a.payload, LiePayload::Torus(_)) {
-            return Ok(
-                if self.__fusion_symbols_validated_nsymbol(a, b, c, Validated(()))? == 0 {
-                    RBlock::zeros(0)
-                } else {
-                    RBlock::one(1.0)
-                },
-            );
-        }
-        if matches!(a.payload, LiePayload::RankOne(_)) {
-            return Ok(if su2::triangle_ok(a.dj(), b.dj(), c.dj()) {
-                RBlock::one(su2::r_symbol(a.dj(), b.dj(), c.dj()))
-            } else {
-                RBlock::zeros(0)
-            });
-        }
-        if let (Some(a), Some(b), Some(c)) = (a.simple(), b.simple(), c.simple()) {
-            return self.engine().r_symbol([a.label(), b.label(), c.label()]);
-        }
-        unreachable!("higher-rank labels have a generated payload")
+        self.r_symbol_in(a, b, c, None)
     }
     fn a_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock<f64>, LieError> {
         if let Some(product) = &self.composite {
@@ -1335,9 +1260,117 @@ impl FusionCategory for LieGroup {
         }
     }
 }
-impl GroupRepresentations for LieGroup {
-    type Cgc = LieCgc;
-    fn cgc(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<LieCgc, LieError> {
+/// The bodies of the serial entries. A cold channel they reach runs its
+/// descent and isometry gate on `exec`; the entries pass `None`, the serial
+/// token, so a warm query never builds a token.
+impl LieGroup {
+    #[inline]
+    pub(crate) fn f_symbol_in(
+        &self,
+        labels: [&LieIrrep; 6],
+        exec: Option<&mut Exec<'_>>,
+    ) -> Result<FBlock<f64>, LieError> {
+        let [a, b, c, d, e, f] = labels;
+        for x in [a, b, c, d, e, f] {
+            self.label(x);
+        }
+        if let Some(product) = &self.composite {
+            return product
+                .f_symbol(
+                    self.factor_labels(a),
+                    self.factor_labels(b),
+                    self.factor_labels(c),
+                    self.factor_labels(d),
+                    self.factor_labels(e),
+                    self.factor_labels(f),
+                )
+                .map_err(LieError::from);
+        }
+        if matches!(a.payload, LiePayload::Torus(_)) {
+            let mut dims = [0; 4];
+            for (n, (a, b, c)) in dims
+                .iter_mut()
+                .zip([(a, b, e), (e, c, d), (b, c, f), (a, f, d)])
+            {
+                *n = u1::conserves(&a.torus_label(), &b.torus_label(), &c.torus_label()) as usize;
+            }
+            return Ok(if dims.contains(&0) {
+                FBlock::zeros(dims)
+            } else {
+                FBlock::one(1.0)
+            });
+        }
+        if matches!(a.payload, LiePayload::RankOne(_)) {
+            let [a, b, c, d, e, f] = [a, b, c, d, e, f].map(|x| x.dj());
+            let dims = [(a, b, e), (e, c, d), (b, c, f), (a, f, d)]
+                .map(|(a, b, c)| usize::from(su2::triangle_ok(a, b, c)));
+            if dims.contains(&0) {
+                return Ok(FBlock::zeros(dims));
+            }
+            return Ok(FBlock::one(su2::f_symbol(a, b, c, d, e, f)?));
+        }
+        if let [Some(a), Some(b), Some(c), Some(d), Some(e), Some(f)] =
+            [a, b, c, d, e, f].map(|x| x.simple())
+        {
+            return self
+                .engine()
+                .f_symbol([a, b, c, d, e, f].map(|x| x.label()), exec);
+        }
+        unreachable!("higher-rank labels have a generated payload")
+    }
+
+    #[inline]
+    pub(crate) fn r_symbol_in(
+        &self,
+        a: &LieIrrep,
+        b: &LieIrrep,
+        c: &LieIrrep,
+        exec: Option<&mut Exec<'_>>,
+    ) -> Result<RBlock<f64>, LieError> {
+        self.label(a);
+        self.label(b);
+        self.label(c);
+        if let Some(product) = &self.composite {
+            return product
+                .r_symbol(
+                    self.factor_labels(a),
+                    self.factor_labels(b),
+                    self.factor_labels(c),
+                )
+                .map_err(LieError::from);
+        }
+        if matches!(a.payload, LiePayload::Torus(_)) {
+            return Ok(
+                if self.__fusion_symbols_validated_nsymbol(a, b, c, Validated(()))? == 0 {
+                    RBlock::zeros(0)
+                } else {
+                    RBlock::one(1.0)
+                },
+            );
+        }
+        if matches!(a.payload, LiePayload::RankOne(_)) {
+            return Ok(if su2::triangle_ok(a.dj(), b.dj(), c.dj()) {
+                RBlock::one(su2::r_symbol(a.dj(), b.dj(), c.dj()))
+            } else {
+                RBlock::zeros(0)
+            });
+        }
+        if let (Some(a), Some(b), Some(c)) = (a.simple(), b.simple(), c.simple()) {
+            return self
+                .engine()
+                .r_symbol([a.label(), b.label(), c.label()], exec);
+        }
+        unreachable!("higher-rank labels have a generated payload")
+    }
+
+    #[inline]
+    pub(crate) fn cgc_in(
+        &self,
+        a: &LieIrrep,
+        b: &LieIrrep,
+        c: &LieIrrep,
+        exec: Option<&mut Exec<'_>>,
+    ) -> Result<LieCgc, LieError> {
         self.label(a);
         self.label(b);
         self.label(c);
@@ -1370,7 +1403,9 @@ impl GroupRepresentations for LieGroup {
         }
         if let (Some(a), Some(b), Some(c)) = (a.simple(), b.simple(), c.simple()) {
             let [da, db, dc] = [a, b, c].map(|x| checked_dimension(x.dim()));
-            let channel = self.engine().cgc_entries(a.label(), b.label(), c.label())?;
+            let channel = self
+                .engine()
+                .cgc_entries(a.label(), b.label(), c.label(), exec)?;
             return Ok(LieCgc {
                 composite: None,
                 dims: [da?, db?, dc?, channel.mult],
@@ -1391,12 +1426,20 @@ impl GroupRepresentations for LieGroup {
             crate::cache::Label::new(&a),
             crate::cache::Label::new(&b),
             crate::cache::Label::new(&c),
+            exec,
         )?;
         Ok(LieCgc {
             composite: None,
             dims: [da?, db?, dc?, channel.mult],
             entries: Some(channel),
         })
+    }
+}
+
+impl GroupRepresentations for LieGroup {
+    type Cgc = LieCgc;
+    fn cgc(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<LieCgc, LieError> {
+        self.cgc_in(a, b, c, None)
     }
 }
 
@@ -1702,12 +1745,12 @@ mod tests {
         let [lv, ladj] = [&v, &adj].map(|x| g.irrep(x).unwrap());
         let got = g.f_symbol(&lv, &lv, &lv, &lv, &ladj, &ladj).unwrap();
         let (v, adj) = (Label::new(&v), Label::new(&adj));
-        let want = f_block_raw(&fam, [v, v, v, v, adj, adj]).unwrap();
+        let want = f_block_raw(&fam, [v, v, v, v, adj, adj], None).unwrap();
         assert_eq!(got.dims(), want.dims());
         let bits = |x: &[f64]| x.iter().map(|y| y.to_bits()).collect::<Vec<_>>();
         assert_eq!(bits(got.as_slice()), bits(want.as_slice()));
         let cgc = g.cgc(&lv, &lv, &ladj).unwrap();
-        let entries = fam.cgc_entries(v, v, adj).unwrap();
+        let entries = fam.cgc_entries(v, v, adj, None).unwrap();
         for e in entries.iter() {
             let at = [e.m1, e.m2, e.m3, e.mu].map(|i| i as usize);
             assert_eq!(cgc.get(at).to_bits(), e.value.to_bits());

@@ -337,8 +337,8 @@ fn gt_channels_are_exact() {
             let mc = build(&c).1;
             let ch = ExactChannel::new(&data, &ma, &mb, &mc, n as usize).unwrap();
             check_exact(&ch, &ma, &mb, &mc);
-            let entries = rounded_entries(&data, &ma, &mb, &mc, n as usize).unwrap();
-            check_rounded(&data, &ma, &mb, &mc, n as usize, &entries).unwrap();
+            let entries = rounded_entries(&data, &ma, &mb, &mc, n as usize, None).unwrap();
+            check_rounded(&data, &ma, &mb, &mc, n as usize, &entries, None).unwrap();
         }
     }
 }
