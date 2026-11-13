@@ -7,8 +7,9 @@
 //! blocks); R blocks; exact simple-Lie tensor products; and the Cartan engine's
 //! CGC construction data (irrep modules, completed channels and computed
 //! Frobenius–Schur phases). Each tier keys on the presented root system and the
-//! ordered labels, has one process-wide limit shared by every group, and is
-//! byte-weighted Clock-PRO. Generated duals are owned by their label payloads.
+//! ordered labels, has one process-wide limit shared by every group, and is a
+//! byte-weighted CLOCK cache whose hits take no lock. Generated duals are owned
+//! by their label payloads.
 //!
 //! # What a consumer needs from this module
 //!
@@ -79,9 +80,13 @@
 //! unrelated, for no measured benefit. Because each per-tier charged-entry cap
 //! is enforced, the aggregate charged-entry bound holds as a corollary rather
 //! than needing global enforcement. The charge covers entries currently owned
-//! by the cache. It excludes quick_cache retained capacity and scaffolding,
-//! allocator metadata and RSS, transient or external clones, values returned
-//! through public APIs, and the working memory of a generation in flight.
+//! by the cache, including each entry's table node and ring position. It
+//! excludes the retained capacity of the slot table and the ring, allocator
+//! metadata and RSS, transient or external clones, values returned through
+//! public APIs, and the working memory of a generation in flight. Memory of a
+//! removed entry is released once concurrent hits finish: at most one
+//! reclamation batch per retiring thread stays pending until that thread
+//! retires more entries.
 //! Per-tier statistics are exposed via [`tier_stats`]; reset ownership is on
 //! [`reset`].
 
@@ -97,6 +102,9 @@ use crate::lie::general::roots::{Multiplicities, Product, ProductValue};
 use crate::lie::su2::{FKey, Regge3j, Regge6j};
 use crate::lie::RootSystem;
 
+mod clock;
+#[cfg(test)]
+use clock::Equivalent;
 mod fingerprint;
 use fingerprint::{key_hash, FoldBuild};
 pub(crate) use fingerprint::{label_hash, Label};
@@ -125,8 +133,17 @@ const CGC_MAX_BYTES: usize = 256 << 20;
 
 /// Entry cap of the Product tier.
 const PRODUCT_MAX_ENTRIES: usize = 256;
-/// Retained-charge cap of the Product tier (128 KiB).
-const PRODUCT_MAX_BYTES: usize = 128 << 10;
+/// Charge of a rank-one Product entry: two one-word labels in the key, the
+/// fusion-label projection of one channel (the larger rank-one projection),
+/// and the entry's table node and ring position.
+const RANK_ONE_PRODUCT_CHARGE: usize = std::mem::size_of::<ProductKey>()
+    + 2 * std::mem::size_of::<i64>()
+    + crate::lie::general::roots::RANK_ONE_LABELS_BYTES
+    + clock::entry_shell::<ProductKey, ProductValue>();
+/// Retained-charge cap of the Product tier: exactly [`PRODUCT_MAX_ENTRIES`]
+/// rank-one entries (158 KiB on 64-bit targets), so the entry cap binds for
+/// them.
+const PRODUCT_MAX_BYTES: usize = PRODUCT_MAX_ENTRIES * RANK_ONE_PRODUCT_CHARGE;
 
 /// Strong and weak reference counts heading every `Arc` allocation; charged
 /// with each shared label, product or channel payload so retained bytes stay
@@ -204,12 +221,14 @@ impl std::fmt::Display for CoefficientCacheTier {
 
 /// Snapshot returned by [`trim_to`] for one coefficient-cache tier.
 ///
-/// The report is taken while the selected tier's publication lock is held: its
+/// The report is taken while the selected tier's lock is held: its
 /// `removed_*` and `remaining_*` fields describe that trim's linearization
 /// point. Concurrent lookups or an in-flight miss that computed outside the
 /// lock can change occupancy after [`trim_to`] returns. The charged bytes cover
 /// cache-owned entries only; they do not imply release of external `Arc`s,
-/// container capacity, allocator metadata, workspaces, or RSS.
+/// container capacity, allocator metadata, workspaces, or RSS. A removed
+/// entry's memory is released once concurrent hits finish, possibly after
+/// this call returns (see [`trim_to`]).
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CacheTrimReport {
@@ -412,9 +431,10 @@ pub const BASE_CACHE_MAX_BYTES: usize = 448 << 20;
 const _: () = assert!(BASE_CACHE_MAX_BYTES == 3 * DEFAULT_MAX_BYTES + CGC_MAX_BYTES);
 
 /// Aggregate conservative retained-charge cap of the two tiers only
-/// higher-rank (`lie-generated`) groups fill, Product and R:
-/// `64 MiB + 128 KiB`. Added to [`BASE_CACHE_MAX_BYTES`] it is the
-/// whole-process cap.
+/// higher-rank (`lie-generated`) groups fill, Product and R: 64 MiB plus the
+/// Product cap, which holds 256 rank-one entries (158 KiB on 64-bit targets,
+/// so `64 MiB + 158 KiB` = 67 270 656 bytes). Added to
+/// [`BASE_CACHE_MAX_BYTES`] it is the whole-process cap.
 ///
 /// **Unstable: shape may change.** There is no Cargo-feature way to express an
 /// instability tier, so this doc label is the marker.
@@ -423,15 +443,12 @@ const _: () = assert!(BASE_CACHE_MAX_BYTES == 3 * DEFAULT_MAX_BYTES + CGC_MAX_BY
 /// `Σ tier charged bytes ≤ Σ tier caps` holds as a corollary without global
 /// enforcement.
 #[cfg(feature = "lie-generated")]
-pub const GENERATED_CACHE_MAX_BYTES: usize = (64 << 20) + (128 << 10);
-
-#[cfg(feature = "lie-generated")]
-const _: () = assert!(GENERATED_CACHE_MAX_BYTES == DEFAULT_MAX_BYTES + PRODUCT_MAX_BYTES);
+pub const GENERATED_CACHE_MAX_BYTES: usize = DEFAULT_MAX_BYTES + PRODUCT_MAX_BYTES;
 
 /// Snapshot of one coefficient-cache tier, returned by [`tier_stats`].
 ///
-/// Entries, bytes, misses and evictions are read under the tier's publication
-/// lock; hits are counted concurrently. A sum over several tiers combines
+/// Entries, bytes, misses and evictions are read under the tier's lock, which
+/// hits never take; hits are counted concurrently. A sum over several tiers combines
 /// independent snapshots, not one atomic whole-cache snapshot: this crate takes
 /// no global lock spanning the tiers, since that would serialize independent
 /// lookups while each tier's charged-entry cap already holds on its own.
@@ -512,50 +529,22 @@ impl CacheCharge for f64 {
 
 /// Conservative retained-byte charge for one stored entry keyed by `K`.
 ///
-/// Counts the value, one owned key and the cached byte-charge word.
-/// This is the conservative retained
-/// charge of entries currently owned by the cache; it excludes container
-/// retained capacity/scaffolding, allocator metadata/RSS, transient or external
-/// clones, and returned public values.
+/// Counts the value, one owned key, and the entry's boxed table node and ring
+/// position ([`clock::entry_shell`]; the node also holds the key and value
+/// shells, which are therefore counted twice). This is the conservative
+/// retained charge of entries currently owned by the cache; it excludes the
+/// slot table's and ring's retained capacity, allocator metadata/RSS,
+/// transient or external clones, and returned public values.
 fn entry_charge<K: CacheKeyCharge, V: CacheCharge>(key: &K, value: &V) -> usize {
     value
         .value_bytes()
         .saturating_add(key.key_bytes())
-        .saturating_add(std::mem::size_of::<usize>())
+        .saturating_add(clock::entry_shell::<K, V>())
 }
 
-#[derive(Clone)]
-struct Charged<V> {
-    value: V,
-    bytes: usize,
-}
-
-#[derive(Clone)]
-struct ByteWeighter {
-    minimum: usize,
-}
-
-impl<K, V> quick_cache::Weighter<K, Charged<V>> for ByteWeighter {
-    fn weight(&self, _: &K, value: &Charged<V>) -> u64 {
-        value.bytes.max(self.minimum) as u64
-    }
-}
-
-#[derive(Clone)]
-struct Evictions(std::sync::Arc<AtomicU64>, std::sync::Arc<AtomicUsize>);
-
-impl<K, V> quick_cache::Lifecycle<K, Charged<V>> for Evictions {
-    type RequestState = ();
-
-    fn on_evict(&self, _: &mut (), _: K, value: Charged<V>) {
-        self.0.fetch_add(1, Ordering::Relaxed);
-        self.1.fetch_sub(value.bytes, Ordering::Relaxed);
-    }
-}
-
-/// Hit-counter stripes per tier: twice quick_cache's eight `sharded-lock`
-/// reader stripes, so round-robin thread indices keep 16 concurrent readers on
-/// distinct counter lines while a snapshot sums only 16 lines.
+/// Hit-counter stripes per tier, so round-robin thread indices keep 16
+/// concurrent readers on distinct counter lines while a snapshot sums only 16
+/// lines.
 const HIT_STRIPES: usize = 16;
 
 #[repr(align(128))]
@@ -573,26 +562,17 @@ fn hit_stripe() -> usize {
     STRIPE.try_with(|stripe| *stripe).unwrap_or(0) % HIT_STRIPES
 }
 
-type Guard<'a, K, V, B> =
-    quick_cache::sync::PlaceholderGuard<'a, K, Charged<V>, ByteWeighter, B, Evictions>;
-
-type Store<K, V, B> = quick_cache::sync::Cache<K, Charged<V>, ByteWeighter, B, Evictions>;
-
-/// Byte-weighted Clock-PRO cache. Hits take one quick_cache reader stripe and
-/// one hit-counter stripe. Publication, explicit removal and snapshots share a
-/// miss-path-only lock. `B` hashes keys: the label tiers use [`FoldBuild`],
-/// the Wigner tiers keep quick_cache's foldhash.
-struct CoefficientCache<K, V, B = quick_cache::DefaultHashBuilder> {
-    inner: Store<K, V, B>,
-    publication: std::sync::Mutex<()>,
+/// One coefficient tier: a [`clock::Clock`] (lock-free hits, byte-weighted
+/// CLOCK eviction, single flight) plus the shared reset epoch and the hit and
+/// miss counters. Publication, eviction, explicit removal and snapshots share
+/// the tier lock. `B` hashes keys: [`FoldBuild`] for every tier.
+struct CoefficientCache<K, V, B = FoldBuild> {
+    inner: clock::Clock<K, V, B>,
     /// The reset epoch, shared by every process-wide tier ([`RESETS`]).
     epoch: &'static AtomicU64,
     hits: [PaddedCounter; HIT_STRIPES],
     misses: AtomicU64,
-    evictions: std::sync::Arc<AtomicU64>,
-    retained_bytes: std::sync::Arc<AtomicUsize>,
-    max_bytes: usize,
-    /// Test-only observations of the waiter paths quick_cache keeps private.
+    /// Test-only observations of the waiter paths.
     #[cfg(test)]
     probes: Probes,
 }
@@ -603,7 +583,7 @@ struct Probes {
     /// Values a waiter received from another loader's placeholder.
     joined: AtomicU64,
     attempts: AtomicU64,
-    /// Guards issued, including ones handed off by a failed loader.
+    /// Claims led, including ones handed off by a failed loader.
     guards: AtomicU64,
 }
 
@@ -614,7 +594,11 @@ struct Probes {
 static RESETS: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(test)]
-impl<K: Clone + Eq + Hash + CacheKeyCharge, V: Clone + CacheCharge> CoefficientCache<K, V> {
+impl<K, V> CoefficientCache<K, V>
+where
+    K: Clone + Eq + Hash + CacheKeyCharge + Send + Sync + 'static,
+    V: Clone + CacheCharge + Send + Sync + 'static,
+{
     /// A test-local cache with its own reset epoch.
     fn new(max_entries: usize, max_bytes: usize) -> Self {
         Self::with_epoch(
@@ -625,10 +609,36 @@ impl<K: Clone + Eq + Hash + CacheKeyCharge, V: Clone + CacheCharge> CoefficientC
     }
 }
 
+/// Ends the leader's flight on error or panic: the claim is abandoned and one
+/// waiter leads again.
+struct Lead<'a, K, V, B>
+where
+    K: Clone + Eq + Hash + Send + Sync + 'static,
+    V: Clone + Send + Sync + 'static,
+    B: BuildHasher + Clone,
+{
+    tier: &'a clock::Clock<K, V, B>,
+    key: Option<K>,
+    flight: Arc<clock::Placeholder<V>>,
+}
+
+impl<K, V, B> Drop for Lead<'_, K, V, B>
+where
+    K: Clone + Eq + Hash + Send + Sync + 'static,
+    V: Clone + Send + Sync + 'static,
+    B: BuildHasher + Clone,
+{
+    fn drop(&mut self) {
+        if let Some(key) = &self.key {
+            self.tier.abandon(key, &self.flight);
+        }
+    }
+}
+
 impl<K, V, B> CoefficientCache<K, V, B>
 where
-    K: Clone + Eq + Hash + CacheKeyCharge,
-    V: Clone + CacheCharge,
+    K: Clone + Eq + Hash + CacheKeyCharge + Send + Sync + 'static,
+    V: Clone + CacheCharge + Send + Sync + 'static,
     B: BuildHasher + Clone + Default,
 {
     /// A process-wide tier, invalidated with the others.
@@ -637,52 +647,42 @@ where
     }
 
     fn with_epoch(max_entries: usize, max_bytes: usize, epoch: &'static AtomicU64) -> Self {
-        let evictions = std::sync::Arc::new(AtomicU64::new(0));
-        let retained_bytes = std::sync::Arc::new(AtomicUsize::new(0));
         assert!(
             max_entries > 0,
             "coefficient tiers need a positive entry cap"
         );
-        let inner = quick_cache::sync::Cache::with_options(
-            quick_cache::OptionsBuilder::new()
-                .shards(1)
-                .hot_allocation(1.0)
-                .estimated_items_capacity(
-                    max_entries.min(max_bytes / std::mem::size_of::<(K, Charged<V>)>().max(1)),
-                )
-                .weight_capacity(max_bytes as u64)
-                .build()
-                .expect("both required cache capacities are supplied"),
-            ByteWeighter {
-                minimum: max_bytes.div_ceil(max_entries),
-            },
-            B::default(),
-            Evictions(evictions.clone(), retained_bytes.clone()),
-        );
         Self {
-            inner,
-            publication: std::sync::Mutex::new(()),
+            inner: clock::Clock::new(max_entries, max_bytes, B::default()),
             epoch,
             hits: Default::default(),
             misses: AtomicU64::new(0),
-            evictions,
-            retained_bytes,
-            max_bytes,
             #[cfg(test)]
             probes: Probes::default(),
         }
     }
 
-    fn hit(&self, value: Charged<V>) -> V {
+    fn hit(&self) {
         self.hits[hit_stripe()].0.fetch_add(1, Ordering::Relaxed);
-        value.value
     }
 
-    /// Every coefficient load starts here.
-    fn get<Q: Hash + quick_cache::Equivalent<K> + ?Sized>(&self, key: &Q) -> Option<V> {
+    /// Every coefficient load starts here: a warm hit, `project` of the
+    /// resident value without moving it.
+    #[inline]
+    fn get_with<Q: Hash + clock::Equivalent<K> + ?Sized, R>(
+        &self,
+        key: &Q,
+        project: impl FnOnce(&V) -> R,
+    ) -> Option<R> {
         #[cfg(test)]
         assert_cache_access_allowed();
-        self.inner.get(key).map(|value| self.hit(value))
+        let value = self.inner.get_with(key, project)?;
+        self.hit();
+        Some(value)
+    }
+
+    #[inline]
+    fn get<Q: Hash + clock::Equivalent<K> + ?Sized>(&self, key: &Q) -> Option<V> {
+        self.get_with(key, V::clone)
     }
 
     #[inline]
@@ -695,32 +695,34 @@ where
         .unwrap()
     }
 
-    /// Borrow before owning the key. Only the guard holder computes; dropping
-    /// the guard on error or panic hands it to one waiter, and errors are never
+    /// Borrow before owning the key. Only the leader computes; a failed or
+    /// panicking leader hands the key to one waiter, and errors are never
     /// retained.
     #[inline]
-    fn get_or_try_compute<Q: Hash + quick_cache::Equivalent<K> + ?Sized, E>(
+    fn get_or_try_compute<Q: Hash + clock::Equivalent<K> + ?Sized, E>(
         &self,
         key: &Q,
         own: impl FnOnce() -> K,
         compute: impl FnOnce() -> Result<V, E>,
     ) -> Result<V, E> {
-        self.get_or_try_sweep(key, own, |_| compute())
+        self.get_or_try_sweep(key, V::clone, own, |_| compute())
     }
 
-    /// As [`Self::get_or_try_compute`]; `compute` may also publish other
-    /// results of the same generation through the supplied [`Publisher`],
-    /// whose reset epoch is captured before its guard.
+    /// As [`Self::get_or_try_compute`], handing out `project` of the value;
+    /// `compute` may also publish other results of the same generation
+    /// through the supplied [`Publisher`], whose reset epoch is captured
+    /// before its claim.
     #[inline]
-    fn get_or_try_sweep<Q: Hash + quick_cache::Equivalent<K> + ?Sized, E>(
+    fn get_or_try_sweep<Q: Hash + clock::Equivalent<K> + ?Sized, E, R>(
         &self,
         key: &Q,
+        project: impl Fn(&V) -> R,
         own: impl FnOnce() -> K,
         compute: impl FnOnce(&Publisher<'_, K, V, B>) -> Result<V, E>,
-    ) -> Result<V, E> {
-        match self.get(key) {
+    ) -> Result<R, E> {
+        match self.get_with(key, &project) {
             Some(value) => Ok(value),
-            None => self.miss(own, compute),
+            None => self.miss(own, compute).map(|value| project(&value)),
         }
     }
 
@@ -728,8 +730,8 @@ where
     /// captures nor pays for the miss path's frame.
     ///
     /// The generation's epoch is the one running on this thread, else the
-    /// current one, read before the guard: a reset at any later point (even
-    /// before the guard exists) keeps this value and everything it loads
+    /// current one, read before the claim: a reset at any later point (even
+    /// before the claim exists) keeps this value and everything it loads
     /// from being retained.
     #[cold]
     #[inline(never)]
@@ -742,58 +744,6 @@ where
             .with(std::cell::Cell::get)
             .unwrap_or_else(|| self.epoch.load(Ordering::SeqCst));
         Publisher { cache: self, epoch }.load(own, compute)
-    }
-
-    /// Single-flight entry for an owned key: `Err` carries a resident or
-    /// waited-for value. A sibling publication replaces a placeholder without
-    /// filling it, so a guard (possibly handed off) may cover a resident key;
-    /// its winner is then delivered to the waiters instead of recomputed.
-    fn guard(&self, key: &K) -> Result<Guard<'_, K, V, B>, Charged<V>> {
-        #[cfg(test)]
-        self.probes.attempts.fetch_add(1, Ordering::SeqCst);
-        let guard = match self.inner.get_value_or_guard(key, None) {
-            quick_cache::sync::GuardResult::Value(value) => {
-                #[cfg(test)]
-                self.probes.joined.fetch_add(1, Ordering::Relaxed);
-                return Err(value);
-            }
-            quick_cache::sync::GuardResult::Guard(guard) => guard,
-            quick_cache::sync::GuardResult::Timeout => unreachable!("waits without timeout"),
-        };
-        #[cfg(test)]
-        self.probes.guards.fetch_add(1, Ordering::Relaxed);
-        match self.inner.peek(key) {
-            Some(stored) => {
-                let _ = guard.insert(stored.clone());
-                Err(stored)
-            }
-            None => Ok(guard),
-        }
-    }
-
-    /// Publish through a guard; the caller holds the publication mutex.
-    fn fill(&self, guard: Guard<'_, K, V, B>, key: &K, value: V) -> V {
-        if let Some(stored) = self.inner.peek(key) {
-            let _ = guard.insert(stored.clone());
-            return self.hit(stored);
-        }
-        self.misses.fetch_add(1, Ordering::Relaxed);
-        let bytes = entry_charge(key, &value);
-        self.retained_bytes.fetch_add(bytes, Ordering::Relaxed);
-        debug_assert_eq!(self.inner.capacity(), self.max_bytes as u64);
-        // `Ok` includes oversize rejection, which the eviction callback
-        // accounts. `Err` means reset invalidated the placeholder: no callback
-        // runs, and a plain insert would defeat that invalidation.
-        if guard
-            .insert(Charged {
-                value: value.clone(),
-                bytes,
-            })
-            .is_err()
-        {
-            self.retained_bytes.fetch_sub(bytes, Ordering::Relaxed);
-        }
-        value
     }
 
     #[cfg(test)]
@@ -821,61 +771,46 @@ trait TierControl: Sync {
 
 impl<K, V, B> TierControl for CoefficientCache<K, V, B>
 where
-    K: Clone + Eq + Hash + CacheKeyCharge + Send + Sync,
-    V: Clone + CacheCharge + Send + Sync,
+    K: Clone + Eq + Hash + CacheKeyCharge + Send + Sync + 'static,
+    V: Clone + CacheCharge + Send + Sync + 'static,
     B: BuildHasher + Clone + Default + Send + Sync,
 {
     fn reset(&self) {
-        let _publication = self.publication.lock().unwrap();
+        let mut st = self.inner.lock();
         self.epoch.fetch_add(2, Ordering::SeqCst);
-        self.inner.clear();
-        self.retained_bytes.store(0, Ordering::Relaxed);
+        self.inner.clear(&mut st);
         for stripe in &self.hits {
             stripe.0.store(0, Ordering::Relaxed);
         }
         self.misses.store(0, Ordering::Relaxed);
-        self.evictions.store(0, Ordering::Relaxed);
     }
 
     /// Remove in unspecified traversal order until the charge fits. In-flight
-    /// placeholders survive trim, and may publish after it returns.
+    /// claims survive trim, and may publish after it returns.
     fn trim_to(&self, target_bytes: usize) -> (usize, usize, usize, usize) {
-        let _publication = self.publication.lock().unwrap();
-        let entries = self.inner.len();
-        let bytes = self.retained_bytes.load(Ordering::Relaxed);
-        let remaining = std::cell::Cell::new(bytes);
-        self.inner.retain(|_, value| {
-            if target_bytes != 0 && remaining.get() <= target_bytes {
-                true
-            } else {
-                remaining.set(remaining.get() - value.bytes);
-                false
-            }
-        });
-        let removed = entries - self.inner.len();
-        self.retained_bytes
-            .store(remaining.get(), Ordering::Relaxed);
-        self.evictions.fetch_add(removed as u64, Ordering::Relaxed);
-        (
-            removed,
-            bytes - remaining.get(),
-            entries - removed,
-            remaining.get(),
-        )
+        let mut st = self.inner.lock();
+        let (entries, bytes) = (st.len(), st.bytes);
+        let removed = self.inner.trim(&mut st, target_bytes);
+        let report = (removed, bytes - st.bytes, entries - removed, st.bytes);
+        drop(st);
+        if removed > 0 {
+            clock::release();
+        }
+        report
     }
 
     fn tier_stats(&self) -> TierStats {
-        let _publication = self.publication.lock().unwrap();
+        let st = self.inner.lock();
         TierStats {
-            entries: self.inner.len(),
-            bytes: self.retained_bytes.load(Ordering::Relaxed),
+            entries: st.len(),
+            bytes: st.bytes,
             hits: self
                 .hits
                 .iter()
                 .map(|stripe| stripe.0.load(Ordering::Relaxed))
                 .sum(),
             misses: self.misses.load(Ordering::Relaxed),
-            evictions: self.evictions.load(Ordering::Relaxed),
+            evictions: st.evictions,
         }
     }
 }
@@ -889,13 +824,13 @@ struct Publisher<'a, K, V, B> {
 
 impl<K, V, B> Publisher<'_, K, V, B>
 where
-    K: Clone + Eq + Hash + CacheKeyCharge,
-    V: Clone + CacheCharge,
+    K: Clone + Eq + Hash + CacheKeyCharge + Send + Sync + 'static,
+    V: Clone + CacheCharge + Send + Sync + 'static,
     B: BuildHasher + Clone + Default,
 {
     /// Nested work inherits this generation's epoch even if reset precedes
-    /// acquisition of its own placeholder.
-    fn get_or_try_compute<Q: Hash + quick_cache::Equivalent<K> + ?Sized, E>(
+    /// its own claim.
+    fn get_or_try_compute<Q: Hash + clock::Equivalent<K> + ?Sized, E>(
         &self,
         key: &Q,
         own: impl FnOnce() -> K,
@@ -914,22 +849,46 @@ where
     ) -> Result<V, E> {
         let cache = self.cache;
         let key = own();
-        let guard = match cache.guard(&key) {
-            Ok(guard) => guard,
-            Err(value) => return Ok(cache.hit(value)),
+        #[cfg(test)]
+        cache.probes.attempts.fetch_add(1, Ordering::SeqCst);
+        let flight = match cache.inner.claim(&key) {
+            clock::Claim::Lead(flight) => flight,
+            clock::Claim::Value(value) => {
+                #[cfg(test)]
+                cache.probes.joined.fetch_add(1, Ordering::Relaxed);
+                cache.hit();
+                return Ok(value);
+            }
+        };
+        #[cfg(test)]
+        cache.probes.guards.fetch_add(1, Ordering::Relaxed);
+        let mut lead = Lead {
+            tier: &cache.inner,
+            key: Some(key),
+            flight,
         };
         #[cfg(test)]
         if let Some(hook) = AFTER_GUARD.with(std::cell::Cell::take) {
             hook();
         }
         let value = generation(self.epoch, || compute(self))?;
+        let key = lead.key.take().expect("the leader owns its key");
+        let bytes = entry_charge(&key, &value);
         // Hold through publication, never during recursive generation.
-        let _publication = cache.publication.lock().unwrap();
-        if !self.epoch.is_multiple_of(2) || cache.epoch.load(Ordering::SeqCst) != self.epoch {
+        let mut st = cache.inner.lock();
+        let retain =
+            self.epoch.is_multiple_of(2) && cache.epoch.load(Ordering::SeqCst) == self.epoch;
+        let (value, outcome) =
+            cache
+                .inner
+                .publish(&mut st, key, &lead.flight, value, bytes, retain);
+        if matches!(outcome, clock::Publication::Resident) {
+            drop(st);
+            cache.hit();
+        } else {
             cache.misses.fetch_add(1, Ordering::Relaxed);
-            return Ok(value);
         }
-        Ok(cache.fill(guard, &key, value))
+        Ok(value)
     }
 }
 
@@ -1068,7 +1027,7 @@ impl<const N: usize> Hash for LabelRef<'_, N> {
     }
 }
 
-impl<const N: usize> quick_cache::Equivalent<LabelKey> for LabelRef<'_, N> {
+impl<const N: usize> clock::Equivalent<LabelKey> for LabelRef<'_, N> {
     fn equivalent(&self, key: &LabelKey) -> bool {
         self.kind == key.kind
             && self.root == key.root
@@ -1168,7 +1127,7 @@ impl Hash for FCartanRef<'_> {
     }
 }
 
-impl quick_cache::Equivalent<FSymbolKey> for FCartanRef<'_> {
+impl clock::Equivalent<FSymbolKey> for FCartanRef<'_> {
     fn equivalent(&self, key: &FSymbolKey) -> bool {
         matches!(key, FSymbolKey::Cartan(key) if self.0.equivalent(key))
     }
@@ -1202,10 +1161,15 @@ static CACHE_F: LazyLock<CoefficientCache<FSymbolKey, FValue, FoldBuild>> = Lazy
 #[inline]
 pub(crate) fn su2_f<E>(key: FKey, compute: impl FnOnce() -> Result<f64, E>) -> Result<f64, E> {
     let key = FSymbolKey::Su2(key);
-    match CACHE_F.get_or_try_compute(&key, || key.clone(), || compute().map(FValue::Scalar))? {
-        FValue::Scalar(x) => Ok(x),
-        FValue::Block(_) => unreachable!("an SU(2) key stores a scalar"),
-    }
+    CACHE_F.get_or_try_sweep(
+        &key,
+        |value| match value {
+            FValue::Scalar(x) => *x,
+            FValue::Block(_) => unreachable!("an SU(2) key stores a scalar"),
+        },
+        || key.clone(),
+        |_| compute().map(FValue::Scalar),
+    )
 }
 
 /// Cartan-engine F block of the six labels as given, in presented root `root`.
@@ -1220,14 +1184,15 @@ pub(crate) fn f_block<E>(
         root,
         parts,
     });
-    match CACHE_F.get_or_try_compute(
+    CACHE_F.get_or_try_sweep(
         &key,
+        |value| match value {
+            FValue::Block(block) => block.clone(),
+            FValue::Scalar(_) => unreachable!("a Cartan key stores a block"),
+        },
         || FSymbolKey::Cartan(key.0.to_key()),
-        || compute().map(FValue::Block),
-    )? {
-        FValue::Block(block) => Ok(block),
-        FValue::Scalar(_) => unreachable!("a Cartan key stores a block"),
-    }
+        |_| compute().map(FValue::Block),
+    )
 }
 
 /// The R tier: Cartan-engine blocks keyed by the ordered triple, since
@@ -1348,7 +1313,7 @@ impl Hash for ProductRef<'_> {
         state.write_u64(key_hash(PRODUCT | u64::from(self.3), self.0, parts));
     }
 }
-impl quick_cache::Equivalent<ProductKey> for ProductRef<'_> {
+impl clock::Equivalent<ProductKey> for ProductRef<'_> {
     fn equivalent(&self, k: &ProductKey) -> bool {
         self.0 == k.0
             && self.1.words == k.1.as_ref()
@@ -1377,11 +1342,15 @@ pub(crate) fn product<E>(
     labels: impl FnOnce(Multiplicities) -> Result<Product, E>,
 ) -> Result<Product, E> {
     let (a, b) = if a.words <= b.words { (a, b) } else { (b, a) };
-    match CACHE_PRODUCT.get_or_try_sweep(
+    CACHE_PRODUCT.get_or_try_sweep(
         &ProductRef(root, a, b, false),
+        |value| match value {
+            ProductValue::Labels(x) => x.clone(),
+            _ => unreachable!("projection is part of the key"),
+        },
         || ProductKey(root, a.words.into(), b.words.into(), false),
         |publisher| {
-            // The child inherits the label loader's reset epoch, including before its own guard.
+            // The child inherits the label loader's reset epoch, including before its own claim.
             let raw = publisher.get_or_try_compute(
                 &ProductRef(root, a, b, true),
                 || ProductKey(root, a.words.into(), b.words.into(), true),
@@ -1392,10 +1361,7 @@ pub(crate) fn product<E>(
                 _ => unreachable!("projection is part of the key"),
             }
         },
-    )? {
-        ProductValue::Labels(x) => Ok(x),
-        _ => unreachable!("projection is part of the key"),
-    }
+    )
 }
 
 pub(crate) fn product_multiplicities<E>(
@@ -1428,7 +1394,8 @@ fn control(tier: CoefficientCacheTier) -> &'static dyn TierControl {
 
 /// Clear every tier and *all* its counters — entries, bytes, hits, misses,
 /// and evictions all return to zero. This includes every retained irrep
-/// module, channel and phase of the CGC tier.
+/// module, channel and phase of the CGC tier. Removed entries are released
+/// as for [`trim_to`], once concurrent hits finish.
 ///
 /// # Reset ownership (process-global, single-owner)
 ///
@@ -1464,6 +1431,10 @@ pub fn reset() {
         #[cfg(test)]
         reset_pause(tier);
     }
+    // Submit every tier's graveyard together: one explicit attempt, plus at
+    // most one automatic seize attempt per retiring tier section (at most two
+    // barriers ordinarily, at most seven if seize retries for all six).
+    clock::release();
     RESETS.fetch_add(1, Ordering::SeqCst);
 }
 
@@ -1500,10 +1471,13 @@ fn reset_pause(tier: CoefficientCacheTier) {
 /// its caller's back. A trim is also a cache-policy observation: if no policy
 /// was configured first, accessing the selected cache fixes the default policy.
 ///
-/// A hit that acquired its read lock before trimming can still return its clone;
+/// A hit that found an entry before trimming can still return its clone;
 /// trimming first makes a later lookup miss. A miss computes outside the lock
-/// and can publish after this function returns. See [`CacheTrimReport`] for the
-/// report's linearization-point and memory-accounting boundaries.
+/// and can publish after this function returns. A removed entry is released
+/// once the hits running concurrently with the trim finish; at most one
+/// reclamation batch per retiring thread can stay pending until that thread
+/// retires more entries. See [`CacheTrimReport`] for the report's
+/// linearization-point and memory-accounting boundaries.
 ///
 /// # Examples
 ///
@@ -1609,14 +1583,14 @@ pub(crate) fn cgc_module_is_resident(root: RootSystem, label: &[i64]) -> bool {
 #[cfg(all(test, feature = "lie-generated"))]
 pub(crate) fn with_publication_locks<T>(f: impl FnOnce() -> T) -> T {
     assert_cache_access_allowed();
-    let _guards = [
-        CACHE_3J.publication.lock().unwrap(),
-        CACHE_6J.publication.lock().unwrap(),
-        CACHE_F.publication.lock().unwrap(),
-        CACHE_R.publication.lock().unwrap(),
-        CACHE_PRODUCT.publication.lock().unwrap(),
-        CACHE_CGC.publication.lock().unwrap(),
-    ];
+    let _guards = (
+        CACHE_3J.inner.lock(),
+        CACHE_6J.inner.lock(),
+        CACHE_F.inner.lock(),
+        CACHE_R.inner.lock(),
+        CACHE_PRODUCT.inner.lock(),
+        CACHE_CGC.inner.lock(),
+    );
     f()
 }
 
@@ -1800,10 +1774,11 @@ mod tests {
         assert_eq!(removed_bytes + retained_bytes, before.bytes);
         let actual_bytes: usize = c
             .inner
-            .iter()
-            .map(|(k, v)| {
-                assert_eq!(v.value, values[k as usize - 1]);
-                entry_charge(&k, &v.value)
+            .entries()
+            .into_iter()
+            .map(|(k, v, _)| {
+                assert_eq!(v, values[k as usize - 1]);
+                entry_charge(&k, &v)
             })
             .sum();
         assert_eq!(retained_bytes, actual_bytes);
@@ -1955,8 +1930,10 @@ mod tests {
     fn product_tier_caps_charge_and_lifecycle() {
         use crate::lie::RootSystem as R;
         // Purpose: a product entry charges its owned storage (labels and deep
-        // coordinate data), and the byte cap admits it exactly when it fits.
+        // coordinate data), the byte cap admits it exactly when it fits, and
+        // trim eventually releases it.
         // Complex coordinate pairs and an exact dimension above u128 own deep storage.
+        let (filler_key, filler) = product_fixture(R::A(1), &[0]);
         for (root, label) in [
             (R::A(5), vec![1000, 0, 0, 0, 1]),
             (R::D(5), vec![0, 0, 0, 2, 0]),
@@ -1977,10 +1954,13 @@ mod tests {
                 assert_eq!(stats.bytes, if budget >= charge { charge } else { 0 });
                 let owners = Arc::strong_count(&value.0);
                 assert_eq!(cache.trim_to(0).0, usize::from(budget >= charge));
-                assert_eq!(
-                    Arc::strong_count(&value.0),
-                    owners - usize::from(budget >= charge)
-                );
+                // Release waits for concurrent hits (on any tier) to finish;
+                // more retirements on this thread complete a deferred batch.
+                assert!(entry_charge(&filler_key, &filler) <= charge);
+                while Arc::strong_count(&value.0) != owners - usize::from(budget >= charge) {
+                    cache.get_or_compute(filler_key.clone(), || filler.clone());
+                    cache.trim_to(0);
+                }
                 assert_eq!(got, value);
                 cache.reset();
                 assert_eq!(cache.tier_stats(), TierStats::default());
@@ -1989,8 +1969,12 @@ mod tests {
     }
     #[test]
     fn product_entry_cap_is_256() {
-        let (_, value) = product_fixture(crate::lie::RootSystem::A(1), &[0]);
-        let local = CoefficientCache::new(256, 128 << 10);
+        let (key, value) = product_fixture(crate::lie::RootSystem::A(1), &[0]);
+        // The default budget holds 256 rank-one entries of the tier's own
+        // value type, so the entry cap binds for them.
+        let labels = ProductValue::Labels(value.clone());
+        assert!(PRODUCT_MAX_ENTRIES * entry_charge(&key, &labels) <= PRODUCT_MAX_BYTES);
+        let local = CoefficientCache::new(256, PRODUCT_MAX_BYTES);
         for n in 0..257 {
             local.get_or_compute(
                 ProductKey(
@@ -2010,7 +1994,7 @@ mod tests {
     fn product_reset_during_parked_load_preserves_external_value() {
         use std::sync::mpsc;
         let (key, value) = product_fixture(crate::lie::RootSystem::E6, &[1, 0, 0, 0, 0, 0]);
-        let cache = Arc::new(CoefficientCache::new(256, 128 << 10));
+        let cache = Arc::new(CoefficientCache::new(256, PRODUCT_MAX_BYTES));
         let (started, loading) = mpsc::channel();
         let (release, released) = mpsc::channel();
         let worker = {
@@ -2039,7 +2023,7 @@ mod tests {
         use std::sync::{mpsc, Barrier};
         for root in [R::A(5), R::D(5), R::E6] {
             let (key, value) = product_fixture(root, &vec![0; root.rank()]);
-            let cache = Arc::new(CoefficientCache::new(256, 128 << 10));
+            let cache = Arc::new(CoefficientCache::new(256, PRODUCT_MAX_BYTES));
             let count = Arc::new(AtomicU64::new(0));
             let start = Arc::new(Barrier::new(9));
             let (loaded, loading) = mpsc::channel();
@@ -2329,6 +2313,7 @@ mod tests {
             local
                 .get_or_try_sweep(
                     &1,
+                    f64::clone,
                     || 1,
                     |parent| {
                         if reset_before_guard {
@@ -2454,7 +2439,10 @@ mod tests {
 
     #[test]
     fn borrowed_generated_views_hit_before_owning_keys() {
-        fn hit<K: Clone + Eq + Hash + CacheKeyCharge, Q: Hash + quick_cache::Equivalent<K>>(
+        fn hit<
+            K: Clone + Eq + Hash + CacheKeyCharge + Send + Sync + 'static,
+            Q: Hash + Equivalent<K>,
+        >(
             owned: K,
             borrowed: &Q,
         ) {
@@ -2543,7 +2531,7 @@ mod tests {
         assert_eq!(report.0 + report.2, before.entries);
         assert_eq!(report.1 + report.3, before.bytes);
         assert_eq!(
-            cache.inner.iter().map(|(_, v)| v.bytes).sum::<usize>(),
+            cache.inner.entries().iter().map(|e| e.2).sum::<usize>(),
             report.3
         );
     }
@@ -2560,21 +2548,24 @@ mod tests {
             }
             fn write(&mut self, _: &[u8]) {}
         }
-        let cache = quick_cache::sync::Cache::with(
+        let cache = clock::Clock::new(
             16,
-            16,
-            quick_cache::UnitWeighter,
+            1 << 10,
             BuildHasherDefault::<CollisionHasher>::default(),
-            quick_cache::sync::DefaultLifecycle::default(),
         );
         let regge = canonical_regge_6j(1, 1, 0, 1, 1, 0).unwrap();
         let positive = FSymbolKey::Su2(FKey::new(regge, 1, false));
         let negative = FSymbolKey::Su2(FKey::new(regge, 1, true));
-        cache.insert(positive.clone(), 0.5f64);
-        cache.insert(negative.clone(), -0.5f64);
+        for (key, value) in [(&positive, 0.5f64), (&negative, -0.5)] {
+            let clock::Claim::Lead(flight) = cache.claim(key) else {
+                panic!("a cold key is led");
+            };
+            let mut st = cache.lock();
+            cache.publish(&mut st, key.clone(), &flight, value, 8, true);
+        }
         // The same key and Equivalent path as the base F tier.
-        assert_eq!(cache.get(&positive), Some(0.5));
-        assert_eq!(cache.get(&negative), Some(-0.5));
+        assert_eq!(cache.get_with(&positive, |v| *v), Some(0.5));
+        assert_eq!(cache.get_with(&negative, |v| *v), Some(-0.5));
     }
 
     #[test]
@@ -2624,8 +2615,8 @@ mod tests {
     }
 
     /// Leader blocked in generation while one waiter joins its placeholder;
-    /// `during` runs before the leader resumes. quick_cache keeps its waiter
-    /// list private, so parking is observed afterwards through `probe` rather
+    /// `during` runs before the leader resumes. The placeholder keeps its
+    /// waiters private, so parking is observed afterwards through `probe` rather
     /// than awaited: an attempt whose waiter came too late is repeated with a
     /// longer head start.
     fn with_parked_waiter(
@@ -2783,10 +2774,10 @@ mod tests {
             reader.join().unwrap();
         }
         let stats = cache.tier_stats();
-        assert_eq!(stats.entries, cache.inner.len());
+        assert_eq!(stats.entries, cache.inner.entries().len());
         assert_eq!(
             stats.bytes,
-            cache.inner.iter().map(|(_, v)| v.bytes).sum::<usize>()
+            cache.inner.entries().iter().map(|e| e.2).sum::<usize>()
         );
 
         // Quiescent striped hit counts are exact across threads.
@@ -2815,7 +2806,6 @@ mod tests {
     /// hash never makes unequal keys equivalent.
     #[test]
     fn label_keys_hash_alike_and_compare_exactly() {
-        use quick_cache::Equivalent;
         fn agree<K: Hash, Q: Hash + Equivalent<K>>(owned: &K, borrowed: &Q, at: RootSystem) {
             assert_eq!(
                 FoldBuild.hash_one(owned),

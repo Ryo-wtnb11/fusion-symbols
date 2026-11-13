@@ -113,7 +113,9 @@ fn product_cache_contract() {
     let entry_bound = cache::tier_stats(cache::CoefficientCacheTier::Product);
     assert!(entry_bound.entries <= 256);
     assert!(entry_bound.evictions > 0);
-    assert!(entry_bound.bytes <= (128 << 10));
+    assert!(
+        entry_bound.bytes <= cache::cache_budgets().limit(cache::CoefficientCacheTier::Product)
+    );
 
     // Root-system identity is part of the key: these rank-five weights differ in fusion.
     use fusion_symbols::lie::{GroupId, LieGroup};

@@ -34,9 +34,10 @@ anyonwiki-unitary = []
 lie-generated = []
 
 [dependencies]
-# `sharded-lock` gives warm hits one of eight reader stripes instead of one shared
-# lock word; `parking_lot` must stay off because it overrides that lock choice.
-quick_cache = { version = "0.7", default-features = false, features = ["sharded-lock", "custom-hasher"] }
+# Reclamation of the coefficient tiers' lock-free tables. The default
+# `fast-barrier` feature (libc) makes the reader-side barrier a compiler fence
+# on Linux and Windows.
+seize = "0.5.1"
 num-traits = "0.2"
 # R-symbols and twists of braided categories are complex (`table`). Default `std` feature kept: `Complex64::norm` and
 # `from_polar` need it.

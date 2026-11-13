@@ -50,7 +50,7 @@ fusion-symbols = "0.11"
 
 The required dependencies include Malachite 0.14 (`malachite-base`,
 `malachite-nz`, `malachite-q`) for exact arithmetic beyond machine words, `num-traits`,
-`num-complex`, `quick_cache` and `threadteam` (without its `parallel`
+`num-complex`, `seize` and `threadteam` (without its `parallel`
 feature, so this crate starts no thread pool); no feature adds a dependency.
 Use `default-features = false` for the base build without higher-rank groups.
 

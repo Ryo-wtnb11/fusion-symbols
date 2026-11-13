@@ -1220,6 +1220,22 @@ pub(crate) enum ProductValue {
     Multiplicities(Multiplicities),
     Labels(Product),
 }
+/// [`CacheCharge::value_bytes`] of the smallest fusion-label projection: one
+/// rank-one (A₁) channel, whose label is self-dual with a one-limb dimension
+/// and holds one Dynkin word and two classical coordinates
+/// ([`RootIrrep::heap_bytes`]). Its multiplicity projection charges less.
+///
+/// [`CacheCharge::value_bytes`]: crate::cache::CacheCharge::value_bytes
+pub(crate) const RANK_ONE_LABELS_BYTES: usize = std::mem::size_of::<ProductValue>()
+    + std::mem::size_of::<Product>()
+    + crate::cache::ARC_COUNTS_BYTES
+    + std::mem::size_of::<(RootIrrep, u32)>()
+    + crate::cache::ARC_COUNTS_BYTES
+    + std::mem::size_of::<IrrepData>()
+    + crate::cache::ARC_COUNTS_BYTES
+    + std::mem::size_of::<CartanData>()
+    + 3 * std::mem::size_of::<i64>();
+
 impl crate::cache::CacheCharge for ProductValue {
     fn value_bytes(&self) -> usize {
         std::mem::size_of::<Self>()
