@@ -4,7 +4,7 @@ use fusion_symbols::{
     category::FusionCategory,
     fermion::{FermionParity, FermionParityIrrep},
     finite::{ZNIrrep, ZN},
-    lie::{CU1Irrep, GroupId, LieGroup, U1Irrep, CU1, U1},
+    lie::{CU1Irrep, GroupId, HalfInt, LieGroup, U1Irrep, CU1, U1},
     product::Product,
     table::TableCategory,
 };
@@ -22,8 +22,8 @@ fn leaf_categories_accept_own_and_reject_foreign_objects() {
     for a in [
         CU1Irrep::VACUUM,
         CU1Irrep::PSEUDOSCALAR,
-        CU1Irrep::from_twice_charge(1),
-        CU1Irrep::from_twice_charge(u32::MAX),
+        CU1Irrep::new(HalfInt::new(1, 2).unwrap(), 2).unwrap(),
+        CU1Irrep::new(HalfInt::new(u32::MAX, 2).unwrap(), 2).unwrap(),
     ] {
         assert!(CU1.contains(&a));
     }

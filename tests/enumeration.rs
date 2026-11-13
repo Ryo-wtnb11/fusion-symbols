@@ -6,7 +6,7 @@ use fusion_symbols::{
     category::{EnumerationError, FusionCategory},
     fermion::{FermionParity, FermionParityIrrep as Parity},
     finite::{ZNIrrep, ZN},
-    lie::{CU1Irrep, GroupId, LieGroup, U1Irrep, CU1, U1},
+    lie::{CU1Irrep, GroupId, HalfInt, LieGroup, U1Irrep, CU1, U1},
     product::Product,
     table::TableCategory,
 };
@@ -56,8 +56,12 @@ fn cyclic_and_parity_orders() {
 
 #[test]
 fn u1_order_and_label_range() {
+    const ONE: U1Irrep = match U1Irrep::new(1) {
+        Ok(label) => label,
+        Err(_) => panic!("charge 1 is representable"),
+    };
     assert_eq!(U1.object_count(), Ok(None));
-    assert_eq!(first(&U1, 5), [q(0), q(1), q(-1), q(2), q(-2)]);
+    assert_eq!(first(&U1, 5), [q(0), ONE, q(-1), q(2), q(-2)]);
     assert_eq!(U1.object_index(&q(i32::MAX)), Ok(4_294_967_293));
     assert_eq!(U1.object_index(&q(-i32::MAX)), Ok(4_294_967_294));
     assert_eq!(U1.object_at(4_294_967_294), Ok(q(-i32::MAX)));
@@ -68,7 +72,7 @@ fn u1_order_and_label_range() {
 
 #[test]
 fn cu1_order_and_label_range() {
-    let c = |t, s| CU1Irrep::new(t, s).unwrap();
+    let c = |t, s| CU1Irrep::new(HalfInt::from_doubled(t), s).unwrap();
     assert_eq!(CU1.object_count(), Ok(None));
     assert_eq!(
         first(&CU1, 5),
@@ -367,7 +371,10 @@ fn derived_dimensions_multiply_factorwise() {
     assert_eq!(su2.inv_dim(&a.0), 0.5);
     // Left to right through explicit nesting.
     let nested = Product::new((Product::new((su2.clone(), fib.clone())), CU1));
-    let b = (a.clone(), CU1Irrep::from_twice_charge(3));
+    let b = (
+        a.clone(),
+        CU1Irrep::new(HalfInt::new(3, 2).unwrap(), 2).unwrap(),
+    );
     assert_eq!(nested.sqrt_dim(&b), 1.7989074399478675 * 2f64.sqrt());
     assert_eq!(nested.inv_dim(&b), 0.30901699437494745 * 0.5);
 }

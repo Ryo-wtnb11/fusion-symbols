@@ -1,12 +1,13 @@
 //! Closed-form CU(1) coefficients.
 
+use super::HalfInt;
 use crate::category::{BraidingStyle, EnumerationError, FusionCategory, FusionStyle};
 
 /// An irrep of `CU(1)`, TensorKitSectors' `CU1Irrep(j, s)`, stored as
 /// `twice_charge = 2j` and `s`.
 ///
 /// Valid labels (`cu1irrep.jl` constructor): `(0, 0)` = `0+`, `(0, 1)` =
-/// `0-`, and `(2j, 2)` for `j > 0`. Fields are private so only those exist.
+/// `0-`, and `(j, 2)` for `j > 0`. Fields are private so only those exist.
 /// `Ord` is TensorKitSectors' `isless`: by charge, then `0+` before `0-`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CU1Irrep {
@@ -62,12 +63,13 @@ impl CU1Irrep {
         s: 1,
     };
 
-    /// TensorKitSectors `CU1Irrep(j, s)` with `j = twice_charge / 2`.
+    /// TensorKitSectors `CU1Irrep(j, s)` with half-integer charge `j`.
     ///
     /// # Errors
     ///
     /// [`CU1Error::InvalidLabel`] for an `s` the charge does not admit.
-    pub fn new(twice_charge: u32, s: u8) -> Result<Self, CU1Error> {
+    pub fn new(j: HalfInt, s: u8) -> Result<Self, CU1Error> {
+        let twice_charge = j.doubled();
         let valid = if twice_charge == 0 { s <= 1 } else { s == 2 };
         if valid {
             Ok(Self { twice_charge, s })
@@ -79,7 +81,7 @@ impl CU1Irrep {
     /// TensorKitSectors `CU1Irrep(j)` with its default `s`: `0+` for
     /// `twice_charge == 0`, the two-dimensional irrep otherwise. Infallible:
     /// every `u32` is a label with that `s`.
-    pub const fn from_twice_charge(twice_charge: u32) -> Self {
+    const fn from_twice_charge(twice_charge: u32) -> Self {
         Self {
             twice_charge,
             s: if twice_charge == 0 { 0 } else { 2 },
@@ -91,6 +93,11 @@ impl CU1Irrep {
             Ok(q) => Ok(Self::from_twice_charge(q)),
             Err(_) => Err(CU1Error::LabelOverflow { twice_charge }),
         }
+    }
+
+    /// The half-integer charge `j`.
+    pub const fn charge(self) -> HalfInt {
+        HalfInt::from_doubled(self.twice_charge)
     }
 
     /// `2j`.
@@ -196,7 +203,7 @@ impl FusionCategory for CU1 {
         CU1Irrep::VACUUM
     }
     fn contains(&self, a: &CU1Irrep) -> bool {
-        CU1Irrep::new(a.twice_charge, a.s).is_ok()
+        CU1Irrep::new(a.charge(), a.s).is_ok()
     }
     fn dual(&self, a: &CU1Irrep) -> CU1Irrep {
         *a
@@ -417,7 +424,11 @@ mod tests {
     use super::*;
 
     fn j(twice_charge: u32) -> CU1Irrep {
-        CU1Irrep::from_twice_charge(twice_charge)
+        CU1Irrep::new(
+            HalfInt::from_doubled(twice_charge),
+            if twice_charge == 0 { 0 } else { 2 },
+        )
+        .unwrap()
     }
 
     const OP: CU1Irrep = CU1Irrep::VACUUM;
@@ -428,32 +439,27 @@ mod tests {
     }
 
     #[test]
-    fn invalid_labels_are_typed_errors() {
-        for s in [2, 3, u8::MAX] {
-            assert_eq!(
-                CU1Irrep::new(0, s),
-                Err(CU1Error::InvalidLabel { twice_charge: 0, s })
-            );
+    fn constructor_admits_exactly_the_charge_and_s_domain() {
+        for n in [0, 1, 3, u32::MAX] {
+            let charge = HalfInt::from_doubled(n);
+            for s in 0..=u8::MAX {
+                if (n == 0 && s <= 1) || (n > 0 && s == 2) {
+                    let label = CU1Irrep::new(charge, s).unwrap();
+                    assert_eq!(
+                        (label.charge(), label.twice_charge(), label.s()),
+                        (charge, n, s)
+                    );
+                } else {
+                    assert!(matches!(
+                        CU1Irrep::new(charge, s),
+                        Err(CU1Error::InvalidLabel { twice_charge, s: got })
+                            if twice_charge == n && got == s
+                    ));
+                }
+            }
         }
-        for s in [0, 1, 3] {
-            assert_eq!(
-                CU1Irrep::new(3, s),
-                Err(CU1Error::InvalidLabel { twice_charge: 3, s })
-            );
-        }
-        assert_eq!(
-            CU1Irrep::new(u32::MAX, 0),
-            Err(CU1Error::InvalidLabel {
-                twice_charge: u32::MAX,
-                s: 0
-            })
-        );
-        assert_eq!(CU1Irrep::new(0, 0), Ok(OP));
-        assert_eq!(CU1Irrep::new(0, 1), Ok(OM));
-        assert_eq!(CU1Irrep::from_twice_charge(0), OP);
-        // The whole u32 range is labels.
-        assert_eq!(CU1Irrep::new(u32::MAX, 2), Ok(j(u32::MAX)));
-        assert_eq!((j(u32::MAX).twice_charge(), j(u32::MAX).s()), (u32::MAX, 2));
+        assert_eq!(CU1Irrep::new(HalfInt::new(0, 1).unwrap(), 0), Ok(OP));
+        assert_eq!(CU1Irrep::new(HalfInt::new(0, 1).unwrap(), 1), Ok(OM));
     }
 
     #[test]

@@ -7,8 +7,26 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Breaking
+
+- `lie::HalfInt::new(num, den)` is a `const fn` returning
+  `Result<HalfInt, HalfIntError>`. Only denominators `1` and `2` are
+  accepted (no fraction reduction); an invalid denominator or an
+  unrepresentable doubled value returns `HalfIntError::Denominator` or
+  `HalfIntError::Overflow`. `half(n)` is renamed to `from_doubled(n)`;
+  `integer(n)` is removed: use `new(n, 1)` and handle the typed error.
+- `lie::CU1Irrep::new(j, s)` takes `HalfInt` rather than a doubled `u32`
+  charge. `from_twice_charge(n)`, which chose `s = 0` for charge 0 and
+  `s = 2` otherwise, is private; use `new(HalfInt::from_doubled(n), s)`
+  with `s` given explicitly.
+  `charge()` reads the `HalfInt`; `twice_charge()` remains available.
+  The admitted labels, enumeration indices and coefficients are unchanged.
+  These constructor changes ship together in the next pre-1.0 minor release,
+  without deprecation aliases.
+
 ### Added
 
+- `lie::U1Irrep::new` is now a `const fn`, with the same charge domain.
 - `lie::prefill(&PrefillRequest, threadteam::Exec<'_>)` makes a batch of
   Lie-group coefficients resident in one call: CGC channels, F and R blocks,
   tensor products and Frobenius–Schur phases, built with `PrefillRequest`.
