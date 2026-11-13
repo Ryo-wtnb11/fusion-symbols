@@ -26,9 +26,41 @@ value/gauge rule noted below.
 
 - The minimum supported Rust version is now 1.100 (`rust-version` in
   `Cargo.toml`), checked in CI.
+- Coefficient-cache tiers are byte-weighted CLOCK caches with lock-free hits
+  (a port of MemoizationKit's `ClockCache`) instead of quick_cache's
+  Clock-PRO. The dependency `quick_cache` (and with it `hashbrown` 0.17,
+  `crossbeam-utils` and `equivalent`) is replaced by `seize` 0.5 (with `libc`,
+  already required by `threadteam`), which reclaims removed entries. Budgets, single flight, reset
+  epochs and the trim/reset accounting are unchanged.
+- An entry's charge now also counts its table node and ring position: 48–120
+  more bytes per entry on 64-bit targets (an SU(2) F scalar charges 224
+  instead of 104 bytes), so a tier holds fewer small entries under the same
+  byte cap.
+- The Product tier's default retained-charge cap grows from 128 KiB to
+  158 KiB (161 792 bytes on 64-bit targets), derived as 256 rank-one entries
+  at the new charge, so its documented 256-entry cap still binds for them;
+  `GENERATED_CACHE_MAX_BYTES` grows by the same 30 KiB to 64 MiB + 158 KiB.
+  This is a disclosed increase of the maximum retained charge.
+- `trim_to` and `reset` release a removed entry's memory once concurrent hits
+  finish, possibly after the call returns; at most one reclamation batch per
+  removing thread stays pending until that thread removes more entries. Each
+  call makes one explicit reclamation attempt plus at most one automatic
+  attempt per retiring tier section, whatever the number of removed entries:
+  at most two process-wide barriers in the ordinary case, at most seven when
+  `reset` retries for its six retirements (see the resources guide). The removed entries are dropped by the
+  last thread to leave a cache call that overlapped the removal, which can be
+  a warm hit dropping a whole tier's removed entries. The charged bytes
+  reported by `tier_stats` and `CacheTrimReport` drop at once.
 
 ### Performance
 
+- Warm coefficient-cache hits take no lock: they read the published table
+  under a `seize` guard and write only the entry's reference bit when it is
+  clear, so aggregate warm-hit throughput keeps growing with the thread count
+  instead of falling from 8 to 16 threads. A key touched once per cycle of a
+  working set that fits the budget now stays resident (the Product tier during
+  a 200-pair SU(3) N cycle no longer misses on every call). Hits on one shared
+  multi-entry block still write its `Arc` reference count.
 - Warm F, R, CGC and Product-tier lookups from Cartan labels hash one stored
   64-bit fingerprint per label instead of every Dynkin word, so their query
   hash no longer grows with rank. Each Cartan label payload computes the

@@ -100,7 +100,7 @@ Rules 2–3 extend `tools/README.md` "Test oracles", which stays binding, togeth
 4. Allocation tests assert `== 0` on warm paths, `largest < payload` for sharing, or a count derived from the fixture's structure (levels, leaves, outputs). Never assert byte totals built from `size_of`, `Arc` header sizes, or other std/dependency layouts.
 5. Cache tests assert: warm misses unchanged; rebuild counters `== 0`; `bytes <= budget` and `entries <= cap`; trim/reset accounting identities; single-flight `misses == one cold call`. Do not assert internal hit, entry-kind or eviction totals that a valid refactor may change.
 6. A cost-scaling contract ("linear in leaves", "independent of size") is asserted as a relation between two fixture sizes, not as recorded per-query coefficients.
-7. Do not test the configuration or internals of dependencies (quick_cache shards, capacity, weight; malachite arithmetic).
+7. Do not test the configuration or internals of dependencies (a dependency's shard count, capacity or weight; malachite arithmetic).
 8. Each category identity (pentagon, hexagon, F-unitarity, FS, twist) runs through the public `category::residual` functions or the conformance harness, once per family. The residual functions themselves have negative controls.
 9. Do not run the same gate through both the internal engine and the public API; keep the public one.
 10. Error tests assert the variant (`matches!`). Use at most one `Display` test per error type. Never branch on error text.

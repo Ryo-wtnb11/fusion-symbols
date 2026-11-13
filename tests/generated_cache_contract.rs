@@ -40,11 +40,13 @@ fn generated_cache_resource_contract() {
     // ---- the consts are the documented sums of the tier caps ----
     // (The compile-time assertions in src/cache.rs are the real drift guard;
     // these pin the human-facing values.)
+    let default = fusion_symbols::cache::CoefficientCacheBudgets::default();
     assert_eq!(
         GENERATED_CACHE_MAX_BYTES,
-        (64 << 20) + (128 << 10),
-        "64 MiB + 128 KiB = R + Product"
+        default.limit(Tier::RSymbol) + default.limit(Tier::Product),
+        "R + Product"
     );
+    assert_eq!(default.limit(Tier::RSymbol), 64 << 20, "64 MiB of R");
     assert_eq!(
         fusion_symbols::cache::BASE_CACHE_MAX_BYTES,
         (64 + 64 + 64 + 256) << 20,
@@ -168,8 +170,9 @@ fn generated_cache_resource_contract() {
     let total = common::stats_sum(common::generated_tiers());
     // Each tier's conservative charged-entry cap and the aggregate corollary.
     assert!(
-        tier_stats(Tier::Product).bytes <= (128 << 10),
-        "the product tier is over its 128 KiB retained-charge backstop"
+        tier_stats(Tier::Product).bytes
+            <= fusion_symbols::cache::cache_budgets().limit(Tier::Product),
+        "the product tier is over its retained-charge backstop"
     );
     assert!(
         tier_stats(Tier::Cgc).bytes <= (256 << 20),

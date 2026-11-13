@@ -7,7 +7,7 @@
 //!   one warm call per row (0 except owned A/B and composed Product outputs,
 //!   and the label-construction `irrep` rows).
 //! - `FS_WARM_MODE=dist cargo bench --bench warm_hits`: the label-tier key
-//!   hash distribution, beside quick_cache's default foldhash over the same
+//!   hash distribution, beside std's `RandomState` (SipHash) over the same
 //!   keys written as the previous per-word key hash did.
 //!
 //! Distribution coverage: for each root A1, A2, A4, B2, C3, D4, D5, G2, F4,
@@ -214,10 +214,10 @@ fn spread(hashes: &[u64]) -> String {
 fn dist() {
     use fingerprint::{key_hash, label_hash, FoldBuild};
     use std::hash::{BuildHasher, Hash, Hasher};
-    let foldhash = quick_cache::DefaultHashBuilder::default();
-    // The per-word key hash the label tiers replaced, through foldhash.
+    let siphash = std::collections::hash_map::RandomState::new();
+    // The per-word key hash the label tiers replaced, through SipHash.
     let previous = |prefix: &[u8], root: RootSystem, parts: &[&[i64]]| {
-        let mut h = foldhash.build_hasher();
+        let mut h = siphash.build_hasher();
         for &b in prefix {
             b.hash(&mut h);
         }
@@ -247,7 +247,7 @@ fn dist() {
         let fold = |x: u64| FoldBuild.hash_one(x);
         let report = |form: &str, new: Vec<u64>, old: Vec<u64>| {
             println!("{root:?},{form},{},new", spread(&new));
-            println!("{root:?},{form},{},foldhash", spread(&old));
+            println!("{root:?},{form},{},siphash", spread(&old));
         };
         let idx = 0..labels.len();
         let mut f = (Vec::new(), Vec::new());
@@ -290,7 +290,7 @@ fn dist() {
                     product.0.push(fold(key_hash(tag, root, [fp[i], fp[j]])));
                     product
                         .1
-                        .push(foldhash.hash_one((root, &labels[i][..], &labels[j][..], flag)));
+                        .push(siphash.hash_one((root, &labels[i][..], &labels[j][..], flag)));
                 }
             }
         }

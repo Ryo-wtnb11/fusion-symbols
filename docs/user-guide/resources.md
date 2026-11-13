@@ -6,7 +6,7 @@ Every coefficient-cache tier is process-global, holds one kind of data and
 is independently bounded by bytes, with one limit shared by every group value.
 Keys are the presented root system and the ordered labels; global forms
 sharing a weight share the entry, while B₂/C₂ and D₃/A₃ stay distinct.
-Eviction uses Clock-PRO, a scan-resistant approximation of
+Eviction uses CLOCK (second chance), an approximation of
 least-recently-used replacement. Default retained-entry charge caps are:
 
 | Tier (`CoefficientCacheTier`, Display) | Holds | Cap |
@@ -16,11 +16,11 @@ least-recently-used replacement. Default retained-entry charge caps are:
 | `FSymbol` (`"f_symbol"`) | rounded SU(2) F scalars and Cartan-engine F blocks | 64 MiB |
 | `Cgc` (`"cgc"`) | Cartan-engine irrep modules, completed CGC channels and computed Frobenius–Schur phases, every simple factor including A(1) | 256 MiB |
 | `RSymbol` (`"r_symbol"`) | Cartan-engine R blocks (SU(2) R is a closed-form sign) | 64 MiB |
-| `Product` (`"product"`) | exact simple-Lie tensor products | 128 KiB, 256 entries |
+| `Product` (`"product"`) | exact simple-Lie tensor products | 158 KiB, 256 entries |
 
 `BASE_CACHE_MAX_BYTES` (448 MiB) is the sum of the four tiers a build
 without `lie-generated` can fill; `GENERATED_CACHE_MAX_BYTES` (64 MiB +
-128 KiB) adds Product and R, which only higher-rank groups fill. Every build
+158 KiB) adds Product and R, which only higher-rank groups fill. Every build
 compiles every tier.
 
 The CGC tier holds the construction data of one operation under one limit. A
@@ -51,8 +51,9 @@ publication. Rank-one A₁/B₁/C₁ N and fusion stay allocation-free arithmeti
 without retention. Eviction, reset or a zero budget can require exact
 recomputation; they never invalidate a caller's shared handle.
 
-Caps exclude container capacity, allocator metadata, transient/external clones,
-returned values, generation working memory and RSS.
+Caps exclude the retained capacity of each tier's slot table and ring,
+allocator metadata, transient/external clones, returned values, generation
+working memory and RSS.
 
 Configure once, **before any cache operation or policy observation**:
 
@@ -73,7 +74,7 @@ observes the effective policy and therefore also freezes configuration.
 `tier_stats(tier)` reports one tier's entries, charge, hits, misses and
 evictions; `CoefficientCacheTier::ALL` lists every tier in this build. Within a
 tier snapshot, entries, charge, misses and evictions are read under the tier's
-publication lock; hits are counted concurrently (see [Concurrency](#concurrency)).
+lock; hits are counted concurrently (see [Concurrency](#concurrency)).
 A sum over tiers combines independent snapshots.
 `trim_to(tier,target)` removes entries in unspecified traversal order until the
 retained charge is at most the target; it preserves the configured capacity.
@@ -81,19 +82,42 @@ A zero target removes all retained values. In-flight computations can publish
 after trimming. Each removed entry increments evictions; hits/misses are preserved.
 
 `reset()` clears all tiers and counters. Concurrent fills can change occupancy
-after either call. **The application owns this process-wide policy; libraries
+after either call. A removed entry's memory is released once the hits running
+concurrently with the removal finish, which can be after `trim_to` or
+`reset` returns. Each tier lock section hands everything it removed to
+`seize` as one object, so `trim_to` adds one object to the calling thread's
+reclamation batch and `reset` at most one per tier, whatever the number of
+entries, and then submits that batch. Each submission attempt is one
+process-wide memory barrier (Linux `membarrier`), and seize also attempts a
+submission on its own when an object fills its batch. A call therefore makes
+one explicit attempt plus at most one automatic attempt per retiring tier
+section: at most two barriers in the ordinary case, and at most seven when
+`reset` retries for its six retirements (seize retries while more threads are
+inside a guard than the batch holds objects). A batch with fewer objects than threads inside a guard stays
+pending until that thread's next removals; at most one such batch per
+removing thread stays pending, and the release is eventual, not timed. A
+submitted batch is freed by whichever thread is last to leave a guard that was
+active when it was submitted: the removing thread itself when no other thread
+is inside a cache call, otherwise any thread then inside a cache call (a warm
+hit, a miss, or another tier's publication, trim or reset). Because a batch
+holds whole graveyards, that thread can drop every entry one `trim_to` or
+`reset` removed from a tier, inside its own cache call, after releasing any
+tier lock. **The application owns this process-wide policy; libraries
 must not call reset or trim.** Neither operation promises to lower RSS.
 
-All tiers use `quick_cache` 0.7 with its `sharded-lock` reader-sharded lock
-(see [Concurrency](#concurrency)) and exactly one shard per tier. The Wigner
-tiers hash with quick_cache's foldhash. The label tiers (F, R, CGC, Product)
+Every tier is an open-addressing hash table, at most half full and
+published by whole-table swap, plus a CLOCK ring of its entries, after
+MemoizationKit's `ClockCache`. Every tier hashes with the crate's folded
+multiply hasher. The label tiers (F, R, CGC, Product)
 combine one 64-bit fingerprint per label with the key form and root, so a hit
 hashes one word per label at any rank; owned keys recompute the same
-fingerprints from their words on a miss. Cartan label payloads store their
+fingerprints from their words on a miss, a removal or a table growth. Cartan
+label payloads store their
 fingerprints; rank-one (A1) CGC queries build three temporary one-word
-fingerprints per query, and SU(2) F keys hash their packed Regge key. Every lookup still compares the
+fingerprints per query, and SU(2) F keys hash their packed Regge key. Every
+lookup still compares the
 complete key, so a hash collision never returns another key's value. Hits use
-borrowed `Equivalent` queries and a read lock, without constructing owned keys
+borrowed `Equivalent` queries and no lock, without constructing owned keys
 or copying coefficient buffers.
 Exact SU(2) values share their immutable rational payload; F and R blocks
 and CGC channels are stored directly, sharing their coefficient storage.
@@ -103,12 +127,15 @@ Loaders take no lock while generating, and their nested loads form a directed
 graph (F/R → channel → module/product; phase → module), so no loader waits on
 itself.
 
-Each entry's real charge is one owned key (including label backing), its value
-and one cached charge word. For a tier with
-byte cap `B` and positive entry cap `E`, its quick_cache weight is
-`max(real_charge, ceil(B / E))`. The single shard has capacity `B` and
-`hot_allocation = 1.0`, so its admission limit is exactly `B`, with no margin:
-an entry is eligible for admission iff its real charge is at most `B`.
+Each entry's real charge is one owned key (including label backing), its value,
+and its table node and ring position (the node holds the key, the value, the
+key hash and the reference bit, so the key and value shells are counted
+twice). On 64-bit targets the node and ring position add 64 bytes per 3j
+entry, 56 per 6j, 128 per F, 104 per R, 88 per CGC and 112 per Product entry;
+an SU(2) F scalar charges 224 bytes. For a tier with
+byte cap `B` and positive entry cap `E`, an entry's admission weight is
+`max(real_charge, ceil(B / E))`, and the tier admits an entry iff its weight
+is at most `B`. Before an insertion, CLOCK evicts until the weights fit `B`.
 Zero-budget and oversize entries are returned normally without displacing
 retained values; each rejection counts as an eviction. Admission does not exempt
 an entry from later capacity eviction. These rules do not depend on CPU count:
@@ -116,17 +143,21 @@ each tier is one store, so any entry that fits the whole tier cap is eligible,
 however many threads use it.
 
 The minimum weight enforces at most `floor(B / ceil(B / E)) <= E` resident
-entries when `B > 0`, using quick_cache's amortized O(1) Clock-PRO eviction
-rather than scanning residents on insertion. Nondivisible caps can retain fewer
-than `E` entries; the minimum weight can also leave real-byte headroom unused.
+entries when `B > 0`, with amortized O(1) CLOCK eviction rather than a scan of
+residents on insertion. Nondivisible caps can retain fewer than `E` entries,
+and entries charged above `ceil(B / E)` leave fewer than `E` resident; the
+minimum weight can also leave real-byte headroom unused. The Product cap is
+derived from the charge formula as exactly 256 rank-one entries (632 bytes
+each on 64-bit targets: key, one-channel fusion-label projection, node and
+ring position), so for rank-one products the 256-entry cap binds; larger
+products make the byte cap bind first. Sizes quoted in KiB are for 64-bit
+targets.
 Statistics and trim reports count real charge, excluding weight padding;
-real bytes are tracked separately through publication and eviction, so snapshots
+real bytes are tracked through publication and eviction, so snapshots
 do not scan residents. Hits count retained or shared in-flight results.
 Misses count successful computations/publications. Errors add neither
 counter.
-Eviction victims and trim survivors are unspecified.
-Ghost history contains hashes, not owned labels or coefficient payloads, and
-belongs to excluded container scaffolding. Reset also invalidates every
+Eviction victims and trim survivors are unspecified. Reset also invalidates every
 generation in flight when it begins or started while it runs, in every tier,
 together with every value such a generation loads (for example the modules,
 channels and products of a CGC, F or R generation): their callers receive
@@ -156,33 +187,31 @@ so which ones a full tier keeps, is not specified.
 
 ### Concurrency
 
-Each tier's single shard is guarded by quick_cache's `sharded-lock` lock
-(crossbeam's `ShardedLock`), which has eight reader stripes. A warm hit takes
-the read lock of its thread's stripe only, which reduces contention between
-readers; it does not make hits independent of each other (see below). Every
-change to retained values (publication, trim, reset) takes
-the tier's publication mutex and then the write lock, which acquires all eight
-stripes, so it waits for every active reader. Placeholder bookkeeping for
-in-flight misses takes the write lock without the publication mutex.
+A warm hit takes no lock. It reads the published table under a `seize`
+guard, which writes only the calling thread's own reservation, compares the
+stored key, sets the entry's CLOCK reference bit if it is clear, and clones
+the value. Every change to retained values (publication, eviction, trim,
+reset) and the bookkeeping of in-flight misses take the tier's lock, which
+hits never wait for. A table growth publishes a new table; hits that started
+on the old one finish there.
 
 Coefficient generation holds no coefficient-cache lock, so it may load other
 keys, including keys of its own tier. Concurrent misses on one key wait for
 its single computation, and a failed or panicking computation hands the key to
 one waiter, which computes again.
 
-Threads map to stripes through crossbeam's process-wide thread registry: a
-thread's first use takes one global lock and allocates its registration. The
-registry's memory is bounded by the peak number of concurrently registered
-threads; exited threads' indices are reused, but the registry does not shrink.
-Later hits on that thread do not allocate. Two concurrent threads can share a
-stripe, and more than eight concurrent readers always do.
+A thread's first hit registers it with the `seize` collector, which takes
+one lock and allocates its registration; exited threads' slots are reused.
+Later hits on that thread do not allocate. Removed entries are freed by the
+last thread to leave a guard that was active when their batch was handed to
+`seize` (see trim and reset above), so a hit can pay for dropping every value
+a trim, reset or eviction removed.
 
 Hits are counted in 16 cache-line-padded stripes per tier, selected by a
 per-thread index assigned round-robin on first use. A statistics snapshot sums
 relaxed loads of the stripes: it is exact once concurrent readers have
 finished, but not linearizable with hits in flight. Misses, evictions,
-entries and charged bytes change only under the publication mutex and stay
-exact.
+entries and charged bytes change only under the tier lock and stay exact.
 
 A hit returns a clone of the stored value. For values with shared storage
 (non-inline F blocks, CGC channels, products) that is one `Arc` clone, whose reference

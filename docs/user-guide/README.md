@@ -400,7 +400,7 @@ The full validation order is in [validation and errors](../overview.md#validatio
 
 Generated coefficients and exact SU(2) values are cached in process-global,
 byte-bounded tiers, one per data kind and shared by every group. The defaults
-are bounded (448 MiB for the tiers every build fills, 64 MiB + 128 KiB more
+are bounded (448 MiB for the tiers every build fills, 64 MiB + 158 KiB more
 for the Product and R tiers of higher-rank groups), so most programs do
 nothing.
 
