@@ -217,6 +217,11 @@ pub mod lie;
 mod exact;
 mod primefactor;
 
+// Width planner of `lie::prefill`'s parallel sections; leaf D wires it into
+// production, so until then only its tests reach it.
+#[cfg_attr(not(test), allow(dead_code))]
+mod width;
+
 // F and R contractions and block gates of the Cartan engine.
 mod frcore;
 
