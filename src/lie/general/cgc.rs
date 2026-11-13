@@ -1094,6 +1094,222 @@ fn worst(gate: &'static str, residuals: impl Iterator<Item = f64>) -> Result<(),
     Ok(())
 }
 
+/// Element counts the isometry gate requests for its three buffers of one
+/// weight block: the gathered block, its column order and its Gram matrix.
+type GateCounts = [usize; 3];
+
+/// Element sizes of the [`GateCounts`] buffers.
+const GATE_SIZES: [usize; 3] = [
+    std::mem::size_of::<BlockEntry>(),
+    std::mem::size_of::<(usize, usize, usize)>(),
+    std::mem::size_of::<f64>(),
+];
+
+/// Requested bytes of buffers with element counts `c`. Allocator slack is
+/// outside the account, as in the cache resource contract.
+fn gate_bytes(c: GateCounts) -> usize {
+    c.iter()
+        .zip(GATE_SIZES)
+        .fold(0usize, |t, (&n, s)| t.saturating_add(n.saturating_mul(s)))
+}
+
+/// The buffers a block needing `need` replaces when `held` are requested and
+/// the participant's charge is `high`, already raised to `gate_bytes(need)`.
+///
+/// While the componentwise maxima fit the charge, only a buffer that must
+/// grow is replaced. Otherwise every buffer of another size is replaced
+/// exactly, so the held counts become `need`. Either way the held bytes stay
+/// within `high`, also mid-replacement, since every replaced buffer is
+/// dropped before any is allocated.
+fn gate_replaced(held: GateCounts, need: GateCounts, high: usize) -> [bool; 3] {
+    let kept = std::array::from_fn(|c| held[c].max(need[c]));
+    let fits = gate_bytes(kept) <= high;
+    std::array::from_fn(|c| need[c] > held[c] || (!fits && held[c] != need[c]))
+}
+
+/// One participant's isometry-gate buffers, with their requested element
+/// counts and its high-water charge: the largest `gate_bytes` of a block it
+/// has run. Its live scratch never exceeds that charge, so participants with
+/// disjoint blocks hold at most the sum of their largest blocks.
+#[derive(Default)]
+struct GateScratch {
+    block: Vec<BlockEntry>,
+    order: Vec<(usize, usize, usize)>,
+    gram: Vec<f64>,
+    held: GateCounts,
+    high: usize,
+}
+
+impl GateScratch {
+    /// Makes room for a block needing `need`. Accounting uses the counts
+    /// requested here, never `capacity()`; every fill stays within them, so
+    /// no fill requests memory.
+    fn reserve(&mut self, need: GateCounts) {
+        self.high = self.high.max(gate_bytes(need));
+        let replace = gate_replaced(self.held, need, self.high);
+        // Release first: an assignment would hold the old and new buffer.
+        if replace[0] {
+            self.block = Vec::new();
+        }
+        if replace[1] {
+            self.order = Vec::new();
+        }
+        if replace[2] {
+            self.gram = Vec::new();
+        }
+        if replace[0] {
+            self.block = Vec::with_capacity(need[0]);
+        }
+        if replace[1] {
+            self.order = Vec::with_capacity(need[1]);
+        }
+        if replace[2] {
+            self.gram = Vec::with_capacity(need[2]);
+        }
+        for c in 0..3 {
+            if replace[c] {
+                self.held[c] = need[c];
+            }
+        }
+    }
+}
+
+/// The isometry block of one output weight: `k` columns from column run
+/// `offset`, holding `e` entries.
+#[derive(Clone, Copy)]
+struct GateBlock {
+    offset: usize,
+    k: usize,
+    e: usize,
+}
+
+impl GateBlock {
+    fn need(self) -> GateCounts {
+        [self.e, self.k, self.k * self.k]
+    }
+}
+
+/// `max |MᵀM − I| ≤ 1e-9` over one weight block whose column runs are
+/// `cols`, with its buffers in `s`.
+fn isometry_block(
+    s: &mut GateScratch,
+    entries: &[MEntry],
+    cols: &[(usize, usize)],
+    w: GateBlock,
+) -> Result<(), GateError> {
+    let k = w.k;
+    s.reserve(w.need());
+    let GateScratch {
+        block, order, gram, ..
+    } = s;
+    // Columns are gathered in their order in `entries`, so the unstable
+    // sort below sees the same sequence as a scan of the whole list: a
+    // duplicated (row, column) key then sums in the same order.
+    order.clear();
+    order.extend(
+        cols.iter()
+            .enumerate()
+            .filter(|(_, &(s, t))| t > s)
+            .map(|(col, &(s, t))| (s, t, col)),
+    );
+    order.sort_unstable();
+    block.clear();
+    for &(s, t, col) in order.iter() {
+        block.extend(entries[s..t].iter().map(|e| ((e.m1, e.m2), col, e.value)));
+    }
+    gram.clear();
+    gram.resize(k * k, 0.0);
+    // Index a slice, not the scratch's `Vec`: indexing through `&mut Vec`
+    // made the accumulation below measurably slower.
+    let gram = &mut gram[..];
+    block.sort_unstable_by_key(|&(row, col, _)| (row, col));
+    for run in block.chunk_by(|x, y| x.0 == y.0) {
+        for (i, &(_, ci, vi)) in run.iter().enumerate() {
+            for &(_, cj, vj) in &run[i..] {
+                gram[ci * k + cj] += vi * vj;
+            }
+        }
+    }
+    let gram = &*gram;
+    worst(
+        "isometry",
+        (0..k).flat_map(|i| (i..k).map(move |j| gram[i * k + j] - f64::from(u8::from(i == j)))),
+    )
+}
+
+/// The isometry gate over every weight block, in weight order. On a team
+/// token the blocks are one stage of [`crate::stage::run_bounded_stage`]:
+/// live scratch stays within the serial peak plus the CGC tier's budget, the
+/// allowance [`crate::cache::CoefficientCacheBudgets`] documents for scratch
+/// beyond the serial peak, and the first failing block in weight order is
+/// the result at every width.
+fn isometry_gate(
+    c: &Ladders,
+    n: usize,
+    entries: &[MEntry],
+    runs: &[(usize, usize)],
+    exec: Option<&mut Exec<'_>>,
+) -> Result<(), GateError> {
+    let blocks = c.module.weights.iter().map(|space| {
+        let k = space.norms.len() * n;
+        let cols = &runs[space.offset * n..space.offset * n + k];
+        let e = cols.iter().map(|&(s, t)| t - s).sum();
+        GateBlock {
+            offset: space.offset * n,
+            k,
+            e,
+        }
+    });
+    let cols = |w: GateBlock| &runs[w.offset..w.offset + w.k];
+    let exec = match exec {
+        Some(exec) if exec.carries_team() && !exec.is_serial() => exec,
+        _ => {
+            let mut s = GateScratch::default();
+            for w in blocks {
+                isometry_block(&mut s, entries, cols(w), w)?;
+            }
+            return Ok(());
+        }
+    };
+    use crate::stage::{memory_width, run_bounded_stage, StageBuf, SystemClock};
+    let blocks: Vec<GateBlock> = blocks.collect();
+    let sigma: Vec<usize> = blocks.iter().map(|&w| gate_bytes(w.need())).collect();
+    // Work per block: the gather and its sort, then the Gram matrix.
+    let units: Vec<u64> = blocks
+        .iter()
+        .map(|w| (w.e as u64).saturating_add((w.k as u64).saturating_mul(w.k as u64)))
+        .collect();
+    let allowance = gate_allowance();
+    let ceiling = sigma
+        .iter()
+        .copied()
+        .max()
+        .unwrap_or(0)
+        .saturating_add(allowance);
+    let memory = |rest: &[usize]| memory_width(&sigma, rest, ceiling);
+    let mut buf = StageBuf::default();
+    run_bounded_stage(
+        exec,
+        &units,
+        &SystemClock,
+        &memory,
+        &mut None,
+        &mut buf,
+        GateScratch::default,
+        |s, w| isometry_block(s, entries, cols(blocks[w]), blocks[w]),
+    );
+    buf.drain().collect()
+}
+
+/// The allowance for isometry-gate scratch beyond the serial peak.
+fn gate_allowance() -> usize {
+    #[cfg(test)]
+    if let Some(a) = GATE_ALLOWANCE.with(std::cell::Cell::get) {
+        return a;
+    }
+    crate::cache::cache_budgets().limit(crate::cache::CoefficientCacheTier::Cgc)
+}
+
 /// The rounded gates on one channel `a ⊗ b → c` of multiplicity `n`, with
 /// `entries` at public magnetic indices:
 ///
@@ -1119,8 +1335,6 @@ pub(super) fn check_rounded(
     entries: &[MEntry],
     exec: Option<&mut Exec<'_>>,
 ) -> Result<(), GateError> {
-    // Inline on every token: this is the isometry gate's split point.
-    let _ = exec;
     let (ea, eb, ec) = (a.engine(), b.engine(), c.engine());
     // `runs[m_c·n + μ]` (engine `m_c`) is the column's `entries[start..end]`;
     // `end == 0` marks a column not yet seen.
@@ -1159,47 +1373,7 @@ pub(super) fn check_rounded(
         &entries[s..t]
     };
 
-    let mut block: Vec<BlockEntry> = Vec::new();
-    let mut order: Vec<(usize, usize, usize)> = Vec::new();
-    for space in &c.module.weights {
-        let k = space.norms.len() * n;
-        let cols = &runs[space.offset * n..space.offset * n + k];
-        // Columns are gathered in their order in `entries`, so the unstable
-        // sort below sees the same sequence as a scan of the whole list: a
-        // duplicated (row, column) key then sums in the same order.
-        order.clear();
-        order.extend(
-            cols.iter()
-                .enumerate()
-                .filter(|(_, &(s, t))| t > s)
-                .map(|(col, &(s, t))| (s, t, col)),
-        );
-        order.sort_unstable();
-        block.clear();
-        block.reserve_exact(order.iter().map(|&(s, t, _)| t - s).sum());
-        for &(s, t, col) in &order {
-            block.extend(entries[s..t].iter().map(|e| ((e.m1, e.m2), col, e.value)));
-        }
-        #[cfg(test)]
-        GATE_BLOCK.with(|x| x.set(x.get().max(block.capacity())));
-        let mut gram = vec![0.0f64; k * k];
-        block.sort_unstable_by_key(|&(row, col, _)| (row, col));
-        for run in block.chunk_by(|x, y| x.0 == y.0) {
-            for (i, &(_, ci, vi)) in run.iter().enumerate() {
-                for &(_, cj, vj) in &run[i..] {
-                    gram[ci * k + cj] += vi * vj;
-                }
-            }
-        }
-        worst(
-            "isometry",
-            (0..k).flat_map(|i| {
-                let gram = &gram;
-                (i..k).map(move |j| gram[i * k + j] - f64::from(u8::from(i == j)))
-            }),
-        )?;
-    }
-    drop(block);
+    isometry_gate(c, n, entries, &runs, exec)?;
 
     // First descent: f_j u_top lies in the weight space λ_c − α_j, which
     // exists exactly when (λ_c)_j > 0 (an unbroken α_j-string).
@@ -1360,8 +1534,8 @@ thread_local! {
     pub(super) static COLUMNS: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
     /// Live exact slots of [`descend`] on this thread: `[current, maximum]`.
     pub(super) static LIVE_EXACT: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
-    /// Largest weight block of entries [`check_rounded`] held, as capacity.
-    pub(super) static GATE_BLOCK: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Replaces the isometry gate's allowance beyond the serial peak.
+    pub(super) static GATE_ALLOWANCE: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
     /// Modules held by the live [`RequestModules`] of this thread:
     /// `[current, maximum]`.
     pub(crate) static REQUEST_MODULES: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };

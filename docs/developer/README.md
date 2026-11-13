@@ -70,6 +70,8 @@ Unit tests that need a section regardless of measured cost hold
 `src/stage.rs::force_width`, and read the widths that ran from
 `stage::SECTIONS`; an integration test builds its pool with zero
 `dispatch_costs` instead, as `tests/bit_identity.rs::free_team` does.
+`stage::SHARE_PEAKS` holds each share's requested-byte peak and final live
+bytes, measured from its own entry with `audit_alloc::start_peak`.
 
 Allocation tests take `tests/common/counting_alloc.rs::serial` before any work;
 the single allocator counts calls, bytes and largest allocation per thread.

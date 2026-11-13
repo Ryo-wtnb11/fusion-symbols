@@ -187,7 +187,10 @@ layer at a time in team sections: the leader times the layer's first items
 and opens a section only when the measured work pays for the team's dispatch
 cost. Values are bit-identical at every width, and the live exact working
 set grows from one weight's lowered candidates to one depth layer's (see
-`docs/gauge_cartan.md` §9). Any other token evaluates the items serially on
+`docs/gauge_cartan.md` §9). The channel's isometry gate checks its weight
+blocks in team sections the same way; their scratch beyond the serial
+gate's is limited to the CGC tier's byte budget, which is not charged to the
+tier and is not a cap on the process's memory. Any other token evaluates the items serially on
 the calling thread. The order in which a batch publishes values, and so
 which ones a full tier keeps, is not specified.
 

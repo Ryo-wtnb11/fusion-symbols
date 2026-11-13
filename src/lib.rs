@@ -151,6 +151,7 @@ mod audit_alloc {
     std::thread_local! {
         static THREAD_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
         static THREAD_LIVE: std::cell::Cell<isize> = const { std::cell::Cell::new(0) };
+        static THREAD_PEAK: std::cell::Cell<isize> = const { std::cell::Cell::new(0) };
     }
 
     fn count_thread_call() {
@@ -158,7 +159,10 @@ mod audit_alloc {
     }
 
     fn count_thread_live(delta: isize) {
-        let _ = THREAD_LIVE.try_with(|n| n.set(n.get() + delta));
+        let _ = THREAD_LIVE.try_with(|n| {
+            n.set(n.get() + delta);
+            let _ = THREAD_PEAK.try_with(|p| p.set(p.get().max(n.get())));
+        });
     }
 
     pub(crate) struct TrackingAllocator;
@@ -207,6 +211,39 @@ mod audit_alloc {
     /// Bytes allocated minus bytes freed by the calling thread.
     pub(crate) fn thread_live_bytes() -> isize {
         THREAD_LIVE.try_with(std::cell::Cell::get).unwrap_or(0)
+    }
+
+    /// Starts a peak scope on the calling thread: returns its live bytes
+    /// (signed, since memory freed here may have been allocated elsewhere)
+    /// and resets the thread's high-water mark to them.
+    pub(crate) fn start_peak() -> isize {
+        let live = thread_live_bytes();
+        let _ = THREAD_PEAK.try_with(|p| p.set(live));
+        live
+    }
+
+    /// Highest live bytes of the calling thread since its last
+    /// [`start_peak`].
+    pub(crate) fn thread_peak_bytes() -> isize {
+        THREAD_PEAK.try_with(std::cell::Cell::get).unwrap_or(0)
+    }
+
+    /// A peak scope measures only its own requests: it starts at the
+    /// thread's signed live bytes, here negative after freeing memory another
+    /// thread allocated, and a smaller scope after a larger one does not
+    /// inherit the larger peak.
+    #[test]
+    fn peak_scopes_start_at_the_signed_baseline() {
+        let foreign = std::thread::spawn(|| vec![1u8; 1 << 20]).join().unwrap();
+        drop(foreign);
+        assert!(thread_live_bytes() < 0, "the baseline is negative");
+        for size in [1 << 16, 1 << 10] {
+            let base = start_peak();
+            let scratch: Vec<u8> = Vec::with_capacity(size);
+            drop(scratch);
+            assert_eq!(thread_peak_bytes() - base, size as isize);
+            assert_eq!(thread_live_bytes(), base);
+        }
     }
 }
 

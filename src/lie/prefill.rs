@@ -333,8 +333,9 @@ mod tests {
                 assert_eq!(builds(), before, "{name}: entries after prefill generated");
             });
         }
-        // The SU(3) octet channels descend in sections.
-        assert_eq!(sections > 0, cfg!(feature = "lie-generated"));
+        // Channel misses descend (SU(3)) and verify their weight blocks
+        // (every simple factor) in sections.
+        assert!(sections > 0);
     }
 
     /// Every item is attempted after a failure, earlier and later successes
