@@ -201,7 +201,14 @@ mod tests {
     /// A serial token, a plain pool token and a team token.
     fn on_every_token(mut f: impl FnMut(&str, Exec<'_>)) {
         f("serial", Exec::serial());
-        let pool = threadteam::Pool::builder().threads(2).build().unwrap();
+        // A loaded runner can take longer than the default acquisition
+        // timeout to wake idle members, and `into_team` then refuses with
+        // `Unavailable`; this test is about values, not that timeout.
+        let pool = threadteam::Pool::builder()
+            .threads(2)
+            .acquire_timeout(std::time::Duration::from_secs(10))
+            .build()
+            .unwrap();
         f("pool", Exec::new(&pool, 2).unwrap());
         let team = pool.into_team(2).unwrap();
         f("team", team.exec(2));
