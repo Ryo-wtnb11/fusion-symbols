@@ -152,9 +152,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: rustup toolchain install 1.99.1 --profile minimal
+      - run: rustup toolchain install 1.100.0 --profile minimal
       - uses: Swatinem/rust-cache@v2
         with:
           cache-targets: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo +1.99.1 check --all-targets --all-features
+      - run: cargo +1.100.0 check --all-targets --all-features
