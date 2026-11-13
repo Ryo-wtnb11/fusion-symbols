@@ -9,14 +9,18 @@
 
 use fusion_symbols::{
     category::FusionCategory,
-    lie::{CU1Irrep, CU1},
+    lie::{CU1Irrep, HalfInt, CU1},
 };
 
 const OP: CU1Irrep = CU1Irrep::VACUUM;
 const OM: CU1Irrep = CU1Irrep::PSEUDOSCALAR;
 
 fn j(twice_charge: u32) -> CU1Irrep {
-    CU1Irrep::from_twice_charge(twice_charge)
+    CU1Irrep::new(
+        HalfInt::from_doubled(twice_charge),
+        if twice_charge == 0 { 0 } else { 2 },
+    )
+    .unwrap()
 }
 
 /// `0+`, `0-`, `2j = 1..=5`.
@@ -197,7 +201,7 @@ fn unary_data_and_fusion_order_follow_tensorkitsectors() {
         for &b in &all {
             let (qa, qb) = (a.twice_charge(), b.twice_charge());
             let want = match (qa, qb) {
-                (0, 0) => vec![CU1Irrep::new(0, a.s() ^ b.s()).unwrap()],
+                (0, 0) => vec![CU1Irrep::new(HalfInt::new(0, 1).unwrap(), a.s() ^ b.s()).unwrap()],
                 (0, _) => vec![b],
                 (_, 0) => vec![a],
                 _ if qa == qb => vec![OP, OM, j(2 * qa)],

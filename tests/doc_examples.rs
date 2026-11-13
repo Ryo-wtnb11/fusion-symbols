@@ -128,7 +128,7 @@ fn guide_fusion_and_symbols_1() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let su2 = LieGroup::new(GroupId::su(2)?)?;
-    let half = su2.irrep_spin(HalfInt::half(1))?;
+    let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
     let unit = su2.unit();
     let channels: Vec<Vec<i64>> = su2
         .fusion(&half, &half)?
@@ -194,7 +194,7 @@ fn guide_abelian_and_finite_categories_1() -> Result<(), Box<dyn std::error::Err
         category::FusionCategory,
         fermion::{FermionParity, FermionParityIrrep},
         finite::{ZNIrrep, ZN},
-        lie::{CU1Irrep, U1Irrep, CU1, U1},
+        lie::{CU1Irrep, HalfInt, U1Irrep, CU1, U1},
     };
 
     let q = U1Irrep::new(2)?;
@@ -206,14 +206,14 @@ fn guide_abelian_and_finite_categories_1() -> Result<(), Box<dyn std::error::Err
 
     assert_eq!(FermionParity.twist(&FermionParityIrrep::ODD), -1.0);
 
-    let a = CU1Irrep::from_twice_charge(1);
+    let a = CU1Irrep::new(HalfInt::new(1, 2)?, 2)?;
     let channels: Vec<_> = CU1.fusion(&a, &a)?.collect();
     assert_eq!(
         channels,
         [
             CU1Irrep::VACUUM,
             CU1Irrep::PSEUDOSCALAR,
-            CU1Irrep::from_twice_charge(2)
+            CU1Irrep::new(HalfInt::new(2, 2)?, 2)?
         ]
     );
     Ok(())
@@ -259,8 +259,8 @@ fn guide_products_1() -> Result<(), Box<dyn std::error::Error>> {
 
     let su2 = LieGroup::new(GroupId::su(2)?)?;
     let spin_charge = Product::new((su2.clone(), U1));
-    let x = (su2.irrep_spin(HalfInt::half(1))?, U1Irrep::new(1)?);
-    let y = (su2.irrep_spin(HalfInt::half(2))?, U1Irrep::new(2)?);
+    let x = (su2.irrep_spin(HalfInt::new(1, 2)?)?, U1Irrep::new(1)?);
+    let y = (su2.irrep_spin(HalfInt::new(1, 1)?)?, U1Irrep::new(2)?);
     let c = spin_charge.cgc(&x, &x, &y)?;
     assert_eq!(c.dims(), [2, 2, 3, 1]);
 
@@ -294,10 +294,10 @@ fn getting_started_groups_and_irreps_1() -> Result<(), Box<dyn std::error::Error
     use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
 
     let su2 = LieGroup::new(GroupId::su(2)?)?;
-    let half = su2.irrep_spin(HalfInt::half(1))?; // spin 1/2 (HalfInt::half takes 2j)
+    let half = su2.irrep_spin(HalfInt::new(1, 2)?)?; // spin 1/2
     let one = su2.irrep(&[2])?; // spin 1: the Dynkin label is 2j
-    assert_eq!(half.spin(), Some(HalfInt::half(1)));
-    assert_eq!(one.spin(), HalfInt::integer(1));
+    assert_eq!(half.spin(), Some(HalfInt::new(1, 2)?));
+    assert_eq!(one.spin(), Some(HalfInt::new(1, 1)?));
 
     let su3 = LieGroup::new(GroupId::su(3)?)?;
     let eight = su3.irrep(&[1, 1])?; // the adjoint
@@ -318,9 +318,9 @@ fn getting_started_fusion_and_n_1() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let su2 = LieGroup::new(GroupId::su(2)?)?;
-    let one = su2.irrep_spin(HalfInt::half(2))?;
+    let one = su2.irrep_spin(HalfInt::new(1, 1)?)?;
     let spins: Vec<_> = su2.fusion(&one, &one)?.map(|c| c.spin()).collect();
-    let expected = [0, 2, 4].map(|dj| Some(HalfInt::half(dj)));
+    let expected = [0, 2, 4].map(|dj| Some(HalfInt::from_doubled(dj)));
     assert_eq!(spins, expected); // 1 ⊗ 1 = 0 ⊕ 1 ⊕ 2
 
     let su3 = LieGroup::new(GroupId::su(3)?)?;
@@ -351,7 +351,7 @@ fn getting_started_dimensions_and_duals_1() -> Result<(), Box<dyn std::error::Er
     assert_eq!(su3.frobenius_schur_indicator(&three), 0.0);
 
     let su2 = LieGroup::new(GroupId::su(2)?)?;
-    let half = su2.irrep_spin(HalfInt::half(1))?;
+    let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
     assert_eq!(su2.dual(&half), half);
     assert_eq!(su2.frobenius_schur_indicator(&half), -1.0); // pseudoreal
     Ok(())
@@ -391,10 +391,10 @@ fn getting_started_checking_f_against_the_wigner_6j_symbol_1(
     assert!((wigner_6j(1, 1, 2, 1, 1, 2).to_f64() - 1.0 / 6.0).abs() < 1e-15);
 
     let su2 = LieGroup::new(GroupId::su(2)?)?;
-    let h = su2.irrep_spin(HalfInt::half(1))?;
+    let h = su2.irrep_spin(HalfInt::new(1, 2)?)?;
     let inner = [
-        su2.irrep_spin(HalfInt::half(0))?,
-        su2.irrep_spin(HalfInt::half(2))?,
+        su2.irrep_spin(HalfInt::new(0, 1)?)?,
+        su2.irrep_spin(HalfInt::new(1, 1)?)?,
     ];
     let r3 = 3f64.sqrt() / 2.0;
     let expected = [[-0.5, r3], [r3, 0.5]];
@@ -416,8 +416,8 @@ fn getting_started_clebschgordan_coefficients_1() -> Result<(), Box<dyn std::err
     };
 
     let su2 = LieGroup::new(GroupId::su(2)?)?;
-    let one = su2.irrep_spin(HalfInt::half(2))?;
-    let half = su2.irrep_spin(HalfInt::half(1))?;
+    let one = su2.irrep_spin(HalfInt::new(1, 1)?)?;
+    let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
     let c = su2.cgc(&one, &half, &half)?;
     assert_eq!(c.dims(), [3, 2, 2, 1]);
     assert!((c.get([2, 0, 1, 0]) - (2.0f64 / 3.0).sqrt()).abs() < 1e-15);
@@ -437,7 +437,7 @@ fn getting_started_products_with_u1_1() -> Result<(), Box<dyn std::error::Error>
 
     let su2 = LieGroup::new(GroupId::su(2)?)?;
     let cat = Product::new((su2.clone(), U1));
-    let electron = (su2.irrep_spin(HalfInt::half(1))?, U1Irrep::new(1)?);
+    let electron = (su2.irrep_spin(HalfInt::new(1, 2)?)?, U1Irrep::new(1)?);
     let pairs: Vec<_> = cat.fusion(&electron, &electron)?.collect();
     assert_eq!(pairs.len(), 2); // spin 0 and spin 1
     assert!(pairs.iter().all(|(_, q)| q.charge() == 2));
@@ -596,7 +596,7 @@ fn contract_fusion_1() {
         lie::{GroupId, HalfInt, LieGroup},
     };
     let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    let half = group.irrep_spin(HalfInt::half(1)).unwrap();
+    let half = group.irrep_spin(HalfInt::new(1, 2).unwrap()).unwrap();
     let channels: Vec<i64> = group
         .fusion(&half, &half)
         .unwrap()
@@ -681,17 +681,17 @@ fn contract_fusion_4() {
 fn contract_fusion_5() {
     use fusion_symbols::{
         category::FusionCategory,
-        lie::{CU1Irrep, CU1},
+        lie::{CU1Irrep, HalfInt, CU1},
     };
 
-    let a = CU1Irrep::from_twice_charge(1);
+    let a = CU1Irrep::new(HalfInt::new(1, 2).unwrap(), 2).unwrap();
     let channels: Vec<_> = CU1.fusion(&a, &a).unwrap().collect();
     assert_eq!(
         channels,
         vec![
             CU1Irrep::VACUUM,
             CU1Irrep::PSEUDOSCALAR,
-            CU1Irrep::from_twice_charge(2)
+            CU1Irrep::new(HalfInt::new(2, 2).unwrap(), 2).unwrap()
         ]
     );
 }
@@ -727,7 +727,7 @@ fn contract_fusion_su2_spin_one() {
         lie::{GroupId, HalfInt, LieGroup},
     };
     let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    let one = group.irrep_spin(HalfInt::half(2)).unwrap();
+    let one = group.irrep_spin(HalfInt::new(1, 1).unwrap()).unwrap();
     let channels: Vec<i64> = group
         .fusion(&one, &one)
         .unwrap()
@@ -864,7 +864,7 @@ fn contract_symbols_2() {
     };
     assert!((wigner_6j(2, 2, 2, 2, 2, 2).to_f64() - 1.0 / 6.0).abs() < 1e-14);
     let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    let half = group.irrep_spin(HalfInt::half(1)).unwrap();
+    let half = group.irrep_spin(HalfInt::new(1, 2).unwrap()).unwrap();
     let unit = group.unit();
     let f = group
         .f_symbol(&half, &half, &half, &half, &unit, &unit)
@@ -1035,7 +1035,7 @@ fn contract_labels_su2_spin() {
         lie::{GroupId, HalfInt, LieGroup},
     };
     let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    let s = group.irrep_spin(HalfInt::half(3)).unwrap();
+    let s = group.irrep_spin(HalfInt::new(3, 2).unwrap()).unwrap();
     assert!(s.dynkin().eq([3]));
     assert_eq!(s.dim_exact(), 4);
     assert_eq!(group.dual(&s), s);
@@ -1184,14 +1184,14 @@ fn labels_rank_one_and_spins_1() -> Result<(), Box<dyn std::error::Error>> {
     use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
 
     let su2 = LieGroup::new(GroupId::su(2)?)?;
-    let three_halves = su2.irrep_spin(HalfInt::half(3))?;
+    let three_halves = su2.irrep_spin(HalfInt::new(3, 2)?)?;
     assert!(three_halves.dynkin().eq([3]));
     assert_eq!(three_halves.dim_exact(), 4u32);
-    assert_eq!(three_halves.spin(), Some(HalfInt::half(3)));
+    assert_eq!(three_halves.spin(), Some(HalfInt::new(3, 2)?));
 
     let so3 = LieGroup::new(GroupId::so(3)?)?;
     assert_eq!(
-        so3.irrep_spin(HalfInt::half(1)),
+        so3.irrep_spin(HalfInt::new(1, 2)?),
         Err(fusion_symbols::lie::LieError::NotAdmissible)
     );
     Ok(())

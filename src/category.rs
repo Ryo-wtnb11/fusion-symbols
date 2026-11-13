@@ -269,9 +269,9 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
     ///
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
-    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
     /// let unit = su2.unit();
-    /// assert_eq!(unit.spin(), Some(HalfInt::half(0)));
+    /// assert_eq!(unit.spin(), Some(HalfInt::new(0, 1)?));
     /// assert_eq!(su2.fusion(&unit, &half)?.collect::<Vec<_>>(), [half]);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -296,7 +296,7 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
     ///
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
-    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
     /// let so3 = LieGroup::new(GroupId::so(3)?)?;
     /// assert!(su2.contains(&half));
     /// assert!(!so3.contains(&su2.irrep(&[2])?)); // another group's object
@@ -325,9 +325,9 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
     ///
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
-    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
     /// assert_eq!(su2.dim(&half), 2.0);
-    /// assert_eq!(su2.dim(&su2.irrep_spin(HalfInt::half(4))?), 5.0); // 2j + 1
+    /// assert_eq!(su2.dim(&su2.irrep_spin(HalfInt::new(2, 1)?)?), 5.0); // 2j + 1
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     fn dim(&self, a: &Self::Object) -> f64;
@@ -344,7 +344,7 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
     ///
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
-    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
     /// assert_eq!(su2.frobenius_schur_phase(&half)?, -1.0); // pseudoreal
     /// assert_eq!(su2.frobenius_schur_phase(&su2.irrep(&[2])?)?, 1.0); // real
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -383,10 +383,10 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
     ///
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
-    /// let half = su2.irrep_spin(HalfInt::half(1))?;
-    /// let one = su2.irrep_spin(HalfInt::half(2))?;
+    /// let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
+    /// let one = su2.irrep_spin(HalfInt::new(1, 1)?)?;
     /// let out: Vec<_> = su2.fusion(&half, &one)?.map(|c| c.spin()).collect();
-    /// assert_eq!(out, [Some(HalfInt::half(1)), Some(HalfInt::half(3))]); // ½ ⊗ 1 = ½ ⊕ 3/2
+    /// assert_eq!(out, [Some(HalfInt::new(1, 2)?), Some(HalfInt::new(3, 2)?)]); // ½ ⊗ 1 = ½ ⊕ 3/2
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     fn fusion<'a>(
@@ -410,8 +410,8 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
     ///
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
-    /// let half = su2.irrep_spin(HalfInt::half(1))?;
-    /// let one = su2.irrep_spin(HalfInt::half(2))?;
+    /// let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
+    /// let one = su2.irrep_spin(HalfInt::new(1, 1)?)?;
     /// assert_eq!(su2.nsymbol(&half, &half, &one)?, 1);
     /// assert_eq!(su2.nsymbol(&half, &half, &half)?, 0); // not an error
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -493,7 +493,7 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
     ///
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
-    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
     /// let unit = su2.unit();
     /// // F^{½½½}_½[0, 0] = sqrt(1 · 1) · {½ ½ 0; ½ ½ 0} = -1/2
     /// let f = su2.f_symbol(&half, &half, &half, &half, &unit, &unit)?;
@@ -523,7 +523,7 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
     ///
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
-    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
     /// let r = |c| su2.r_symbol(&half, &half, &c).map(|r| r.get([0, 0]));
     /// assert_eq!(r(su2.unit())?, -1.0); // antisymmetric singlet
     /// assert_eq!(r(su2.irrep(&[2])?)?, 1.0); // symmetric triplet
@@ -568,7 +568,7 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
     ///
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
-    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
     /// let a = su2.a_symbol(&half, &half, &su2.unit())?;
     /// assert_eq!(a.dims(), [1, 1]);
     /// assert!((a.get([0, 0]).abs() - 1.0).abs() < 1e-15); // unitary
@@ -617,7 +617,7 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
     ///
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
-    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
     /// let b = su2.b_symbol(&half, &half, &su2.irrep(&[2])?)?;
     /// assert_eq!(b.dims(), [1, 1]);
     /// assert!((b.get([0, 0]).abs() - 1.0).abs() < 1e-15); // unitary
@@ -682,7 +682,7 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
     ///
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
-    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
     /// assert_eq!(su2.inv_dim(&half), 0.5);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -733,7 +733,7 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
     ///
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
-    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
     /// assert_eq!(su2.object_at(1)?, half); // SU(2) index = 2j
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1000,7 +1000,7 @@ pub trait CgcBlock {
     /// use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
     ///
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
-    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
     /// let c = su2.cgc(&half, &half, &su2.unit())?;
     /// let dense = c.to_dense(); // [m₁, m₂, m₃, μ] = [2, 2, 1, 1]
     /// assert_eq!(dense.len(), 4);
@@ -1058,7 +1058,7 @@ pub trait GroupRepresentations: FusionCategory {
     /// use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
     ///
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
-    /// let half = su2.irrep_spin(HalfInt::half(1))?;
+    /// let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
     /// let c = su2.cgc(&half, &half, &su2.unit())?; // axes [m₁, m₂, m₃, μ], m ascending
     /// let s = 0.5f64.sqrt(); // ⟨½ ±½; ½ ∓½ | 0 0⟩ = ±1/√2
     /// assert!((c.get([1, 0, 0, 0]) - s).abs() < 1e-15 && (c.get([0, 1, 0, 0]) + s).abs() < 1e-15);

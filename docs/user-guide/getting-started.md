@@ -36,10 +36,10 @@ takes a spin, and groups with a torus, such as U(N), take integer charges.
 use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
 
 let su2 = LieGroup::new(GroupId::su(2)?)?;
-let half = su2.irrep_spin(HalfInt::half(1))?; // spin 1/2 (HalfInt::half takes 2j)
+let half = su2.irrep_spin(HalfInt::new(1, 2)?)?; // spin 1/2
 let one = su2.irrep(&[2])?; // spin 1: the Dynkin label is 2j
-assert_eq!(half.spin(), Some(HalfInt::half(1)));
-assert_eq!(one.spin(), HalfInt::integer(1));
+assert_eq!(half.spin(), Some(HalfInt::new(1, 2)?));
+assert_eq!(one.spin(), Some(HalfInt::new(1, 1)?));
 
 let su3 = LieGroup::new(GroupId::su(3)?)?;
 let eight = su3.irrep(&[1, 1])?; // the adjoint
@@ -59,9 +59,9 @@ number of times `c` occurs, `Ok(0)` when it does not occur.
 use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
 
 let su2 = LieGroup::new(GroupId::su(2)?)?;
-let one = su2.irrep_spin(HalfInt::half(2))?;
+let one = su2.irrep_spin(HalfInt::new(1, 1)?)?;
 let spins: Vec<_> = su2.fusion(&one, &one)?.map(|c| c.spin()).collect();
-let expected = [0, 2, 4].map(|dj| Some(HalfInt::half(dj)));
+let expected = [0, 2, 4].map(|dj| Some(HalfInt::from_doubled(dj)));
 assert_eq!(spins, expected); // 1 ⊗ 1 = 0 ⊕ 1 ⊕ 2
 
 let su3 = LieGroup::new(GroupId::su(3)?)?;
@@ -93,7 +93,7 @@ assert!(su3.dual(&three).dynkin().eq([0, 1])); // the 3̄
 assert_eq!(su3.frobenius_schur_indicator(&three), 0.0);
 
 let su2 = LieGroup::new(GroupId::su(2)?)?;
-let half = su2.irrep_spin(HalfInt::half(1))?;
+let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
 assert_eq!(su2.dual(&half), half);
 assert_eq!(su2.frobenius_schur_indicator(&half), -1.0); // pseudoreal
 ```
@@ -169,8 +169,8 @@ use fusion_symbols::{category::{FusionCategory, SymbolBlock}, lie::{su2::wigner_
 assert!((wigner_6j(1, 1, 2, 1, 1, 2).to_f64() - 1.0 / 6.0).abs() < 1e-15);
 
 let su2 = LieGroup::new(GroupId::su(2)?)?;
-let h = su2.irrep_spin(HalfInt::half(1))?;
-let inner = [su2.irrep_spin(HalfInt::half(0))?, su2.irrep_spin(HalfInt::half(2))?];
+let h = su2.irrep_spin(HalfInt::new(1, 2)?)?;
+let inner = [su2.irrep_spin(HalfInt::new(0, 1)?)?, su2.irrep_spin(HalfInt::new(1, 1)?)?];
 let r3 = 3f64.sqrt() / 2.0;
 let expected = [[-0.5, r3], [r3, 0.5]];
 for (i, e) in inner.iter().enumerate() {
@@ -202,8 +202,8 @@ coefficients* (its `1 × 1/2` block):
 use fusion_symbols::{category::{CgcBlock, GroupRepresentations}, lie::{GroupId, HalfInt, LieGroup}};
 
 let su2 = LieGroup::new(GroupId::su(2)?)?;
-let one = su2.irrep_spin(HalfInt::half(2))?;
-let half = su2.irrep_spin(HalfInt::half(1))?;
+let one = su2.irrep_spin(HalfInt::new(1, 1)?)?;
+let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
 let c = su2.cgc(&one, &half, &half)?;
 assert_eq!(c.dims(), [3, 2, 2, 1]);
 assert!((c.get([2, 0, 1, 0]) - (2.0f64 / 3.0).sqrt()).abs() < 1e-15);
@@ -224,7 +224,7 @@ use fusion_symbols::{category::FusionCategory,
 
 let su2 = LieGroup::new(GroupId::su(2)?)?;
 let cat = Product::new((su2.clone(), U1));
-let electron = (su2.irrep_spin(HalfInt::half(1))?, U1Irrep::new(1)?);
+let electron = (su2.irrep_spin(HalfInt::new(1, 2)?)?, U1Irrep::new(1)?);
 let pairs: Vec<_> = cat.fusion(&electron, &electron)?.collect();
 assert_eq!(pairs.len(), 2); // spin 0 and spin 1
 assert!(pairs.iter().all(|(_, q)| q.charge() == 2));

@@ -7,7 +7,7 @@ use fusion_symbols::{
     category::{BraidingStyle, FusionCategory, FusionStyle, Promote, Scalar, SymbolBlock},
     fermion::{FermionParity, FermionParityIrrep},
     finite::{ZNIrrep, ZN},
-    lie::{CU1Irrep, CU1},
+    lie::{CU1Irrep, HalfInt, CU1},
     lie::{U1Irrep, U1},
     table::TableCategory,
 };
@@ -215,7 +215,7 @@ fn cu1_identities() {
         CU1,
         [CU1Irrep::VACUUM, CU1Irrep::PSEUDOSCALAR]
             .into_iter()
-            .chain((1..=4).map(CU1Irrep::from_twice_charge))
+            .chain((1..=4).map(|n| CU1Irrep::new(HalfInt::from_doubled(n), 2).unwrap()))
             .collect(),
     );
 }

@@ -30,7 +30,7 @@
 //! use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
 //!
 //! let su2 = LieGroup::new(GroupId::su(2)?)?;
-//! let half = su2.irrep_spin(HalfInt::half(1))?;
+//! let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
 //! let unit = su2.unit();
 //! assert_eq!(su2.nsymbol(&half, &half, &unit)?, 1);
 //! let f = su2.f_symbol(&half, &half, &half, &half, &unit, &unit)?;

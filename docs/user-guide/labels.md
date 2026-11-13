@@ -194,17 +194,23 @@ SU(2) and SO(3) have one label a = 2j, so spin ½ is `[1]`. They also accept a
 spin directly through `irrep_spin` with a `HalfInt`, and `LieIrrep::spin` reads
 it back. SO(3) admits only integer spins.
 
+`HalfInt::new(num, den)` is a `const fn` accepting only denominators `1`
+and `2`; it does not reduce fractions such as `2/4`. Invalid denominators
+and doubled values exceeding `u32::MAX` return `HalfIntError::Denominator`
+and `HalfIntError::Overflow`, respectively. `HalfInt::from_doubled(n)` is
+the infallible entry for an already doubled value; `doubled()` reads it back.
+
 ```rust
 use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
 
 let su2 = LieGroup::new(GroupId::su(2)?)?;
-let three_halves = su2.irrep_spin(HalfInt::half(3))?;
+let three_halves = su2.irrep_spin(HalfInt::new(3, 2)?)?;
 assert!(three_halves.dynkin().eq([3]));
 assert_eq!(three_halves.dim_exact(), 4u32);
-assert_eq!(three_halves.spin(), Some(HalfInt::half(3)));
+assert_eq!(three_halves.spin(), Some(HalfInt::new(3, 2)?));
 
 let so3 = LieGroup::new(GroupId::so(3)?)?;
-assert!(so3.irrep_spin(HalfInt::half(1)).is_err());
+assert!(so3.irrep_spin(HalfInt::new(1, 2)?).is_err());
 ```
 
 ## References

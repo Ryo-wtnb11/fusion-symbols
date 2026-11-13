@@ -13,7 +13,7 @@ mod group;
 pub mod su2;
 pub use group::{GroupError, GroupId, RootSystem};
 mod half_int;
-pub use half_int::HalfInt;
+pub use half_int::{HalfInt, HalfIntError};
 mod prefill;
 pub use prefill::{prefill, PrefillRequest};
 
@@ -475,11 +475,11 @@ impl LieGroup {
     /// use fusion_symbols::lie::{GroupId, HalfInt, LieError, LieGroup};
     ///
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
-    /// assert_eq!(su2.irrep_spin(HalfInt::half(2))?, su2.irrep(&[2])?); // spin 1
+    /// assert_eq!(su2.irrep_spin(HalfInt::new(1, 1)?)?, su2.irrep(&[2])?); // spin 1
     /// let so3 = LieGroup::new(GroupId::so(3)?)?;
-    /// assert_eq!(so3.irrep_spin(HalfInt::half(1)), Err(LieError::NotAdmissible));
+    /// assert_eq!(so3.irrep_spin(HalfInt::new(1, 2)?), Err(LieError::NotAdmissible));
     /// let u2 = LieGroup::new(GroupId::u(2)?)?;
-    /// assert_eq!(u2.irrep_spin(HalfInt::half(1)), Err(LieError::InvalidLabel));
+    /// assert_eq!(u2.irrep_spin(HalfInt::new(1, 2)?), Err(LieError::InvalidLabel));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn irrep_spin(&self, j: HalfInt) -> Result<LieIrrep, LieError> {
@@ -660,14 +660,16 @@ impl LieIrrep {
     /// use fusion_symbols::lie::{GroupId, HalfInt, LieGroup};
     ///
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
-    /// assert_eq!(su2.irrep(&[3])?.spin(), Some(HalfInt::half(3))); // spin 3/2
+    /// assert_eq!(su2.irrep(&[3])?.spin(), Some(HalfInt::new(3, 2)?)); // spin 3/2
     /// let u1 = LieGroup::new(GroupId::u(1)?)?;
     /// assert_eq!(u1.irrep_with_charges(&[], &[1])?.spin(), None);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn spin(&self) -> Option<HalfInt> {
         match self.payload {
-            LiePayload::RankOne(dj) if is_spin_group(&self.group) => Some(HalfInt::half(dj)),
+            LiePayload::RankOne(dj) if is_spin_group(&self.group) => {
+                Some(HalfInt::from_doubled(dj))
+            }
             _ => None,
         }
     }

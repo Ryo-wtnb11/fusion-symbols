@@ -54,13 +54,19 @@ impl U1Irrep {
     /// # Errors
     ///
     /// [`U1Error::LabelOverflow`] for `i32::MIN`.
-    pub fn new(charge: i32) -> Result<Self, U1Error> {
-        Self::from_exact(i64::from(charge))
+    pub const fn new(charge: i32) -> Result<Self, U1Error> {
+        if charge == i32::MIN {
+            Err(U1Error::LabelOverflow {
+                charge: charge as i64,
+            })
+        } else {
+            Ok(Self { charge })
+        }
     }
 
     pub(super) fn from_exact(charge: i64) -> Result<Self, U1Error> {
         match i32::try_from(charge) {
-            Ok(charge) if charge != i32::MIN => Ok(Self { charge }),
+            Ok(charge) => Self::new(charge),
             _ => Err(U1Error::LabelOverflow { charge }),
         }
     }

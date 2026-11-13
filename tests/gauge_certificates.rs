@@ -5,7 +5,7 @@ use fusion_symbols::{
     category::{FusionCategory, Scalar, SymbolBlock},
     fermion::{FermionParity, FermionParityIrrep},
     finite::{ZNIrrep, ZN},
-    lie::{CU1Irrep, GroupId, LieGroup, U1Irrep, CU1, U1},
+    lie::{CU1Irrep, GroupId, HalfInt, LieGroup, U1Irrep, CU1, U1},
     product::Product,
     table::TableCategory,
 };
@@ -32,7 +32,7 @@ fn parities() -> Vec<FermionParityIrrep> {
 }
 fn cu1_irreps() -> Vec<CU1Irrep> {
     let mut objects = vec![CU1Irrep::VACUUM, CU1Irrep::PSEUDOSCALAR];
-    objects.extend((1..=3).map(CU1Irrep::from_twice_charge));
+    objects.extend((1..=3).map(|n| CU1Irrep::new(HalfInt::from_doubled(n), 2).unwrap()));
     objects
 }
 fn table(
@@ -304,7 +304,7 @@ fn false_trivial_associators_have_a_non_unit_f() {
     assert_eq!(f.as_slice(), [-0.5]);
 
     // CU(1), `cu1irrep.jl:Fsymbol`: F^{jjj}_j[0+, 0+] = 1/2 for j = 1/2.
-    let j = CU1Irrep::from_twice_charge(1);
+    let j = CU1Irrep::new(HalfInt::new(1, 2).unwrap(), 2).unwrap();
     let v = CU1Irrep::VACUUM;
     assert_eq!(CU1.f_symbol(&j, &j, &j, &j, &v, &v).unwrap(), 0.5);
 

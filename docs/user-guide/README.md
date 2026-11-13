@@ -22,7 +22,7 @@ another type is named.
 | Build a product group or a quotient from root data | `GroupId::cover`, `GroupId::new` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.GroupId.html#method.cover) |
 | An irrep from Dynkin labels | `LieGroup::irrep(&[1, 1])` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html#method.irrep) |
 | An irrep with torus charges (U(N), tori) | `LieGroup::irrep_with_charges(&[1], &[1])` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html#method.irrep_with_charges) |
-| An SU(2) or SO(3) irrep from a spin | `LieGroup::irrep_spin(HalfInt::half(1))` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html#method.irrep_spin) |
+| An SU(2) or SO(3) irrep from a spin | `LieGroup::irrep_spin(HalfInt::new(1, 2)?)` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieGroup.html#method.irrep_spin) |
 | Read a label back | `LieIrrep::{dynkin, charges, spin}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.LieIrrep.html) |
 | Dimension | `dim` (f64), `LieIrrep::dim_exact` (exact) | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.dim) |
 | Dual and Frobenius–Schur data | `dual`, `frobenius_schur_indicator`, `frobenius_schur_phase` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.dual) |
@@ -143,7 +143,7 @@ work in the base build. Without the feature, `LieGroup::new` returns
 `LieGroup::irrep(dynkin)` takes the highest weight as nonnegative Dynkin
 labels (Bourbaki numbering, factors in order); groups with a torus, such as
 U(N), take integer torus charges through `irrep_with_charges(dynkin, charges)`.
-SU(2) and SO(3), in any rank-one presentation, also take a spin, `irrep_spin(HalfInt::half(1))` for spin ½,
+SU(2) and SO(3), in any rank-one presentation, also take a spin, `irrep_spin(HalfInt::new(1, 2)?)` for spin ½,
 whose Dynkin label is `2j`. [Dynkin labels](labels.md) explains the labels,
 lists common irreps with their labels and dimensions, and gives the duality
 and U(N) charge rules.
@@ -178,7 +178,7 @@ Gelfand–Tsetlin basis of A-series groups of rank ≥ 2.
 use fusion_symbols::{category::{FusionCategory, SymbolBlock}, lie::{GroupId, HalfInt, LieGroup}};
 
 let su2 = LieGroup::new(GroupId::su(2)?)?;
-let half = su2.irrep_spin(HalfInt::half(1))?;
+let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
 let unit = su2.unit();
 let channels: Vec<Vec<i64>> = su2.fusion(&half, &half)?.map(|c| c.dynkin().collect()).collect();
 assert_eq!(channels, [[0], [2]]); // spin 0 and spin 1
@@ -285,7 +285,7 @@ These have closed-form scalar symbols (`f64`) and need no feature.
 use fusion_symbols::{category::FusionCategory,
     fermion::{FermionParity, FermionParityIrrep},
     finite::{ZNIrrep, ZN},
-    lie::{CU1Irrep, U1Irrep, CU1, U1}};
+    lie::{CU1Irrep, HalfInt, U1Irrep, CU1, U1}};
 
 let q = U1Irrep::new(2)?;
 assert_eq!(U1.dual(&q).charge(), -2);
@@ -296,9 +296,9 @@ assert_eq!(z3.fusion(&one, &one)?.next(), Some(ZNIrrep::new(2, 3)?));
 
 assert_eq!(FermionParity.twist(&FermionParityIrrep::ODD), -1.0);
 
-let a = CU1Irrep::from_twice_charge(1);
+let a = CU1Irrep::new(HalfInt::new(1, 2)?, 2)?;
 let channels: Vec<_> = CU1.fusion(&a, &a)?.collect();
-assert_eq!(channels, [CU1Irrep::VACUUM, CU1Irrep::PSEUDOSCALAR, CU1Irrep::from_twice_charge(2)]);
+assert_eq!(channels, [CU1Irrep::VACUUM, CU1Irrep::PSEUDOSCALAR, CU1Irrep::new(HalfInt::new(2, 2)?, 2)?]);
 ```
 
 `U1` is the same group as `LieGroup::new(GroupId::u(1)?)`, with `Copy` labels
@@ -354,8 +354,8 @@ assert_eq!(cat.twist(&odd), -1.0);
 
 let su2 = LieGroup::new(GroupId::su(2)?)?;
 let spin_charge = Product::new((su2.clone(), U1));
-let x = (su2.irrep_spin(HalfInt::half(1))?, U1Irrep::new(1)?);
-let y = (su2.irrep_spin(HalfInt::half(2))?, U1Irrep::new(2)?);
+let x = (su2.irrep_spin(HalfInt::new(1, 2)?)?, U1Irrep::new(1)?);
+let y = (su2.irrep_spin(HalfInt::new(1, 1)?)?, U1Irrep::new(2)?);
 let c = spin_charge.cgc(&x, &x, &y)?;
 assert_eq!(c.dims(), [2, 2, 3, 1]);
 

@@ -13,6 +13,10 @@ labels, fusion multiplicities N, dimensions, duals, Frobenius–Schur data,
 F/R/A/B symbols and Clebsch–Gordan coefficients (CGC). It is a standalone
 mathematical provider; consumers own tensors and tensor operations.
 
+Spin labels use `lie::HalfInt::new(num, den)` (denominator 1 or 2), or
+`HalfInt::from_doubled(n)` for a doubled label. CU(1) labels take that
+`HalfInt` through `CU1Irrep::new(j, s)`; see the [label guide](docs/user-guide/labels.md).
+
 Intentional differences from TensorKitSectors: categories are runtime values
 with validated labels rather than types; higher-rank Lie coefficients are
 generated on demand in a frozen, documented gauge; coefficient caches are
