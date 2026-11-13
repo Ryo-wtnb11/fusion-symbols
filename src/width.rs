@@ -5,14 +5,19 @@
 //!
 //! ```text
 //! T(1) = ĉ·Σu = est
-//! T(k) = D(k) + φ̂(k)·ĉ·LS_k(u)     2 ≤ k ≤ cap, only if pays_at(est, 1, D(k))
+//! T(k) = D(k) + ĉ·LS_k(u)          2 ≤ k ≤ cap, only if pays_at(est, 1, D(k))
 //! ```
 //!
 //! and returns the argmin, ties to the smaller width. `LS_k` is the makespan
 //! of greedy LPT list scheduling on `k` workers: an idealized load predictor
 //! of the section's atomic-counter queue, not its measured makespan. `D(k)`
-//! is the dispatch cost of the scope that will run the section, and `φ̂(k)`
-//! the inflation measured at width `k` on earlier layers (1 where none ran).
+//! is the dispatch cost of the scope that will run the section.
+//!
+//! Every width is priced with unit inflation. Narrowing on a measured
+//! per-share slowdown `φ̂(k)` is not done: a stage's calibration sample is
+//! usually one item, so a slowdown measured against it amplifies that item's
+//! noise, and a width priced out by one bad reading is never measured again.
+//! Re-introduce it with section-level timings.
 //!
 //! All arithmetic is in `u128` nanoseconds with one integer division per
 //! term, so every candidate is finite and defined. A nonzero product that
@@ -35,32 +40,6 @@ pub(crate) struct Sample {
     pub(crate) units: NonZeroU64,
 }
 
-/// Measured inflation `φ̂(k) = num / den` per width; 1 where unmeasured.
-#[derive(Debug, Default)]
-pub(crate) struct PhiTable {
-    /// Entry `k - 1` is width `k`.
-    ratios: Vec<(u64, NonZeroU64)>,
-}
-
-impl PhiTable {
-    const ONE: (u64, NonZeroU64) = (1, NonZeroU64::MIN);
-
-    pub(crate) fn set(&mut self, width: NonZeroUsize, num: u64, den: NonZeroU64) {
-        let i = width.get() - 1;
-        if self.ratios.len() <= i {
-            self.ratios.resize(i + 1, Self::ONE);
-        }
-        self.ratios[i] = (num, den);
-    }
-
-    fn get(&self, width: NonZeroUsize) -> (u64, NonZeroU64) {
-        self.ratios
-            .get(width.get() - 1)
-            .copied()
-            .unwrap_or(Self::ONE)
-    }
-}
-
 /// `k* = argmin T(k)` over `1..=cap`, ties to the smaller width.
 ///
 /// `remaining` holds the units of the items still to run, sorted descending;
@@ -69,16 +48,15 @@ impl PhiTable {
 ///
 /// Cost: `cap - 1` calls of `cost`, and `O(n log k)` for each width that
 /// passes the pays filter and whose lower bound
-/// `D(k) + φ̂(k)·ĉ·max(⌈Σu/k⌉, u_max)` beats the best width so far; at most
+/// `D(k) + ĉ·max(⌈Σu/k⌉, u_max)` beats the best width so far; at most
 /// `O(n·cap·log cap)` in all, with one heap of at most `cap` loads.
 pub(crate) fn choose_width(
     remaining: &[u64],
     sample: Sample,
-    phi: &PhiTable,
     cap: NonZeroUsize,
     cost: impl Fn(NonZeroUsize) -> Duration,
 ) -> NonZeroUsize {
-    plan(remaining, sample, phi, cap, cost).0
+    plan(remaining, sample, cap, cost).0
 }
 
 /// Cheapest section among the feasible widths: min over `2..=cap` of `D(k)`;
@@ -98,7 +76,6 @@ pub(crate) fn cheapest_section(
 fn plan(
     remaining: &[u64],
     sample: Sample,
-    phi: &PhiTable,
     cap: NonZeroUsize,
     cost: impl Fn(NonZeroUsize) -> Duration,
 ) -> (NonZeroUsize, u128) {
@@ -106,7 +83,7 @@ fn plan(
     // A slice holds fewer than 2^61 items of at most 2^64 units: no overflow.
     let total: u128 = remaining.iter().map(|&u| u128::from(u)).sum();
     let u_max = remaining.first().map_or(0, |&u| u128::from(u));
-    let est_ns = scaled(total, sample, PhiTable::ONE);
+    let est_ns = scaled(total, sample);
     let est = duration_from_ns(est_ns);
 
     let mut best = (NonZeroUsize::MIN, est_ns);
@@ -117,8 +94,7 @@ fn plan(
         if !pays_at(est, 1, d) {
             continue;
         }
-        let phi_k = phi.get(width);
-        let objective = |ls| d.as_nanos().saturating_add(scaled(ls, sample, phi_k));
+        let objective = |ls| d.as_nanos().saturating_add(scaled(ls, sample));
         let lower = total.div_ceil(width.get() as u128).max(u_max);
         if objective(lower) >= best.1 {
             continue;
@@ -131,17 +107,10 @@ fn plan(
     best
 }
 
-/// `x · elapsed · num / (units · den)`, or `u128::MAX` when the product
-/// overflows.
-fn scaled(x: u128, sample: Sample, (num, den): (u64, NonZeroU64)) -> u128 {
-    // A zero factor must not be hidden by an overflow of the others.
-    if num == 0 {
-        return 0;
-    }
-    let den = u128::from(sample.units.get()) * u128::from(den.get());
+/// `x · elapsed / units`, or `u128::MAX` when the product overflows.
+fn scaled(x: u128, sample: Sample) -> u128 {
     x.checked_mul(u128::from(sample.elapsed_ns))
-        .and_then(|p| p.checked_mul(u128::from(num)))
-        .map_or(u128::MAX, |p| p / den)
+        .map_or(u128::MAX, |p| p / u128::from(sample.units.get()))
 }
 
 /// `ns` as a `Duration`, saturating at `Duration::MAX`.
@@ -204,22 +173,13 @@ mod tests {
             .collect();
         assert_eq!(ls, [28, 16, 12, 10]);
         let flat = |_| ns(1);
-        assert_eq!(
-            plan(&items, unit_rate(28), &PhiTable::default(), w(4), flat),
-            (w(4), 11)
-        );
+        assert_eq!(plan(&items, unit_rate(28), w(4), flat), (w(4), 11));
 
         // Negative control: [10, 1, 1] with D(2) = 1, D(3) = 2. An even split
         // (Σu/k = 6, 4) would pick 3 (T = 7, 6); LS_2 = LS_3 = 10 gives
         // T = 11, 12, so 2.
         assert_eq!(
-            plan(
-                &[10, 1, 1],
-                unit_rate(12),
-                &PhiTable::default(),
-                w(3),
-                row(&[1, 2])
-            ),
+            plan(&[10, 1, 1], unit_rate(12), w(3), row(&[1, 2])),
             (w(2), 11)
         );
     }
@@ -230,20 +190,11 @@ mod tests {
         // T = 72, 20 + 36, 2 + 24, 10 + 18, 20 + 18 = 72, 56, 26, 28, 38.
         let items = [6; 12];
         let costs = row(&[20, 2, 10, 20]);
-        assert_eq!(
-            plan(&items, unit_rate(72), &PhiTable::default(), w(5), costs),
-            (w(3), 26)
-        );
+        assert_eq!(plan(&items, unit_rate(72), w(5), costs), (w(3), 26));
         // Negative control: D(5) = 1 makes the widest width cheapest:
         // T(5) = 1 + LS_5 = 1 + 18 = 19.
         assert_eq!(
-            plan(
-                &items,
-                unit_rate(72),
-                &PhiTable::default(),
-                w(5),
-                row(&[20, 2, 10, 1])
-            ),
+            plan(&items, unit_rate(72), w(5), row(&[20, 2, 10, 1])),
             (w(5), 19)
         );
     }
@@ -255,27 +206,9 @@ mod tests {
         // T(2) = 41, T(3) = 1 + LS_3 = 1 + 30 = 31.
         let items = [10; 8];
         const COSTS: &[u64] = &[1, 1, 100, 1, 1, 1, 1];
-        assert_eq!(
-            plan(
-                &items,
-                unit_rate(80),
-                &PhiTable::default(),
-                w(4),
-                row(COSTS)
-            ),
-            (w(3), 31)
-        );
+        assert_eq!(plan(&items, unit_rate(80), w(4), row(COSTS)), (w(3), 31));
         // Negative control: the full cap reaches T(8) = 1 + 10 = 11.
-        assert_eq!(
-            plan(
-                &items,
-                unit_rate(80),
-                &PhiTable::default(),
-                w(8),
-                row(COSTS)
-            ),
-            (w(8), 11)
-        );
+        assert_eq!(plan(&items, unit_rate(80), w(8), row(COSTS)), (w(8), 11));
     }
 
     #[test]
@@ -283,13 +216,12 @@ mod tests {
         // est = 80: D = 27 needs 81 and never pays; neither does an
         // unavailable row.
         let items = [10; 8];
-        let phi = PhiTable::default();
         let s = unit_rate(80);
-        assert_eq!(plan(&items, s, &phi, w(8), |_| ns(27)), (w(1), 80));
-        assert_eq!(plan(&items, s, &phi, w(8), |_| Duration::MAX), (w(1), 80));
-        assert_eq!(plan(&items, s, &phi, w(1), |_| ns(0)), (w(1), 80));
+        assert_eq!(plan(&items, s, w(8), |_| ns(27)), (w(1), 80));
+        assert_eq!(plan(&items, s, w(8), |_| Duration::MAX), (w(1), 80));
+        assert_eq!(plan(&items, s, w(1), |_| ns(0)), (w(1), 80));
         // Negative control: D = 26 pays (80 ≥ 78), T(8) = 26 + 10 = 36.
-        assert_eq!(plan(&items, s, &phi, w(8), |_| ns(26)), (w(8), 36));
+        assert_eq!(plan(&items, s, w(8), |_| ns(26)), (w(8), 36));
     }
 
     #[test]
@@ -300,16 +232,12 @@ mod tests {
             elapsed_ns: 0,
             units: NonZeroU64::new(80).unwrap(),
         };
-        let phi = PhiTable::default();
-        assert_eq!(choose_width(&items, zero, &phi, w(8), |_| ns(0)), w(1));
-        assert_eq!(choose_width(&items, zero, &phi, w(8), |_| ns(1)), w(1));
+        assert_eq!(choose_width(&items, zero, w(8), |_| ns(0)), w(1));
+        assert_eq!(choose_width(&items, zero, w(8), |_| ns(1)), w(1));
         // Negative control: one nanosecond per unit and D = 0 gives T(8) = 10.
-        assert_eq!(
-            choose_width(&items, unit_rate(80), &phi, w(8), |_| ns(0)),
-            w(8)
-        );
+        assert_eq!(choose_width(&items, unit_rate(80), w(8), |_| ns(0)), w(8));
         // An empty stage has nothing to run in parallel.
-        assert_eq!(choose_width(&[], unit_rate(1), &phi, w(8), |_| ns(0)), w(1));
+        assert_eq!(choose_width(&[], unit_rate(1), w(8), |_| ns(0)), w(1));
     }
 
     #[test]
@@ -321,72 +249,19 @@ mod tests {
             elapsed_ns: u64::MAX,
             units: NonZeroU64::MIN,
         };
-        let phi = PhiTable::default();
         let items = [u64::MAX; 4];
         let m2 = u128::from(u64::MAX).pow(2);
-        assert_eq!(plan(&items, huge, &phi, w(2), |_| ns(1)), (w(1), u128::MAX));
+        assert_eq!(plan(&items, huge, w(2), |_| ns(1)), (w(1), u128::MAX));
         // A width that cannot be priced is not chosen either.
         assert_eq!(
-            plan(&items, huge, &phi, w(4), |_| Duration::MAX - ns(1)),
+            plan(&items, huge, w(4), |_| Duration::MAX - ns(1)),
             (w(1), u128::MAX)
         );
         // Negative control: width 4 holds one item per worker, so
         // T(4) = 1 + m² stays finite and beats the saturated serial estimate.
-        assert_eq!(plan(&items, huge, &phi, w(4), |_| ns(1)), (w(4), m2 + 1));
+        assert_eq!(plan(&items, huge, w(4), |_| ns(1)), (w(4), m2 + 1));
         assert_eq!(duration_from_ns(u128::MAX), Duration::MAX);
         assert_eq!(duration_from_ns(1_500_000_000), Duration::from_millis(1500));
-
-        // A width whose φ̂ product overflows is never chosen: [10; 8], ĉ = 1,
-        // D = 1 would take 8 (T = 11); with φ̂(8) = 2^64 - 1 the best is
-        // T = 1 + 20 = 21, first reached at width 4.
-        let mut phi = PhiTable::default();
-        let s = Sample {
-            elapsed_ns: u64::MAX,
-            units: NonZeroU64::new(u64::MAX).unwrap(),
-        };
-        assert_eq!(plan(&[10; 8], s, &phi, w(8), |_| ns(1)), (w(8), 11));
-        phi.set(w(8), u64::MAX, NonZeroU64::MIN);
-        assert_eq!(plan(&[10; 8], s, &phi, w(8), |_| ns(1)), (w(4), 21));
-    }
-
-    #[test]
-    fn zero_inflation_prices_a_width_at_its_dispatch_cost() {
-        // Four items of m = 2^64 - 1 units at m ns each; D = 1. With φ̂(2) = 0,
-        // T(2) = 1 although LS_2·elapsed = 2m² overflows; T(4) = 1 + m².
-        let huge = Sample {
-            elapsed_ns: u64::MAX,
-            units: NonZeroU64::MIN,
-        };
-        let items = [u64::MAX; 4];
-        let mut phi = PhiTable::default();
-        phi.set(w(2), 0, NonZeroU64::MIN);
-        assert_eq!(plan(&items, huge, &phi, w(4), |_| ns(1)), (w(2), 1));
-        // Negative control: φ̂(2) = 1 saturates width 2, and width 4 wins.
-        let m2 = u128::from(u64::MAX).pow(2);
-        assert_eq!(
-            plan(&items, huge, &PhiTable::default(), w(4), |_| ns(1)),
-            (w(4), m2 + 1)
-        );
-    }
-
-    #[test]
-    fn measured_inflation_narrows_the_width() {
-        // 840 items of 1, ĉ = 1, D = 1. With φ̂ = 1 up to 6 and 21/10 at 7..8:
-        // T(6) = 1 + 140 = 141, T(7) = 1 + 252 = 253, T(8) = 1 + 220 = 221.
-        let items = [1; 840];
-        let mut phi = PhiTable::default();
-        // Negative control: no measurement takes the widest width.
-        assert_eq!(
-            plan(&items, unit_rate(840), &phi, w(8), |_| ns(1)),
-            (w(8), 106)
-        );
-        for k in [7, 8] {
-            phi.set(w(k), 21, NonZeroU64::new(10).unwrap());
-        }
-        assert_eq!(
-            plan(&items, unit_rate(840), &phi, w(8), |_| ns(1)),
-            (w(6), 141)
-        );
     }
 
     #[test]

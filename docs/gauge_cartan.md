@@ -881,7 +881,13 @@ column.
        included) are at most `N (max_ℓ (D_{ℓ−1} + D_ℓ) + max_w kept_w P_w)`:
        two depth layers plus one weight's lowered candidates (`kept_w` the
        candidates kept at `w`), instead of the whole channel
-       `N Σ_w m_c(w) P_w`. The rounded entries are written per column
+       `N Σ_w m_c(w) P_w`. The layer-parallel descent of `lie::prefill` on
+       a team token lowers a whole depth layer before combining it, so its
+       bound is `N max_ℓ (D_{ℓ−1} + D_ℓ + Σ_{depth w = ℓ} kept_w P_w)`: two
+       depth layers plus one layer's candidates. Row-start scratch of
+       `d_a` slots is held once per participant: the leader's is its
+       raising-row scratch, which it lends to participant 0, so a section
+       of width `k` holds `k` of them. The rounded entries are written per column
        `(μ, m_c)` as they are formed and concatenated in §4.7 order at the
        end, `O(nnz + N d_c)` with no sort; that final copy briefly holds the
        rounded entries twice;

@@ -204,7 +204,8 @@ mod tests {
         )
     }
 
-    /// A serial token, a plain pool token and a team token.
+    /// A serial token, a plain pool token, a team token, and the team token
+    /// with every multi-item stage forced into a section of width 2.
     fn on_every_token(mut f: impl FnMut(&str, Exec<'_>)) {
         f("serial", Exec::serial());
         // A loaded runner can take longer than the default acquisition
@@ -218,6 +219,8 @@ mod tests {
         f("pool", Exec::new(&pool, 2).unwrap());
         let team = pool.into_team(2).unwrap();
         f("team", team.exec(2));
+        let _force = crate::stage::force_width(2);
+        f("team sections", team.exec(2));
     }
 
     /// What the serial entry of `item` returns, as bits: dimensions, then
@@ -297,10 +300,12 @@ mod tests {
 
     /// On every token, `prefill` publishes exactly what the serial entries
     /// compute: after it, every entry is served without generation and
-    /// returns the serial bits, gauge and entry order.
+    /// returns the serial bits, gauge and entry order. Forced sections
+    /// really run, and their shares never reach the cache.
     #[test]
     fn prefill_publishes_the_serial_entry_values_on_every_token() {
         let _guard = lock();
+        let mut sections = 0;
         for request in requests() {
             let serial = |r: &PrefillRequest| {
                 r.items
@@ -312,12 +317,24 @@ mod tests {
             let want = serial(&request);
             on_every_token(|name, exec| {
                 reset();
+                crate::stage::SECTIONS.with(|s| s.borrow_mut().clear());
                 prefill(&request, exec).unwrap();
+                let ran = crate::stage::SECTIONS.with(|s| s.take());
+                // Only team tokens fork.
+                assert!(
+                    name.starts_with("team") || ran.is_empty(),
+                    "{name}: {ran:?}"
+                );
+                if name == "team sections" {
+                    sections += ran.len();
+                }
                 let before = builds();
                 assert_eq!(serial(&request), want, "{name}");
                 assert_eq!(builds(), before, "{name}: entries after prefill generated");
             });
         }
+        // The SU(3) octet channels descend in sections.
+        assert_eq!(sections > 0, cfg!(feature = "lie-generated"));
     }
 
     /// Every item is attempted after a failure, earlier and later successes

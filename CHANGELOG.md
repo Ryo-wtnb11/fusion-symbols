@@ -16,9 +16,12 @@ value/gauge rule noted below.
   values, lookups and error). Every item is attempted; the lowest-index error
   is returned and successful items are not rolled back. The whole call runs
   in one reset epoch, so a reset at any point retains nothing the call
-  generates afterwards. Every token currently evaluates the items serially on
-  the calling thread. `A^{ab}_c` and `B^{ab}_c` are warmed through the F
-  block and phase named in the `PrefillRequest` docs.
+  generates afterwards. On a token that carries a team, the exact descent of
+  each Cartan channel runs one depth layer at a time in team sections, at a
+  width chosen from the measured cost of the layer's first items; any other
+  token evaluates serially on the calling thread. Values are bit-identical at
+  every width. `A^{ab}_c` and `B^{ab}_c` are warmed through the F block and
+  phase named in the `PrefillRequest` docs.
 - New required dependency `threadteam` 0.6 with `default-features = false`,
   for the execution token; it starts no scheduler.
 

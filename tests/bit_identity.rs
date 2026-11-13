@@ -3,12 +3,17 @@
 //! blocks with their labeled shapes; the parent runs it twice in fresh
 //! processes and compares the bytes. Each child also regenerates its bytes
 //! after a reset, a zero trim of every tier and in an equal group value, so
-//! retention never changes a bit. Readable value pins live in
-//! `tests/gauge_golden.rs`; this test only proves reproducibility.
+//! retention never changes a bit, and after `lie::prefill` of every emitted
+//! item on real teams (widths 2 to 5, a narrow child token and widths above
+//! a stage's items), whose shares then serve every read. Readable value pins
+//! live in `tests/gauge_golden.rs`; this test only proves reproducibility.
 
-use fusion_symbols::cache::{reset, trim_to, CoefficientCacheTier};
+use std::time::Duration;
+
+use fusion_symbols::cache::{reset, tier_stats, trim_to, CoefficientCacheTier};
 use fusion_symbols::category::{CgcBlock, FusionCategory, GroupRepresentations, SymbolBlock};
-use fusion_symbols::lie::{GroupId, LieGroup};
+use fusion_symbols::lie::{prefill, GroupId, LieGroup, PrefillRequest};
+use threadteam::{DispatchCosts, Exec, Pool, Team, WidthCosts};
 
 const OUT: &str = "FUSION_SYMBOLS_BIT_IDENTITY_OUT";
 
@@ -92,6 +97,72 @@ fn emit(fresh_groups: bool) -> Vec<u8> {
     out
 }
 
+/// One request per case holding every coefficient [`emit`] reads.
+fn requests() -> Vec<PrefillRequest> {
+    cases()
+        .into_iter()
+        .map(|(id, label, adjoint)| {
+            let g = LieGroup::new(id).unwrap();
+            let a = g.irrep(&label).unwrap();
+            let b = g.dual(&a);
+            let one = g.unit();
+            let mut r = PrefillRequest::new(&g);
+            for x in [&one, &a, &b] {
+                let d = g.dual(x);
+                r.frobenius_schur_phase(x)
+                    .f_symbol(&d, x, &d, &d, &one, &one)
+                    .f_symbol(x, &d, x, x, &one, &one);
+            }
+            r.fusion(&a, &b);
+            for c in g.fusion(&a, &b).unwrap() {
+                r.cgc(&a, &b, &c).r_symbol(&a, &b, &c);
+            }
+            r.f_symbol(&a, &b, &a, &a, &one, &one);
+            if adjoint {
+                r.f_symbol(&a, &a, &a, &a, &a, &a);
+            }
+            r
+        })
+        .collect()
+}
+
+/// A team of `width` whose sections cost nothing, so every stage with two
+/// or more items that measures any time runs a section.
+fn free_team(width: usize) -> Team {
+    let zero = WidthCosts::flat(Duration::ZERO);
+    Pool::builder()
+        .threads(width)
+        .acquire_timeout(Duration::from_secs(10))
+        .dispatch_costs(DispatchCosts::new(zero, zero, zero))
+        .build()
+        .unwrap()
+        .into_team(width)
+        .unwrap()
+}
+
+fn misses() -> Vec<u64> {
+    CoefficientCacheTier::ALL
+        .iter()
+        .map(|&t| tier_stats(t).misses)
+        .collect()
+}
+
+fn prefill_all(requests: &[PrefillRequest], mut exec: Exec<'_>) {
+    for r in requests {
+        prefill(r, exec.reborrow()).unwrap();
+    }
+}
+
+/// Cold prefills by `fill`, then [`emit`] from what they published alone.
+fn emit_after_prefill(fill: impl FnOnce(&[PrefillRequest])) -> Vec<u8> {
+    reset();
+    fill(&requests());
+    let before = misses();
+    let out = emit(false);
+    assert_eq!(misses(), before, "a read after prefill generated");
+    out
+}
+
 /// The child process: bytes cold, after a reset, after a zero trim of every
 /// tier and from fresh group values must agree before they are written.
 #[test]
@@ -108,6 +179,22 @@ fn emit_child() {
     }
     assert_eq!(emit(false), cold, "regeneration after trim");
     assert_eq!(emit(true), cold, "warm equal groups");
+    for width in [2, 3, 4, 5, 8] {
+        let team = free_team(width);
+        let got = emit_after_prefill(|r| prefill_all(r, team.exec(width)));
+        assert_eq!(got, cold, "prefill on a team of {width}");
+    }
+    let team = free_team(4);
+    let got = emit_after_prefill(|r| {
+        team.exec(4)
+            .fork_sized(&[3, 1], |i, child| {
+                if i == 0 {
+                    prefill_all(r, child);
+                }
+            })
+            .unwrap()
+    });
+    assert_eq!(got, cold, "prefill on a child token of width 3");
     std::fs::write(path, cold).unwrap();
 }
 
