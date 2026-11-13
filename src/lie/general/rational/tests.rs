@@ -340,6 +340,57 @@ fn word_arithmetic_does_not_allocate() {
     assert!(v < 0.0);
 }
 
+/// Rounding allocates nothing when `U` and `V` fit 384 bits, also from Big
+/// operands and when a zero `s` makes `U = 0` beside a wider factor, and gives
+/// the bits of the exact value on both sides of that width.
+#[cfg(feature = "lie-generated")]
+#[test]
+fn rounding_within_384_bits_does_not_allocate() {
+    let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(0x8d05);
+    // `bits` bits with the top one set, as a signed Integer.
+    let mut int = |bits: u64| -> Integer {
+        let lo: u128 = rng.random();
+        Integer::from(lo >> (128 - bits)) | p2(bits - 1)
+    };
+    // Each of the four operands contributes `2·w` (s) or `w` bits to U and to
+    // V, so `5w` bits in all: within 384 bits up to w = 76.
+    let mut inputs = Vec::new();
+    for i in 0..400u64 {
+        let w = 40 + i % 37;
+        let q = |n: Integer, d: Integer| Q::from(r(n, d));
+        let s = q(if i % 2 == 0 { int(w) } else { -int(w) }, int(w));
+        let (a, b, t) = (q(int(w), int(w)), q(int(w), int(w)), q(int(w), int(w)));
+        inputs.push([s, a, b, t]);
+    }
+    assert!(inputs.iter().flatten().any(|x| !is_small(x)));
+    // U = 0 and V = 2^70 + 1, although `a` has a 401-bit numerator.
+    let (zero, one) = (Q::from(0), Q::from(1));
+    let wide = Q::from(r(p2(400) + Integer::from(1), p2(70) + Integer::from(1)));
+    let calls = crate::audit_alloc::thread_allocation_calls;
+    let mut got = Vec::with_capacity(inputs.len());
+    let before = calls();
+    got.extend(
+        inputs
+            .iter()
+            .map(|[s, a, b, t]| rounded_radical(s, a, b, t)),
+    );
+    let zero_bits = rounded_radical(&zero, &wide, &one, &one).to_bits();
+    assert_eq!(calls() - before, 0);
+    assert_eq!(zero_bits, 0);
+    for ([s, a, b, t], got) in inputs.iter().zip(got) {
+        assert_eq!(got.to_bits(), radical(s, a, b, t).to_f64().to_bits());
+    }
+    // Wider products round through big integers to the same bits.
+    for w in [77u64, 100, 127] {
+        let x = Q::from(r(int(w), int(w)));
+        let s = Q::from(r(-int(w), int(w)));
+        assert_eq!(
+            rounded_radical(&s, &x, &x, &x).to_bits(),
+            radical(&s, &x, &x, &x).to_f64().to_bits(),
+        );
+    }
+}
+
 /// A Big value is charged at least the bytes that dropping it frees, once
 /// compacted, even when Malachite handed over a vector with spare capacity.
 #[cfg(feature = "lie-generated")]

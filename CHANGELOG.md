@@ -17,6 +17,17 @@ value/gauge rule noted below.
   (A1) CGC queries build three temporary one-word fingerprints per query, and
   SU(2) F keys hash their packed Regge key. Keys still compare every word. The
   Wigner tiers are unchanged.
+- The once-only `f64` rounding of an exact CGC entry and of an exact SU(2)
+  value no longer allocates when its unreduced radicand `U/V` has
+  `U, V < 2^384`: the radicand products, the scaled square root and the
+  midpoint comparison run in fixed stack limbs, with big integers kept only
+  for wider operands. Cold Cartan CGC generation therefore makes far fewer
+  heap allocations (SU(3) `(6,6) ⊗ (6,6)`: about 99% fewer), which also
+  removes most of the allocator contention that slowed independent cold
+  channels on 8 threads on macOS. Values are bit-identical. The allocation-free
+  guarantee holds with Malachite's default 64-bit limbs; under its
+  `32_bit_limbs` feature the values are the same but the rounding still
+  allocates.
 
 ## [0.11.0] - 2026-11-12
 
