@@ -887,7 +887,23 @@ column.
        depth layers plus one layer's candidates. Row-start scratch of
        `d_a` slots is held once per participant: the leader's is its
        raising-row scratch, which it lends to participant 0, so a section
-       of width `k` holds `k` of them. The rounded entries are written per column
+       of width `k` holds `k` of them. The layer's product spaces are
+       built in a section of their own before it lowers anything. A
+       section of width `k` requests at most
+       `k (8r + 16 min(|W_a|, |W_b|))` scratch bytes on 64-bit targets:
+       each participant holds one scan scratch (a rank-`r` key and one
+       matched weight-space pair per weight of the smaller factor), the
+       leader's kept across layers and lent to participant 0. Beyond
+       that scratch, the descent retains `O(L_max)` construction storage
+       across layers, `L_max` the largest layer reached: the stage's
+       result slots and queue and the drained product-space headers
+       (`StageBuf`'s `Vec<Option<ProductSpace>>` and queue, and `tos`). It
+       also retains its units workspace, which phases A and B reuse for
+       their own item sets, so that workspace is not bounded by a
+       construction layer's `L`. A layer of `L` weights adds transient
+       `O(L)` storage: the planner's sorted units of a calibrated stage
+       (`run_priced`'s `sorted: Vec<u64>`) and a dispatched section's
+       per-item result cells (`Vec<OnceLock<ProductSpace>>`). The rounded entries are written per column
        `(μ, m_c)` as they are formed and concatenated in §4.7 order at the
        end, `O(nnz + N d_c)` with no sort; that final copy briefly holds the
        rounded entries twice;

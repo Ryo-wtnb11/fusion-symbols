@@ -85,6 +85,11 @@ value/gauge rule noted below.
   already give the public order (Gelfand–Tsetlin), not for Gram–Schmidt.
   Cold E7 channels of `1539 ⊗ 1539` make 81–91% fewer allocations; values
   are bit-identical.
+- On a team token, `lie::prefill` builds the coupling pairs of every weight of
+  a depth layer in a team section before the layer is lowered, instead of on
+  the calling thread: each participant holds one scan scratch of
+  `8r + 16·min(|W_a|, |W_b|)` bytes. Cold E7 `1539 ⊗ 1539` channels at 8
+  threads are 11–18% faster; values are bit-identical.
 - Warm coefficient-cache hits take no lock: they read the published table
   under a `seize` guard and write only the entry's reference bit when it is
   clear, so aggregate warm-hit throughput keeps growing with the thread count

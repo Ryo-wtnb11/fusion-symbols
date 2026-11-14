@@ -2260,9 +2260,14 @@ fn bits(entries: &[MEntry]) -> Vec<(u32, u32, u32, u32, u64)> {
 /// The layer descent emits the serial entries bit for bit and in order,
 /// through real sections of widths 2–5, widths above a stage's items, and a
 /// narrow child token of a team section; each forced stage really opened a
-/// section, under the shares' no-cache guard.
+/// section, under the shares' no-cache guard. At a forced width every layer
+/// of two or more weights builds its product spaces in a section of its
+/// own, so phase A reads each `tos[w]` from that section; calibrated, every
+/// layer whose first weight leaves two or more to share does.
 #[test]
 fn layer_descent_matches_the_serial_bits_at_every_width() {
+    let built = || CONSTRUCTION_SECTIONS.with(|n| n.replace(0));
+    let mut calibrated_layers = 0;
     for (root, [x, y, z]) in layer_channels() {
         let data = CartanData::new(root);
         let [a, b, c] = [&x, &y, &z].map(|l| Ladders::new(&data, l).unwrap());
@@ -2271,14 +2276,40 @@ fn layer_descent_matches_the_serial_bits_at_every_width() {
             .unwrap()
             .multiplicity(&z) as usize;
         assert!(n >= 2, "{root:?}");
+        // Weights per depth layer of `c`, below the highest weight.
+        let weights = &c.module.weights;
+        let mut sizes = vec![0usize; weights.last().unwrap().k.iter().sum::<i64>() as usize + 1];
+        for s in weights {
+            sizes[s.k.iter().sum::<i64>() as usize] += 1;
+        }
+        let shared = |least: usize| sizes[1..].iter().filter(|&&l| l >= least).count();
+        assert!(shared(2) > 0, "{root:?}");
+        let _ = built();
         let serial = bits(&rounded_entries(&data, &a, &b, &c, n, None).unwrap());
         assert!(!serial.is_empty());
+        // Neither the serial nor a plain-pool token builds in a section.
+        let pool = threadteam::Pool::builder()
+            .threads(4)
+            .acquire_timeout(std::time::Duration::from_secs(10))
+            .build()
+            .unwrap();
+        {
+            let _force = crate::stage::force_width(4);
+            for mut exec in [
+                threadteam::Exec::serial(),
+                threadteam::Exec::new(&pool, 4).unwrap(),
+            ] {
+                let got = rounded_entries(&data, &a, &b, &c, n, Some(&mut exec)).unwrap();
+                assert_eq!((bits(&got), built()), (serial.clone(), 0), "{root:?}");
+            }
+        }
         let team = layer_team(5);
         for width in [2, 3, 4, 5, 64] {
             let _force = crate::stage::force_width(width);
             crate::stage::SECTIONS.with(|s| s.borrow_mut().clear());
             let got = rounded_entries(&data, &a, &b, &c, n, Some(&mut team.exec(5))).unwrap();
             assert_eq!(bits(&got), serial, "{root:?} width {width}");
+            assert_eq!(built(), shared(2), "{root:?} width {width}");
             let sections = crate::stage::SECTIONS.with(|s| s.take());
             assert!(!sections.is_empty(), "{root:?} width {width}");
             assert!(
@@ -2290,8 +2321,10 @@ fn layer_descent_matches_the_serial_bits_at_every_width() {
         team.exec(5)
             .fork_sized(&[2, 3], |_, mut child| {
                 let _force = crate::stage::force_width(3);
+                let _ = built();
                 let got = rounded_entries(&data, &a, &b, &c, n, Some(&mut child)).unwrap();
                 assert_eq!(bits(&got), serial, "{root:?} child");
+                assert_eq!(built(), shared(2), "{root:?} child");
             })
             .unwrap();
         // Calibrated on the real clock with zero dispatch costs.
@@ -2306,7 +2339,10 @@ fn layer_descent_matches_the_serial_bits_at_every_width() {
             .unwrap();
         let got = rounded_entries(&data, &a, &b, &c, n, Some(&mut free.exec(3))).unwrap();
         assert_eq!(bits(&got), serial, "{root:?} calibrated");
+        assert_eq!(built() > 0, shared(3) > 0, "{root:?} calibrated");
+        calibrated_layers += shared(3);
     }
+    assert!(calibrated_layers > 0);
 }
 
 /// The layer descent's live exact set, with every candidate counted as soon
