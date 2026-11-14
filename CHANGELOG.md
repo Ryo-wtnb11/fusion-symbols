@@ -77,6 +77,14 @@ value/gauge rule noted below.
 
 ### Performance
 
+- A cold Cartan CGC channel builds each weight's coupling pairs with one
+  allocation, and none for an empty weight, instead of one lookup key per
+  weight of the smaller factor plus the pair vector's growth: the key and the
+  matched weight spaces are reused for the whole channel. The pairs are
+  emitted in left-factor order and sorted only when the basis does not
+  already give the public order (Gelfand–Tsetlin), not for Gram–Schmidt.
+  Cold E7 channels of `1539 ⊗ 1539` make 81–91% fewer allocations; values
+  are bit-identical.
 - Warm coefficient-cache hits take no lock: they read the published table
   under a `seize` guard and write only the entry's reference bit when it is
   clear, so aggregate warm-hit throughput keeps growing with the thread count
