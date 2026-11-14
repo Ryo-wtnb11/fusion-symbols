@@ -924,7 +924,21 @@ column.
        most the `k` largest `σ_w` of its blocks, and runs only at widths
        where that sum is within `max_w σ_w` plus the CGC tier's byte
        budget. The first failing block in weight order is the result at
-       every width.
+       every width. Before that gate, on a team token, the per-entry
+       support predicate (range, finiteness, weight) runs in a section over
+       `J = ⌈nnz / 2^16⌉` fixed chunks of entries, each returning its first
+       failing entry; the leader then builds the column runs serially over
+       the entries before the earliest failure, so the error and the runs
+       are the serial ones. Beyond the runs table that stage holds `O(J)`
+       bookkeeping, the same for valid and malformed input: its result
+       slots and queue (a `StageBuf<Option<(usize, GateError)>>`: one
+       output slot per chunk, whose outer option marks a chunk that ran and
+       whose inner option its first failure, and the item queue) and its
+       units, plus transiently the planner's sorted units of a calibrated
+       stage (`run_priced`'s `sorted: Vec<u64>`), the stable sort's
+       workspace when the queue is put in LPT order, and a dispatched
+       section's per-chunk result cells. All of it is released before the
+       isometry gate starts.
 - **F and R requests.** The channel misses of one F or R request (§6) share
   their modules by label: each distinct label is loaded once per request
   instead of once per missed channel, and a channel served from the tier

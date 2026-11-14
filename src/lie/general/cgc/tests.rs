@@ -1474,7 +1474,8 @@ fn check_rounded_copying(
 /// copying loop, on valid channels and on column-contiguous corruptions:
 /// rescaled, missing, duplicated and sign-flipped columns, a dropped entry,
 /// off-weight and out-of-range indices, finite overflow, nonfinite values and
-/// a reversed entry list, and a duplicated entry.
+/// a reversed entry list, and a duplicated entry. Team tokens, with the
+/// support check in four-entry chunks, give the same decisions.
 #[test]
 fn rounded_gates_match_the_copying_loop() {
     type Corruption = fn(&mut Vec<MEntry>, u32);
@@ -1541,6 +1542,7 @@ fn rounded_gates_match_the_copying_loop() {
             .flatten()
             .map(|m| l[2].public[m])
             .collect();
+        let mut cases = Vec::new();
         for &m in &ms {
             for (name, corrupt) in corruptions {
                 let mut e = good.clone();
@@ -1560,8 +1562,18 @@ fn rounded_gates_match_the_copying_loop() {
                     }) => 3,
                     Err(GateError::Residual { .. }) => 4,
                 }] = true;
+                cases.push((format!("{name} m = {m}"), e, got));
             }
         }
+        on_support_tokens(|mut exec, token| {
+            for (case, e, want) in &cases {
+                assert_eq!(
+                    &check_rounded(&data, &l[0], &l[1], &l[2], n, e, exec.as_deref_mut()),
+                    want,
+                    "{root:?} {a:?} {b:?} {c:?} {token} {case}"
+                );
+            }
+        });
     }
     assert_eq!(seen, [true; 5], "every decision kind is compared");
 }
@@ -1862,6 +1874,127 @@ fn on_gate_tokens(check: impl Fn(Option<&mut threadteam::Exec<'_>>, &str) + Sync
     check(Some(&mut free.exec(3)), "calibrated");
 }
 
+/// Sets this thread's support chunk until dropped.
+struct ChunkGuard(Option<usize>);
+
+impl ChunkGuard {
+    fn set(chunk: usize) -> Self {
+        Self(SUPPORT_CHUNK_OVERRIDE.with(|c| c.replace(Some(chunk))))
+    }
+}
+
+impl Drop for ChunkGuard {
+    fn drop(&mut self) {
+        SUPPORT_CHUNK_OVERRIDE.with(|c| c.set(self.0));
+    }
+}
+
+/// [`on_gate_tokens`] with the support check in chunks of four entries,
+/// asserting that every team run, and no serial one, opened a support
+/// section, so isometry sections cannot stand in for support coverage.
+fn on_support_tokens(check: impl Fn(Option<&mut threadteam::Exec<'_>>, &str) + Sync) {
+    on_gate_tokens(|exec, token| {
+        let _chunk = ChunkGuard::set(4);
+        SUPPORT_SECTIONS.with(|s| s.set(0));
+        let team = exec.is_some();
+        check(exec, token);
+        let opened = SUPPORT_SECTIONS.with(std::cell::Cell::get);
+        assert_eq!(opened > 0, team, "{token}: {opened} support sections");
+    });
+}
+
+/// With four-entry chunks, every token returns the serial loop's first
+/// support error: the earliest failing entry across chunks; the range before
+/// finiteness within one entry; finiteness before a split column at one
+/// entry; a split column before a later failure, within one chunk and
+/// across chunks; a failure before a later split column. A column across
+/// chunk boundaries gives the serial runs.
+#[test]
+fn chunked_support_keeps_the_first_serial_error() {
+    let root = RootSystem::G2;
+    let (good, l, n) = rounded(root, &G27, &G27, &G27);
+    let data = CartanData::new(root);
+    let modules = [&l[0], &l[1], &l[2]];
+    let engines = [l[0].engine(), l[1].engine(), l[2].engine()];
+    // The first chunk after the first column's run. Moving that column's
+    // first entry to `base + i` splits the column there.
+    let column = |x: &MEntry| (x.m3, x.mu);
+    let first = good
+        .iter()
+        .take_while(|x| column(x) == column(&good[0]))
+        .count();
+    assert!(first >= 2);
+    let base = (first / 4 + 1) * 4;
+    assert!(good.len() >= base + 12);
+    let split = |i: usize| {
+        let mut e = good.clone();
+        let x = e.remove(0);
+        e.insert(base + i, x);
+        assert_ne!(column(&e[base + i - 1]), column(&x));
+        e
+    };
+    let nan = |mut e: Vec<MEntry>, i: usize| {
+        e[base + i].value = f64::NAN;
+        e
+    };
+    let out_of_range = |mut e: Vec<MEntry>, i: usize| {
+        e[base + i].m3 = u32::MAX;
+        e
+    };
+    let nonfinite = Err(GateError::NonFinite { gate: "isometry" });
+    let cases = [
+        (
+            "nan before a later chunk's range",
+            out_of_range(nan(good.clone(), 1), 9),
+            nonfinite.clone(),
+        ),
+        (
+            "range and nan in one entry",
+            nan(out_of_range(good.clone(), 1), 1),
+            Err(GateError::Support),
+        ),
+        ("nan on a split entry", nan(split(1), 1), nonfinite.clone()),
+        (
+            "split before a nan in its chunk",
+            nan(split(1), 2),
+            Err(GateError::Support),
+        ),
+        (
+            "split before a later chunk's nan",
+            nan(split(1), 6),
+            Err(GateError::Support),
+        ),
+        ("nan before a later split", nan(split(6), 1), nonfinite),
+        (
+            "range at the last entry",
+            {
+                let mut e = good.clone();
+                e.last_mut().unwrap().mu = n as u32;
+                e
+            },
+            Err(GateError::Support),
+        ),
+    ];
+    let boundary = support_runs(modules, n, &engines, &good, None).unwrap();
+    assert!(boundary
+        .iter()
+        .any(|&(s, t)| t > s + 1 && s / 4 != (t - 1) / 4));
+    on_support_tokens(|mut exec, token| {
+        for (name, e, want) in &cases {
+            assert_eq!(
+                &check_rounded(&data, &l[0], &l[1], &l[2], n, e, exec.as_deref_mut()),
+                want,
+                "{token} {name}"
+            );
+        }
+        assert_eq!(
+            support_runs(modules, n, &engines, &good, exec.as_deref_mut()).as_ref(),
+            Ok(&boundary),
+            "{token}"
+        );
+    });
+}
+
 /// The first failing block in weight order is the gate's result at every
 /// width: against a later block with a larger residual, and against a later
 /// block whose finite entries overflow the Gram sum.
@@ -1907,8 +2040,9 @@ fn isometry_gate_reports_the_first_failing_block_at_every_width() {
     });
 }
 
-/// On team tokens the support check still runs before the isometry gate,
-/// and the ladder gate only after every isometry block passes.
+/// On team tokens, with the support check in four-entry chunks, it still
+/// runs before the isometry gate, and the ladder gate only after every
+/// isometry block passes.
 #[test]
 fn team_gates_keep_support_isometry_ladder_order() {
     let root = RootSystem::G2;
@@ -1937,7 +2071,7 @@ fn team_gates_keep_support_isometry_ladder_order() {
     // Plus an entry off its weight.
     let mut support = both.clone();
     support[0].m1 = if support[0].m1 == 0 { 1 } else { 0 };
-    on_gate_tokens(|mut exec, token| {
+    on_support_tokens(|mut exec, token| {
         let mut run =
             |e: &[MEntry]| check_rounded(&data, &l[0], &l[1], &l[2], n, e, exec.as_deref_mut());
         assert!(
@@ -1962,8 +2096,10 @@ fn team_gates_keep_support_isometry_ladder_order() {
 }
 
 /// A channel failing a gate is never retained, its error is a typed
-/// generation failure, and a valid retry builds and retains it once. The
-/// channel is used by no other test, so no concurrent test publishes it.
+/// generation failure, and a valid retry builds and retains it once: on the
+/// serial token, and on a team token whose support check runs in a section
+/// of four-entry chunks. The channel is used by no other test, so no
+/// concurrent test publishes it; the cache is reset before the team run.
 #[test]
 fn failed_gate_is_not_retained_and_retry_succeeds() {
     // Resetting tests hold this lock; warm-build checks must not overlap them.
@@ -1975,26 +2111,43 @@ fn failed_gate_is_not_retained_and_retry_succeeds() {
     let [la, lb, lc] = [&a, &b, &c].map(|x| Label::new(x));
     assert_eq!(fam.mult(la, lb, lc).unwrap(), 1);
     let resident = || crate::cache::cgc_channel_is_resident(RootSystem::G2, [&a, &b, &c]);
-    CORRUPT.with(|x| x.set(Some(|e| e[0].value = f64::NAN)));
-    let err = fam.cgc_entries(la, lb, lc, None).err();
-    CORRUPT.with(|x| x.set(None));
-    let err = err.unwrap();
-    assert_eq!(
-        err,
-        LieError::from(GateError::NonFinite { gate: "isometry" })
-    );
-    assert!(matches!(err, LieError::Generation(_)));
-    assert!(!resident());
-    let good = fam.cgc_entries(la, lb, lc, None).unwrap();
-    assert!(resident());
-    let builds = BUILDS.with(std::cell::Cell::get);
-    let again = fam.cgc_entries(la, lb, lc, None).unwrap();
-    assert_eq!(
-        BUILDS.with(std::cell::Cell::get),
-        builds,
-        "warm channel must not regenerate"
-    );
-    assert!(Arc::ptr_eq(&again, &good));
+    let team = layer_team(5);
+    for on_team in [false, true] {
+        let mut exec = team.exec(5);
+        let mut exec = on_team.then_some(&mut exec);
+        let _force = on_team.then(|| crate::stage::force_width(3));
+        let _chunk = on_team.then(|| ChunkGuard::set(4));
+        if on_team {
+            crate::cache::reset();
+        }
+        assert!(!resident(), "team {on_team}");
+        SUPPORT_SECTIONS.with(|s| s.set(0));
+        CORRUPT.with(|x| x.set(Some(|e| e[0].value = f64::NAN)));
+        let err = fam.cgc_entries(la, lb, lc, exec.as_deref_mut()).err();
+        CORRUPT.with(|x| x.set(None));
+        assert_eq!(
+            SUPPORT_SECTIONS.with(std::cell::Cell::get) > 0,
+            on_team,
+            "support section on the failing request"
+        );
+        let err = err.unwrap();
+        assert_eq!(
+            err,
+            LieError::from(GateError::NonFinite { gate: "isometry" })
+        );
+        assert!(matches!(err, LieError::Generation(_)));
+        assert!(!resident());
+        let good = fam.cgc_entries(la, lb, lc, exec.as_deref_mut()).unwrap();
+        assert!(resident());
+        let builds = BUILDS.with(std::cell::Cell::get);
+        let again = fam.cgc_entries(la, lb, lc, exec).unwrap();
+        assert_eq!(
+            BUILDS.with(std::cell::Cell::get),
+            builds,
+            "warm channel must not regenerate"
+        );
+        assert!(Arc::ptr_eq(&again, &good));
+    }
 }
 
 /// Gates 6 and 7 run on every completed F and R block before it is retained.

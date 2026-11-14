@@ -90,6 +90,12 @@ value/gauge rule noted below.
   the calling thread: each participant holds one scan scratch of
   `8r + 16·min(|W_a|, |W_b|)` bytes. Cold E7 `1539 ⊗ 1539` channels at 8
   threads are 11–18% faster; values are bit-identical.
+- On a team token, the support check of a cold Cartan CGC channel (every entry
+  in range, finite and on its weight) runs in a team section over fixed chunks
+  of 2^16 entries; the calling thread then checks column contiguity over the
+  entries before the first failure, so the returned error and the column runs
+  are the serial ones. At 8 threads the heavy cold channels are 3–10% faster
+  (E7 `1539 ⊗ 1539`: 10%).
 - Warm coefficient-cache hits take no lock: they read the published table
   under a `seize` guard and write only the entry's reference bit when it is
   clear, so aggregate warm-hit throughput keeps growing with the thread count
