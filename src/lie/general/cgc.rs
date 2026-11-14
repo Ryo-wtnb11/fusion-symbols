@@ -715,9 +715,11 @@ struct BoundRows {
 /// The rounded columns of [`descend`], one depth layer at a time, on a team
 /// token (`docs/gauge_cartan.md` §9).
 ///
-/// A layer runs as two stages of [`crate::stage::run_stage`]: phase A lowers
-/// every kept candidate × `μ` of the layer, phase B combines every recipe row
-/// × `μ` and rounds its column. Every item computes exactly the operations
+/// A layer runs as three stages of [`crate::stage::run_stage`]: the first
+/// builds the product space of every weight of the layer, each participant
+/// on its own [`ProductScratch`]; phase A lowers every kept candidate × `μ`
+/// of the layer; phase B combines every recipe row × `μ` and rounds its
+/// column. Every item computes exactly the operations
 /// [`descend`] does for it, so the entries are bit-identical at every width.
 /// The live exact set is at most two layers plus one layer's candidates; the
 /// leader frees a parent after phase A, when all its readers have run.
@@ -774,6 +776,11 @@ fn descend_layers(
     let mut tos: Vec<ProductSpace> = Vec::new();
     let mut lowered: Vec<Vec<Vec<Q>>> = Vec::new();
     let mut uses: Vec<Vec<usize>> = Vec::new();
+    // The leader's scan scratch, carried across the layers' construction
+    // stages; every construction scans the smaller factor once.
+    let mut product = Some(product);
+    let scan = a.module.weights.len().min(b.module.weights.len()) as u64;
+    let mut building = StageBuf::default();
     let mut lowering = StageBuf::default();
     let mut combining = StageBuf::default();
     let mut cands: Vec<(usize, usize)> = Vec::new();
@@ -789,11 +796,24 @@ fn descend_layers(
                 .take_while(|s| s.k.iter().sum::<i64>() == depth(lo))
                 .count();
         let layer = &weights[lo..hi];
-        tos.extend(
-            layer
-                .iter()
-                .map(|s| ProductSpace::new(a, b, &s.mu, &mut product)),
+        // The layer's product spaces: one item per weight, each scanning the
+        // smaller factor. Drained in weight order before phase A reads `tos`.
+        units.clear();
+        units.resize(layer.len(), scan);
+        let _built = run_stage(
+            exec,
+            &units,
+            &SystemClock,
+            &mut product,
+            &mut building,
+            || ProductScratch::new(a, b),
+            |s, w| ProductSpace::new(a, b, &layer[w].mu, s),
         );
+        #[cfg(test)]
+        if _built.width.get() > 1 {
+            CONSTRUCTION_SECTIONS.with(|n| n.set(n.get() + 1));
+        }
+        tos.extend(building.drain());
 
         // Phase A: item `i` lowers candidate `i / n` for `μ = i % n`.
         cands.clear();
@@ -1577,6 +1597,9 @@ thread_local! {
     pub(crate) static BUILDS: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
     /// Columns placed by [`rounded_entries`] on this thread: `[writes, entries]`.
     pub(super) static COLUMNS: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
+    /// Construction stages of [`descend_layers`] on this thread that ran a
+    /// section of width two or more.
+    pub(super) static CONSTRUCTION_SECTIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// Live exact slots of [`descend`] on this thread: `[current, maximum]`.
     pub(super) static LIVE_EXACT: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
     /// Replaces the isometry gate's allowance beyond the serial peak.
