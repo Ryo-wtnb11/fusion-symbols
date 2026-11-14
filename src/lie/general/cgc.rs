@@ -1365,6 +1365,173 @@ fn isometry_gate(
     buf.drain().collect()
 }
 
+/// Entries per item of the support stage on a team token: large enough to
+/// amortize a stage item's scheduling and keep the stage's slots and queue
+/// at `O(nnz / 2^16)`, while the planner prices dispatch. It is a fixed
+/// grain, not a crossover threshold.
+const SUPPORT_CHUNK: usize = 1 << 16;
+
+/// The support predicate of one entry of `a ⊗ b → c` at multiplicity `n`, in
+/// the gates' order: every index in range, before any engine lookup; a finite
+/// value; the entry on its weight. Returns its column `p_c·n + μ` at engine
+/// `p_c`.
+///
+/// Always inlined: the serial loop otherwise calls it per entry, reloading
+/// the module dimensions and engine maps and returning through memory,
+/// where the former inline loop hoisted them.
+#[inline(always)]
+fn entry_column(
+    [a, b, c]: [&Ladders; 3],
+    n: usize,
+    [ea, eb, ec]: &[Vec<usize>; 3],
+    e: &MEntry,
+) -> Result<usize, GateError> {
+    let (m1, m2, m3, mu) = (e.m1 as usize, e.m2 as usize, e.m3 as usize, e.mu as usize);
+    if m1 >= a.dim() || m2 >= b.dim() || m3 >= c.dim() || mu >= n {
+        return Err(GateError::Support);
+    }
+    if !e.value.is_finite() {
+        return Err(GateError::NonFinite { gate: "isometry" });
+    }
+    let (pa, pb, pc) = (ea[m1], eb[m2], ec[m3]);
+    let on_weight = a
+        .weight(pa)
+        .iter()
+        .zip(b.weight(pb))
+        .zip(c.weight(pc))
+        .all(|((x, y), z)| x.checked_add(*y) == Some(*z));
+    if !on_weight {
+        return Err(GateError::Support);
+    }
+    Ok(pc * n + mu)
+}
+
+/// Extends column `col`'s run in `runs` by entry `i`, where `prev` is the
+/// previous entry's column; a column that reappears after another is split,
+/// a support failure.
+fn extend_run(
+    runs: &mut [(usize, usize)],
+    prev: &mut usize,
+    i: usize,
+    col: usize,
+) -> Result<(), GateError> {
+    if col != *prev {
+        if runs[col].1 != 0 {
+            return Err(GateError::Support);
+        }
+        runs[col].0 = i;
+        *prev = col;
+    }
+    runs[col].1 = i + 1;
+    Ok(())
+}
+
+/// The support check of [`check_rounded`] and its column runs:
+/// `runs[m_c·n + μ]` (engine `m_c`) is the column's `entries[start..end]`,
+/// and `end == 0` marks an absent column.
+///
+/// Serially every entry passes [`entry_column`] and then extends its run, so
+/// the first failing entry decides. On a team token the predicate runs as one
+/// stage of [`crate::stage::run_stage`] over chunks of [`SUPPORT_CHUNK`]
+/// entries, each returning its first failure; the leader then extends the
+/// runs over the entries before the earliest failure `f` only. A split
+/// column there precedes `f`; otherwise the failure at `f` is the serial one,
+/// since the serial loop tests the predicate of an entry before its run. The
+/// stage's slots, queue and units end here, before the isometry gate.
+fn support_runs(
+    modules: [&Ladders; 3],
+    n: usize,
+    engines: &[Vec<usize>; 3],
+    entries: &[MEntry],
+    exec: Option<&mut Exec<'_>>,
+) -> Result<Vec<(usize, usize)>, GateError> {
+    let exec = match exec {
+        Some(exec) if exec.carries_team() && !exec.is_serial() => exec,
+        _ => return serial_support_runs(modules[0], modules[1], modules[2], n, engines, entries),
+    };
+    let mut runs = vec![(0usize, 0usize); modules[2].dim() * n];
+    let mut prev = usize::MAX;
+    use crate::stage::{run_stage, StageBuf, SystemClock};
+    let chunk = support_chunk();
+    let units: Vec<u64> = entries.chunks(chunk).map(|x| x.len() as u64).collect();
+    let mut buf = StageBuf::default();
+    let _ran = run_stage(
+        exec,
+        &units,
+        &SystemClock,
+        &mut None,
+        &mut buf,
+        || (),
+        |(), j| {
+            let start = j * chunk;
+            entries[start..(start + chunk).min(entries.len())]
+                .iter()
+                .enumerate()
+                .find_map(|(i, e)| {
+                    entry_column(modules, n, engines, e)
+                        .err()
+                        .map(|err| (start + i, err))
+                })
+        },
+    );
+    #[cfg(test)]
+    if _ran.width.get() > 1 {
+        SUPPORT_SECTIONS.with(|s| s.set(s.get() + 1));
+    }
+    let failure = buf.drain().flatten().next();
+    let valid = failure.as_ref().map_or(entries.len(), |&(f, _)| f);
+    let ec = &engines[2];
+    for (i, e) in entries[..valid].iter().enumerate() {
+        extend_run(
+            &mut runs,
+            &mut prev,
+            i,
+            ec[e.m3 as usize] * n + e.mu as usize,
+        )?;
+    }
+    match failure {
+        Some((_, err)) => Err(err),
+        None => Ok(runs),
+    }
+}
+
+/// The serial support check of [`support_runs`]: every entry passes
+/// [`entry_column`] and then extends its run, so the first failing entry
+/// decides.
+///
+/// Never inlined, and with each module a parameter of its own: inside
+/// [`check_rounded`] the loop shares registers with the team path and the
+/// later gates and spills its loop invariants to the stack, and modules
+/// passed in one array are not known to be unaliased, so their weight tables
+/// are reloaded on every entry. As here, the loop keeps them in registers,
+/// as the former inline loop did.
+#[inline(never)]
+fn serial_support_runs(
+    a: &Ladders,
+    b: &Ladders,
+    c: &Ladders,
+    n: usize,
+    engines: &[Vec<usize>; 3],
+    entries: &[MEntry],
+) -> Result<Vec<(usize, usize)>, GateError> {
+    let mut runs = vec![(0usize, 0usize); c.dim() * n];
+    let mut prev = usize::MAX;
+    for (i, e) in entries.iter().enumerate() {
+        let col = entry_column([a, b, c], n, engines, e)?;
+        extend_run(&mut runs, &mut prev, i, col)?;
+    }
+    Ok(runs)
+}
+
+/// [`SUPPORT_CHUNK`], or this thread's test override.
+fn support_chunk() -> usize {
+    #[cfg(test)]
+    if let Some(chunk) = SUPPORT_CHUNK_OVERRIDE.with(std::cell::Cell::get) {
+        return chunk;
+    }
+    SUPPORT_CHUNK
+}
+
 /// The allowance for isometry-gate scratch beyond the serial peak.
 fn gate_allowance() -> usize {
     #[cfg(test)]
@@ -1397,41 +1564,11 @@ pub(super) fn check_rounded(
     c: &Ladders,
     n: usize,
     entries: &[MEntry],
-    exec: Option<&mut Exec<'_>>,
+    mut exec: Option<&mut Exec<'_>>,
 ) -> Result<(), GateError> {
-    let (ea, eb, ec) = (a.engine(), b.engine(), c.engine());
-    // `runs[m_c·n + μ]` (engine `m_c`) is the column's `entries[start..end]`;
-    // `end == 0` marks a column not yet seen.
-    let mut runs = vec![(0usize, 0usize); c.dim() * n];
-    let mut prev = usize::MAX;
-    for (i, e) in entries.iter().enumerate() {
-        let (m1, m2, m3, mu) = (e.m1 as usize, e.m2 as usize, e.m3 as usize, e.mu as usize);
-        if m1 >= a.dim() || m2 >= b.dim() || m3 >= c.dim() || mu >= n {
-            return Err(GateError::Support);
-        }
-        if !e.value.is_finite() {
-            return Err(GateError::NonFinite { gate: "isometry" });
-        }
-        let (pa, pb, pc) = (ea[m1], eb[m2], ec[m3]);
-        let on_weight = a
-            .weight(pa)
-            .iter()
-            .zip(b.weight(pb))
-            .zip(c.weight(pc))
-            .all(|((x, y), z)| x.checked_add(*y) == Some(*z));
-        if !on_weight {
-            return Err(GateError::Support);
-        }
-        let col = pc * n + mu;
-        if col != prev {
-            if runs[col].1 != 0 {
-                return Err(GateError::Support);
-            }
-            runs[col].0 = i;
-            prev = col;
-        }
-        runs[col].1 = i + 1;
-    }
+    let engines = [a.engine(), b.engine(), c.engine()];
+    let runs = support_runs([a, b, c], n, &engines, entries, exec.as_deref_mut())?;
+    let [ea, eb, _] = &engines;
     let column = |m: usize, mu: usize| {
         let (s, t) = runs[m * n + mu];
         &entries[s..t]
@@ -1602,6 +1739,11 @@ thread_local! {
     pub(super) static CONSTRUCTION_SECTIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// Live exact slots of [`descend`] on this thread: `[current, maximum]`.
     pub(super) static LIVE_EXACT: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
+    /// Support stages of [`check_rounded`] on this thread that ran a section
+    /// of width two or more.
+    pub(super) static SUPPORT_SECTIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Replaces [`SUPPORT_CHUNK`] on this thread.
+    pub(super) static SUPPORT_CHUNK_OVERRIDE: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
     /// Replaces the isometry gate's allowance beyond the serial peak.
     pub(super) static GATE_ALLOWANCE: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
     /// Modules held by the live [`RequestModules`] of this thread:
