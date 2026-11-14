@@ -267,36 +267,73 @@ pub(super) struct ProductSpace {
 }
 
 impl ProductSpace {
-    fn new(a: &Ladders, b: &Ladders, nu: &[i64]) -> Self {
-        let mut pairs = Vec::new();
-        // Scan the smaller weight set; the order is restored below either way.
-        let (inner, outer, swapped) = if a.module.weights.len() < b.module.weights.len() {
-            (b, a, true)
-        } else {
-            (a, b, false)
-        };
-        for wb in &outer.module.weights {
-            let mu_a: Vec<i64> = nu.iter().zip(&wb.mu).map(|(x, y)| x - y).collect();
-            let Some(wa) = inner.module.weight_index(&mu_a) else {
-                continue;
-            };
-            let wa = &inner.module.weights[wa];
-            for q in wb.offset..wb.offset + wb.norms.len() {
-                pairs.extend((wa.offset..wa.offset + wa.norms.len()).map(|p| {
-                    if swapped {
-                        (q, p)
-                    } else {
-                        (p, q)
-                    }
-                }));
+    /// The fibre of `nu`, with one allocation when it is non-empty and none
+    /// otherwise: the scan's key and matches live in `scratch`.
+    fn new(a: &Ladders, b: &Ladders, nu: &[i64], scratch: &mut ProductScratch) -> Self {
+        // Scan the smaller weight set; each of its weights meets at most one
+        // weight of the other factor.
+        let swapped = a.module.weights.len() < b.module.weights.len();
+        let (inner, outer) = if swapped { (b, a) } else { (a, b) };
+        let ProductScratch { key, matches } = scratch;
+        matches.clear();
+        for (wo, wb) in outer.module.weights.iter().enumerate() {
+            key.clear();
+            key.extend(nu.iter().zip(&wb.mu).map(|(x, y)| x - y));
+            if let Some(wi) = inner.module.weight_index(key) {
+                matches.push(if swapped { (wo, wi) } else { (wi, wo) });
             }
         }
-        pairs.sort_unstable_by_key(|&(p, q)| (a.public[p], b.public[q]));
+        // Weight spaces are disjoint, increasing offset intervals and each
+        // left space has one partner, so emitting in left-offset order gives
+        // lexicographic engine pairs.
+        matches.sort_unstable_by_key(|&(wa, _)| a.module.weights[wa].offset);
+        let span = |m: &Ladders, w: usize| {
+            let s = &m.module.weights[w];
+            s.offset..s.offset + s.norms.len()
+        };
+        let len = matches
+            .iter()
+            .map(|&(wa, wb)| span(a, wa).len() * span(b, wb).len())
+            .sum();
+        let mut pairs = Vec::with_capacity(len);
+        for &(wa, wb) in matches.iter() {
+            for p in span(a, wa) {
+                pairs.extend(span(b, wb).map(|q| (p, q)));
+            }
+        }
+        // Engine order is the public a-slow order when public is the
+        // identity (Gram–Schmidt); any other basis is checked and sorted.
+        let key = |&(p, q): &(usize, usize)| (a.public[p], b.public[q]);
+        if !pairs.is_sorted_by_key(key) {
+            #[cfg(test)]
+            FIBRE_SORTS.with(|n| n.set(n.get() + 1));
+            pairs.sort_unstable_by_key(key);
+        }
         Self { pairs }
     }
 
     fn len(&self) -> usize {
         self.pairs.len()
+    }
+}
+
+/// The scan buffers of [`ProductSpace::new`] for one channel, sized once at
+/// their maxima so no construction grows them: the rank-`r` lookup key, and
+/// the matched weight spaces `(w_a, w_b)`, at most one per weight of the
+/// smaller factor for a fixed target weight.
+pub(super) struct ProductScratch {
+    key: Vec<i64>,
+    matches: Vec<(usize, usize)>,
+}
+
+impl ProductScratch {
+    pub(super) fn new(a: &Ladders, b: &Ladders) -> Self {
+        let rank = a.module.weights[0].mu.len();
+        let smaller = a.module.weights.len().min(b.module.weights.len());
+        Self {
+            key: Vec::with_capacity(rank),
+            matches: Vec::with_capacity(smaller),
+        }
     }
 }
 
@@ -397,12 +434,13 @@ fn highest(
     c: &Ladders,
     multiplicity: usize,
     scratch: &mut RowScratch,
+    spaces: &mut ProductScratch,
 ) -> Result<(Vec<usize>, Option<Seeds>), LieError> {
     let top = &c.module.weights[0].mu;
-    let p = ProductSpace::new(a, b, top);
+    let p = ProductSpace::new(a, b, top, spaces);
 
     // §4.2: H is the nullspace of the stacked Δ(e_i) on span(P).
-    let rows = raising_rows(data, a, b, &p, top, scratch);
+    let rows = raising_rows(data, a, b, &p, top, scratch, spaces);
     let (pivots, echelon) = echelon_nullspace(rows, p.len());
     if echelon.len() != multiplicity {
         return Err(CgcError::NullityMismatch {
@@ -539,7 +577,8 @@ fn descend(
     emit: &mut Emit<'_>,
 ) -> Result<Vec<usize>, LieError> {
     let mut scratch = RowScratch::new(a);
-    let (pivots, seeded) = highest(data, a, b, c, multiplicity, &mut scratch)?;
+    let mut product = ProductScratch::new(a, b);
+    let (pivots, seeded) = highest(data, a, b, c, multiplicity, &mut scratch, &mut product)?;
     let Some(Seeds {
         p,
         seeds,
@@ -577,7 +616,7 @@ fn descend(
 
     // §4.4: replay c's basis recipe through Δ(f_j).
     for (w, space) in weights.iter().enumerate().skip(1) {
-        let to = ProductSpace::new(a, b, &space.mu);
+        let to = ProductSpace::new(a, b, &space.mu, &mut product);
         let rows = scratch.rows(&to, b);
         let mut lowered: Vec<Vec<Vec<Q>>> = Vec::with_capacity(space.kept.len());
         for &(j, q) in &space.kept {
@@ -694,11 +733,12 @@ fn descend_layers(
     let dc = c.dim();
     let mut columns: Vec<Vec<MEntry>> = vec![Vec::new(); n * dc];
     let mut scratch = RowScratch::new(a);
+    let mut product = ProductScratch::new(a, b);
     let Some(Seeds {
         p,
         seeds,
         norms: seed_norms,
-    }) = highest(data, a, b, c, n, &mut scratch)?.1
+    }) = highest(data, a, b, c, n, &mut scratch, &mut product)?.1
     else {
         return Ok(columns);
     };
@@ -749,7 +789,11 @@ fn descend_layers(
                 .take_while(|s| s.k.iter().sum::<i64>() == depth(lo))
                 .count();
         let layer = &weights[lo..hi];
-        tos.extend(layer.iter().map(|s| ProductSpace::new(a, b, &s.mu)));
+        tos.extend(
+            layer
+                .iter()
+                .map(|s| ProductSpace::new(a, b, &s.mu, &mut product)),
+        );
 
         // Phase A: item `i` lowers candidate `i / n` for `μ = i % n`.
         cands.clear();
@@ -1431,11 +1475,12 @@ fn raising_rows(
     p: &ProductSpace,
     top: &[i64],
     scratch: &mut RowScratch,
+    spaces: &mut ProductScratch,
 ) -> Vec<BTreeMap<usize, Q>> {
     let mut rows = Vec::new();
     for i in 0..top.len() {
         let nu: Vec<i64> = (0..top.len()).map(|k| top[k] + data.c(i, k)).collect();
-        let target = ProductSpace::new(a, b, &nu);
+        let target = ProductSpace::new(a, b, &nu, spaces);
         if target.pairs.is_empty() {
             continue;
         }
@@ -1545,6 +1590,8 @@ thread_local! {
     pub(crate) static BEFORE_FOURTH: std::cell::RefCell<Vec<Vec<i64>>> = const { std::cell::RefCell::new(Vec::new()) };
     /// Row-start slots written by [`RowScratch::rows`].
     pub(super) static ROW_WRITES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Product spaces whose emitted order needed [`ProductSpace::new`]'s sort.
+    pub(super) static FIBRE_SORTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// Fault injection between rounding and the gates.
     pub(super) static CORRUPT: Fault<fn(&mut Vec<MEntry>)> = const { std::cell::Cell::new(None) };
     /// Called on entry to every module and channel load, before its cache lookup.
@@ -1780,7 +1827,11 @@ impl GeneralFamily {
             }
             let ma = modules.load(self, a)?;
             let mb = modules.load(self, b)?;
-            if n == 0 && !a1 && ProductSpace::new(&ma, &mb, c.words).len() == 0 {
+            if n == 0
+                && !a1
+                && ProductSpace::new(&ma, &mb, c.words, &mut ProductScratch::new(&ma, &mb)).len()
+                    == 0
+            {
                 return empty();
             }
             let mc = modules.load(self, c)?;

@@ -359,6 +359,11 @@ fn principal_ladder_gate_rejects_a_zero_ladder() {
     );
 }
 
+/// The product space of `nu` from a fresh scratch.
+fn product_space(a: &Ladders, b: &Ladders, nu: &[i64]) -> ProductSpace {
+    ProductSpace::new(a, b, nu, &mut ProductScratch::new(a, b))
+}
+
 /// The pairs of `a ⊗ b` with weight sum `nu`, enumerated over public indices
 /// in a-slow order and returned at engine indices.
 fn public_fibre(a: &Ladders, b: &Ladders, nu: &[i64]) -> Vec<(usize, usize)> {
@@ -381,19 +386,26 @@ fn public_fibre(a: &Ladders, b: &Ladders, nu: &[i64]) -> Vec<(usize, usize)> {
 
 /// Every weight of `a ⊗ b` reached from `a`'s highest weight, then every
 /// weight of `b` shifted down from `b`'s: both repeated and simple fibres.
+/// Then the interior weight of both middle weight spaces, which meets many
+/// weight-space pairs, and the empty fibre above the highest weight.
 fn fibre_weights(a: &Ladders, b: &Ladders) -> Vec<Vec<i64>> {
     let add = |x: &[i64], y: &[i64]| -> Vec<i64> { x.iter().zip(y).map(|(u, v)| u + v).collect() };
-    let mut out: Vec<Vec<i64>> = (b.module.weights.iter())
-        .map(|w| add(&w.mu, &a.module.weights[0].mu))
-        .collect();
-    out.extend((a.module.weights.iter()).map(|w| add(&w.mu, &b.module.weights.last().unwrap().mu)));
+    let (wa, wb) = (&a.module.weights, &b.module.weights);
+    let mut out: Vec<Vec<i64>> = (wb.iter()).map(|w| add(&w.mu, &wa[0].mu)).collect();
+    out.extend((wa.iter()).map(|w| add(&w.mu, &wb.last().unwrap().mu)));
+    out.push(add(&wa[wa.len() / 2].mu, &wb[wb.len() / 2].mu));
+    let mut above = add(&wa[0].mu, &wb[0].mu);
+    above[0] += 1;
+    out.push(above);
     out
 }
 
 /// The product states of a weight are exactly the pairs of that weight sum
 /// in a-slow public order, and row arithmetic finds each at its position,
 /// for the Gram–Schmidt (G2, B2) and Gelfand–Tsetlin (A2, A3) bases, unequal
-/// and swapped factors, and weight spaces of multiplicity above one.
+/// and swapped factors, weight spaces of multiplicity above one, interior and
+/// empty fibres, and one scratch reused across every fibre of a pair. Only
+/// the Gelfand–Tsetlin fibres need the order sort.
 #[test]
 fn product_space_is_the_weight_fibre_in_a_slow_order() {
     let cases: [(RootSystem, &[i64], &[i64]); 4] = [
@@ -415,17 +427,66 @@ fn product_space_is_the_weight_fibre_in_a_slow_order() {
         assert_eq!(identity(&mx) && identity(&my), !gt, "{root:?}");
         for (a, b) in [(&mx, &my), (&my, &mx), (&my, &my)] {
             let mut scratch = RowScratch::new(a);
-            for nu in fibre_weights(a, b) {
+            let mut product = ProductScratch::new(a, b);
+            let weights = fibre_weights(a, b);
+            assert!(public_fibre(a, b, weights.last().unwrap()).is_empty());
+            FIBRE_SORTS.with(|n| n.set(0));
+            for nu in weights {
                 let want = public_fibre(a, b, &nu);
-                let got = ProductSpace::new(a, b, &nu);
+                let got = ProductSpace::new(a, b, &nu, &mut product);
                 assert_eq!(got.pairs, want, "{root:?} {nu:?}");
                 let rows = scratch.rows(&got, b);
                 for (t, &pq) in want.iter().enumerate() {
                     assert_eq!(rows.at(pq), t, "{root:?} {nu:?}");
                 }
             }
+            // Gram–Schmidt fibres are emitted in order; GT ones are sorted.
+            let sorts = FIBRE_SORTS.with(std::cell::Cell::get);
+            assert_eq!(sorts > 0, gt, "{root:?}: {sorts} sorted fibres");
         }
     }
+}
+
+/// A product space costs one allocation, its pairs, when it is non-empty and
+/// none when it is empty, whatever the number of weights scanned; a cold
+/// scratch adds exactly its two buffers, which no fibre grows (GT basis, so
+/// the order check and its fallback sort run too; `|W|` 7 and 61).
+#[cfg(feature = "lie-generated")]
+#[test]
+fn product_space_allocates_only_its_pairs() {
+    let calls = crate::audit_alloc::thread_allocation_calls;
+    let data = CartanData::new(RootSystem::A(2));
+    let mut sizes = Vec::new();
+    for label in [[1, 1], [4, 4]] {
+        let m = Ladders::new(&data, &label).unwrap();
+        let weights = fibre_weights(&m, &m);
+        let nonempty: Vec<bool> = (weights.iter())
+            .map(|nu| !public_fibre(&m, &m, nu).is_empty())
+            .collect();
+        let interior = &weights[weights.len() - 2];
+        let mut matched: Vec<(usize, usize)> = (public_fibre(&m, &m, interior).iter())
+            .map(|&(p, q)| (m.space[p], m.space[q]))
+            .collect();
+        matched.sort_unstable();
+        matched.dedup();
+        // Enough matched weight spaces that a list grown from empty
+        // reallocates more than once.
+        assert!(matched.len() > 4, "{label:?}");
+
+        let start = calls();
+        let mut scratch = ProductScratch::new(&m, &m);
+        let cold = ProductSpace::new(&m, &m, interior, &mut scratch);
+        assert_eq!(calls() - start, 2 + 1, "{label:?}: cold");
+        drop(cold);
+        for (nu, &nonempty) in weights.iter().zip(&nonempty) {
+            let start = calls();
+            let space = ProductSpace::new(&m, &m, nu, &mut scratch);
+            assert_eq!(calls() - start, usize::from(nonempty), "{label:?} {nu:?}");
+            drop(space);
+        }
+        sizes.push(m.module.weights.len());
+    }
+    assert!(sizes[1] >= 8 * sizes[0], "{sizes:?}");
 }
 
 /// A pair outside the bound target fails loudly even when its left state
@@ -436,11 +497,11 @@ fn row_arithmetic_rejects_an_off_weight_pair() {
     let data = CartanData::new(RootSystem::A(2));
     let a = Ladders::new(&data, &[2, 1]).unwrap();
     let mut scratch = RowScratch::new(&a);
-    let source = ProductSpace::new(&a, &a, &[4, 2]);
+    let source = product_space(&a, &a, &[4, 2]);
     let stale = (0, 0);
     assert_eq!(source.pairs.first(), Some(&stale));
     let _ = scratch.rows(&source, &a);
-    let target = ProductSpace::new(&a, &a, &[2, -3]);
+    let target = product_space(&a, &a, &[2, -3]);
     // Left state 0 is absent, so its row start is not rewritten, and the
     // stale index lands inside the target on a different pair.
     assert!(target.pairs.iter().all(|&(p, _)| p != stale.0));
@@ -480,7 +541,7 @@ fn exact_vectors_live_only_through_their_readers() {
         let mut layers = vec![0usize; depth(weights.len() - 1) + 1];
         let (mut whole, mut candidates) = (0, 0);
         for (w, s) in weights.iter().enumerate() {
-            let pairs = ProductSpace::new(&a, &b, &s.mu).len();
+            let pairs = product_space(&a, &b, &s.mu).len();
             layers[depth(w)] += s.norms.len() * pairs;
             whole += s.norms.len() * pairs;
             candidates = usize::max(candidates, s.kept.len() * pairs);
@@ -522,7 +583,7 @@ fn channel_writes_one_row_start_per_left_state() {
         let raising: usize = (0..top.len())
             .map(|i| {
                 let nu: Vec<i64> = (0..top.len()).map(|k| top[k] + data.c(i, k)).collect();
-                distinct(&ProductSpace::new(&a, &b, &nu))
+                distinct(&product_space(&a, &b, &nu))
             })
             .sum();
         let descent: usize = ch.spaces[1..].iter().map(distinct).sum();
@@ -1011,11 +1072,11 @@ fn dense_echelon_nullspace(mut m: Vec<Vec<Q>>, cols: usize) -> (Vec<usize>, Vec<
 }
 
 fn compare_nullspace(data: &CartanData, a: &Ladders, b: &Ladders, top: &[i64], n: usize) {
-    let p = ProductSpace::new(a, b, top);
+    let p = product_space(a, b, top);
     let mut rows: Vec<Vec<Q>> = Vec::new();
     for i in 0..top.len() {
         let nu: Vec<i64> = (0..top.len()).map(|k| top[k] + data.c(i, k)).collect();
-        let target = ProductSpace::new(a, b, &nu);
+        let target = product_space(a, b, &nu);
         if target.pairs.is_empty() {
             continue;
         }
@@ -1032,7 +1093,15 @@ fn compare_nullspace(data: &CartanData, a: &Ladders, b: &Ladders, top: &[i64], n
             }
         }
     }
-    let sparse = raising_rows(data, a, b, &p, top, &mut RowScratch::new(a));
+    let sparse = raising_rows(
+        data,
+        a,
+        b,
+        &p,
+        top,
+        &mut RowScratch::new(a),
+        &mut ProductScratch::new(a, b),
+    );
     let expected_rows: Vec<BTreeMap<usize, Q>> = rows
         .iter()
         .map(|row| {
@@ -2260,7 +2329,7 @@ fn layer_descent_holds_two_layers_plus_one_layers_candidates() {
         let mut states = vec![0usize; depth(weights.len() - 1) + 1];
         let mut cands = states.clone();
         for (w, s) in weights.iter().enumerate() {
-            let pairs = ProductSpace::new(&a, &b, &s.mu).len();
+            let pairs = product_space(&a, &b, &s.mu).len();
             states[depth(w)] += s.norms.len() * pairs;
             cands[depth(w)] += s.kept.len() * pairs;
         }
