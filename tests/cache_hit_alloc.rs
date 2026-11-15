@@ -39,6 +39,12 @@ fn every_coefficient_tier_has_zero_allocation_warm_hits() {
         check(Tier::Product, || {
             su3.fusion(&octet, &octet).unwrap().count()
         });
+        check(Tier::Product, || {
+            su3.fusion(&octet, &octet)
+                .unwrap()
+                .map(|(_, n)| n)
+                .sum::<u32>()
+        });
         check(Tier::Cgc, || su3.cgc(&octet, &octet, &octet).unwrap());
         check(Tier::FSymbol, || {
             su3.f_symbol(&octet, &octet, &octet, &octet, &octet, &octet)
@@ -55,6 +61,12 @@ fn every_coefficient_tier_has_zero_allocation_warm_hits() {
         // Exact products use the same tier for every root system.
         check(Tier::Product, || {
             b2.fusion(&vector, &vector).unwrap().count()
+        });
+        check(Tier::Product, || {
+            b2.fusion(&vector, &vector)
+                .unwrap()
+                .map(|(_, n)| n)
+                .sum::<u32>()
         });
         check(Tier::Cgc, || b2.cgc(&vector, &vector, &adjoint).unwrap());
         check(Tier::FSymbol, || {
@@ -75,6 +87,9 @@ fn every_coefficient_tier_has_zero_allocation_warm_hits() {
             let one = g.unit();
             check(Tier::Product, || g.nsymbol(&a, &b, &one).unwrap());
             check(Tier::Product, || g.fusion(&a, &b).unwrap().count());
+            check(Tier::Product, || {
+                g.fusion(&a, &b).unwrap().map(|(_, n)| n).sum::<u32>()
+            });
         }
         for id in [
             GroupId::su(6).unwrap(),
@@ -106,4 +121,40 @@ fn warm_hit_on_a_new_thread_allocates_only_on_its_first_query() {
     })
     .join()
     .unwrap();
+}
+
+/// Reading every channel's multiplicity from a cache-free category or a tuple
+/// product of them allocates nothing.
+#[test]
+fn cache_free_fusion_multiplicities_allocate_nothing() {
+    use fusion_symbols::{
+        finite::{ZNIrrep, ZN},
+        lie::{U1Irrep, U1},
+        product::Product,
+        table::TableCategory,
+    };
+    let _serial = counting_alloc::serial();
+    fn zero<C: FusionCategory>(cat: &C, a: &C::Object, b: &C::Object) {
+        let sum = || cat.fusion(a, b).unwrap().map(|(_, n)| n).sum::<u32>();
+        std::hint::black_box(sum());
+        let (calls, _, _, total) = counting_alloc::measure(sum);
+        assert_eq!(calls, 0);
+        assert!(total >= 1);
+    }
+    let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+    let three_halves = su2.irrep(&[3]).unwrap();
+    zero(&su2, &three_halves, &three_halves);
+    zero(&U1, &U1Irrep::new(2).unwrap(), &U1Irrep::new(-5).unwrap());
+    let z3 = ZN::new(3).unwrap();
+    let one = ZNIrrep::new(1, 3).unwrap();
+    zero(&z3, &one, &one);
+    let fib = TableCategory::fibonacci();
+    let tau = fib.object(2).unwrap();
+    zero(&fib, &tau, &tau);
+    let torus = crate::common::lie::torus();
+    let q = torus.irrep_with_charges(&[], &[3]).unwrap();
+    zero(&torus, &q, &q);
+    let tuple = Product::new((su2, U1, fib));
+    let x = (three_halves, U1Irrep::new(1).unwrap(), tau);
+    zero(&tuple, &x, &x);
 }

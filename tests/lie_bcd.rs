@@ -112,7 +112,8 @@ fn labels_weights_zero_blocks_and_shared_cgc() {
     let product = cat.fusion(&s, &s).unwrap().collect::<Vec<_>>();
     let before = cache::tier_stats(cache::CoefficientCacheTier::Product);
     assert_eq!(cat.fusion(&s, &s).unwrap().collect::<Vec<_>>(), product);
-    for c in product {
+    for (c, n) in product {
+        assert_eq!(n, 1);
         assert_eq!(cat.nsymbol(&s, &s, &c).unwrap(), 1);
     }
     let warm = cache::tier_stats(cache::CoefficientCacheTier::Product);

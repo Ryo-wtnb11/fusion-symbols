@@ -248,9 +248,9 @@ mod tests {
             }
             Item::Fusion([a, b]) => {
                 let mut out = Vec::new();
-                for c in group.fusion(a, b)? {
+                for (c, n) in group.fusion(a, b)? {
                     out.extend(c.dynkin().chain(c.charges()).map(|x| x as u64));
-                    out.push(u64::from(group.nsymbol(a, b, &c)?));
+                    out.push(u64::from(n));
                 }
                 out
             }

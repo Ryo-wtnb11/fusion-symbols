@@ -1041,7 +1041,8 @@ impl FusionCategory for LieGroup {
                 .fusion(&a.torus_label(), &b.torus_label())
                 .map_err(|_| LieError::LabelOverflow)?
                 .next()
-                .expect("torus fusion has one outcome");
+                .expect("torus fusion has one outcome")
+                .0;
             return Ok(LieFusion {
                 group: Some(self.group.clone()),
                 inner: FusionInner::Torus(Some(q)),
@@ -1049,14 +1050,17 @@ impl FusionCategory for LieGroup {
         }
         if let (Some(a), Some(b)) = (a.simple(), b.simple()) {
             let product = self.roots().product(a, b)?;
-            for (c, _) in product.iter() {
+            let mut max = 0;
+            for (c, n) in product.iter() {
                 simple_label(c.clone())?;
+                max = max.max(*n);
             }
             let back = product.len();
             return Ok(LieFusion {
                 group: Some(self.group.clone()),
                 inner: FusionInner::Simple {
                     product,
+                    max,
                     front: 0,
                     back,
                 },
@@ -1068,6 +1072,9 @@ impl FusionCategory for LieGroup {
             group: Some(self.group.clone()),
             inner: FusionInner::A1(inner),
         })
+    }
+    fn __fusion_symbols_max_multiplicity(&self, fusion: &LieFusion, _: Validated) -> Option<u32> {
+        Some(fusion.max_multiplicity())
     }
     /// Generated fusion checks label/weight sums and multiplicities, returning
     /// [`LieError::LabelOverflow`] on overflow. Torus N is exact even when the
@@ -1445,7 +1452,8 @@ impl GroupRepresentations for LieGroup {
     }
 }
 
-/// Deterministic fusion outcomes, sharing cached products for higher rank.
+/// Deterministic fusion outcomes with their multiplicities, read from the
+/// cached product for higher rank.
 #[derive(Clone, Debug)]
 pub struct LieFusion {
     // Taken by the torus's sole outcome; other iterators retain their group.
@@ -1461,33 +1469,49 @@ enum FusionInner {
     A1(su2::A1Fusion),
     Simple {
         product: general::roots::Product,
+        // Largest multiplicity of `product`, for an enclosing product's bound.
+        max: u32,
         front: usize,
         back: usize,
     },
 }
 impl LieFusion {
-    fn next_label(&mut self, reverse: bool) -> Option<LieIrrep> {
+    fn max_multiplicity(&self) -> u32 {
+        match &self.inner {
+            FusionInner::Simple { max, .. } => *max,
+            FusionInner::Composite(inner) => inner.max_multiplicity(),
+            FusionInner::Torus(_) | FusionInner::A1(_) => 1,
+        }
+    }
+    fn next_label(&mut self, reverse: bool) -> Option<(LieIrrep, u32)> {
         let group = self.group.as_ref();
         match &mut self.inner {
-            FusionInner::Torus(label) => label.take().map(|q| LieIrrep {
-                group: self
-                    .group
-                    .take()
-                    .expect("torus fusion yields its group once"),
-                payload: LiePayload::Torus(q),
-            }),
+            FusionInner::Torus(label) => label
+                .take()
+                .map(|q| LieIrrep {
+                    group: self
+                        .group
+                        .take()
+                        .expect("torus fusion yields its group once"),
+                    payload: LiePayload::Torus(q),
+                })
+                .map(|c| (c, 1)),
             FusionInner::Composite(inner) => (if reverse {
                 inner.next_back()
             } else {
                 inner.next()
             })
-            .map(|factors| {
-                LieGroup::composite_label(group.expect("fusion retains its group"), factors)
+            .map(|(factors, n)| {
+                (
+                    LieGroup::composite_label(group.expect("fusion retains its group"), factors),
+                    n,
+                )
             }),
             FusionInner::Simple {
                 product,
                 front,
                 back,
+                ..
             } => {
                 if *front == *back {
                     return None;
@@ -1500,26 +1524,34 @@ impl LieFusion {
                     *front += 1;
                     i
                 };
-                Some(LieIrrep {
-                    group: group.expect("fusion retains its group").clone(),
-                    payload: LiePayload::Simple(product[i].0.clone()),
-                })
+                Some((
+                    LieIrrep {
+                        group: group.expect("fusion retains its group").clone(),
+                        payload: LiePayload::Simple(product[i].0.clone()),
+                    },
+                    product[i].1,
+                ))
             }
             FusionInner::A1(inner) => (if reverse {
                 inner.next_back()
             } else {
                 inner.next()
             })
-            .map(|a| LieIrrep {
-                group: group.expect("fusion retains its group").clone(),
-                payload: LiePayload::RankOne(a.dj()),
+            .map(|a| {
+                (
+                    LieIrrep {
+                        group: group.expect("fusion retains its group").clone(),
+                        payload: LiePayload::RankOne(a.dj()),
+                    },
+                    1,
+                )
             }),
         }
     }
 }
 impl Iterator for LieFusion {
-    type Item = LieIrrep;
-    fn next(&mut self) -> Option<LieIrrep> {
+    type Item = (LieIrrep, u32);
+    fn next(&mut self) -> Option<(LieIrrep, u32)> {
         self.next_label(false)
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -1533,7 +1565,7 @@ impl Iterator for LieFusion {
     }
 }
 impl DoubleEndedIterator for LieFusion {
-    fn next_back(&mut self) -> Option<LieIrrep> {
+    fn next_back(&mut self) -> Option<(LieIrrep, u32)> {
         self.next_label(true)
     }
 }
@@ -1950,10 +1982,11 @@ mod tests {
         let g2 = LieGroup::new(GroupId::g2()).unwrap();
         let (a, b, e) = ([3i64, 1], [1i64, 0], [4i64, 1]);
         let [la, lb, le] = [a, b, e].map(|l| g2.irrep(&l).unwrap());
-        let lf = g2.fusion(&lb, &lb).unwrap().next_back().unwrap();
+        let lf = g2.fusion(&lb, &lb).unwrap().next_back().unwrap().0;
         let ld = g2
             .fusion(&le, &lb)
             .unwrap()
+            .map(|(d, _)| d)
             .find(|d| g2.nsymbol(&la, &lf, d).unwrap() > 0)
             .unwrap();
         let resident = || {

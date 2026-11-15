@@ -105,6 +105,8 @@ use crate::lie::RootSystem;
 mod clock;
 #[cfg(test)]
 use clock::Equivalent;
+#[cfg(all(test, feature = "lie-generated"))]
+pub(crate) use clock::SEARCHES;
 mod fingerprint;
 use fingerprint::{key_hash, FoldBuild};
 pub(crate) use fingerprint::{label_hash, Label};

@@ -23,6 +23,30 @@ value/gauge rule noted below.
   The admitted labels, enumeration indices and coefficients are unchanged.
   These constructor changes ship together in the next pre-1.0 minor release,
   without deprecation aliases.
+- `FusionCategory::fusion` yields `(c, N(a, b, c))` instead of `c`: every
+  outcome comes with its multiplicity `N ≥ 1`, equal to `nsymbol(a, b, c)`.
+  For a Lie group the count is read from the decomposition the call already
+  looks up, so enumerating every channel with its multiplicity costs one
+  cache lookup per generated simple factor (one lookup for a simple Lie
+  pair), with no per-channel N lookup; a product multiplies its factors'
+  counts without querying them again. `FusionCategory::Fusion` must now be an
+  `Iterator<Item = (Self::Object, u32)>`, and so must the `Item` of
+  `LieFusion`, `TableFusion`, `CU1Fusion` and `ProductFusion`.
+  `nsymbol` is unchanged.
+  Migration: `for c in cat.fusion(a, b)? { let n = cat.nsymbol(a, b, &c)?; … }`
+  becomes `for (c, n) in cat.fusion(a, b)? { … }`; label-only callers write
+  `cat.fusion(a, b)?.map(|(c, _)| c)`. A downstream `FusionCategory` yields
+  `(object, multiplicity)` from its `Fusion` iterator.
+- `Product::fusion` (tuple and vector products, and composite `LieGroup`)
+  returns `ProductError::Overflow` (`LieError::LabelOverflow` for a
+  composite group) when some outcome's multiplicity, the product of its
+  factor multiplicities, exceeds `u32`, which is when `nsymbol` fails for that
+  outcome. This adds to the existing failures: factor errors, then the
+  vector product's channel count beyond `usize`. An empty product cannot
+  overflow. The bound is the product of the factors' largest multiplicities,
+  which every category of this crate states when its iterator is built; a
+  `FusionStyle::Generic` factor defined outside the crate is read once more
+  at construction to find its largest multiplicity.
 
 ### Added
 

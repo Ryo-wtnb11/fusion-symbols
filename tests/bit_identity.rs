@@ -73,7 +73,7 @@ fn emit(fresh_groups: bool) -> Vec<u8> {
             block(&mut out, "A", g.a_symbol(x, &g.dual(x), &one).unwrap());
             block(&mut out, "B", g.b_symbol(x, &g.dual(x), &one).unwrap());
         }
-        for c in g.fusion(&a, &b).unwrap() {
+        for (c, _) in g.fusion(&a, &b).unwrap() {
             let cg = g.cgc(&a, &b, &c).unwrap();
             let [n1, n2, n3, n4] = cg.dims();
             let values = (0..n1).flat_map(|i| {
@@ -114,7 +114,7 @@ fn requests() -> Vec<PrefillRequest> {
                     .f_symbol(x, &d, x, x, &one, &one);
             }
             r.fusion(&a, &b);
-            for c in g.fusion(&a, &b).unwrap() {
+            for (c, _) in g.fusion(&a, &b).unwrap() {
                 r.cgc(&a, &b, &c).r_symbol(&a, &b, &c);
             }
             r.f_symbol(&a, &b, &a, &a, &one, &one);

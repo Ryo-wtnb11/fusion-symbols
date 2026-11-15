@@ -21,7 +21,7 @@ fn irr(dynkin: &[i64]) -> Irrep {
 }
 
 fn outcomes(a: &Irrep, b: &Irrep) -> Vec<Irrep> {
-    group(a).fusion(a, b).unwrap().collect()
+    group(a).fusion(a, b).unwrap().map(|(c, _)| c).collect()
 }
 
 /// Warm Product-cache calls never re-sweep, concurrent cold callers compute
@@ -58,14 +58,27 @@ fn product_cache_contract() {
         after_warm.misses, cold_misses,
         "warm public map must not re-sweep"
     );
+    let multiplicities: Vec<u32> = group(&a).fusion(&a, &b).unwrap().map(|(_, n)| n).collect();
+    assert_eq!(multiplicities.len(), cold.len());
+    assert_eq!(
+        cache::tier_stats(cache::CoefficientCacheTier::Product).misses,
+        cold_misses,
+        "warm multiplicities must not re-sweep"
+    );
 
     let cat = group(&a);
-    let shared: Vec<_> = cat.fusion(&a, &b).unwrap().collect();
+    let shared: Vec<_> = cat.fusion(&a, &b).unwrap().map(|(c, _)| c).collect();
     assert_eq!(shared, cold);
     let channel = cold.first().unwrap();
     assert_eq!(cat.nsymbol(&a, &b, channel).unwrap(), 1);
     assert_eq!(cat.nsymbol(&a, &b, &irr(&[99, 0])).unwrap(), 0);
-    assert_eq!(cat.fusion(&b, &a).unwrap().collect::<Vec<_>>(), shared);
+    assert_eq!(
+        cat.fusion(&b, &a)
+            .unwrap()
+            .map(|(c, _)| c)
+            .collect::<Vec<_>>(),
+        shared
+    );
     let after_shared = cache::tier_stats(cache::CoefficientCacheTier::Product);
     assert!(after_shared.hits > after_warm.hits);
     assert_eq!(after_shared.misses, cold_misses);
@@ -155,10 +168,10 @@ fn product_cache_contract() {
         let one = g.unit();
         assert_eq!(g.nsymbol(&a, &b, &one).unwrap(), 1);
         assert!(cache::tier_stats(cache::CoefficientCacheTier::Product).misses > 0);
-        assert!(g.fusion(&b, &a).unwrap().any(|c| c == one));
+        assert!(g.fusion(&b, &a).unwrap().any(|(c, _)| c == one));
         let primed = cache::tier_stats(cache::CoefficientCacheTier::Product);
         assert_eq!(g.nsymbol(&a, &b, &one).unwrap(), 1);
-        assert!(g.fusion(&b, &a).unwrap().any(|c| c == one));
+        assert!(g.fusion(&b, &a).unwrap().any(|(c, _)| c == one));
         let warm = cache::tier_stats(cache::CoefficientCacheTier::Product);
         assert_eq!(warm.misses, primed.misses, "warm repeats must not re-sweep");
         assert!(warm.hits > primed.hits);
@@ -175,7 +188,7 @@ fn product_cache_contract() {
     let channels = a1::group()
         .fusion(&a1::ir(3), &a1::ir(2))
         .unwrap()
-        .map(|s| s.dynkin().next().unwrap() as u32)
+        .map(|(s, _)| s.dynkin().next().unwrap() as u32)
         .collect::<Vec<_>>();
     assert_eq!(channels, [1, 3, 5]);
     assert_eq!(

@@ -314,3 +314,54 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
         true,
     );
 }
+
+// Purpose: preparing a product's largest multiplicity enumerates no nested
+// Cartesian stream. Constructing and dropping
+// `Product<(Product<Vec<SU(3)>>, SU(3))>::fusion` with four inner factors
+// makes the same allocation calls for 2⁴ and for 5⁴ inner channels, and that
+// count follows from the constructors: the inner `initial` collect (C(m),
+// measured by a collect of the same items), its `active` clone and `current`
+// collect (1 + 1), the outer clone of the nested iterator (3 buffers) and the
+// first nested output at cursor initialization (1).
+#[cfg(feature = "lie-generated")]
+#[test]
+fn nested_fusion_construction_allocates_independently_of_channel_count() {
+    let _serial = counting_alloc::serial();
+    use fusion_symbols::{lie::RootSystem, product::Product};
+    const M: usize = 4;
+    let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+    let cat = Product::new((Product::new(vec![su3.clone(); M]), su3.clone()));
+    let measure = |label: &[i64]| {
+        let a = su3.irrep(label).unwrap();
+        let x = (vec![a.clone(); M], a.clone());
+        let _ = cat.fusion(&x, &x).unwrap().count();
+        let (calls, _, _, ()) = counting_alloc::measure(|| drop(cat.fusion(&x, &x).unwrap()));
+        let (collect, _, _, ()) = counting_alloc::measure(|| {
+            drop(
+                cat.factors()
+                    .0
+                    .factors()
+                    .iter()
+                    .map(|g| g.fusion(&a, &a).map(|f| (f, 0usize)))
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap(),
+            )
+        });
+        (calls, collect)
+    };
+    let (small, collect) = measure(&[1, 0]);
+    assert_eq!(small, collect + 6);
+    assert_eq!(measure(&[1, 1]).0, small);
+    // A composite factor: the same relation, without a closed count.
+    let composite =
+        LieGroup::new(GroupId::cover(&[RootSystem::A(2), RootSystem::A(2)], 0).unwrap()).unwrap();
+    let cat = Product::new((Product::new(vec![su3.clone(); M]), composite.clone()));
+    let measure = |label: &[i64]| {
+        let a = su3.irrep(label).unwrap();
+        let both: Vec<i64> = label.iter().chain(label).copied().collect();
+        let x = (vec![a; M], composite.irrep(&both).unwrap());
+        let _ = cat.fusion(&x, &x).unwrap().count();
+        counting_alloc::measure(|| drop(cat.fusion(&x, &x).unwrap())).0
+    };
+    assert_eq!(measure(&[1, 0]), measure(&[1, 1]));
+}

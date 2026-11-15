@@ -19,6 +19,8 @@ use std::hash::{BuildHasher, Hash};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 
 mod table;
+#[cfg(all(test, feature = "lie-generated"))]
+pub(crate) use table::SEARCHES;
 pub(crate) use table::{entry_shell, release};
 
 /// A borrowed lookup form of the key `K` (the `equivalent` crate's trait):

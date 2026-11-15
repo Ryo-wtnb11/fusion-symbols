@@ -27,7 +27,7 @@ another type is named.
 | Dimension | `dim` (f64), `LieIrrep::dim_exact` (exact) | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.dim) |
 | Dual and Frobenius–Schur data | `dual`, `frobenius_schur_indicator`, `frobenius_schur_phase` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.dual) |
 | The unit object | `unit` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.unit) |
-| Fusion outcomes of `a ⊗ b` | `fusion(a, b)` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.fusion) |
+| Fusion outcomes of `a ⊗ b`, each with its multiplicity | `fusion(a, b)` → `(c, N)` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.fusion) |
 | Fusion multiplicity N | `nsymbol(a, b, c)` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.nsymbol) |
 | F symbol | `f_symbol(a, b, c, d, e, f)` → `[μ,ν,κ,λ]` block | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.f_symbol) |
 | R symbol, twist | `r_symbol(a, b, c)`, `twist(a)` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#tymethod.r_symbol) |
@@ -180,7 +180,7 @@ use fusion_symbols::{category::{FusionCategory, SymbolBlock}, lie::{GroupId, Hal
 let su2 = LieGroup::new(GroupId::su(2)?)?;
 let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
 let unit = su2.unit();
-let channels: Vec<Vec<i64>> = su2.fusion(&half, &half)?.map(|c| c.dynkin().collect()).collect();
+let channels: Vec<Vec<i64>> = su2.fusion(&half, &half)?.map(|(c, _)| c.dynkin().collect()).collect();
 assert_eq!(channels, [[0], [2]]); // spin 0 and spin 1
 assert_eq!(su2.frobenius_schur_indicator(&half), -1.0); // pseudoreal
 
@@ -190,9 +190,10 @@ let r = su2.r_symbol(&half, &half, &unit)?;
 assert_eq!(r.get([0, 0]), -1.0);
 ```
 
-- `fusion(a, b)` yields each outcome once; `nsymbol(a, b, c)` is its
-  multiplicity, `Ok(0)` when `c` does not occur. Its error is a genuine
-  failure, such as a product multiplicity beyond `u32`.
+- `fusion(a, b)` yields each outcome `(c, N)` once, with its multiplicity
+  `N ≥ 1`; `nsymbol(a, b, c)` is the multiplicity of one `c`, `Ok(0)` when `c`
+  does not occur. Their errors are genuine failures, such as a product
+  multiplicity beyond `u32`.
 - `dim`, `dual`, `frobenius_schur_phase`, `frobenius_schur_indicator` and
   `twist` are per-object data. `frobenius_schur_phase` returns a `Result`:
   a complex irrep of a generated family may need its modules built.
@@ -292,13 +293,13 @@ assert_eq!(U1.dual(&q).charge(), -2);
 
 let z3 = ZN::new(3)?;
 let one = ZNIrrep::new(1, 3)?;
-assert_eq!(z3.fusion(&one, &one)?.next(), Some(ZNIrrep::new(2, 3)?));
+assert_eq!(z3.fusion(&one, &one)?.next(), Some((ZNIrrep::new(2, 3)?, 1)));
 
 assert_eq!(FermionParity.twist(&FermionParityIrrep::ODD), -1.0);
 
 let a = CU1Irrep::new(HalfInt::new(1, 2)?, 2)?;
 let channels: Vec<_> = CU1.fusion(&a, &a)?.collect();
-assert_eq!(channels, [CU1Irrep::VACUUM, CU1Irrep::PSEUDOSCALAR, CU1Irrep::new(HalfInt::new(2, 2)?, 2)?]);
+assert_eq!(channels, [(CU1Irrep::VACUUM, 1), (CU1Irrep::PSEUDOSCALAR, 1), (CU1Irrep::new(HalfInt::new(2, 2)?, 2)?, 1)]);
 ```
 
 `U1` is the same group as `LieGroup::new(GroupId::u(1)?)`, with `Copy` labels

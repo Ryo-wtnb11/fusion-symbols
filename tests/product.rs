@@ -53,7 +53,7 @@ fn fermionic_closed_forms_and_complex_promotion() {
     assert_eq!(fu1.dual(&a), b);
     assert_eq!(
         fu1.fusion(&a, &b).unwrap().collect::<Vec<_>>(),
-        [fu1.unit()]
+        [(fu1.unit(), 1)]
     );
     assert_eq!(fu1.r_symbol(&a, &b, &fu1.unit()).unwrap().get([0, 0]), -1.0);
     assert_eq!(fu1.twist(&a), -1.0);
@@ -138,12 +138,12 @@ fn fusion_first_factor_fastest_and_reassociation() {
     assert_eq!(
         cat.fusion(&x, &x).unwrap().collect::<Vec<_>>(),
         [
-            (z.clone(), z.clone()),
-            (one.clone(), z.clone()),
-            (z.clone(), one.clone()),
-            (one.clone(), one.clone()),
-            (z.clone(), two.clone()),
-            (one.clone(), two),
+            ((z.clone(), z.clone()), 1),
+            ((one.clone(), z.clone()), 1),
+            ((z.clone(), one.clone()), 1),
+            ((one.clone(), one.clone()), 1),
+            ((z.clone(), two.clone()), 1),
+            ((one.clone(), two), 1),
         ]
     );
     let flat = Product::new((s.clone(), FermionParity, TableCategory::fibonacci()));
@@ -181,7 +181,7 @@ fn fusion_first_factor_fastest_and_reassociation() {
     let flattened: Vec<_> = left
         .fusion(&l, &l)
         .unwrap()
-        .map(|((a, b), c)| (a, b, c))
+        .map(|(((a, b), c), n)| ((a, b, c), n))
         .collect();
     assert_eq!(flat.fusion(&a, &a).unwrap().collect::<Vec<_>>(), flattened);
 }
@@ -335,7 +335,7 @@ impl FusionCategory for Probe {
     type Scalar = f64;
     type FSymbol = Dense<4>;
     type RSymbol = Dense<2>;
-    type Fusion<'a> = std::iter::Take<std::array::IntoIter<u8, 2>>;
+    type Fusion<'a> = std::iter::Take<std::array::IntoIter<(u8, u32), 2>>;
     type Error = std::io::Error;
     fn fusion_style(&self) -> FusionStyle {
         self.fusion
@@ -381,7 +381,9 @@ impl FusionCategory for Probe {
         if self.fail {
             Err(std::io::Error::other("probe failure"))
         } else {
-            Ok([0, 1].into_iter().take(if self.n[0] == 0 { 0 } else { 2 }))
+            Ok([(0, self.n[0]), (1, self.n[0])]
+                .into_iter()
+                .take(if self.n[0] == 0 { 0 } else { 2 }))
         }
     }
     fn nsymbol(&self, a: &u8, b: &u8, c: &u8) -> Result<u32, Self::Error> {
@@ -596,9 +598,9 @@ fn style_tables_and_iterators_reset_without_requery() {
     FUSIONS.set(0);
     let cat = Product::new((Probe::default(), Probe::default()));
     let mut iter = cat.fusion(&(0, 0), &(0, 0)).unwrap();
-    assert_eq!(iter.next(), Some((0, 0)));
+    assert_eq!(iter.next(), Some(((0, 0), 1)));
     let rest = iter.clone().collect::<Vec<_>>();
-    assert_eq!(rest, [(1, 0), (0, 1), (1, 1)]);
+    assert_eq!(rest, [((1, 0), 1), ((0, 1), 1), ((1, 1), 1)]);
     assert_eq!(iter.collect::<Vec<_>>(), rest);
     assert_eq!(FUSIONS.get(), 2);
 }
@@ -1493,4 +1495,417 @@ fn phase_failures_keep_factor_paths_and_reach_a() {
             .unwrap(),
         1.0
     );
+}
+
+/// A Generic category from outside the crate, so it cannot state its largest
+/// multiplicity: channel `c` of every pair has multiplicity `ns[c]`. Its
+/// iterator counts clones, `next` calls and exhaustions per `id`, and the
+/// category counts its fusion-style queries.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct Counted {
+    id: usize,
+    ns: &'static [u32],
+}
+thread_local! {
+    static COUNTED: [Cell<[usize; 4]>; 3] = const { [const { Cell::new([0; 4]) }; 3] };
+}
+fn counted(id: usize) -> [usize; 4] {
+    COUNTED.with(|c| c[id].get())
+}
+fn bump_counted(id: usize, field: usize) {
+    COUNTED.with(|c| {
+        let mut v = c[id].get();
+        v[field] += 1;
+        c[id].set(v);
+    });
+}
+#[derive(Debug)]
+struct CountedFusion {
+    id: usize,
+    ns: &'static [u32],
+    next: usize,
+}
+impl Clone for CountedFusion {
+    fn clone(&self) -> Self {
+        bump_counted(self.id, 0);
+        Self { ..*self }
+    }
+}
+impl Iterator for CountedFusion {
+    type Item = (u8, u32);
+    fn next(&mut self) -> Option<(u8, u32)> {
+        bump_counted(self.id, 1);
+        let item = self.ns.get(self.next).map(|&n| (self.next as u8, n));
+        if item.is_none() {
+            bump_counted(self.id, 2);
+        }
+        self.next += 1;
+        item
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let n = self.ns.len().saturating_sub(self.next);
+        (n, Some(n))
+    }
+}
+impl FusionCategory for Counted {
+    type Object = u8;
+    type Scalar = f64;
+    type FSymbol = f64;
+    type RSymbol = f64;
+    type Fusion<'a> = CountedFusion;
+    type Error = Infallible;
+    fn fusion_style(&self) -> FusionStyle {
+        bump_counted(self.id, 3);
+        FusionStyle::Generic
+    }
+    fn braiding_style(&self) -> BraidingStyle {
+        BraidingStyle::Bosonic
+    }
+    fn unit(&self) -> u8 {
+        0
+    }
+    fn dual(&self, a: &u8) -> u8 {
+        *a
+    }
+    fn dim(&self, _: &u8) -> f64 {
+        1.0
+    }
+    fn frobenius_schur_phase(&self, _: &u8) -> Result<f64, Infallible> {
+        Ok(1.0)
+    }
+    fn frobenius_schur_indicator(&self, _: &u8) -> f64 {
+        1.0
+    }
+    fn twist(&self, _: &u8) -> f64 {
+        1.0
+    }
+    fn fusion(&self, _: &u8, _: &u8) -> Result<CountedFusion, Infallible> {
+        Ok(CountedFusion {
+            id: self.id,
+            ns: self.ns,
+            next: 0,
+        })
+    }
+    fn nsymbol(&self, _: &u8, _: &u8, c: &u8) -> Result<u32, Infallible> {
+        Ok(self.ns.get(usize::from(*c)).copied().unwrap_or(0))
+    }
+    fn f_symbol(&self, _: &u8, _: &u8, _: &u8, _: &u8, _: &u8, _: &u8) -> Result<f64, Infallible> {
+        Ok(0.0)
+    }
+    fn r_symbol(&self, _: &u8, _: &u8, _: &u8) -> Result<f64, Infallible> {
+        Ok(0.0)
+    }
+}
+
+/// A downstream forwarder of a Lie group whose iterator counts exhaustions
+/// (counter `id`): it cannot state the group's largest multiplicity.
+#[cfg(feature = "lie-generated")]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct Wrapped(LieGroup, usize);
+#[cfg(feature = "lie-generated")]
+#[derive(Clone, Debug)]
+struct WrappedFusion(<LieGroup as FusionCategory>::Fusion<'static>, usize);
+#[cfg(feature = "lie-generated")]
+impl Iterator for WrappedFusion {
+    type Item = (fusion_symbols::lie::LieIrrep, u32);
+    fn next(&mut self) -> Option<Self::Item> {
+        bump_counted(self.1, 1);
+        let item = self.0.next();
+        if item.is_none() {
+            bump_counted(self.1, 2);
+        }
+        item
+    }
+}
+#[cfg(feature = "lie-generated")]
+impl FusionCategory for Wrapped {
+    type Object = fusion_symbols::lie::LieIrrep;
+    type Scalar = f64;
+    type FSymbol = FBlock<f64>;
+    type RSymbol = RBlock<f64>;
+    type Fusion<'a> = WrappedFusion;
+    type Error = fusion_symbols::lie::LieError;
+    fn fusion_style(&self) -> FusionStyle {
+        bump_counted(self.1, 3);
+        self.0.fusion_style()
+    }
+    fn braiding_style(&self) -> BraidingStyle {
+        self.0.braiding_style()
+    }
+    fn unit(&self) -> Self::Object {
+        self.0.unit()
+    }
+    fn contains(&self, a: &Self::Object) -> bool {
+        self.0.contains(a)
+    }
+    fn dual(&self, a: &Self::Object) -> Self::Object {
+        self.0.dual(a)
+    }
+    fn dim(&self, a: &Self::Object) -> f64 {
+        self.0.dim(a)
+    }
+    fn frobenius_schur_phase(&self, a: &Self::Object) -> Result<f64, Self::Error> {
+        self.0.frobenius_schur_phase(a)
+    }
+    fn frobenius_schur_indicator(&self, a: &Self::Object) -> f64 {
+        self.0.frobenius_schur_indicator(a)
+    }
+    fn twist(&self, a: &Self::Object) -> f64 {
+        self.0.twist(a)
+    }
+    fn fusion(&self, a: &Self::Object, b: &Self::Object) -> Result<WrappedFusion, Self::Error> {
+        Ok(WrappedFusion(self.0.fusion(a, b)?, self.1))
+    }
+    fn nsymbol(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+    ) -> Result<u32, Self::Error> {
+        self.0.nsymbol(a, b, c)
+    }
+    fn f_symbol(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+        d: &Self::Object,
+        e: &Self::Object,
+        f: &Self::Object,
+    ) -> Result<FBlock<f64>, Self::Error> {
+        self.0.f_symbol(a, b, c, d, e, f)
+    }
+    fn r_symbol(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+    ) -> Result<RBlock<f64>, Self::Error> {
+        self.0.r_symbol(a, b, c)
+    }
+}
+
+/// (SU(3) × SU(3)): (8, 8) ⊗ (8, 8) → (8, 8) has multiplicity 2 · 2 = 4
+/// (GroupMath: 8 ⊗ 8 ∋ 8 twice) in every product form, and an item's count
+/// is the product of its factor items' counts, first factor fastest.
+#[cfg(feature = "lie-generated")]
+#[test]
+fn product_items_multiply_factor_multiplicities() {
+    use fusion_symbols::lie::RootSystem;
+    let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+    let o = su3.irrep(&[1, 1]).unwrap();
+    let leaf: Vec<_> = su3.fusion(&o, &o).unwrap().collect();
+    assert_eq!(leaf.len(), 5);
+    let expected: Vec<_> = leaf
+        .iter()
+        .flat_map(|(y, m)| {
+            leaf.iter()
+                .map(move |(x, n)| ((x.clone(), y.clone()), n * m))
+        })
+        .collect();
+    let tuple = Product::new((su3.clone(), su3.clone()));
+    let items: Vec<_> = tuple
+        .fusion(&(o.clone(), o.clone()), &(o.clone(), o.clone()))
+        .unwrap()
+        .collect();
+    assert_eq!(items, expected);
+    assert!(items.contains(&((o.clone(), o.clone()), 4)));
+    let runtime = Product::new(vec![su3.clone(); 2]);
+    let items: Vec<_> = runtime
+        .fusion(&vec![o.clone(); 2], &vec![o.clone(); 2])
+        .unwrap()
+        .map(|(c, n)| ((c[0].clone(), c[1].clone()), n))
+        .collect();
+    assert_eq!(items, expected);
+    let nested = Product::new((tuple, ZN::new(2).unwrap()));
+    let z = ZN::new(2).unwrap().unit();
+    let items: Vec<_> = nested
+        .fusion(&((o.clone(), o.clone()), z), &((o.clone(), o.clone()), z))
+        .unwrap()
+        .map(|((c, _), n)| (c, n))
+        .collect();
+    assert_eq!(items, expected);
+    let composite =
+        LieGroup::new(GroupId::cover(&[RootSystem::A(2), RootSystem::A(2)], 0).unwrap()).unwrap();
+    let oo = composite.irrep(&[1, 1, 1, 1]).unwrap();
+    let items: Vec<_> = composite.fusion(&oo, &oo).unwrap().collect();
+    assert_eq!(items.len(), 25);
+    assert!(items.contains(&(oo.clone(), 4)));
+    assert_eq!(items.iter().map(|(_, n)| n).sum::<u32>(), 36); // (1+1+1+1+2)²
+}
+
+/// The largest product multiplicity is the product of the factor maxima, so
+/// `fusion` fails exactly when 65536 · 65536 exceeds `u32`, while
+/// 65535 · 65537 = u32::MAX is still representable; an empty factor leaves
+/// nothing to overflow. N agrees on the overflowing channel.
+#[test]
+fn product_fusion_overflows_exactly_past_u32() {
+    let big = |n| Probe {
+        n: [n; 4],
+        fusion: FusionStyle::Generic,
+        ..Probe::default()
+    };
+    let empty = Probe {
+        n: [0; 4],
+        ..Probe::default()
+    };
+    let over = Product::new((big(65536), big(65536)));
+    assert!(matches!(
+        over.fusion(&(0, 0), &(0, 0)),
+        Err(ProductError::Overflow)
+    ));
+    assert!(matches!(
+        over.nsymbol(&(0, 0), &(0, 0), &(0, 0)),
+        Err(ProductError::Overflow)
+    ));
+    let fits = Product::new((big(65535), big(65537)));
+    let items: Vec<_> = fits.fusion(&(0, 0), &(0, 0)).unwrap().collect();
+    assert_eq!(items.len(), 4);
+    assert!(items.iter().all(|&(_, n)| n == u32::MAX));
+    let runtime = Product::new(vec![big(65536); 2]);
+    assert!(matches!(
+        runtime.fusion(&vec![0; 2], &vec![0; 2]),
+        Err(ProductError::Overflow)
+    ));
+    let runtime = Product::new(vec![big(65535), big(65537)]);
+    assert!(runtime
+        .fusion(&vec![0; 2], &vec![0; 2])
+        .unwrap()
+        .all(|(_, n)| n == u32::MAX));
+    let vacuous = Product::new((big(65536), big(65536), empty.clone()));
+    assert_eq!(vacuous.fusion(&(0, 0, 0), &(0, 0, 0)).unwrap().count(), 0);
+    let runtime = Product::new(vec![big(65536), big(65536), empty]);
+    assert_eq!(runtime.fusion(&vec![0; 3], &vec![0; 3]).unwrap().count(), 0);
+}
+
+/// A factor that cannot state its maximum costs exactly one pass (one clone,
+/// K + 1 `next` calls, one exhaustion) at construction, also as the sole
+/// Generic factor; construction itself clones once and reads one item, and
+/// iterating afterwards adds only the carry reset, never another pass.
+#[test]
+fn an_unknown_factor_maximum_costs_one_pass_at_construction() {
+    const NS: &[u32] = &[1, 3, 2];
+    let k = NS.len();
+    let z = ZN::new(2).unwrap();
+    let u = z.unit();
+    let sole = Product::new((Counted { id: 0, ns: NS }, z));
+    let before = counted(0);
+    let iter = sole.fusion(&(0, u), &(0, u)).unwrap();
+    let after = counted(0);
+    let passes = 1;
+    assert_eq!(after[0] - before[0], 1 + passes);
+    assert_eq!(after[1] - before[1], 1 + passes * (k + 1));
+    assert_eq!(after[2] - before[2], passes);
+    assert_eq!(iter.max_by(|x, y| x.1.cmp(&y.1)).unwrap().1, 3);
+    assert_eq!(counted(0)[0] - after[0], 1, "only the carry reset clones");
+    let runtime = Product::new(vec![Counted { id: 0, ns: NS }]);
+    let before = counted(0);
+    let iter = runtime.fusion(&vec![0], &vec![0]).unwrap();
+    assert_eq!(counted(0)[2] - before[2], 1);
+    assert_eq!(iter.count(), k);
+    let pair = Product::new((Counted { id: 1, ns: NS }, Counted { id: 2, ns: NS }));
+    let before = [counted(1), counted(2)];
+    let iter = pair.fusion(&(0, 0), &(0, 0)).unwrap();
+    assert_eq!(
+        [counted(1)[2] - before[0][2], counted(2)[2] - before[1][2]],
+        [1, 1]
+    );
+    assert_eq!(iter.map(|(_, n)| n).max(), Some(9));
+}
+
+/// The wrapper's maximum (2, the second 8 in 8 ⊗ 8) comes after its first
+/// item (the unit, multiplicity 1). P must find it by one pass although P has
+/// a single Generic factor, so that its parent with a factor of maximum
+/// u32::MAX overflows (2 · u32::MAX) and one of maximum u32::MAX / 2 does not
+/// (2 · 2147483647 = 4294967294). The parent reads P's stored maximum and
+/// passes only over its own unknown factor.
+#[cfg(feature = "lie-generated")]
+#[test]
+fn a_late_unknown_maximum_reaches_the_enclosing_product() {
+    const OVER: &[u32] = &[u32::MAX];
+    const FITS: &[u32] = &[1, u32::MAX / 2, 3];
+    let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+    let o = su3.irrep(&[1, 1]).unwrap();
+    let first = su3.fusion(&o, &o).unwrap().next().unwrap();
+    assert_eq!(first, (su3.unit(), 1));
+    let z = ZN::new(2).unwrap();
+    let u = z.unit();
+    let p = Product::new((Wrapped(su3.clone(), 0), z));
+    let x = ((o.clone(), u), 0);
+    let before = [counted(0), counted(1)];
+    let over = Product::new((p.clone(), Counted { id: 1, ns: OVER }));
+    assert!(matches!(over.fusion(&x, &x), Err(ProductError::Overflow)));
+    assert_eq!(
+        counted(0)[2] - before[0][2],
+        1,
+        "one wrapper pass, inside P"
+    );
+    assert_eq!(
+        counted(1)[2] - before[1][2],
+        1,
+        "one pass on the parent's own factor"
+    );
+    let fits = Product::new((p, Counted { id: 1, ns: FITS }));
+    let before = [counted(0), counted(1)];
+    let iter = fits.fusion(&x, &x).unwrap();
+    assert_eq!(counted(0)[2] - before[0][2], 1);
+    assert_eq!(counted(1)[2] - before[1][2], 1);
+    let items: Vec<_> = iter.collect();
+    let target = ((o.clone(), u), 1);
+    assert!(items.contains(&(target.clone(), 4294967294)));
+    assert_eq!(fits.nsymbol(&x, &x, &target).unwrap(), 4294967294);
+}
+
+/// An empty factor ends maximum preparation before any hook, style query or
+/// pass of its own product; a nested child that was already built has made
+/// its own pass. A failing factor beside an empty sibling still fails.
+#[cfg(feature = "lie-generated")]
+#[test]
+fn an_empty_factor_stops_maximum_preparation() {
+    const BIG: &[u32] = &[u32::MAX];
+    const NONE: &[u32] = &[];
+    let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+    let o = su3.irrep(&[1, 1]).unwrap();
+    let z = ZN::new(2).unwrap();
+    let u = z.unit();
+    let p = Product::new((Wrapped(su3.clone(), 0), z));
+    let nested = Product::new((p, Counted { id: 1, ns: BIG }, Counted { id: 2, ns: NONE }));
+    let x = ((o.clone(), u), 0, 0);
+    let before = [counted(0), counted(1)];
+    assert_eq!(nested.fusion(&x, &x).unwrap().count(), 0);
+    assert_eq!(
+        counted(0)[2] - before[0][2],
+        1,
+        "P's own pass, before E is seen"
+    );
+    assert_eq!(counted(1)[2] - before[1][2], 0, "no pass on Big");
+    let direct = Product::new((
+        Wrapped(su3.clone(), 0),
+        Counted { id: 1, ns: BIG },
+        Counted { id: 2, ns: NONE },
+    ));
+    let x = (o.clone(), 0, 0);
+    let before = [counted(0), counted(1), counted(2)];
+    let iter = direct.fusion(&x, &x).unwrap();
+    assert_eq!(counted(0)[2] - before[0][2], 0);
+    assert_eq!(counted(1)[2] - before[1][2], 0);
+    let styles = [0, 1, 2].map(|id| counted(id)[3] - before[id][3]);
+    assert_eq!(
+        styles,
+        [0, 0, 0],
+        "no hook reads a style of an empty product"
+    );
+    assert_eq!(iter.count(), 0);
+    let failing = Probe {
+        fail: true,
+        ..Probe::default()
+    };
+    let broken = Product::new((
+        Product::new((failing, Probe::default())),
+        Counted { id: 2, ns: NONE },
+    ));
+    assert!(matches!(
+        broken.fusion(&((0, 0), 0), &((0, 0), 0)),
+        Err(ProductError::Factor0(ProductError::Factor0(_)))
+    ));
 }

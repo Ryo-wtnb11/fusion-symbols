@@ -70,7 +70,7 @@ mod g2 {
         let mut out: Vec<(u64, u32)> = g
             .fusion(a, b)
             .unwrap()
-            .map(|c| (g.dim(&c) as u64, g.nsymbol(a, b, &c).unwrap()))
+            .map(|(c, n)| (g.dim(&c) as u64, n))
             .collect();
         out.sort_unstable();
         out
@@ -130,14 +130,14 @@ mod g2 {
         let labels: Vec<Vec<i64>> = g
             .fusion(&v, &v)
             .unwrap()
-            .map(|c| c.dynkin().collect::<Vec<_>>())
+            .map(|(c, _)| c.dynkin().collect::<Vec<_>>())
             .collect();
         assert_eq!(labels, [[0, 0], [0, 1], [1, 0], [2, 0]]);
         let reversed: Vec<Vec<i64>> = g
             .fusion(&v, &v)
             .unwrap()
             .rev()
-            .map(|c| c.dynkin().collect::<Vec<_>>())
+            .map(|(c, _)| c.dynkin().collect::<Vec<_>>())
             .collect();
         assert_eq!(reversed, [[2, 0], [1, 0], [0, 1], [0, 0]]);
         assert_eq!(g.nsymbol(&v, &v, &x).unwrap(), 1);
@@ -248,12 +248,12 @@ mod g2 {
         let got: Vec<(Vec<i64>, Vec<i64>)> = cat
             .fusion(&a, &b)
             .unwrap()
-            .map(|c| (c.dynkin().collect::<Vec<_>>(), c.charges().collect()))
+            .map(|(c, _)| (c.dynkin().collect::<Vec<_>>(), c.charges().collect()))
             .collect();
         let want: Vec<(Vec<i64>, Vec<i64>)> = product
             .fusion(&pa, &pb)
             .unwrap()
-            .map(|c| {
+            .map(|(c, _)| {
                 let dynkin = c[..2]
                     .iter()
                     .flat_map(|x| x.dynkin().collect::<Vec<_>>())
@@ -337,7 +337,7 @@ mod self_dual {
         let mut out: Vec<(u32, u32)> = g
             .fusion(a, a)
             .unwrap()
-            .map(|c| (g.dim(&c) as u32, g.nsymbol(a, a, &c).unwrap()))
+            .map(|(c, n)| (g.dim(&c) as u32, n))
             .collect();
         out.sort_unstable();
         out
@@ -468,12 +468,12 @@ mod self_dual {
         let got: Vec<(Vec<i64>, Vec<i64>)> = cat
             .fusion(&a, &b)
             .unwrap()
-            .map(|c| (c.dynkin().collect::<Vec<_>>(), c.charges().collect()))
+            .map(|(c, _)| (c.dynkin().collect::<Vec<_>>(), c.charges().collect()))
             .collect();
         let want: Vec<(Vec<i64>, Vec<i64>)> = product
             .fusion(&pa, &pb)
             .unwrap()
-            .map(|c| (c[0].dynkin().collect::<Vec<_>>(), c[1].charges().collect()))
+            .map(|(c, _)| (c[0].dynkin().collect::<Vec<_>>(), c[1].charges().collect()))
             .collect();
         assert_eq!(got, want);
         assert_eq!(got.len(), 5);
@@ -567,12 +567,7 @@ mod e6 {
         let (a, b) = (l(g, a), l(g, b));
         g.fusion(&a, &b)
             .unwrap()
-            .map(|c| {
-                (
-                    c.dynkin().collect::<Vec<_>>(),
-                    g.nsymbol(&a, &b, &c).unwrap(),
-                )
-            })
+            .map(|(c, n)| (c.dynkin().collect::<Vec<_>>(), n))
             .collect()
     }
 
@@ -740,12 +735,12 @@ mod e6 {
         let got: Vec<(Vec<i64>, Vec<i64>)> = cat
             .fusion(&a, &b)
             .unwrap()
-            .map(|c| (c.dynkin().collect::<Vec<_>>(), c.charges().collect()))
+            .map(|(c, _)| (c.dynkin().collect::<Vec<_>>(), c.charges().collect()))
             .collect();
         let want: Vec<(Vec<i64>, Vec<i64>)> = product
             .fusion(&pa, &pb)
             .unwrap()
-            .map(|c| (c[0].dynkin().collect::<Vec<_>>(), c[1].charges().collect()))
+            .map(|(c, _)| (c[0].dynkin().collect::<Vec<_>>(), c[1].charges().collect()))
             .collect();
         assert_eq!(got, want);
         assert_eq!(got.len(), 3);

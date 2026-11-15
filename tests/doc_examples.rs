@@ -132,7 +132,7 @@ fn guide_fusion_and_symbols_1() -> Result<(), Box<dyn std::error::Error>> {
     let unit = su2.unit();
     let channels: Vec<Vec<i64>> = su2
         .fusion(&half, &half)?
-        .map(|c| c.dynkin().collect())
+        .map(|(c, _)| c.dynkin().collect())
         .collect();
     assert_eq!(channels, [[0], [2]]); // spin 0 and spin 1
     assert_eq!(su2.frobenius_schur_indicator(&half), -1.0); // pseudoreal
@@ -202,7 +202,10 @@ fn guide_abelian_and_finite_categories_1() -> Result<(), Box<dyn std::error::Err
 
     let z3 = ZN::new(3)?;
     let one = ZNIrrep::new(1, 3)?;
-    assert_eq!(z3.fusion(&one, &one)?.next(), Some(ZNIrrep::new(2, 3)?));
+    assert_eq!(
+        z3.fusion(&one, &one)?.next(),
+        Some((ZNIrrep::new(2, 3)?, 1))
+    );
 
     assert_eq!(FermionParity.twist(&FermionParityIrrep::ODD), -1.0);
 
@@ -211,9 +214,9 @@ fn guide_abelian_and_finite_categories_1() -> Result<(), Box<dyn std::error::Err
     assert_eq!(
         channels,
         [
-            CU1Irrep::VACUUM,
-            CU1Irrep::PSEUDOSCALAR,
-            CU1Irrep::new(HalfInt::new(2, 2)?, 2)?
+            (CU1Irrep::VACUUM, 1),
+            (CU1Irrep::PSEUDOSCALAR, 1),
+            (CU1Irrep::new(HalfInt::new(2, 2)?, 2)?, 1)
         ]
     );
     Ok(())
@@ -319,7 +322,7 @@ fn getting_started_fusion_and_n_1() -> Result<(), Box<dyn std::error::Error>> {
 
     let su2 = LieGroup::new(GroupId::su(2)?)?;
     let one = su2.irrep_spin(HalfInt::new(1, 1)?)?;
-    let spins: Vec<_> = su2.fusion(&one, &one)?.map(|c| c.spin()).collect();
+    let spins: Vec<_> = su2.fusion(&one, &one)?.map(|(c, _)| c.spin()).collect();
     let expected = [0, 2, 4].map(|dj| Some(HalfInt::from_doubled(dj)));
     assert_eq!(spins, expected); // 1 ⊗ 1 = 0 ⊕ 1 ⊕ 2
 
@@ -329,8 +332,8 @@ fn getting_started_fusion_and_n_1() -> Result<(), Box<dyn std::error::Error>> {
 
     // Dimensions add up: Σ_c N(8,8,c) dim(c) = 8 · 8.
     let mut total = 0.0;
-    for c in su3.fusion(&eight, &eight)? {
-        total += f64::from(su3.nsymbol(&eight, &eight, &c)?) * su3.dim(&c);
+    for (c, n) in su3.fusion(&eight, &eight)? {
+        total += f64::from(n) * su3.dim(&c);
     }
     assert_eq!(total, 64.0);
     Ok(())
@@ -440,7 +443,7 @@ fn getting_started_products_with_u1_1() -> Result<(), Box<dyn std::error::Error>
     let electron = (su2.irrep_spin(HalfInt::new(1, 2)?)?, U1Irrep::new(1)?);
     let pairs: Vec<_> = cat.fusion(&electron, &electron)?.collect();
     assert_eq!(pairs.len(), 2); // spin 0 and spin 1
-    assert!(pairs.iter().all(|(_, q)| q.charge() == 2));
+    assert!(pairs.iter().all(|((_, q), n)| q.charge() == 2 && *n == 1));
     assert_eq!(cat.dim(&electron), 2.0);
 
     let charges = Product::new((U1, U1));
@@ -495,10 +498,6 @@ fn contract_fusion_su3_octet_multiplicity() {
     assert_eq!(
         cat.fusion(&eight, &eight)
             .unwrap()
-            .map(|c| {
-                let n = cat.nsymbol(&eight, &eight, &c).unwrap();
-                (c, n)
-            })
             .collect::<std::collections::BTreeMap<_, _>>()[&eight],
         2
     );
@@ -600,7 +599,7 @@ fn contract_fusion_1() {
     let channels: Vec<i64> = group
         .fusion(&half, &half)
         .unwrap()
-        .map(|s| s.dynkin().next().unwrap())
+        .map(|(s, _)| s.dynkin().next().unwrap())
         .collect();
     assert_eq!(channels, vec![0, 2]);
 }
@@ -618,10 +617,6 @@ fn contract_fusion_2() {
     let out = cat
         .fusion(&three, &anti)
         .unwrap()
-        .map(|c| {
-            let n = cat.nsymbol(&three, &anti, &c).unwrap();
-            (c, n)
-        })
         .collect::<std::collections::BTreeMap<_, _>>();
 
     // 3 ⊗ 3-bar = 1 ⊕ 8, each once.
@@ -642,10 +637,6 @@ fn contract_fusion_3() {
     let out = cat
         .fusion(&eight, &eight)
         .unwrap()
-        .map(|c| {
-            let n = cat.nsymbol(&eight, &eight, &c).unwrap();
-            (c, n)
-        })
         .collect::<std::collections::BTreeMap<_, _>>();
     assert_eq!(out[&eight], 2); // the 8 appears twice in 8 ⊗ 8
 }
@@ -662,13 +653,7 @@ fn contract_fusion_4() {
     let v = cat.irrep(&[1, 0]).unwrap();
     let out = cat
         .fusion(&v, &v)
-        .map(|it| {
-            it.map(|c| {
-                let n = cat.nsymbol(&v, &v, &c).unwrap();
-                (c, n)
-            })
-            .collect::<std::collections::BTreeMap<_, _>>()
-        })
+        .map(|it| it.collect::<std::collections::BTreeMap<_, _>>())
         .unwrap();
     assert_eq!(out.len(), 3);
     for (irrep, mult) in &out {
@@ -689,9 +674,9 @@ fn contract_fusion_5() {
     assert_eq!(
         channels,
         vec![
-            CU1Irrep::VACUUM,
-            CU1Irrep::PSEUDOSCALAR,
-            CU1Irrep::new(HalfInt::new(2, 2).unwrap(), 2).unwrap()
+            (CU1Irrep::VACUUM, 1),
+            (CU1Irrep::PSEUDOSCALAR, 1),
+            (CU1Irrep::new(HalfInt::new(2, 2).unwrap(), 2).unwrap(), 1)
         ]
     );
 }
@@ -731,7 +716,7 @@ fn contract_fusion_su2_spin_one() {
     let channels: Vec<i64> = group
         .fusion(&one, &one)
         .unwrap()
-        .map(|s| s.dynkin().next().unwrap())
+        .map(|(s, _)| s.dynkin().next().unwrap())
         .collect();
     assert_eq!(channels, vec![0, 2, 4]);
 }
@@ -748,10 +733,6 @@ fn contract_fusion_su3_octet_decomposition() {
     let decomposition = cat
         .fusion(&eight, &eight)
         .unwrap()
-        .map(|c| {
-            let n = cat.nsymbol(&eight, &eight, &c).unwrap();
-            (c, n)
-        })
         .collect::<std::collections::BTreeMap<_, _>>();
     // 8 ⊗ 8 = 1 ⊕ 8 ⊕ 8 ⊕ 10 ⊕ 10-bar ⊕ 27 — note the 8 appears twice.
     assert_eq!(decomposition[&eight], 2);
@@ -769,13 +750,7 @@ fn contract_fusion_so5_vector_squared() {
     let v = cat.irrep(&[1, 0]).unwrap();
     let out = cat
         .fusion(&v, &v)
-        .map(|it| {
-            it.map(|c| {
-                let n = cat.nsymbol(&v, &v, &c).unwrap();
-                (c, n)
-            })
-            .collect::<std::collections::BTreeMap<_, _>>()
-        })
+        .map(|it| it.collect::<std::collections::BTreeMap<_, _>>())
         .unwrap();
     let mut dims: Vec<String> = out.keys().map(|s| s.dim_exact().to_string()).collect();
     dims.sort();
@@ -811,13 +786,7 @@ fn contract_fusion_sp4_defining_squared() {
     assert_eq!(four.dim_exact(), 4u32);
     let out = cat
         .fusion(&four, &four)
-        .map(|it| {
-            it.map(|c| {
-                let n = cat.nsymbol(&four, &four, &c).unwrap();
-                (c, n)
-            })
-            .collect::<std::collections::BTreeMap<_, _>>()
-        })
+        .map(|it| it.collect::<std::collections::BTreeMap<_, _>>())
         .unwrap();
     let mut dims: Vec<String> = out.keys().map(|s| s.dim_exact().to_string()).collect();
     dims.sort();
@@ -847,7 +816,7 @@ fn contract_symbols_1() {
     let category = ZN::new(3).unwrap();
     let one = ZNIrrep::new(1, 3).unwrap();
     let two = ZNIrrep::new(2, 3).unwrap();
-    assert_eq!(category.fusion(&one, &one).unwrap().next(), Some(two));
+    assert_eq!(category.fusion(&one, &one).unwrap().next(), Some((two, 1)));
     assert_eq!(category.r_symbol(&one, &one, &two), Ok(1.0));
     let zero = category
         .f_symbol(&one, &one, &one, &one, &one, &one)
@@ -914,10 +883,6 @@ fn contract_symbols_5() {
     assert_eq!(
         cat.fusion(&eight, &eight)
             .unwrap()
-            .map(|c| {
-                let n = cat.nsymbol(&eight, &eight, &c).unwrap();
-                (c, n)
-            })
             .collect::<std::collections::BTreeMap<_, _>>()[&eight],
         2
     );
@@ -939,10 +904,6 @@ fn contract_symbols_5() {
     let right: Vec<_> = cat
         .fusion(&eight, &eight)
         .unwrap()
-        .map(|c| {
-            let n = cat.nsymbol(&eight, &eight, &c).unwrap();
-            (c, n)
-        })
         .collect::<std::collections::BTreeMap<_, _>>()
         .keys()
         .map(|f| {

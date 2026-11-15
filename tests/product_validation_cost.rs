@@ -41,7 +41,7 @@ impl FusionCategory for Counter {
     type Scalar = f64;
     type FSymbol = FBlock<f64>;
     type RSymbol = RBlock<f64>;
-    type Fusion<'a> = std::iter::Once<u8>;
+    type Fusion<'a> = std::iter::Once<(u8, u32)>;
     type Error = Infallible;
     fn fusion_style(&self) -> FusionStyle {
         FusionStyle::Unique
@@ -93,7 +93,7 @@ impl FusionCategory for Counter {
     fn fusion<'a>(&'a self, a: &u8, b: &u8) -> Result<Self::Fusion<'a>, Infallible> {
         [a, b].into_iter().for_each(check);
         bump(3);
-        Ok(std::iter::once(0))
+        Ok(std::iter::once((0, 1)))
     }
     fn nsymbol(&self, a: &u8, b: &u8, c: &u8) -> Result<u32, Self::Error> {
         [a, b, c].into_iter().for_each(check);
@@ -314,7 +314,7 @@ impl FusionCategory for Malformed {
     type Scalar = f64;
     type FSymbol = FBlock<f64>;
     type RSymbol = RBlock<f64>;
-    type Fusion<'a> = std::iter::Once<u8>;
+    type Fusion<'a> = std::iter::Once<(u8, u32)>;
     type Error = Infallible;
     fn fusion_style(&self) -> FusionStyle {
         FusionStyle::Generic
@@ -345,7 +345,7 @@ impl FusionCategory for Malformed {
         1.0
     }
     fn fusion<'a>(&'a self, _: &u8, _: &u8) -> Result<Self::Fusion<'a>, Infallible> {
-        Ok(std::iter::once(0))
+        Ok(std::iter::once((0, 2)))
     }
     fn nsymbol(&self, _: &u8, _: &u8, _: &u8) -> Result<u32, Self::Error> {
         Ok(2)

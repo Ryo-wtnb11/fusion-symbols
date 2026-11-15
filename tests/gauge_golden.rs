@@ -232,7 +232,7 @@ fn n2_golden_channels_are_certified() {
         let total: f64 = g
             .fusion(&a, &b)
             .unwrap()
-            .map(|x| f64::from(g.nsymbol(&a, &b, &x).unwrap()) * g.dim(&x))
+            .map(|(x, _)| f64::from(g.nsymbol(&a, &b, &x).unwrap()) * g.dim(&x))
             .sum();
         assert_eq!(total, g.dim(&a) * g.dim(&b), "{name}: sum rule");
     }

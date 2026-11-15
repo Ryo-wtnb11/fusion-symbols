@@ -207,7 +207,7 @@ fn unary_data_and_fusion_order_follow_tensorkitsectors() {
                 _ if qa == qb => vec![OP, OM, j(2 * qa)],
                 _ => vec![j(qa.abs_diff(qb)), j(qa + qb)],
             };
-            let got: Vec<_> = CU1.fusion(&a, &b).unwrap().collect();
+            let got: Vec<_> = CU1.fusion(&a, &b).unwrap().map(|(c, _)| c).collect();
             assert_eq!(got, want, "{a:?} ⊗ {b:?}");
             for &c in &all {
                 assert_eq!(

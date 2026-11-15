@@ -265,7 +265,7 @@ fn cgc() {
     );
     let all = |g: &LieGroup, a: &[i64], b: &[i64]| {
         let (a, b) = (g.irrep(a).unwrap(), g.irrep(b).unwrap());
-        for c in g.fusion(&a, &b).unwrap() {
+        for (c, _) in g.fusion(&a, &b).unwrap() {
             black_box(g.cgc(&a, &b, &c).unwrap());
         }
     };
@@ -306,7 +306,7 @@ fn d4() {
     cache::reset();
     let g = LieGroup::new(GroupId::spin(8).unwrap()).unwrap();
     let a = g.irrep(&[1, 0, 1, 1]).unwrap();
-    for c in g.fusion(&a, &a).unwrap() {
+    for (c, _) in g.fusion(&a, &a).unwrap() {
         let n = g.nsymbol(&a, &a, &c).unwrap();
         let label = format!(
             "D4 350x350 -> {:?} (dim {}, N {n})",

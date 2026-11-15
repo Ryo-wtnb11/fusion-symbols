@@ -348,8 +348,26 @@ fn ising_is_tensorkitsectors_ising_up_to_the_documented_vertex_gauge() {
 // 2. Consistency checks — never generators — on every shipped entry
 // -------------------------------------------------------------------------
 
+/// Fibonacci τ ⊗ τ = 𝟙 ⊕ τ and Ising σ ⊗ σ = 𝟙 ⊕ ψ (AnyonWiki object order,
+/// `TableCategory::ising` docs), each channel once.
+#[test]
+fn fusion_items_are_the_shipped_simple_decompositions() {
+    let fib = TableCategory::fibonacci();
+    let [unit, tau] = [1, 2].map(|i| fib.object(i).unwrap());
+    assert_eq!(
+        fib.fusion(&tau, &tau).unwrap().collect::<Vec<_>>(),
+        [(unit, 1), (tau, 1)]
+    );
+    let ising = TableCategory::ising();
+    let [unit, psi, sigma] = [1, 2, 3].map(|i| ising.object(i).unwrap());
+    assert_eq!(
+        ising.fusion(&sigma, &sigma).unwrap().collect::<Vec<_>>(),
+        [(unit, 1), (psi, 1)]
+    );
+}
+
 fn channels(p: &TableCategory, a: TableObject, b: TableObject) -> Vec<TableObject> {
-    p.fusion(&a, &b).unwrap().collect()
+    p.fusion(&a, &b).unwrap().map(|(c, _)| c).collect()
 }
 
 #[test]

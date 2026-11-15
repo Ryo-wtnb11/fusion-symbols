@@ -133,7 +133,7 @@ impl FusionCategory for U1 {
     type Scalar = f64;
     type FSymbol = f64;
     type RSymbol = f64;
-    type Fusion<'a> = std::iter::Once<U1Irrep>;
+    type Fusion<'a> = std::iter::Once<(U1Irrep, u32)>;
     type Error = U1Error;
 
     fn fusion_style(&self) -> FusionStyle {
@@ -164,9 +164,10 @@ impl FusionCategory for U1 {
         1.0
     }
     fn fusion<'a>(&'a self, a: &U1Irrep, b: &U1Irrep) -> Result<Self::Fusion<'a>, Self::Error> {
-        Ok(std::iter::once(U1Irrep::from_exact(
-            i64::from(a.charge) + i64::from(b.charge),
-        )?))
+        Ok(std::iter::once((
+            U1Irrep::from_exact(i64::from(a.charge) + i64::from(b.charge))?,
+            1,
+        )))
     }
     /// Always `Ok`: charge conservation is decided exactly, even when the
     /// sum is not a representable label.

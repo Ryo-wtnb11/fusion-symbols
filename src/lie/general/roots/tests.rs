@@ -893,3 +893,48 @@ fn stored_label_hash_matches_its_words() {
         }
     }
 }
+
+// One public enumeration of every channel with its multiplicity searches the
+// cache once; the per-channel N loop it replaces searches 1 + K times, which
+// this counter must see (detection control).
+#[cfg(feature = "lie-generated")]
+#[test]
+fn warm_fusion_reads_every_multiplicity_in_one_search() {
+    use crate::category::FusionCategory;
+    use crate::lie::{GroupId, LieGroup};
+    let _guard = crate::cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let searches = |f: &dyn Fn()| {
+        crate::cache::SEARCHES.with(|n| n.set(0));
+        f();
+        crate::cache::SEARCHES.with(std::cell::Cell::get)
+    };
+    let g = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+    let a = g.irrep(&[1, 1]).unwrap();
+    // Warm both the label and the multiplicity projection.
+    let channels: Vec<_> = g.fusion(&a, &a).unwrap().collect();
+    for (c, _) in &channels {
+        g.nsymbol(&a, &a, c).unwrap();
+    }
+    assert_eq!(
+        searches(&|| {
+            std::hint::black_box(g.fusion(&a, &a).unwrap().map(|(_, n)| n).sum::<u32>());
+        }),
+        1
+    );
+    assert_eq!(
+        searches(&|| {
+            for (c, _) in g.fusion(&a, &a).unwrap() {
+                std::hint::black_box(g.nsymbol(&a, &a, &c).unwrap());
+            }
+        }),
+        1 + channels.len()
+    );
+    assert_eq!(
+        searches(&|| {
+            std::hint::black_box(g.nsymbol(&a, &a, &a).unwrap());
+        }),
+        1
+    );
+}

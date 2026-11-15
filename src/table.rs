@@ -367,7 +367,8 @@ impl TableCategory {
     }
 }
 
-/// Allocation-free iterator over fusion channels in the frozen source order.
+/// Allocation-free iterator over fusion channels and their multiplicities, in
+/// the frozen source order.
 #[derive(Clone, Debug)]
 pub struct TableFusion<'a> {
     category: &'a TableCategory,
@@ -377,12 +378,14 @@ pub struct TableFusion<'a> {
 }
 
 impl Iterator for TableFusion<'_> {
-    type Item = TableObject;
+    type Item = (TableObject, u32);
 
-    fn next(&mut self) -> Option<TableObject> {
-        self.remaining
-            .find(|&c| self.category.data.table.nsymbol(self.a, self.b, c) > 0)
-            .map(|c| self.category.at_index(c))
+    fn next(&mut self) -> Option<(TableObject, u32)> {
+        let table = &self.category.data.table;
+        self.remaining.find_map(|c| {
+            let n = table.nsymbol(self.a, self.b, c);
+            (n > 0).then(|| (self.category.at_index(c), n))
+        })
     }
 }
 

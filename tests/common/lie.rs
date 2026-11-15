@@ -60,13 +60,7 @@ pub fn product(
     b: &LieIrrep,
 ) -> Result<std::collections::BTreeMap<LieIrrep, u32>, LieError> {
     let cat = group(a);
-    Ok(cat
-        .fusion(a, b)?
-        .map(|c| {
-            let n = cat.nsymbol(a, b, &c).unwrap();
-            (c, n)
-        })
-        .collect())
+    Ok(cat.fusion(a, b)?.collect())
 }
 pub fn cgc(
     a: &LieIrrep,
