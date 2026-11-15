@@ -325,15 +325,9 @@ fn gt_channels_are_exact() {
     for (a, b) in [([1, 0], [0, 1]), ([1, 0], [1, 0]), ([1, 1], [1, 1])] {
         let data = CartanData::new(RootSystem::A(2));
         let [ma, mb] = [&a, &b].map(|x| build(x).1);
-        let product = data
-            .multiplicities(
-                crate::cache::Label::new(&a),
-                crate::cache::Label::new(&b),
-                None,
-            )
-            .unwrap();
+        let [la, lb] = [&a, &b].map(|x| crate::cache::Label::new(x));
         for (c, n) in data.tensor_product(&a, &b).unwrap() {
-            assert_eq!(product.multiplicity(&c), n);
+            assert_eq!(data.label_multiplicity(la, lb, &c, None).unwrap(), n);
             let mc = build(&c).1;
             let ch = ExactChannel::new(&data, &ma, &mb, &mc, n as usize).unwrap();
             check_exact(&ch, &ma, &mb, &mc);

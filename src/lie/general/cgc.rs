@@ -1910,7 +1910,7 @@ impl GeneralFamily {
                 dj(c)?,
             )));
         }
-        Ok(self.data.multiplicities(a, b, None)?.multiplicity(c.words) as usize)
+        Ok(self.data.label_multiplicity(a, b, c.words, None)? as usize)
     }
 
     /// The rational channel with its three modules, gated by the exact

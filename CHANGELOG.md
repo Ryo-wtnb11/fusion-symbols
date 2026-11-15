@@ -101,6 +101,12 @@ value/gauge rule noted below.
 
 ### Performance
 
+- A warm `nsymbol` on a simple Lie group of rank at least two reads the
+  multiplicity inside the cache hit instead of cloning the cached channel
+  list. Concurrent queries of one pair therefore no longer contend on that
+  list's shared reference count; single-thread timings are neutral within the
+  measured variation. The CGC engine's own N checks take the same path.
+  Values are unchanged. (#252)
 - Product F, R, A and B symbols whose product axes are all 1 skip the
   product's repeated validation lookups of each leaf factor's N: a product
   axis is the product of its leaves' positive multiplicities, so each leaf

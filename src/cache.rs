@@ -1366,21 +1366,26 @@ pub(crate) fn product<E>(
     )
 }
 
-pub(crate) fn product_multiplicities<E>(
+/// `N^c_{ab}`, searched inside the hit: a resident warm query does not clone
+/// the label-free channel list, whose reference count every concurrent hit on
+/// the pair would otherwise write.
+pub(crate) fn product_multiplicity<E>(
     root: RootSystem,
     a: Label<'_>,
     b: Label<'_>,
+    c: &[i64],
     compute: impl FnOnce() -> Result<Multiplicities, E>,
-) -> Result<Multiplicities, E> {
+) -> Result<u32, E> {
     let (a, b) = if a.words <= b.words { (a, b) } else { (b, a) };
-    let key = ProductRef(root, a, b, true);
-    let own = || ProductKey(root, a.words.into(), b.words.into(), true);
-    let compute = || compute().map(ProductValue::Multiplicities);
-    let value = CACHE_PRODUCT.get_or_try_compute(&key, own, compute)?;
-    match value {
-        ProductValue::Multiplicities(x) => Ok(x),
-        _ => unreachable!("projection is part of the key"),
-    }
+    CACHE_PRODUCT.get_or_try_sweep(
+        &ProductRef(root, a, b, true),
+        |value| match value {
+            ProductValue::Multiplicities(x) => x.multiplicity(c),
+            _ => unreachable!("projection is part of the key"),
+        },
+        || ProductKey(root, a.words.into(), b.words.into(), true),
+        |_| compute().map(ProductValue::Multiplicities),
+    )
 }
 
 fn control(tier: CoefficientCacheTier) -> &'static dyn TierControl {

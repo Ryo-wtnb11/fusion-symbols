@@ -1,4 +1,4 @@
-//! Warm public-API F throughput, shared and per-thread distinct keys.
+//! Warm public-API F and N throughput, shared and per-thread distinct keys.
 //! Reports median/min/max aggregate queries/s from five 500 ms rounds.
 use fusion_symbols::{
     category::FusionCategory,
@@ -135,6 +135,22 @@ fn main() {
             let (g, a) = (su3.clone(), octet.clone());
             move || {
                 black_box(g.f_symbol(black_box(&a), &a, &a, &a, &a, &a).unwrap());
+            }
+        });
+        // One shared Product-tier entry: every thread reads the same channel list.
+        measure("su3_octet_n", |_| {
+            let (g, a) = (su3.clone(), octet.clone());
+            move || {
+                black_box(g.nsymbol(black_box(&a), &a, &a).unwrap());
+            }
+        });
+        let so12 = LieGroup::new(GroupId::so(12).unwrap()).unwrap();
+        let x = so12.irrep(&[0, 2, 0, 0, 0, 0]).unwrap();
+        let (y, z) = (so12.dual(&x), so12.unit());
+        measure("so12_n", |_| {
+            let (g, x, y, z) = (so12.clone(), x.clone(), y.clone(), z.clone());
+            move || {
+                black_box(g.nsymbol(black_box(&x), &y, &z).unwrap());
             }
         });
         let b2 = LieGroup::new(GroupId::so(5).unwrap()).unwrap();
