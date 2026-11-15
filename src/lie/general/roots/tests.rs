@@ -578,7 +578,7 @@ fn payload_identity_and_legacy_product_order() {
         let unit = data.irrep(&vec![0; root.rank()]).unwrap();
         let unit_product = data
             .load_product(
-                data.multiplicities(unit.label(), a.label(), Some((&unit, &a)))
+                data.compute_multiplicities(unit.dynkin(), a.dynkin(), Some((&unit, &a)))
                     .unwrap(),
                 Some((&unit, &a)),
             )
@@ -937,4 +937,49 @@ fn warm_fusion_reads_every_multiplicity_in_one_search() {
         }),
         1
     );
+}
+
+// A resident warm N searches the cached list itself: during the search the
+// list has exactly the owners it had after the cold call, so the hit holds no
+// clone of it, and the miss closure is not called.
+#[test]
+fn warm_multiplicity_searches_the_cached_list_without_owning_it() {
+    use crate::cache::Label;
+    let _guard = crate::cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    std::thread_local! {
+        static OWNERS: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+    }
+    // A pair no other fixture queries, with an inline channel list.
+    let (a, b) = ([9001, 1], [9001, 2]);
+    let rows: Arc<[(Box<[i64]>, u32)]> = Arc::from(vec![
+        (vec![0, 3].into_boxed_slice(), 1),
+        (vec![1, 1].into_boxed_slice(), 2),
+        (vec![2, 0].into_boxed_slice(), 1),
+    ]);
+    let query = |c: &[i64], compute: &dyn Fn() -> Multiplicities| {
+        crate::cache::product_multiplicity::<std::convert::Infallible>(
+            RootSystem::A(2),
+            Label::new(&a),
+            Label::new(&b),
+            c,
+            || Ok(compute()),
+        )
+        .unwrap()
+    };
+    crate::cache::reset();
+    assert_eq!(query(&[1, 1], &|| Multiplicities(rows.clone())), 2);
+    let resident = Arc::strong_count(&rows);
+    ON_SEARCH.with(|h| {
+        h.set(Some(|m: &Multiplicities| {
+            OWNERS.with(|o| o.set(Some(Arc::strong_count(&m.0))))
+        }))
+    });
+    let n = query(&[1, 1], &|| {
+        panic!("a resident pair must not be recomputed")
+    });
+    assert_eq!(n, 2);
+    assert_eq!(OWNERS.with(std::cell::Cell::take), Some(resident));
+    crate::cache::reset();
 }

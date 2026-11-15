@@ -532,9 +532,8 @@ fn exact_vectors_live_only_through_their_readers() {
         let data = CartanData::new(root);
         let [a, b, c] = [x, y, z].map(|l| Ladders::new(&data, l).unwrap());
         let n = data
-            .multiplicities(Label::new(x), Label::new(y), None)
-            .unwrap()
-            .multiplicity(z) as usize;
+            .label_multiplicity(Label::new(x), Label::new(y), z, None)
+            .unwrap() as usize;
         assert_eq!(n, 2, "{root:?}");
         let weights = &c.module.weights;
         let depth = |w: usize| weights[w].k.iter().sum::<i64>() as usize;
@@ -1228,9 +1227,8 @@ fn rounded(
     let data = CartanData::new(root);
     let [ma, mb, mc] = [a, b, c].map(|l| Ladders::new(&data, l).unwrap());
     let n = data
-        .multiplicities(Label::new(a), Label::new(b), None)
-        .unwrap()
-        .multiplicity(c) as usize;
+        .label_multiplicity(Label::new(a), Label::new(b), c, None)
+        .unwrap() as usize;
     let entries = rounded_entries(&data, &ma, &mb, &mc, n, None).unwrap();
     (entries, [ma, mb, mc], n)
 }
@@ -2425,9 +2423,8 @@ fn layer_descent_matches_the_serial_bits_at_every_width() {
         let data = CartanData::new(root);
         let [a, b, c] = [&x, &y, &z].map(|l| Ladders::new(&data, l).unwrap());
         let n = data
-            .multiplicities(Label::new(&x), Label::new(&y), None)
-            .unwrap()
-            .multiplicity(&z) as usize;
+            .label_multiplicity(Label::new(&x), Label::new(&y), &z, None)
+            .unwrap() as usize;
         assert!(n >= 2, "{root:?}");
         // Weights per depth layer of `c`, below the highest weight.
         let weights = &c.module.weights;
@@ -2510,9 +2507,8 @@ fn layer_descent_holds_two_layers_plus_one_layers_candidates() {
         let data = CartanData::new(root);
         let [a, b, c] = [&x, &y, &z].map(|l| Ladders::new(&data, l).unwrap());
         let n = data
-            .multiplicities(Label::new(&x), Label::new(&y), None)
-            .unwrap()
-            .multiplicity(&z) as usize;
+            .label_multiplicity(Label::new(&x), Label::new(&y), &z, None)
+            .unwrap() as usize;
         let weights = &c.module.weights;
         let depth = |w: usize| weights[w].k.iter().sum::<i64>() as usize;
         let mut states = vec![0usize; depth(weights.len() - 1) + 1];

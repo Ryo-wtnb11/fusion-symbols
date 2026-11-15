@@ -830,13 +830,15 @@ impl CartanData {
         channels.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
         Ok(Product(channels.into()))
     }
-    pub(super) fn multiplicities(
+    /// `N^c_{ab}` from the cached product; `inputs` supply exact dimensions on a miss.
+    pub(super) fn label_multiplicity(
         &self,
         a: Label<'_>,
         b: Label<'_>,
+        c: &[i64],
         inputs: Option<(&RootIrrep, &RootIrrep)>,
-    ) -> Result<Multiplicities, LieError> {
-        crate::cache::product_multiplicities(self.root, a, b, || {
+    ) -> Result<u32, LieError> {
+        crate::cache::product_multiplicity(self.root, a, b, c, || {
             self.compute_multiplicities(a.words, b.words, inputs)
         })
     }
@@ -863,9 +865,7 @@ impl CartanData {
         if c.root() != self.root {
             return Ok(0);
         }
-        Ok(self
-            .multiplicities(a.label(), b.label(), Some((a, b)))?
-            .multiplicity(c.dynkin()))
+        self.label_multiplicity(a.label(), b.label(), c.dynkin(), Some((a, b)))
     }
     /// The Dynkin weight of an `A_r` pattern: `μ_j = w_{j+1} − w_{j+2}` with
     /// `w_l` the sum of row `l` minus the sum of row `l − 1`.
@@ -1196,7 +1196,11 @@ impl crate::cache::CacheKeyCharge for RootIrrep {
 #[derive(Clone, Debug)]
 pub(crate) struct Multiplicities(pub(crate) Arc<[(Box<[i64]>, u32)]>);
 impl Multiplicities {
-    pub(super) fn multiplicity(&self, c: &[i64]) -> u32 {
+    pub(crate) fn multiplicity(&self, c: &[i64]) -> u32 {
+        #[cfg(test)]
+        if let Some(hook) = ON_SEARCH.with(std::cell::Cell::take) {
+            hook(self);
+        }
         self.0
             .binary_search_by(|(x, _)| x.as_ref().cmp(c))
             .map_or(0, |i| self.0[i].1)
@@ -1306,6 +1310,14 @@ pub(crate) fn shared_product(a: &RootIrrep, b: &RootIrrep) -> Result<Product, Li
         || data().compute_multiplicities(a.dynkin(), b.dynkin(), Some((a, b))),
         |channels| data().load_product(channels, Some((a, b))),
     )
+}
+
+#[cfg(test)]
+std::thread_local! {
+    /// A test hook run once by this thread's next multiplicity search, with
+    /// the list it searches.
+    pub(crate) static ON_SEARCH: std::cell::Cell<Option<fn(&Multiplicities)>> =
+        const { std::cell::Cell::new(None) };
 }
 
 #[cfg(test)]

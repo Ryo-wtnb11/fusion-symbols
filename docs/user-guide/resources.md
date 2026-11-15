@@ -223,12 +223,13 @@ relaxed loads of the stripes: it is exact once concurrent readers have
 finished, but not linearizable with hits in flight. Misses, evictions,
 entries and charged bytes change only under the tier lock and stay exact.
 
-A hit returns a clone of the stored value. For values with shared storage
+A hit that returns a stored value returns a clone of it. For values with shared storage
 (non-inline F blocks, CGC channels, products) that is one `Arc` clone, whose reference
 count is written by every concurrent hit on the same key, so throughput on one
 shared block (such as the SU(3) octet F block) stays limited however many
 threads query it. In hot loops, query once and hold the returned block rather
-than repeating the query.
+than repeating the query. A warm `nsymbol` returns only a count: it reads the
+multiplicity inside the hit and clones nothing, so it writes no reference count.
 
 ## Retained group data and allocation
 
