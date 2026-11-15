@@ -101,6 +101,15 @@ value/gauge rule noted below.
 
 ### Performance
 
+- Product F, R, A and B symbols whose product axes are all 1 skip the
+  product's repeated validation lookups of each leaf factor's N: a product
+  axis is the product of its leaves' positive multiplicities, so each leaf
+  axis is then 1 and the per-factor block check uses it directly. A leaf's
+  own A/B evaluation may still query N once. A composite Lie group used as a
+  factor of such a query composes its leaves directly instead of re-running
+  its own query, which also saves its dual for A and B. Queries with a
+  multiplicity of 2 or more at some vertex keep the same local N and
+  coefficient algorithm, with an extra `Option` dispatch per leaf. (#287)
 - A cold Cartan CGC channel builds each weight's coupling pairs with one
   allocation, and none for an empty weight, instead of one lookup key per
   weight of the smaller factor plus the pair vector's growth: the key and the

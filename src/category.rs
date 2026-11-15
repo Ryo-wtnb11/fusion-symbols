@@ -904,6 +904,9 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     ) -> Result<u32, Self::Error> {
         self.nsymbol(a, b, c)
     }
+    // The block with the axes its product checks it against. `ones` is given
+    // when every product axis is 1: each leaf N is then 1 (a product of positive
+    // multiplicities), so it is not evaluated again.
     #[doc(hidden)]
     #[allow(clippy::too_many_arguments)]
     fn __fusion_symbols_validated_f_symbol(
@@ -914,15 +917,19 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         d: &Self::Object,
         e: &Self::Object,
         f: &Self::Object,
+        ones: Option<[u32; 4]>,
         _: sealed::Validated,
     ) -> Result<sealed::SymbolWithAxes<Self::FSymbol, 4>, Self::Error> {
         let block = self.f_symbol(a, b, c, d, e, f)?;
-        let n = [
-            self.nsymbol(a, b, e)?,
-            self.nsymbol(e, c, d)?,
-            self.nsymbol(b, c, f)?,
-            self.nsymbol(a, f, d)?,
-        ];
+        let n = match ones {
+            Some(n) => n,
+            None => [
+                self.nsymbol(a, b, e)?,
+                self.nsymbol(e, c, d)?,
+                self.nsymbol(b, c, f)?,
+                self.nsymbol(a, f, d)?,
+            ],
+        };
         Ok((block, n))
     }
     #[doc(hidden)]
@@ -931,10 +938,14 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         a: &Self::Object,
         b: &Self::Object,
         c: &Self::Object,
+        ones: Option<[u32; 2]>,
         _: sealed::Validated,
     ) -> Result<sealed::SymbolWithAxes<Self::RSymbol, 2>, Self::Error> {
         let block = self.r_symbol(a, b, c)?;
-        let n = [self.nsymbol(a, b, c)?, self.nsymbol(b, a, c)?];
+        let n = match ones {
+            Some(n) => n,
+            None => [self.nsymbol(a, b, c)?, self.nsymbol(b, a, c)?],
+        };
         Ok((block, n))
     }
     #[doc(hidden)]
@@ -943,10 +954,14 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         a: &Self::Object,
         b: &Self::Object,
         c: &Self::Object,
+        ones: Option<[u32; 2]>,
         _: sealed::Validated,
     ) -> Result<sealed::SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
         let block = self.a_symbol(a, b, c)?;
-        let n = [self.nsymbol(a, b, c)?, self.nsymbol(&self.dual(a), c, b)?];
+        let n = match ones {
+            Some(n) => n,
+            None => [self.nsymbol(a, b, c)?, self.nsymbol(&self.dual(a), c, b)?],
+        };
         Ok((block, n))
     }
     #[doc(hidden)]
@@ -955,10 +970,14 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         a: &Self::Object,
         b: &Self::Object,
         c: &Self::Object,
+        ones: Option<[u32; 2]>,
         _: sealed::Validated,
     ) -> Result<sealed::SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
         let block = self.b_symbol(a, b, c)?;
-        let n = [self.nsymbol(a, b, c)?, self.nsymbol(c, &self.dual(b), a)?];
+        let n = match ones {
+            Some(n) => n,
+            None => [self.nsymbol(a, b, c)?, self.nsymbol(c, &self.dual(b), a)?],
+        };
         Ok((block, n))
     }
 }

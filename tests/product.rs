@@ -1909,3 +1909,27 @@ fn an_empty_factor_stops_maximum_preparation() {
         Err(ProductError::Factor0(ProductError::Factor0(_)))
     ));
 }
+
+// A composite Lie group used as a factor, with every product axis 1, composes
+// its own leaves directly: F/R/A/B equal, bit for bit, the indexed Kronecker
+// product of the composite's direct query with the other leaf.
+#[test]
+fn composite_factor_symbols_are_bitwise_kronecker_products() {
+    let s = su2();
+    let u2 = LieGroup::new(GroupId::u(2).unwrap()).unwrap();
+    let (a, b, one) = (
+        u2.irrep_with_charges(&[1], &[1]).unwrap(),
+        u2.irrep_with_charges(&[1], &[-1]).unwrap(),
+        u2.unit(),
+    );
+    let h = s.irrep(&[2]).unwrap();
+    let p = Product::new((u2.clone(), s.clone()));
+    let [pa, pb, pone] = [&a, &b, &one].map(|x| (x.clone(), h.clone()));
+    assert_eq!(
+        frab(&p, [&pa, &pb, &pone], [&pa, &pb, &pa, &pa, &pone, &pone]),
+        real_kron(
+            &frab(&u2, [&a, &b, &one], [&a, &b, &a, &a, &one, &one]),
+            &frab(&s, [&h; 3], [&h; 6]),
+        )
+    );
+}
