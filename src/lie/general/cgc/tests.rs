@@ -876,7 +876,7 @@ impl FusionCategory for Cat {
     type Scalar = f64;
     type FSymbol = FBlock<f64>;
     type RSymbol = RBlock<f64>;
-    type Fusion<'a> = std::vec::IntoIter<Vec<i64>>;
+    type Fusion<'a> = std::vec::IntoIter<(Vec<i64>, u32)>;
     type Error = LieError;
     fn fusion_style(&self) -> FusionStyle {
         FusionStyle::Generic
@@ -913,7 +913,7 @@ impl FusionCategory for Cat {
             .fam
             .product(a, b)?
             .iter()
-            .map(|(c, _)| c.dynkin().to_vec())
+            .map(|(c, n)| (c.dynkin().to_vec(), *n))
             .collect::<Vec<_>>()
             .into_iter())
     }

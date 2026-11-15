@@ -70,7 +70,7 @@ fn compare<C, T>(
                 tuple
                     .fusion(a, b)
                     .unwrap()
-                    .map(|c| flatten(&c))
+                    .map(|(c, n)| (flatten(&c), n))
                     .collect::<Vec<_>>()
             );
             for c in &labels {
@@ -217,7 +217,7 @@ fn runtime_matches_tuples() {
             .fusion(&vec![a.0, a.1, a.2], &vec![b.0, b.1, b.2])
             .unwrap()
             .collect::<Vec<_>>(),
-        [vec![u.0, u.1, u.2]]
+        [(vec![u.0, u.1, u.2], 1)]
     );
     // SU(2) singlet recoupling F(h,h,h,h,0,0) = -1/2 in the frozen gauge.
     // Two factors therefore give (+1/4), independently of tuple composition.
@@ -290,7 +290,7 @@ fn empty_and_singleton() {
     assert_eq!(empty.nsymbol(&u, &u, &u).unwrap(), 1);
     assert_eq!(
         empty.fusion(&u, &u).unwrap().collect::<Vec<_>>(),
-        std::slice::from_ref(&u)
+        [(u.clone(), 1)]
     );
     assert_eq!(
         bits(empty.f_symbol(&u, &u, &u, &u, &u, &u).unwrap()),

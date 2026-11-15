@@ -228,8 +228,9 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     type FSymbol: SymbolBlock<4, Scalar = Self::Scalar>;
     /// R storage; logical shape is `[N(a,b,c), N(b,a,c)]`.
     type RSymbol: SymbolBlock<2, Scalar = Self::Scalar>;
-    /// Distinct fusion outcomes, in deterministic order.
-    type Fusion<'a>: Iterator<Item = Self::Object>
+    /// Distinct fusion outcomes, each with its multiplicity `N(a, b, c) ≥ 1`,
+    /// in deterministic order.
+    type Fusion<'a>: Iterator<Item = (Self::Object, u32)>
     where
         Self: 'a;
     /// Genuine failure or absent capability; `Infallible` when neither occurs.
@@ -272,7 +273,7 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
     /// let unit = su2.unit();
     /// assert_eq!(unit.spin(), Some(HalfInt::new(0, 1)?));
-    /// assert_eq!(su2.fusion(&unit, &half)?.collect::<Vec<_>>(), [half]);
+    /// assert_eq!(su2.fusion(&unit, &half)?.collect::<Vec<_>>(), [(half, 1)]);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     fn unit(&self) -> Self::Object;
@@ -374,8 +375,12 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// assert_eq!(FermionParity.twist(&FermionParityIrrep::EVEN), 1.0);
     /// ```
     fn twist(&self, a: &Self::Object) -> Self::Scalar;
-    /// Deterministic outcomes; checked arithmetic overflow is an error.
-    /// Foreign objects panic before computation.
+    /// Deterministic outcomes `c` of `a ⊗ b`, each once with its multiplicity
+    /// `N(a, b, c) ≥ 1`, which equals [`Self::nsymbol`]. Reading every channel
+    /// with its multiplicity this way costs one decomposition lookup per
+    /// generated simple factor (one lookup for a simple Lie pair), with no
+    /// per-channel N lookup. Checked arithmetic overflow is an error. Foreign
+    /// objects panic before computation.
     ///
     /// # Examples
     ///
@@ -385,8 +390,9 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// let su2 = LieGroup::new(GroupId::su(2)?)?;
     /// let half = su2.irrep_spin(HalfInt::new(1, 2)?)?;
     /// let one = su2.irrep_spin(HalfInt::new(1, 1)?)?;
-    /// let out: Vec<_> = su2.fusion(&half, &one)?.map(|c| c.spin()).collect();
-    /// assert_eq!(out, [Some(HalfInt::new(1, 2)?), Some(HalfInt::new(3, 2)?)]); // ½ ⊗ 1 = ½ ⊕ 3/2
+    /// let out: Vec<_> = su2.fusion(&half, &one)?.map(|(c, n)| (c.spin(), n)).collect();
+    /// // ½ ⊗ 1 = ½ ⊕ 3/2
+    /// assert_eq!(out, [(Some(HalfInt::new(1, 2)?), 1), (Some(HalfInt::new(3, 2)?), 1)]);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     fn fusion<'a>(
@@ -871,6 +877,22 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         _: sealed::Validated,
     ) -> Result<Self::Fusion<'a>, Self::Error> {
         self.fusion(a, b)
+    }
+    // The exact largest multiplicity of a nonempty `fusion`, or `None` when
+    // this category cannot state it without a pass (a Generic category outside
+    // this crate). An empty iterator may report an upper bound: a product
+    // checks emptiness before reading it.
+    #[doc(hidden)]
+    fn __fusion_symbols_max_multiplicity<'a>(
+        &'a self,
+        fusion: &Self::Fusion<'a>,
+        _: sealed::Validated,
+    ) -> Option<u32> {
+        let _ = fusion;
+        match self.fusion_style() {
+            FusionStyle::Generic => None,
+            _ => Some(1),
+        }
     }
     #[doc(hidden)]
     fn __fusion_symbols_validated_nsymbol(

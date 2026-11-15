@@ -23,7 +23,7 @@ fn inline_torus_labels_and_queries_allocate_nothing() {
     assert_eq!(g.object_at(5), Ok(a.clone()));
     let mut fusion = g.fusion(&a, &b).unwrap();
     assert_eq!(fusion.len(), 1);
-    assert_eq!(fusion.next_back(), Some(c.clone()));
+    assert_eq!(fusion.next_back(), Some((c.clone(), 1)));
     assert_eq!(fusion.next(), None);
     assert_eq!(g.nsymbol(&a, &b, &c).unwrap(), 1);
     assert_eq!(g.dim(&a), 1.0);

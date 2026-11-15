@@ -57,7 +57,11 @@ fn fusion_iterator_matches_source_order_for_every_shipped_table() {
             for b in objects(&category) {
                 assert!(
                     category.fusion(&a, &b).unwrap().eq(objects(&category)
-                        .filter(|c| category.nsymbol(&a, &b, c).unwrap() > 0)),
+                        .map(|c| {
+                            let n = category.nsymbol(&a, &b, &c).unwrap();
+                            (c, n)
+                        })
+                        .filter(|&(_, n)| n > 0)),
                     "{uuid}: {a:?} x {b:?}"
                 );
             }

@@ -7,7 +7,7 @@ fn outcomes<C: FusionCategory>(
     a: &C::Object,
     b: &C::Object,
 ) -> Result<Vec<C::Object>, C::Error> {
-    Ok(cat.fusion(a, b)?.collect())
+    Ok(cat.fusion(a, b)?.map(|(c, _)| c).collect())
 }
 fn multiplicity<C: FusionCategory>(
     cat: &C,
@@ -132,8 +132,8 @@ pub fn f_unitarity_residual<C: FusionCategory>(
 ) -> Result<f64, C::Error> {
     // Rows: (e, μ, ν). Columns: (f, κ, λ).
     let mut rows: Vec<(C::Object, usize, usize)> = Vec::new();
-    for e in outcomes(fam, a, b)? {
-        let n_ab_e = multiplicity(fam, a, b, &e)?;
+    for (e, n_ab_e) in fam.fusion(a, b)? {
+        let n_ab_e = n_ab_e as usize;
         let n_ec_d = multiplicity(fam, &e, c, d)?;
         for mu in 0..n_ab_e {
             for nu in 0..n_ec_d {
@@ -142,8 +142,8 @@ pub fn f_unitarity_residual<C: FusionCategory>(
         }
     }
     let mut cols: Vec<(C::Object, usize, usize)> = Vec::new();
-    for f in outcomes(fam, b, c)? {
-        let n_bc_f = multiplicity(fam, b, c, &f)?;
+    for (f, n_bc_f) in fam.fusion(b, c)? {
+        let n_bc_f = n_bc_f as usize;
         let n_af_d = multiplicity(fam, a, &f, d)?;
         for kappa in 0..n_bc_f {
             for lambda in 0..n_af_d {

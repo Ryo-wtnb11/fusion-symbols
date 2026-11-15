@@ -86,11 +86,11 @@ fn assert_canonical_unit<C: FusionCategory>(cat: &C, objects: &[C::Object], tol:
     for a in objects {
         assert_eq!(
             cat.fusion(&one, a).unwrap().collect::<Vec<_>>(),
-            std::slice::from_ref(a)
+            [(a.clone(), 1)]
         );
         assert_eq!(
             cat.fusion(a, &one).unwrap().collect::<Vec<_>>(),
-            std::slice::from_ref(a)
+            [(a.clone(), 1)]
         );
         assert_eq!(cat.nsymbol(&one, a, a).unwrap(), 1);
         assert_eq!(cat.nsymbol(a, &one, a).unwrap(), 1);

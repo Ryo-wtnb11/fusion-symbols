@@ -88,7 +88,7 @@ impl ZNIrrep {
 ///
 /// let z3 = ZN::new(3)?;
 /// let two = ZNIrrep::new(2, 3)?;
-/// assert_eq!(z3.fusion(&two, &two)?.next(), Some(ZNIrrep::new(1, 3)?)); // 2 + 2 = 1 mod 3
+/// assert_eq!(z3.fusion(&two, &two)?.next(), Some((ZNIrrep::new(1, 3)?, 1))); // 2 + 2 = 1 mod 3
 /// assert_eq!(z3.dual(&two), ZNIrrep::new(1, 3)?);
 /// assert_eq!(ZN::new(0), Err(ZNError::ZeroModulus));
 /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -132,7 +132,7 @@ impl FusionCategory for ZN {
     type Scalar = f64;
     type FSymbol = f64;
     type RSymbol = f64;
-    type Fusion<'a> = std::iter::Once<ZNIrrep>;
+    type Fusion<'a> = std::iter::Once<(ZNIrrep, u32)>;
     type Error = Infallible;
 
     fn fusion_style(&self) -> FusionStyle {
@@ -171,9 +171,10 @@ impl FusionCategory for ZN {
     }
     fn fusion<'a>(&'a self, a: &ZNIrrep, b: &ZNIrrep) -> Result<Self::Fusion<'a>, Self::Error> {
         self.validate(&[a, b]);
-        Ok(std::iter::once(
+        Ok(std::iter::once((
             a.with_charge(u64::from(a.charge) + u64::from(b.charge)),
-        ))
+            1,
+        )))
     }
     fn nsymbol(&self, a: &ZNIrrep, b: &ZNIrrep, c: &ZNIrrep) -> Result<u32, Infallible> {
         Ok(self.n(a, b, c))
@@ -271,7 +272,7 @@ mod tests {
         let edge = zn(i64::from(u32::MAX) - 1, u32::MAX);
         assert_eq!(
             cat.fusion(&edge, &edge).unwrap().next(),
-            Some(zn(i64::from(u32::MAX) - 2, u32::MAX))
+            Some((zn(i64::from(u32::MAX) - 2, u32::MAX), 1))
         );
         assert_eq!(cat.dual(&edge), zn(1, u32::MAX));
         assert_eq!(ZN::new(5).unwrap().dual(&zn(0, 5)), zn(0, 5));
@@ -303,8 +304,14 @@ mod tests {
                 charge: i64::from(i32::MIN)
             }
         );
-        assert_eq!(U1.fusion(&max, &min).unwrap().next(), Some(U1Irrep::UNIT));
-        assert_eq!(U1.fusion(&max, &U1Irrep::UNIT).unwrap().next(), Some(max));
+        assert_eq!(
+            U1.fusion(&max, &min).unwrap().next(),
+            Some((U1Irrep::UNIT, 1))
+        );
+        assert_eq!(
+            U1.fusion(&max, &U1Irrep::UNIT).unwrap().next(),
+            Some((max, 1))
+        );
         for c in [min, U1Irrep::UNIT, max] {
             assert_eq!(U1.nsymbol(&max, &max, &c).unwrap(), 0);
             assert_eq!(U1.r_symbol(&max, &max, &c), Ok(0.0));
@@ -495,7 +502,7 @@ mod tests {
             assert_eq!(U1.dual(&u1(q)), u1(-q));
             assert_eq!(
                 U1.fusion(&u1(q), &u1(1)).map(|mut it| it.next().unwrap()),
-                Ok(u1(q + 1))
+                Ok((u1(q + 1), 1))
             );
             assert_eq!(
                 (

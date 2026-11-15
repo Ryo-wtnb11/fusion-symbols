@@ -20,7 +20,7 @@ fn close<S: Scalar>(lhs: S, rhs: S) {
 }
 
 fn outcomes<C: FusionCategory>(cat: &C, a: &C::Object, b: &C::Object) -> Vec<C::Object> {
-    cat.fusion(a, b).unwrap().collect()
+    cat.fusion(a, b).unwrap().map(|(c, _)| c).collect()
 }
 
 fn f<C: FusionCategory>(cat: &C, [a, b, c, d, e, f]: [&C::Object; 6]) -> C::Scalar {
@@ -76,6 +76,17 @@ fn conformance<C: FusionCategory>(cat: C, labels: Vec<C::Object>) {
             close(cat.twist(a), twist);
         }
         for b in &labels {
+            // Consistency identity, not an oracle: each item's count is N.
+            let items: Vec<_> = cat.fusion(a, b).unwrap().collect();
+            let expected: Vec<_> = outcomes(&cat, a, b)
+                .into_iter()
+                .map(|c| {
+                    let n = cat.nsymbol(a, b, &c).unwrap();
+                    (c, n)
+                })
+                .collect();
+            assert_eq!(items, expected);
+            assert!(items.iter().all(|&(_, n)| n >= 1));
             let dimension_sum: f64 = outcomes(&cat, a, b)
                 .iter()
                 .map(|c| f64::from(cat.nsymbol(a, b, c).unwrap()) * cat.dim(c))
@@ -407,4 +418,50 @@ fn g2_identities() {
     let cat = LieGroup::new(GroupId::g2()).unwrap();
     let labels = vec![cat.unit(), cat.irrep(&[1, 0]).unwrap()];
     conformance(cat, labels);
+}
+
+/// Forward and reverse fusion items carry `N` on every family whose iterator
+/// is double-ended, including multiplicity-two channels and runtime products.
+#[cfg(feature = "lie-generated")]
+#[test]
+fn reversed_fusion_items_carry_nsymbol() {
+    use fusion_symbols::lie::{GroupId, LieGroup, RootSystem};
+    use fusion_symbols::product::Product;
+    fn check<C: FusionCategory>(cat: &C, a: &C::Object, b: &C::Object)
+    where
+        for<'a> C::Fusion<'a>: DoubleEndedIterator,
+    {
+        let forward: Vec<_> = cat.fusion(a, b).unwrap().collect();
+        let mut reverse: Vec<_> = cat.fusion(a, b).unwrap().rev().collect();
+        reverse.reverse();
+        assert_eq!(forward, reverse);
+        for (c, n) in &forward {
+            assert_eq!(cat.nsymbol(a, b, c).unwrap(), *n);
+        }
+    }
+    for (id, label) in [
+        (GroupId::su(3).unwrap(), vec![1, 1]),
+        (GroupId::sp(4).unwrap(), vec![1, 1]),
+        (GroupId::g2(), vec![2, 0]),
+        (GroupId::f4(), vec![0, 0, 0, 1]),
+        (GroupId::e6(), vec![1, 0, 0, 0, 0, 0]),
+        (GroupId::e7(), vec![0, 0, 0, 0, 0, 0, 1]),
+        (GroupId::e8(), vec![0, 0, 0, 0, 0, 0, 0, 1]),
+        (GroupId::su(2).unwrap(), vec![3]),
+        (
+            GroupId::cover(&[RootSystem::A(2), RootSystem::A(2)], 0).unwrap(),
+            vec![1, 1, 1, 1],
+        ),
+    ] {
+        let g = LieGroup::new(id).unwrap();
+        let a = g.irrep(&label).unwrap();
+        check(&g, &a, &a);
+        check(&g, &a, &g.dual(&a));
+    }
+    let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+    let octet = su3.irrep(&[1, 1]).unwrap();
+    let runtime = Product::new(vec![su3.clone(); 2]);
+    check(&runtime, &vec![octet.clone(); 2], &vec![octet; 2]);
+    let a = CU1Irrep::new(HalfInt::new(1, 2).unwrap(), 2).unwrap();
+    check(&CU1, &a, &a);
 }

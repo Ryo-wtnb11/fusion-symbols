@@ -117,10 +117,10 @@ impl CU1Irrep {
 pub struct CU1Fusion(std::iter::Take<std::array::IntoIter<CU1Irrep, 3>>);
 
 impl Iterator for CU1Fusion {
-    type Item = CU1Irrep;
+    type Item = (CU1Irrep, u32);
 
-    fn next(&mut self) -> Option<CU1Irrep> {
-        self.0.next()
+    fn next(&mut self) -> Option<(CU1Irrep, u32)> {
+        self.0.next().map(|c| (c, 1))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -129,8 +129,8 @@ impl Iterator for CU1Fusion {
 }
 
 impl DoubleEndedIterator for CU1Fusion {
-    fn next_back(&mut self) -> Option<CU1Irrep> {
-        self.0.next_back()
+    fn next_back(&mut self) -> Option<(CU1Irrep, u32)> {
+        self.0.next_back().map(|c| (c, 1))
     }
 }
 
@@ -476,9 +476,9 @@ mod tests {
         let over = j(u32::MAX / 2 + 1);
         // The largest representable channels are labels.
         let channels: Vec<_> = CU1.fusion(&half, &over).unwrap().collect();
-        assert_eq!(channels, vec![j(1), max]);
+        assert_eq!(channels, vec![(j(1), 1), (max, 1)]);
         let channels: Vec<_> = CU1.fusion(&j(1), &j(u32::MAX - 1)).unwrap().collect();
-        assert_eq!(channels, vec![j(u32::MAX - 2), max]);
+        assert_eq!(channels, vec![(j(u32::MAX - 2), 1), (max, 1)]);
         // One past u32::MAX is the typed error.
         for (a, b, sum) in [
             (j(1), max, u64::from(u32::MAX) + 1),
@@ -502,7 +502,7 @@ mod tests {
     fn nsymbol_agrees_with_fusion() {
         for a in labels() {
             for b in labels() {
-                let channels: Vec<_> = CU1.fusion(&a, &b).unwrap().collect();
+                let channels: Vec<_> = CU1.fusion(&a, &b).unwrap().map(|(c, _)| c).collect();
                 assert_eq!(CU1.fusion(&a, &b).unwrap().len(), channels.len());
                 for c in labels() {
                     assert_eq!(CU1.nsymbol(&a, &b, &c).unwrap() == 1, channels.contains(&c));
@@ -525,7 +525,7 @@ mod tests {
             let twist: f64 = CU1
                 .fusion(&a, &a)
                 .unwrap()
-                .map(|b| CU1.dim(&b) / CU1.dim(&a) * CU1.r_symbol(&a, &a, &b).unwrap())
+                .map(|(b, _)| CU1.dim(&b) / CU1.dim(&a) * CU1.r_symbol(&a, &a, &b).unwrap())
                 .sum();
             assert_eq!(CU1.twist(&a), twist);
             assert_eq!(

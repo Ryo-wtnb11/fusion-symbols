@@ -30,6 +30,14 @@
 //! Factor fusion iterators must be cloneable. The higher-ranked GAT bound on
 //! these implementations currently restricts factors to owned category types;
 //! arbitrary borrowed providers are not promised.
+//!
+//! An outcome's multiplicity is the product of its factor multiplicities. A
+//! nonempty product's largest multiplicity, the product of its factors'
+//! largest ones, is checked against `u32` when the iterator is built: past it,
+//! `fusion` returns [`ProductError::Overflow`] after any factor error. Every
+//! category of this crate states its largest multiplicity without iterating;
+//! for a `FusionStyle::Generic` factor defined outside the crate, building a
+//! nonempty product iterates that factor's channels once more to find it.
 use crate::category::{
     rank_checked, sealed::ExactCount, sealed::Ranked, sealed::SymbolWithAxes, sealed::Validated,
     unrank, BraidingStyle, CgcBlock, Count, EnumerationError, FBlock, FusionCategory, FusionStyle,
@@ -68,14 +76,15 @@ impl<C> Product<C> {
     /// assert_eq!(chain.factors().len(), 3);
     /// ```
     ///
-    /// Objects are tuples of factor objects, and fusion acts factorwise:
+    /// Objects are tuples of factor objects, and fusion acts factorwise; an
+    /// outcome's multiplicity is the product of its factor multiplicities:
     ///
     /// ```
     /// use fusion_symbols::{category::FusionCategory, lie::{U1Irrep, U1}, product::Product};
     /// let cat = Product::new((U1, U1));
     /// let q = |a, b| Ok::<_, fusion_symbols::lie::U1Error>((U1Irrep::new(a)?, U1Irrep::new(b)?));
     /// let x = q(1, -2)?;
-    /// assert_eq!(cat.fusion(&x, &x)?.collect::<Vec<_>>(), [q(2, -4)?]);
+    /// assert_eq!(cat.fusion(&x, &x)?.collect::<Vec<_>>(), [(q(2, -4)?, 1)]);
     /// assert_eq!(cat.nsymbol(&x, &x, &q(2, 0)?)?, 0);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -272,12 +281,29 @@ impl<E0, E1, E2, E3, E4, E5, E6, E7, E8, E9, E10, E11>
 }
 
 /// Cartesian fusion iterator; resets clone initialized iterators, never query factors again.
+/// Each outcome's multiplicity is the product of its factor multiplicities.
 #[derive(Clone, Debug)]
 pub struct ProductFusion<I, O> {
     initial: I,
     active: I,
     current: Option<O>,
+    // Exact largest multiplicity of the outcomes, checked against `u32` when
+    // the iterator was built; 0 for an empty product.
+    max: u32,
 }
+impl<I, O> ProductFusion<I, O> {
+    pub(crate) fn max_multiplicity(&self) -> u32 {
+        self.max
+    }
+}
+
+// The largest multiplicity of a factor that cannot state it: one pass over a
+// clone, made only for a nonempty product (the exact bound is needed by every
+// enclosing product, not only for this one's overflow).
+fn max_by_pass<I: Iterator<Item = (O, u32)> + Clone, O>(iter: &I) -> u32 {
+    iter.clone().map(|(_, n)| n).max().unwrap_or(0)
+}
+const BOUNDED: &str = "bounded by the constructor's product of maxima";
 
 // Read all multiplicities before multiplying: a zero factor fixes the product
 // at zero, so it beats both a nonzero prefix overflow and any factor failure.
@@ -722,7 +748,7 @@ macro_rules! impl_product {
             type FSymbol = FBlock<Self::Scalar>;
             type RSymbol = RBlock<Self::Scalar>;
             type Error = ProductError<$C0::Error, $($C::Error),+>;
-            type Fusion<'a> = ProductFusion<(Fuse<$C0::Fusion<'a>>, $(Fuse<$C::Fusion<'a>>,)+), Self::Object> where Self: 'a;
+            type Fusion<'a> = ProductFusion<(Fuse<$C0::Fusion<'a>>, $(Fuse<$C::Fusion<'a>>,)+), (($C0::Object, u32), $(($C::Object, u32),)+)> where Self: 'a;
 
             product_queries!(self; [self.factors.0.braiding_style(), $(self.factors.$i.braiding_style()),+]);
 
@@ -815,11 +841,21 @@ macro_rules! impl_product {
                 $(let value = <$Prev as Promote<$C::Scalar>>::left(value) * <$Prev as Promote<$C::Scalar>>::right(self.factors.$i.__fusion_symbols_validated_twist(&a.$i, t));)+ value
             }
             fn __fusion_symbols_validated_fusion<'a>(&'a self, a: &Self::Object, b: &Self::Object, t: Validated) -> Result<Self::Fusion<'a>, Self::Error> {
-                let initial = (self.factors.0.__fusion_symbols_validated_fusion(&a.0, &b.0, t).map_err(ProductError::Factor0)?.fuse(),
-                    $(self.factors.$i.__fusion_symbols_validated_fusion(&a.$i, &b.$i, t).map_err(ProductError::$Err)?.fuse(),)+);
-                let mut active = initial.clone();
+                let raw = (self.factors.0.__fusion_symbols_validated_fusion(&a.0, &b.0, t).map_err(ProductError::Factor0)?,
+                    $(self.factors.$i.__fusion_symbols_validated_fusion(&a.$i, &b.$i, t).map_err(ProductError::$Err)?,)+);
+                let mut active = (raw.0.clone().fuse(), $(raw.$i.clone().fuse(),)+);
                 let current = (|| Some((active.0.next()?, $(active.$i.next()?,)+)))();
-                Ok(ProductFusion { initial, active, current })
+                // Emptiness first: an empty product consults no factor hook.
+                let max = if current.is_none() { 0 } else {
+                    let maxima = (self.factors.0.__fusion_symbols_max_multiplicity(&raw.0, t).unwrap_or_else(|| max_by_pass(&raw.0)),
+                        $(self.factors.$i.__fusion_symbols_max_multiplicity(&raw.$i, t).unwrap_or_else(|| max_by_pass(&raw.$i)),)+);
+                    Some(maxima.0)$(.and_then(|m| m.checked_mul(maxima.$i)))+.ok_or(ProductError::Overflow)?
+                };
+                let initial = (raw.0.fuse(), $(raw.$i.fuse(),)+);
+                Ok(ProductFusion { initial, active, current, max })
+            }
+            fn __fusion_symbols_max_multiplicity<'a>(&'a self, fusion: &Self::Fusion<'a>, _: Validated) -> Option<u32> {
+                Some(fusion.max)
             }
             fn __fusion_symbols_validated_nsymbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> Result<u32, Self::Error> {
                 let mut n = Multiplicity::new();
@@ -901,14 +937,15 @@ macro_rules! impl_product {
                 value
             }
         }
-        impl<I0, O0, $($C, $S),+> Iterator for ProductFusion<(I0, $($C,)+), (O0, $($S,)+)>
-        where I0: Iterator<Item = O0> + Clone, O0: Clone,
-              $($C: Iterator<Item = $S> + Clone, $S: Clone,)+
+        impl<I0, O0, $($C, $S),+> Iterator for ProductFusion<(I0, $($C,)+), ((O0, u32), $(($S, u32),)+)>
+        where I0: Iterator<Item = (O0, u32)> + Clone, O0: Clone,
+              $($C: Iterator<Item = ($S, u32)> + Clone, $S: Clone,)+
         {
-            type Item = (O0, $($S,)+);
+            type Item = ((O0, $($S,)+), u32);
             fn next(&mut self) -> Option<Self::Item> {
                 let mut current = self.current.take()?;
-                let result = current.clone();
+                let n = current.0.1 $(.checked_mul(current.$i.1).expect(BOUNDED))+;
+                let result = ((current.0.0.clone(), $(current.$i.0.clone(),)+), n);
                 let (advanced, value) = advance(&self.initial.0, &mut self.active.0);
                 current.0 = value;
                 if advanced { self.current = Some(current); return Some(result); }
@@ -942,7 +979,7 @@ where
     type RSymbol = RBlock<Self::Scalar>;
     type Error = ProductError<C::Error>;
     type Fusion<'a>
-        = ProductFusion<Vec<(C::Fusion<'a>, usize)>, (usize, usize, Vec<C::Object>)>
+        = ProductFusion<Vec<(C::Fusion<'a>, usize)>, (usize, usize, Vec<(C::Object, u32)>)>
     where
         Self: 'a;
 
@@ -1182,11 +1219,33 @@ where
                 })
                 .collect()
         };
+        let max = if len == 0 {
+            0
+        } else {
+            // Not short-circuiting: every unknown maximum is resolved before an
+            // overflow is reported, as for tuple products.
+            let mut max = Some(1u32);
+            for (f, (iter, _)) in self.factors.iter().zip(&initial) {
+                let m = f
+                    .__fusion_symbols_max_multiplicity(iter, t)
+                    .unwrap_or_else(|| max_by_pass(iter));
+                max = max.and_then(|p| p.checked_mul(m));
+            }
+            max.ok_or(ProductError::Overflow)?
+        };
         Ok(ProductFusion {
             initial,
             active,
             current: Some((0, len, current)),
+            max,
         })
+    }
+    fn __fusion_symbols_max_multiplicity<'a>(
+        &'a self,
+        fusion: &Self::Fusion<'a>,
+        _: Validated,
+    ) -> Option<u32> {
+        Some(fusion.max)
     }
     fn __fusion_symbols_validated_f_symbol(
         &self,
@@ -1360,29 +1419,44 @@ impl<B: CgcBlock> CgcBlock for Vec<B> {
 
 // Runtime specialization: current stores [front, back) and the front items;
 // active holds the incremental front cursor. Each initial factor carries its radix.
-impl<I: Iterator + Clone> ProductFusion<Vec<(I, usize)>, (usize, usize, Vec<I::Item>)> {
-    fn entry(&self, mut index: usize) -> Vec<I::Item> {
-        self.initial
+impl<I, O> ProductFusion<Vec<(I, usize)>, (usize, usize, Vec<(O, u32)>)>
+where
+    I: Iterator<Item = (O, u32)> + Clone,
+{
+    fn entry(&self, mut index: usize) -> (Vec<O>, u32) {
+        let mut n = 1u32;
+        let objects = self
+            .initial
             .iter()
             .map(|(iter, radix)| {
                 let digit = index % radix;
                 index /= radix;
-                restarted(iter, digit).1
+                let (object, m) = restarted(iter, digit).1;
+                n = n.checked_mul(m).expect(BOUNDED);
+                object
             })
-            .collect()
+            .collect();
+        (objects, n)
     }
 }
-impl<I: Iterator + Clone> Iterator for ProductFusion<Vec<(I, usize)>, (usize, usize, Vec<I::Item>)>
+fn outcome<O: Clone>(items: &[(O, u32)]) -> (Vec<O>, u32) {
+    let n = items
+        .iter()
+        .fold(1u32, |p, (_, m)| p.checked_mul(*m).expect(BOUNDED));
+    (items.iter().map(|(o, _)| o.clone()).collect(), n)
+}
+impl<I, O> Iterator for ProductFusion<Vec<(I, usize)>, (usize, usize, Vec<(O, u32)>)>
 where
-    I::Item: Clone,
+    I: Iterator<Item = (O, u32)> + Clone,
+    O: Clone,
 {
-    type Item = Vec<I::Item>;
+    type Item = (Vec<O>, u32);
     fn next(&mut self) -> Option<Self::Item> {
         let (front, back, current) = self.current.as_mut()?;
         if front == back {
             return None;
         }
-        let result = current.clone();
+        let result = outcome(current);
         *front += 1;
         if front != back {
             for (((initial, _), (active, _)), item) in
@@ -1424,10 +1498,10 @@ where
         (back - front, Some(back - front))
     }
 }
-impl<I: DoubleEndedIterator + Clone> DoubleEndedIterator
-    for ProductFusion<Vec<(I, usize)>, (usize, usize, Vec<I::Item>)>
+impl<I, O> DoubleEndedIterator for ProductFusion<Vec<(I, usize)>, (usize, usize, Vec<(O, u32)>)>
 where
-    I::Item: Clone,
+    I: DoubleEndedIterator<Item = (O, u32)> + Clone,
+    O: Clone,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.nth_back(0)
@@ -1443,10 +1517,10 @@ where
         Some(self.entry(index))
     }
 }
-impl<I: ExactSizeIterator + Clone> ExactSizeIterator
-    for ProductFusion<Vec<(I, usize)>, (usize, usize, Vec<I::Item>)>
+impl<I, O> ExactSizeIterator for ProductFusion<Vec<(I, usize)>, (usize, usize, Vec<(O, u32)>)>
 where
-    I::Item: Clone,
+    I: ExactSizeIterator<Item = (O, u32)> + Clone,
+    O: Clone,
 {
 }
 
@@ -1465,10 +1539,10 @@ mod tests {
             calls: Rc<Cell<usize>>,
         }
         impl Iterator for Counting {
-            type Item = usize;
-            fn next(&mut self) -> Option<usize> {
+            type Item = (usize, u32);
+            fn next(&mut self) -> Option<(usize, u32)> {
                 self.calls.set(self.calls.get() + 1);
-                self.range.next()
+                self.range.next().map(|c| (c, 1))
             }
         }
         let calls = Rc::new(Cell::new(0));
@@ -1495,6 +1569,7 @@ mod tests {
             initial,
             active,
             current: Some((0, len, current)),
+            max: 1,
         };
         assert_eq!(iter.count(), len);
         assert!(
@@ -1577,7 +1652,7 @@ mod tests {
         type Scalar = f64;
         type FSymbol = Block<4>;
         type RSymbol = Block<2>;
-        type Fusion<'a> = std::iter::Once<()>;
+        type Fusion<'a> = std::iter::Once<((), u32)>;
         type Error = Infallible;
         fn fusion_style(&self) -> FusionStyle {
             FusionStyle::Generic
@@ -1600,7 +1675,7 @@ mod tests {
             1.0
         }
         fn fusion<'a>(&'a self, _: &(), _: &()) -> Result<Self::Fusion<'a>, Infallible> {
-            Ok(std::iter::once(()))
+            Ok(std::iter::once(((), self.n)))
         }
         fn nsymbol(&self, _: &(), _: &(), _: &()) -> Result<u32, Infallible> {
             Ok(self.n)

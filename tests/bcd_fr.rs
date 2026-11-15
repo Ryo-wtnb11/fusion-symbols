@@ -304,7 +304,7 @@ fn hexagon_with_nonsymmetric_multiplicity_r_closes() {
         .flat_map(|g| {
             let cat = &cat;
             let a = &a;
-            cat.fusion(a, g).unwrap().map(move |d| (g.clone(), d))
+            cat.fusion(a, g).unwrap().map(move |(d, _)| (g.clone(), d))
         })
         .any(|(g, d)| {
             let r = cat.r_symbol(&a, &g, &d).unwrap();
@@ -363,7 +363,7 @@ fn sp4_81x81_every_channel() {
     let cat = bcd_test::group(Series::C, 2).unwrap();
     let a = irr(Series::C, &[2, 2]);
     let mut channels = 0;
-    for c in cat.fusion(&a, &a).unwrap() {
+    for (c, _) in cat.fusion(&a, &a).unwrap() {
         let cgc = cat.cgc(&a, &a, &c).unwrap();
         let dc = cat.dim(&c) as usize;
         assert_eq!(

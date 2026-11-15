@@ -44,7 +44,7 @@ fn u1_values_and_bounds() {
         let (a, b, c) = (q(a), q(b), q(c));
         assert_eq!(
             g.fusion(&a, &b).unwrap().collect::<Vec<_>>(),
-            std::slice::from_ref(&c)
+            [(c.clone(), 1)]
         );
         assert_eq!(g.nsymbol(&a, &b, &c).unwrap(), 1);
         for block in [
@@ -169,10 +169,12 @@ fn typed_u1_matches_liegroup_bitwise() {
                 let sum = i64::from(qa) + i64::from(qb);
                 match (U1.fusion(&a, &b), g.fusion(&la, &lb)) {
                     (Ok(typed), Ok(general)) => {
-                        let typed: Vec<_> = typed.map(|q| i64::from(q.charge())).collect();
-                        let general: Vec<_> =
-                            general.map(|q| q.charges().next().unwrap()).collect();
-                        assert_eq!(typed, [sum]);
+                        let typed: Vec<_> =
+                            typed.map(|(q, n)| (i64::from(q.charge()), n)).collect();
+                        let general: Vec<_> = general
+                            .map(|(q, n)| (q.charges().next().unwrap(), n))
+                            .collect();
+                        assert_eq!(typed, [(sum, 1)]);
                         assert_eq!(typed, general);
                     }
                     (Err(U1Error::LabelOverflow { charge }), Err(LieError::LabelOverflow)) => {
@@ -252,8 +254,8 @@ fn typed_u1_matches_liegroup_bitwise() {
         assert!(std::panic::catch_unwind(|| g.f_symbol(a, b, c, d, e, f)).is_err());
     }
     let mut fusion = g.fusion(&labels[1], &labels[3]).unwrap();
-    assert_eq!(fusion.clone().next_back(), Some(one.clone()));
-    assert_eq!(fusion.next(), Some(one));
+    assert_eq!(fusion.clone().next_back(), Some((one.clone(), 1)));
+    assert_eq!(fusion.next(), Some((one, 1)));
     assert_eq!(fusion.clone().next_back(), None);
     assert_eq!(fusion.len(), 0);
 }
@@ -278,13 +280,16 @@ fn u2_highest_weights_and_charge_conservation() {
     );
     assert_eq!(
         g.fusion(&a, &a).unwrap().collect::<Vec<_>>(),
-        [det.clone(), g.irrep_with_charges(&[2], &[2]).unwrap()]
+        [
+            (det.clone(), 1),
+            (g.irrep_with_charges(&[2], &[2]).unwrap(), 1)
+        ]
     );
     for x in [&a, &shifted, &det] {
         assert_eq!(g.frobenius_schur_indicator(x), 0.0);
         assert_eq!(g.dual(x).charges().next(), x.charges().next().map(|q| -q));
         for y in [&a, &shifted, &det] {
-            for z in g.fusion(x, y).unwrap() {
+            for (z, _) in g.fusion(x, y).unwrap() {
                 assert_eq!(
                     z.charges().next().unwrap(),
                     x.charges().next().unwrap() + y.charges().next().unwrap()
@@ -340,7 +345,7 @@ fn torus_composites_equal_product() {
         for a in &labels {
             for b in &labels {
                 let (pa, pb) = (split(a), split(b));
-                for c in g.fusion(a, b).unwrap() {
+                for (c, _) in g.fusion(a, b).unwrap() {
                     let pc = split(&c);
                     assert_eq!(
                         g.nsymbol(a, b, &c).unwrap(),
@@ -374,8 +379,8 @@ fn torus_composites_equal_product() {
                             }
                         }
                     }
-                    for d in g.fusion(&c, a).unwrap() {
-                        for f in g.fusion(b, a).unwrap() {
+                    for (d, _) in g.fusion(&c, a).unwrap() {
+                        for (f, _) in g.fusion(b, a).unwrap() {
                             same_block(
                                 g.f_symbol(a, b, a, &d, &c, &f).unwrap(),
                                 product
@@ -427,7 +432,10 @@ fn tori_quotients_and_trivial_group() {
     );
     let q = charge(&even, 2);
     assert_eq!(even.dual(&q), charge(&even, -2));
-    assert_eq!(even.fusion(&q, &q).unwrap().next(), Some(charge(&even, 4)));
+    assert_eq!(
+        even.fusion(&q, &q).unwrap().next(),
+        Some((charge(&even, 4), 1))
+    );
     assert_eq!(even.object_count(), Err(EnumerationError::NotEnumerable));
     assert_eq!(even.object_at(0), Err(EnumerationError::NotEnumerable));
     assert_eq!(even.object_index(&q), Err(EnumerationError::NotEnumerable));
@@ -441,7 +449,7 @@ fn tori_quotients_and_trivial_group() {
     assert_eq!(g.dual(&one), one);
     assert_eq!(
         g.fusion(&one, &one).unwrap().collect::<Vec<_>>(),
-        std::slice::from_ref(&one)
+        [(one.clone(), 1)]
     );
     assert_eq!(g.nsymbol(&one, &one, &one).unwrap(), 1);
     assert_eq!(g.dim(&one), 1.0);
@@ -471,7 +479,11 @@ fn u3_fundamental_antifundamental_and_leaf_symbols() {
     let b = g.irrep_with_charges(&[0, 1], &[-1]).unwrap();
     assert_eq!(g.dual(&a), b);
     let octet = g.irrep_with_charges(&[1, 1], &[0]).unwrap();
-    let channels = g.fusion(&a, &b).unwrap().collect::<Vec<_>>();
+    let channels = g
+        .fusion(&a, &b)
+        .unwrap()
+        .map(|(c, _)| c)
+        .collect::<Vec<_>>();
     assert_eq!(channels.len(), 2);
     assert!(channels.contains(&g.unit()) && channels.contains(&octet));
     assert_eq!(g.dim(&a) * g.dim(&b), 9.0);

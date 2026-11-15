@@ -123,7 +123,11 @@ mod product_contract_tests {
             assert_eq!(builds() - before, 1);
             assert_eq!(g.nsymbol(&a, &b, &absent).unwrap(), 0);
             assert_eq!(h.nsymbol(&b, &a, &one).unwrap(), 1);
-            let channels = g.fusion(&a, &b).unwrap().collect::<Vec<_>>();
+            let channels = g
+                .fusion(&a, &b)
+                .unwrap()
+                .map(|(c, _)| c)
+                .collect::<Vec<_>>();
             assert!(channels.contains(&one));
             let fam = GeneralFamily::new(root);
             let zero = vec![0; label.len()];

@@ -80,7 +80,7 @@ fn d2_forms_admission_and_hand_values() {
                     .flat_map(|i| (0..=b).map(move |j| (vec![a - 2 * i, b - 2 * j], 1)))
                     .collect();
                 assert_eq!(x.weight_multiplicities(), weights);
-                for y in cat.fusion(&x, &x).unwrap() {
+                for (y, _) in cat.fusion(&x, &x).unwrap() {
                     assert!(id.admits(&y.dynkin().collect::<Vec<_>>(), &[]));
                     assert!(cat.contains(&y));
                 }
@@ -92,7 +92,7 @@ fn d2_forms_admission_and_hand_values() {
     assert_eq!(
         cat.fusion(&vector, &vector)
             .unwrap()
-            .map(|x| x.dynkin().collect::<Vec<_>>())
+            .map(|(x, _)| x.dynkin().collect::<Vec<_>>())
             .collect::<Vec<_>>(),
         [vec![0, 0], vec![2, 0], vec![0, 2], vec![2, 2]]
     );
@@ -118,7 +118,7 @@ fn d2_forms_admission_and_hand_values() {
     );
     let cover = LieGroup::new(GroupId::spin(4).unwrap()).unwrap();
     let cv = label(&cover, &[1, 1]);
-    for x in cat.fusion(&vector, &vector).unwrap() {
+    for (x, _) in cat.fusion(&vector, &vector).unwrap() {
         let cx = label(&cover, &x.dynkin().collect::<Vec<_>>());
         same_block(
             cat.r_symbol(&vector, &vector, &x).unwrap(),
@@ -206,16 +206,16 @@ fn compare_product(id: GroupId, roots: &[fusion_symbols::lie::RootSystem], sampl
             let fusion: Vec<_> = cat.fusion(a, b).unwrap().collect();
             assert!(fusion
                 .iter()
-                .all(|x| cat.group_id().admits(&x.dynkin().collect::<Vec<_>>(), &[])));
+                .all(|(x, _)| cat.group_id().admits(&x.dynkin().collect::<Vec<_>>(), &[])));
             assert_eq!(
                 fusion
                     .iter()
-                    .map(|x| x.dynkin().collect::<Vec<_>>())
+                    .map(|(x, n)| (x.dynkin().collect::<Vec<_>>(), *n))
                     .collect::<Vec<_>>(),
                 product
                     .fusion(pa, pb)
                     .unwrap()
-                    .map(|xs| xs.iter().flat_map(LieIrrep::dynkin).collect::<Vec<_>>())
+                    .map(|(xs, n)| (xs.iter().flat_map(LieIrrep::dynkin).collect::<Vec<_>>(), n))
                     .collect::<Vec<_>>()
             );
             assert_eq!(
@@ -265,9 +265,9 @@ fn compare_product(id: GroupId, roots: &[fusion_symbols::lie::RootSystem], sampl
                 }
             }
             // All admissible recouplings for a,b,a use every intermediate channel.
-            for e in cat.fusion(a, b).unwrap() {
-                for d in cat.fusion(&e, a).unwrap() {
-                    for f in cat.fusion(b, a).unwrap() {
+            for (e, _) in cat.fusion(a, b).unwrap() {
+                for (d, _) in cat.fusion(&e, a).unwrap() {
+                    for (f, _) in cat.fusion(b, a).unwrap() {
                         let split = |x: &LieIrrep| {
                             let ds = x.dynkin().collect::<Vec<_>>();
                             let mut offset = 0;

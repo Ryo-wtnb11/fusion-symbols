@@ -13,7 +13,7 @@ use std::convert::Infallible;
 /// use fusion_symbols::{category::FusionCategory, fermion::{FermionParity, FermionParityIrrep}};
 ///
 /// let (even, odd) = (FermionParityIrrep::EVEN, FermionParityIrrep::ODD);
-/// assert_eq!(FermionParity.fusion(&odd, &odd)?.next(), Some(even));
+/// assert_eq!(FermionParity.fusion(&odd, &odd)?.next(), Some((even, 1)));
 /// assert_eq!(FermionParity.r_symbol(&odd, &odd, &even)?, -1.0); // exchange sign
 /// # Ok::<(), std::convert::Infallible>(())
 /// ```
@@ -51,7 +51,7 @@ impl FusionCategory for FermionParity {
     type Scalar = f64;
     type FSymbol = f64;
     type RSymbol = f64;
-    type Fusion<'a> = std::iter::Once<FermionParityIrrep>;
+    type Fusion<'a> = std::iter::Once<(FermionParityIrrep, u32)>;
     type Error = Infallible;
 
     fn fusion_style(&self) -> FusionStyle {
@@ -91,7 +91,7 @@ impl FusionCategory for FermionParity {
         a: &FermionParityIrrep,
         b: &FermionParityIrrep,
     ) -> Result<Self::Fusion<'a>, Self::Error> {
-        Ok(std::iter::once(FermionParityIrrep::new(a.odd ^ b.odd)))
+        Ok(std::iter::once((FermionParityIrrep::new(a.odd ^ b.odd), 1)))
     }
     fn nsymbol(
         &self,

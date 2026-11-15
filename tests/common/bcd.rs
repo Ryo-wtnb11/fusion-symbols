@@ -33,13 +33,7 @@ pub fn product(
     a: &LieIrrep,
     b: &LieIrrep,
 ) -> Result<std::collections::BTreeMap<LieIrrep, u32>, LieError> {
-    Ok(cat
-        .fusion(a, b)?
-        .map(|c| {
-            let n = cat.nsymbol(a, b, &c).unwrap();
-            (c, n)
-        })
-        .collect())
+    Ok(cat.fusion(a, b)?.collect())
 }
 #[allow(clippy::too_many_arguments)]
 pub fn f_symbol(

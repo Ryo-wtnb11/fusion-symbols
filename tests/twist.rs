@@ -24,7 +24,7 @@ fn twist_matches_r_symbol_formula_up_to_j5() {
         let sum: f64 = a1::group()
             .fusion(&a, &a)
             .unwrap()
-            .map(|c| a1::group().dim(&c) * exact_r(dj, dj, c.dynkin().next().unwrap() as u32))
+            .map(|(c, _)| a1::group().dim(&c) * exact_r(dj, dj, c.dynkin().next().unwrap() as u32))
             .sum();
         let theta = sum / a1::group().dim(&a);
         // Integer-valued sum: exact, no tolerance needed.

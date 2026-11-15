@@ -69,7 +69,7 @@ fn measure<Q: Fn() + Send>(name: &str, setup: impl Fn(usize) -> Q) {
 #[cfg(feature = "lie-generated")]
 fn distinct_f_keys<C: FusionCategory>(g: &C, labels: &[C::Object]) -> Vec<[C::Object; 6]> {
     let fuses = |x: &C::Object, y: &C::Object, z: &C::Object| {
-        g.fusion(x, y).unwrap().any(|channel| channel == *z)
+        g.fusion(x, y).unwrap().any(|(channel, _)| channel == *z)
     };
     let mut keys = Vec::new();
     for a in labels {

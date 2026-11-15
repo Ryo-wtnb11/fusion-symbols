@@ -100,7 +100,7 @@ fn dynkin_matches_input_labels_without_allocation() {
         let expected = cat.fusion(&a, &b).unwrap().count();
         let before = counting_alloc::calls();
         let mut channels = 0;
-        for c in cat.fusion(&a, &b).unwrap() {
+        for (c, _) in cat.fusion(&a, &b).unwrap() {
             for coordinate in c.dynkin() {
                 std::hint::black_box(coordinate);
             }
@@ -157,7 +157,7 @@ fn dynkin_matches_input_labels_without_allocation() {
         }
         for a in &seeds {
             for b in &seeds {
-                for c in cat.fusion(a, b).unwrap() {
+                for (c, _) in cat.fusion(a, b).unwrap() {
                     check_channel(&cat, &c);
                     check_channel(&cat, &cat.dual(&c));
                 }

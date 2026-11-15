@@ -54,7 +54,7 @@ fn derived_dimensions_are_the_perron_frobenius_dimensions() {
             assert!(p.dim(&a) >= 1.0 - FP_BOUND, "{uuid} {a:?}");
             assert!((p.dim(&p.dual(&a)) - p.dim(&a)).abs() <= FP_BOUND * p.dim(&a));
             for &b in &objects {
-                let sum: f64 = p.fusion(&a, &b).unwrap().map(|c| p.dim(&c)).sum();
+                let sum: f64 = p.fusion(&a, &b).unwrap().map(|(c, _)| p.dim(&c)).sum();
                 let want = p.dim(&a) * p.dim(&b);
                 assert!((sum - want).abs() <= FP_BOUND * want, "{uuid} {a:?} {b:?}");
             }

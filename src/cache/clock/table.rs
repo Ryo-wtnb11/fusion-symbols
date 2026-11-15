@@ -44,12 +44,19 @@
 //! while more threads are inside a guard than its batch holds objects).
 
 use super::Equivalent;
+
 use seize::{Collector, Guard, LocalGuard};
 use std::hash::{BuildHasher, Hash};
 use std::ptr::{self, NonNull};
 use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
 use std::sync::atomic::{AtomicBool, AtomicPtr};
 use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
+
+// Every table search, successful or not, made by this thread.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static SEARCHES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 /// One collector for every table, so a reader enters one reservation.
 static COLLECTOR: LazyLock<Collector> = LazyLock::new(Collector::new);
@@ -145,6 +152,8 @@ impl<K, V> Slots<K, V> {
         key: &Q,
         load: impl Fn(&AtomicPtr<Node<K, V>>) -> *mut Node<K, V>,
     ) -> Option<&'a Node<K, V>> {
+        #[cfg(test)]
+        SEARCHES.with(|n| n.set(n.get() + 1));
         let mut i = self.start(hash);
         // Bounds the probe also while slots change.
         for _ in 0..self.0.len() {

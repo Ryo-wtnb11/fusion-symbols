@@ -52,15 +52,18 @@ assert_eq!(doublet.charges().collect::<Vec<_>>(), [-1]);
 
 ## Fusion and N
 
-`fusion(a, b)` yields each irrep in `a ⊗ b` once; `nsymbol(a, b, c)` is the
-number of times `c` occurs, `Ok(0)` when it does not occur.
+`fusion(a, b)` yields each irrep `c` in `a ⊗ b` once, together with the number
+of times it occurs; `nsymbol(a, b, c)` is that number for one `c`, `Ok(0)` when
+`c` does not occur. Reading every channel with its multiplicity from `fusion`
+costs one decomposition lookup per generated simple factor (one lookup for a
+simple Lie pair), with no per-channel N lookup.
 
 ```rust
 use fusion_symbols::{category::FusionCategory, lie::{GroupId, HalfInt, LieGroup}};
 
 let su2 = LieGroup::new(GroupId::su(2)?)?;
 let one = su2.irrep_spin(HalfInt::new(1, 1)?)?;
-let spins: Vec<_> = su2.fusion(&one, &one)?.map(|c| c.spin()).collect();
+let spins: Vec<_> = su2.fusion(&one, &one)?.map(|(c, _)| c.spin()).collect();
 let expected = [0, 2, 4].map(|dj| Some(HalfInt::from_doubled(dj)));
 assert_eq!(spins, expected); // 1 ⊗ 1 = 0 ⊕ 1 ⊕ 2
 
@@ -70,8 +73,8 @@ assert_eq!(su3.nsymbol(&eight, &eight, &eight)?, 2); // the 8 occurs twice in 8 
 
 // Dimensions add up: Σ_c N(8,8,c) dim(c) = 8 · 8.
 let mut total = 0.0;
-for c in su3.fusion(&eight, &eight)? {
-    total += f64::from(su3.nsymbol(&eight, &eight, &c)?) * su3.dim(&c);
+for (c, n) in su3.fusion(&eight, &eight)? {
+    total += f64::from(n) * su3.dim(&c);
 }
 assert_eq!(total, 64.0);
 ```
@@ -227,7 +230,7 @@ let cat = Product::new((su2.clone(), U1));
 let electron = (su2.irrep_spin(HalfInt::new(1, 2)?)?, U1Irrep::new(1)?);
 let pairs: Vec<_> = cat.fusion(&electron, &electron)?.collect();
 assert_eq!(pairs.len(), 2); // spin 0 and spin 1
-assert!(pairs.iter().all(|(_, q)| q.charge() == 2));
+assert!(pairs.iter().all(|((_, q), n)| q.charge() == 2 && *n == 1));
 assert_eq!(cat.dim(&electron), 2.0);
 
 let charges = Product::new((U1, U1));

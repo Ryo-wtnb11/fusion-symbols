@@ -11,6 +11,7 @@ API and convention differences, not a claim of complete feature parity.
 |---|---|
 | Boundary | Standalone mathematical category values, no `Sector` interface or tensor engine; consumers own tensor operations |
 | Lie coefficients | Built-in runtime SU(N)/SO(N)/Spin(N)/Sp(2r)/G₂/F₄/E₆/E₇/E₈ generation from one exact Cartan engine (TKS has no exceptional groups) with public CGC and frozen gauge specifications |
+| Fusion iteration | `fusion(a, b)` yields `(c, N(a, b, c))`, not the labels of TKS `⊗` alone: the count is in the decomposition already read (as in SUNRepresentations `directproduct`), so every channel with its multiplicity costs one lookup per generated simple factor (one lookup for a simple Lie pair), with no per-channel `Nsymbol` lookup after `⊗` |
 | Errors | Constructors validate objects; foreign objects panic; N = 0 is a value; absent vertices give zero symbols; numerical failures are typed errors |
 | A/B symbols | Always `category::RBlock`, including scalar families, so the default can construct a result for every category |
 | Scalars | One associated `Scalar` (`f64` or `Complex64`), rather than separate fusion/braiding scalar types; abelian/parity symbols use `f64` rather than TKS `Int` |
@@ -85,4 +86,6 @@ cross-factor sign or imposed parity/charge relation. Products of
 `GroupRepresentations` provide lazy tuple or vector CGCs through `CgcBlock`,
 with the last factor fastest on all four axes; they add no coefficient cache.
 Initialized fusion iterators reset by cloning;
-the higher-ranked iterator bound admits owned providers only.
+the higher-ranked iterator bound admits owned providers only. An outcome's
+multiplicity is the product of its factor multiplicities, checked against
+`u32` when the iterator is built (TKS multiplies `Nsymbol` unchecked).

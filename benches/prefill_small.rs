@@ -90,7 +90,7 @@ fn tiny_channels(g: &LieGroup) -> Vec<Item> {
     let mut items = Vec::new();
     for a in &small {
         for b in &small {
-            for c in g.fusion(a, b).unwrap() {
+            for (c, _) in g.fusion(a, b).unwrap() {
                 items.push(Item::Cgc([a.clone(), b.clone(), c]));
             }
         }
