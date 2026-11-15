@@ -365,3 +365,23 @@ fn nested_fusion_construction_allocates_independently_of_channel_count() {
     };
     assert_eq!(measure(&[1, 0]), measure(&[1, 1]));
 }
+
+// Purpose: with every product axis 1, a composite Lie group used as a factor
+// composes its leaves with the known length 1 instead of re-running its own
+// query, so warm unit-label F and R allocate nothing; A and B allocate only
+// the product dual of their first or second object.
+#[test]
+fn warm_composite_factor_queries_allocate_only_the_product_dual() {
+    use fusion_symbols::product::Product;
+    let _serial = counting_alloc::serial();
+    let u2 = LieGroup::new(GroupId::u(2).unwrap()).unwrap();
+    let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+    let p = Product::new((u2, su2));
+    let one = p.unit();
+    let dual = warm(|| p.dual(&one)).0;
+    assert!(dual > 0);
+    assert_eq!(
+        warm_frab(&p, [&one; 3], [&one; 6]).map(|(calls, _)| calls),
+        [0, 0, dual, dual]
+    );
+}

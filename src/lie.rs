@@ -18,10 +18,11 @@ mod prefill;
 pub use prefill::{prefill, PrefillRequest};
 
 use crate::category::{
-    sealed::Validated, BraidingStyle, CgcBlock, EnumerationError, FBlock, FusionCategory,
-    FusionStyle, GroupRepresentations, RBlock, SymbolBlock,
+    sealed::{SymbolWithAxes, Validated},
+    BraidingStyle, CgcBlock, EnumerationError, FBlock, FusionCategory, FusionStyle,
+    GroupRepresentations, RBlock, SymbolBlock,
 };
-use crate::product::{Product, ProductError};
+use crate::product::{Product, ProductError, Shaped};
 use malachite_base::{
     num::conversion::traits::RoundingFrom, rounding_modes::RoundingMode::Nearest,
 };
@@ -869,6 +870,9 @@ impl CgcBlock for LieCgc {
             .map_or(0.0, |i| entries[i].value)
     }
 }
+// When every product axis is 1, a composite's flat leaves have block length 1
+// and are composed directly with that length. Not its public query: that
+// re-evaluates its N and, for A/B, builds its product dual again.
 impl FusionCategory for LieGroup {
     type Object = LieIrrep;
     type Scalar = f64;
@@ -1137,12 +1141,85 @@ impl FusionCategory for LieGroup {
         d: &LieIrrep,
         e: &LieIrrep,
         f: &LieIrrep,
+        ones: Option<[u32; 4]>,
         t: Validated,
-    ) -> Result<crate::category::sealed::SymbolWithAxes<FBlock<f64>, 4>, LieError> {
+    ) -> Result<SymbolWithAxes<FBlock<f64>, 4>, LieError> {
+        if let (Some(product), Some(_)) = (&self.composite, ones) {
+            let labels = [a, b, c, d, e, f].map(|x| self.factor_labels(x));
+            return product
+                .shaped_f(labels, Some(1), ones, t)
+                .map_err(LieError::from);
+        }
         let block = self.f_symbol(a, b, c, d, e, f)?;
+        if let Some(n) = ones {
+            return Ok((block, n));
+        }
         // Keep Product's independent N-axis gate without validating each label again.
         let n = |x, y, z| self.__fusion_symbols_validated_nsymbol(x, y, z, t);
         Ok((block, [n(a, b, e)?, n(e, c, d)?, n(b, c, f)?, n(a, f, d)?]))
+    }
+    fn __fusion_symbols_validated_r_symbol(
+        &self,
+        a: &LieIrrep,
+        b: &LieIrrep,
+        c: &LieIrrep,
+        ones: Option<[u32; 2]>,
+        t: Validated,
+    ) -> Result<SymbolWithAxes<RBlock<f64>, 2>, LieError> {
+        if let (Some(product), Some(_)) = (&self.composite, ones) {
+            let labels = [a, b, c].map(|x| self.factor_labels(x));
+            return product
+                .shaped_r(labels, Some(1), ones, t)
+                .map_err(LieError::from);
+        }
+        let block = self.r_symbol(a, b, c)?;
+        let n = match ones {
+            Some(n) => n,
+            None => [self.nsymbol(a, b, c)?, self.nsymbol(b, a, c)?],
+        };
+        Ok((block, n))
+    }
+    fn __fusion_symbols_validated_a_symbol(
+        &self,
+        a: &LieIrrep,
+        b: &LieIrrep,
+        c: &LieIrrep,
+        ones: Option<[u32; 2]>,
+        t: Validated,
+    ) -> Result<SymbolWithAxes<RBlock<f64>, 2>, LieError> {
+        if let (Some(product), Some(_)) = (&self.composite, ones) {
+            let labels = [a, b, c].map(|x| self.factor_labels(x));
+            return product
+                .shaped_a(labels, Some(1), ones, t)
+                .map_err(LieError::from);
+        }
+        let block = self.a_symbol(a, b, c)?;
+        let n = match ones {
+            Some(n) => n,
+            None => [self.nsymbol(a, b, c)?, self.nsymbol(&self.dual(a), c, b)?],
+        };
+        Ok((block, n))
+    }
+    fn __fusion_symbols_validated_b_symbol(
+        &self,
+        a: &LieIrrep,
+        b: &LieIrrep,
+        c: &LieIrrep,
+        ones: Option<[u32; 2]>,
+        t: Validated,
+    ) -> Result<SymbolWithAxes<RBlock<f64>, 2>, LieError> {
+        if let (Some(product), Some(_)) = (&self.composite, ones) {
+            let labels = [a, b, c].map(|x| self.factor_labels(x));
+            return product
+                .shaped_b(labels, Some(1), ones, t)
+                .map_err(LieError::from);
+        }
+        let block = self.b_symbol(a, b, c)?;
+        let n = match ones {
+            Some(n) => n,
+            None => [self.nsymbol(a, b, c)?, self.nsymbol(c, &self.dual(b), a)?],
+        };
+        Ok((block, n))
     }
     fn r_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock<f64>, LieError> {
         self.r_symbol_in(a, b, c, None)

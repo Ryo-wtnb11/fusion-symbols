@@ -9,7 +9,8 @@
 //! Clebsch–Gordan blocks, with the last factor fastest on every axis.
 //!
 //! Nonzero F/R/A/B queries check each factor's storage axes against checked N
-//! symbols and its exact row-major storage length before composition. Invalid
+//! symbols and its exact row-major storage length before composition. When
+//! every product axis is 1, each leaf N is 1 and is not evaluated again. Invalid
 //! blocks return [`ProductError::MalformedSymbolData`]; nested errors retain
 //! their factor path. Zero-channel queries skip factor symbols.
 //!
@@ -595,41 +596,51 @@ fn axes<const R: usize>(dims: [usize; R]) -> Option<[u32; R]> {
     Some(n)
 }
 
-// A top-level query knows the product length from its N symbols; a nested one
-// does not. Only `Vec` products use it, to stream their factor blocks; a tuple
-// holds its blocks on the stack either way.
-trait Shaped: FusionCategory {
+// Every leaf axis when every product axis is 1: a product axis is the product
+// of its leaves' positive N, so each of them is 1.
+fn all_ones<const R: usize>(dims: [usize; R]) -> Option<[u32; R]> {
+    dims.iter().all(|&n| n == 1).then_some([1; R])
+}
+
+// A top-level query, or a composite Lie group whose axes are all 1, knows the
+// product length; a nested one does not. Only `Vec` products use it, to stream
+// their factor blocks; a tuple holds its blocks on the stack either way.
+pub(crate) trait Shaped: FusionCategory {
     fn shaped_f(
         &self,
         [a, b, c, d, e, f]: [&Self::Object; 6],
         _: Option<usize>,
+        ones: Option<[u32; 4]>,
         t: Validated,
     ) -> Result<SymbolWithAxes<Self::FSymbol, 4>, Self::Error> {
-        self.__fusion_symbols_validated_f_symbol(a, b, c, d, e, f, t)
+        self.__fusion_symbols_validated_f_symbol(a, b, c, d, e, f, ones, t)
     }
     fn shaped_r(
         &self,
         [a, b, c]: [&Self::Object; 3],
         _: Option<usize>,
+        ones: Option<[u32; 2]>,
         t: Validated,
     ) -> Result<SymbolWithAxes<Self::RSymbol, 2>, Self::Error> {
-        self.__fusion_symbols_validated_r_symbol(a, b, c, t)
+        self.__fusion_symbols_validated_r_symbol(a, b, c, ones, t)
     }
     fn shaped_a(
         &self,
         [a, b, c]: [&Self::Object; 3],
         _: Option<usize>,
+        ones: Option<[u32; 2]>,
         t: Validated,
     ) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
-        self.__fusion_symbols_validated_a_symbol(a, b, c, t)
+        self.__fusion_symbols_validated_a_symbol(a, b, c, ones, t)
     }
     fn shaped_b(
         &self,
         [a, b, c]: [&Self::Object; 3],
         _: Option<usize>,
+        ones: Option<[u32; 2]>,
         t: Validated,
     ) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
-        self.__fusion_symbols_validated_b_symbol(a, b, c, t)
+        self.__fusion_symbols_validated_b_symbol(a, b, c, ones, t)
     }
 }
 
@@ -691,7 +702,7 @@ macro_rules! product_queries {
                 let n = |x, y, z| $this.__fusion_symbols_validated_nsymbol(x, y, z, t);
                 let dims = shape::<Self::Scalar, 4>([n(a, b, e)?, n(e, c, d)?, n(b, c, f)?, n(a, f, d)?]).ok_or(ProductError::Overflow)?;
                 if dims.contains(&0) { return Ok(FBlock::from_storage(dims, Storage::Empty)); }
-                let (block, _) = $this.shaped_f([a, b, c, d, e, f], Some(dims.iter().product()), t)?;
+                let (block, _) = $this.shaped_f([a, b, c, d, e, f], Some(dims.iter().product()), all_ones(dims), t)?;
                 debug_assert_eq!(block.dims(), dims);
                 Ok(block)
             }
@@ -704,7 +715,7 @@ macro_rules! product_queries {
                 let n = |x, y, z| $this.__fusion_symbols_validated_nsymbol(x, y, z, t);
                 let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(b, a, c)?]).ok_or(ProductError::Overflow)?;
                 if dims.contains(&0) { return Ok(RBlock::from_storage(dims[0], Storage::Empty)); }
-                let (block, _) = $this.shaped_r([a, b, c], Some(dims.iter().product()), t)?;
+                let (block, _) = $this.shaped_r([a, b, c], Some(dims.iter().product()), all_ones(dims), t)?;
                 debug_assert_eq!(block.dims(), dims);
                 Ok(block)
             }
@@ -716,7 +727,7 @@ macro_rules! product_queries {
                 let n = |x, y, z| $this.__fusion_symbols_validated_nsymbol(x, y, z, t);
                 let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(&$this.__fusion_symbols_validated_dual(a, t), c, b)?]).ok_or(ProductError::Overflow)?;
                 if dims.contains(&0) { return Ok(RBlock::from_storage(dims[0], Storage::Empty)); }
-                let (block, _) = $this.shaped_a([a, b, c], Some(dims.iter().product()), t)?;
+                let (block, _) = $this.shaped_a([a, b, c], Some(dims.iter().product()), all_ones(dims), t)?;
                 debug_assert_eq!(block.dims(), dims);
                 Ok(block)
             }
@@ -727,7 +738,7 @@ macro_rules! product_queries {
                 let n = |x, y, z| $this.__fusion_symbols_validated_nsymbol(x, y, z, t);
                 let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(c, &$this.__fusion_symbols_validated_dual(b, t), a)?]).ok_or(ProductError::Overflow)?;
                 if dims.contains(&0) { return Ok(RBlock::from_storage(dims[0], Storage::Empty)); }
-                let (block, _) = $this.shaped_b([a, b, c], Some(dims.iter().product()), t)?;
+                let (block, _) = $this.shaped_b([a, b, c], Some(dims.iter().product()), all_ones(dims), t)?;
                 debug_assert_eq!(block.dims(), dims);
                 Ok(block)
             }
@@ -867,25 +878,25 @@ macro_rules! impl_product {
             // factor (an enclosing product's shape bounds this one's). Check each
             // returned block before composition; pass checked axes up the nesting
             // without re-querying N.
-            fn __fusion_symbols_validated_f_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, d: &Self::Object, e: &Self::Object, f: &Self::Object, t: Validated) -> Result<SymbolWithAxes<Self::FSymbol, 4>, Self::Error> {
-                let (dims, data) = Self::compose((Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_f_symbol(&a.0,&b.0,&c.0,&d.0,&e.0,&f.0,t).map_err(ProductError::Factor0)?)?,
-                    $(Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_f_symbol(&a.$i,&b.$i,&c.$i,&d.$i,&e.$i,&f.$i,t).map_err(ProductError::$Err)?)?,)+));
+            fn __fusion_symbols_validated_f_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, d: &Self::Object, e: &Self::Object, f: &Self::Object, ones: Option<[u32; 4]>, t: Validated) -> Result<SymbolWithAxes<Self::FSymbol, 4>, Self::Error> {
+                let (dims, data) = Self::compose((Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_f_symbol(&a.0,&b.0,&c.0,&d.0,&e.0,&f.0,ones,t).map_err(ProductError::Factor0)?)?,
+                    $(Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_f_symbol(&a.$i,&b.$i,&c.$i,&d.$i,&e.$i,&f.$i,ones,t).map_err(ProductError::$Err)?)?,)+));
                 Ok((FBlock::from_storage(dims, data), axes(dims).ok_or(ProductError::Overflow)?))
             }
             // As for F; braiding of every factor has also been checked.
-            fn __fusion_symbols_validated_r_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> Result<SymbolWithAxes<Self::RSymbol, 2>, Self::Error> {
-                let (dims, data) = Self::compose((Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_r_symbol(&a.0,&b.0,&c.0,t).map_err(ProductError::Factor0)?)?,
-                    $(Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_r_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?)?,)+));
+            fn __fusion_symbols_validated_r_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, ones: Option<[u32; 2]>, t: Validated) -> Result<SymbolWithAxes<Self::RSymbol, 2>, Self::Error> {
+                let (dims, data) = Self::compose((Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_r_symbol(&a.0,&b.0,&c.0,ones,t).map_err(ProductError::Factor0)?)?,
+                    $(Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_r_symbol(&a.$i,&b.$i,&c.$i,ones,t).map_err(ProductError::$Err)?)?,)+));
                 Ok((RBlock::from_storage(dims[0], data), axes(dims).ok_or(ProductError::Overflow)?))
             }
-            fn __fusion_symbols_validated_a_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
-                let (dims, data) = Self::compose((Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_a_symbol(&a.0,&b.0,&c.0,t).map_err(ProductError::Factor0)?)?,
-                    $(Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_a_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?)?,)+));
+            fn __fusion_symbols_validated_a_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, ones: Option<[u32; 2]>, t: Validated) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
+                let (dims, data) = Self::compose((Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_a_symbol(&a.0,&b.0,&c.0,ones,t).map_err(ProductError::Factor0)?)?,
+                    $(Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_a_symbol(&a.$i,&b.$i,&c.$i,ones,t).map_err(ProductError::$Err)?)?,)+));
                 Ok((RBlock::from_storage(dims[0], data), axes(dims).ok_or(ProductError::Overflow)?))
             }
-            fn __fusion_symbols_validated_b_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
-                let (dims, data) = Self::compose((Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_b_symbol(&a.0,&b.0,&c.0,t).map_err(ProductError::Factor0)?)?,
-                    $(Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_b_symbol(&a.$i,&b.$i,&c.$i,t).map_err(ProductError::$Err)?)?,)+));
+            fn __fusion_symbols_validated_b_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, ones: Option<[u32; 2]>, t: Validated) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
+                let (dims, data) = Self::compose((Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_b_symbol(&a.0,&b.0,&c.0,ones,t).map_err(ProductError::Factor0)?)?,
+                    $(Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_b_symbol(&a.$i,&b.$i,&c.$i,ones,t).map_err(ProductError::$Err)?)?,)+));
                 Ok((RBlock::from_storage(dims[0], data), axes(dims).ok_or(ProductError::Overflow)?))
             }
         }
@@ -1255,36 +1266,40 @@ where
         d: &Self::Object,
         e: &Self::Object,
         f: &Self::Object,
+        ones: Option<[u32; 4]>,
         t: Validated,
     ) -> Result<SymbolWithAxes<Self::FSymbol, 4>, Self::Error> {
-        self.shaped_f([a, b, c, d, e, f], None, t)
+        self.shaped_f([a, b, c, d, e, f], None, ones, t)
     }
     fn __fusion_symbols_validated_r_symbol(
         &self,
         a: &Self::Object,
         b: &Self::Object,
         c: &Self::Object,
+        ones: Option<[u32; 2]>,
         t: Validated,
     ) -> Result<SymbolWithAxes<Self::RSymbol, 2>, Self::Error> {
-        self.shaped_r([a, b, c], None, t)
+        self.shaped_r([a, b, c], None, ones, t)
     }
     fn __fusion_symbols_validated_a_symbol(
         &self,
         a: &Self::Object,
         b: &Self::Object,
         c: &Self::Object,
+        ones: Option<[u32; 2]>,
         t: Validated,
     ) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
-        self.shaped_a([a, b, c], None, t)
+        self.shaped_a([a, b, c], None, ones, t)
     }
     fn __fusion_symbols_validated_b_symbol(
         &self,
         a: &Self::Object,
         b: &Self::Object,
         c: &Self::Object,
+        ones: Option<[u32; 2]>,
         t: Validated,
     ) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
-        self.shaped_b([a, b, c], None, t)
+        self.shaped_b([a, b, c], None, ones, t)
     }
 }
 
@@ -1344,40 +1359,44 @@ where
         &self,
         [a, b, c, d, e, f]: [&Self::Object; 6],
         len: Option<usize>,
+        ones: Option<[u32; 4]>,
         t: Validated,
     ) -> Result<SymbolWithAxes<Self::FSymbol, 4>, Self::Error> {
         self.compose(len, FBlock::from_storage, |x, i| {
-            x.__fusion_symbols_validated_f_symbol(&a[i], &b[i], &c[i], &d[i], &e[i], &f[i], t)
+            x.__fusion_symbols_validated_f_symbol(&a[i], &b[i], &c[i], &d[i], &e[i], &f[i], ones, t)
         })
     }
     fn shaped_r(
         &self,
         [a, b, c]: [&Self::Object; 3],
         len: Option<usize>,
+        ones: Option<[u32; 2]>,
         t: Validated,
     ) -> Result<SymbolWithAxes<Self::RSymbol, 2>, Self::Error> {
         self.compose(len, rblock, |x, i| {
-            x.__fusion_symbols_validated_r_symbol(&a[i], &b[i], &c[i], t)
+            x.__fusion_symbols_validated_r_symbol(&a[i], &b[i], &c[i], ones, t)
         })
     }
     fn shaped_a(
         &self,
         [a, b, c]: [&Self::Object; 3],
         len: Option<usize>,
+        ones: Option<[u32; 2]>,
         t: Validated,
     ) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
         self.compose(len, rblock, |x, i| {
-            x.__fusion_symbols_validated_a_symbol(&a[i], &b[i], &c[i], t)
+            x.__fusion_symbols_validated_a_symbol(&a[i], &b[i], &c[i], ones, t)
         })
     }
     fn shaped_b(
         &self,
         [a, b, c]: [&Self::Object; 3],
         len: Option<usize>,
+        ones: Option<[u32; 2]>,
         t: Validated,
     ) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
         self.compose(len, rblock, |x, i| {
-            x.__fusion_symbols_validated_b_symbol(&a[i], &b[i], &c[i], t)
+            x.__fusion_symbols_validated_b_symbol(&a[i], &b[i], &c[i], ones, t)
         })
     }
 }

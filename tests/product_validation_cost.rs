@@ -572,3 +572,183 @@ fn nested_foreign_objects_panic_in_enumeration_and_derived_dimensions() {
     assert!(std::panic::catch_unwind(|| cat.inv_sqrt_dim(&bad)).is_err());
     assert!(std::panic::catch_unwind(|| cat.inv_dim(&bad)).is_err());
 }
+
+/// Fusion rules `{1, x}` with `N(x, x, x) = n` and unit vertices of multiplicity
+/// one. Each leaf counts its own `nsymbol` calls under its `id` on the current
+/// test thread, so no other test's calls enter the counts.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct Ident {
+    id: usize,
+    n: u32,
+}
+thread_local! {
+    static IDENT_N: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+fn ident_calls() -> Vec<usize> {
+    IDENT_N.with(|c| std::mem::take(&mut *c.borrow_mut()))
+}
+#[derive(Clone, Debug)]
+struct Owned<const R: usize> {
+    dims: [usize; R],
+    data: Vec<f64>,
+}
+impl<const R: usize> SymbolBlock<R> for Owned<R> {
+    type Scalar = f64;
+    fn dims(&self) -> [usize; R] {
+        self.dims
+    }
+    fn get(&self, idx: [usize; R]) -> f64 {
+        self.data[idx
+            .into_iter()
+            .zip(self.dims)
+            .fold(0, |p, (i, n)| p * n + i)]
+    }
+    fn as_slice(&self) -> &[f64] {
+        &self.data
+    }
+}
+impl Ident {
+    fn mult(&self, a: u8, b: u8, c: u8) -> u32 {
+        match (a, b, c) {
+            (1, 1, 1) => self.n,
+            (0, x, y) | (x, 0, y) | (x, y, 0) => u32::from(x == y),
+            _ => unreachable!(),
+        }
+    }
+    fn block<const R: usize>(&self, n: [u32; R]) -> Owned<R> {
+        let dims = n.map(|n| n as usize);
+        let len = dims.iter().product::<usize>();
+        let data = (0..len)
+            .map(|i| 1.0 + i as f64 / 8.0 + self.id as f64 / 64.0)
+            .collect();
+        Owned { dims, data }
+    }
+}
+impl FusionCategory for Ident {
+    type Object = u8;
+    type Scalar = f64;
+    type FSymbol = Owned<4>;
+    type RSymbol = Owned<2>;
+    type Fusion<'a> = std::iter::Empty<(u8, u32)>;
+    type Error = Infallible;
+    fn fusion_style(&self) -> FusionStyle {
+        FusionStyle::Generic
+    }
+    fn braiding_style(&self) -> BraidingStyle {
+        BraidingStyle::Bosonic
+    }
+    fn unit(&self) -> u8 {
+        0
+    }
+    fn contains(&self, a: &u8) -> bool {
+        *a < 2
+    }
+    fn dual(&self, a: &u8) -> u8 {
+        *a
+    }
+    fn dim(&self, _: &u8) -> f64 {
+        1.0
+    }
+    fn frobenius_schur_phase(&self, _: &u8) -> Result<f64, Infallible> {
+        Ok(1.0)
+    }
+    fn frobenius_schur_indicator(&self, _: &u8) -> f64 {
+        1.0
+    }
+    fn twist(&self, _: &u8) -> f64 {
+        1.0
+    }
+    fn fusion<'a>(&'a self, _: &u8, _: &u8) -> Result<Self::Fusion<'a>, Infallible> {
+        unimplemented!("not a fusion fixture")
+    }
+    fn nsymbol(&self, a: &u8, b: &u8, c: &u8) -> Result<u32, Infallible> {
+        IDENT_N.with(|calls| {
+            let mut calls = calls.borrow_mut();
+            if calls.len() <= self.id {
+                calls.resize(self.id + 1, 0);
+            }
+            calls[self.id] += 1;
+        });
+        Ok(self.mult(*a, *b, *c))
+    }
+    fn f_symbol(
+        &self,
+        a: &u8,
+        b: &u8,
+        c: &u8,
+        d: &u8,
+        e: &u8,
+        f: &u8,
+    ) -> Result<Owned<4>, Infallible> {
+        let [a, b, c, d, e, f] = [*a, *b, *c, *d, *e, *f];
+        Ok(self.block([
+            self.mult(a, b, e),
+            self.mult(e, c, d),
+            self.mult(b, c, f),
+            self.mult(a, f, d),
+        ]))
+    }
+    fn r_symbol(&self, a: &u8, b: &u8, c: &u8) -> Result<Owned<2>, Infallible> {
+        let n = self.mult(*a, *b, *c);
+        Ok(self.block([n, n]))
+    }
+}
+
+/// Per-leaf `nsymbol` calls of one F, R, A and B query at `x` on every label.
+fn ident_costs<C: FusionCategory>(cat: &C, x: &C::Object, leaves: usize) -> [Vec<usize>; 4] {
+    ident_calls();
+    let mut out = [(); 4].map(|_| Vec::new());
+    let mut record = |i: usize| {
+        let mut calls = ident_calls();
+        calls.resize(leaves, 0);
+        out[i] = calls;
+    };
+    cat.f_symbol(x, x, x, x, x, x).ok().unwrap();
+    record(0);
+    cat.r_symbol(x, x, x).ok().unwrap();
+    record(1);
+    cat.a_symbol(x, x, x).ok().unwrap();
+    record(2);
+    cat.b_symbol(x, x, x).ok().unwrap();
+    record(3);
+    out
+}
+
+// Purpose: when every product axis is 1, each leaf N is evaluated once per
+// vertex: F 4 and R 2 times per leaf, A and B 2 times plus the one N that the
+// leaf's own default A/B evaluates. As soon as one vertex has N = 2 every leaf
+// evaluates N again for its block check, as before: F 8, R 4, A and B 5.
+#[test]
+fn leaf_n_is_evaluated_once_per_vertex_when_every_product_axis_is_one() {
+    let i = |id, n| Ident { id, n };
+    let once = |k: usize| [vec![4; k], vec![2; k], vec![3; k], vec![3; k]];
+    let twice = |k: usize| [vec![8; k], vec![4; k], vec![5; k], vec![5; k]];
+    let flat = |n| Product::new((i(0, 1), i(1, n), i(2, 1)));
+    assert_eq!(ident_costs(&flat(1), &(1, 1, 1), 3), once(3), "flat");
+    assert_eq!(
+        ident_costs(&flat(2), &(1, 1, 1), 3),
+        twice(3),
+        "flat, N = 2"
+    );
+    let nested = |n| Product::new((Product::new((i(0, 1), i(1, 1))), i(2, n)));
+    assert_eq!(ident_costs(&nested(1), &((1, 1), 1), 3), once(3), "nested");
+    assert_eq!(
+        ident_costs(&nested(3), &((1, 1), 1), 3),
+        twice(3),
+        "nested, N = 3"
+    );
+    let vec = |n| Product::new(vec![i(0, 1), i(1, n), i(2, 1)]);
+    assert_eq!(ident_costs(&vec(1), &vec![1; 3], 3), once(3), "vec");
+    assert_eq!(ident_costs(&vec(2), &vec![1; 3], 3), twice(3), "vec, N = 2");
+    let held = |n| Product::new((Product::new(vec![i(0, 1), i(1, n)]), i(2, 1)));
+    assert_eq!(
+        ident_costs(&held(1), &(vec![1; 2], 1), 3),
+        once(3),
+        "vec in tuple"
+    );
+    assert_eq!(
+        ident_costs(&held(2), &(vec![1; 2], 1), 3),
+        twice(3),
+        "vec in tuple, N = 2"
+    );
+}
