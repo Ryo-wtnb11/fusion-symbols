@@ -117,6 +117,12 @@ value/gauge rule noted below.
   list's shared reference count; single-thread timings are neutral within the
   measured variation. The CGC engine's own N checks take the same path.
   Values are unchanged. (#252)
+- The Product tier stores each label-free channel list of a simple Lie group
+  as one allocation: the channel count, then each channel's Dynkin label and
+  multiplicity, instead of a separately allocated label per channel. A warm N
+  search reads one contiguous block with the same comparisons as before, and
+  each list is charged 16 bytes less per channel, less 8 bytes for the count.
+  Values are unchanged. (#252)
 - Product F, R, A and B symbols whose product axes are all 1 skip the
   product's repeated validation lookups of each leaf factor's N: a product
   axis is the product of its leaves' positive multiplicities, so each leaf

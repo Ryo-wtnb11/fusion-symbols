@@ -816,15 +816,14 @@ impl CartanData {
         #[cfg(test)]
         LABEL_PROJECTIONS.with(|n| n.set(n.get() + 1));
         let mut channels = channels
-            .0
-            .iter()
+            .iter(self.rank)
             .map(|(c, n)| {
                 let label = match inputs {
-                    Some((a, _)) if a.dynkin() == c.as_ref() => a.clone(),
-                    Some((_, b)) if b.dynkin() == c.as_ref() => b.clone(),
+                    Some((a, _)) if a.dynkin() == c => a.clone(),
+                    Some((_, b)) if b.dynkin() == c => b.clone(),
                     _ => self.irrep(c)?,
                 };
-                Ok((label, *n))
+                Ok((label, n))
             })
             .collect::<Result<Vec<_>, LieError>>()?;
         channels.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
@@ -848,11 +847,9 @@ impl CartanData {
         b: &[i64],
         inputs: Option<(&RootIrrep, &RootIrrep)>,
     ) -> Result<Multiplicities, LieError> {
-        Ok(Multiplicities(
-            self.tensor_product_with_dimensions(a, b, inputs.map(|(a, b)| (a.dim(), b.dim())))?
-                .into_iter()
-                .map(|(c, n)| (c.into_boxed_slice(), n))
-                .collect(),
+        Ok(Multiplicities::new(
+            self.rank,
+            self.tensor_product_with_dimensions(a, b, inputs.map(|(a, b)| (a.dim(), b.dim())))?,
         ))
     }
 
@@ -1192,18 +1189,72 @@ impl crate::cache::CacheKeyCharge for RootIrrep {
     }
 }
 
-/// Exact Dynkin-ordered channels, without public label payloads or channel dimensions.
+/// Exact Dynkin-ordered channels, without public label payloads or channel
+/// dimensions, in one allocation: word 0 is the channel count `n`, then one
+/// row per channel of `rank` Dynkin words followed by `N`.
+///
+/// Every label of one root system has `rank` words; callers query with such
+/// labels only. A query of another width fails the length identity
+/// `len = 1 + n·(width + 1)` (exact for `n ≥ 1`) and panics rather than
+/// misreading rows.
 #[derive(Clone, Debug)]
-pub(crate) struct Multiplicities(pub(crate) Arc<[(Box<[i64]>, u32)]>);
+pub(crate) struct Multiplicities(pub(crate) Arc<[i64]>);
 impl Multiplicities {
+    /// Packs Dynkin-ordered channels of `rank` words each.
+    pub(crate) fn new(rank: usize, channels: BTreeMap<Vec<i64>, u32>) -> Self {
+        let mut rows = Vec::with_capacity(1 + channels.len() * (rank + 1));
+        rows.push(i64::try_from(channels.len()).expect("a channel count fits in i64"));
+        for (c, n) in channels {
+            assert_eq!(c.len(), rank, "a channel label has the root's rank");
+            rows.extend_from_slice(&c);
+            rows.push(i64::from(n));
+        }
+        Self(rows.into())
+    }
+    /// The channel count and the rows of labels of `width` words.
+    fn rows(&self, width: usize) -> (usize, &[i64]) {
+        let n = self.0[0] as usize;
+        assert!(
+            self.0.len() == 1 + n * (width + 1),
+            "multiplicity rows queried with a label of another rank"
+        );
+        (n, &self.0[1..])
+    }
+    /// Each channel's Dynkin label and multiplicity, in Dynkin order.
+    pub(crate) fn iter(&self, rank: usize) -> impl Iterator<Item = (&[i64], u32)> {
+        self.rows(rank)
+            .1
+            .chunks_exact(rank + 1)
+            .map(move |row| (&row[..rank], row[rank] as u32))
+    }
+    /// `N` of `c`, by std's `binary_search_by` loop over rows: the same
+    /// comparator, and `⌈log₂ n⌉ + 1` comparisons for every target.
     pub(crate) fn multiplicity(&self, c: &[i64]) -> u32 {
         #[cfg(test)]
         if let Some(hook) = ON_SEARCH.with(std::cell::Cell::take) {
             hook(self);
         }
-        self.0
-            .binary_search_by(|(x, _)| x.as_ref().cmp(c))
-            .map_or(0, |i| self.0[i].1)
+        use std::cmp::Ordering::{Equal, Greater};
+        let (r, w) = (c.len(), c.len() + 1);
+        let (mut size, rows) = self.rows(r);
+        if size == 0 {
+            return 0;
+        }
+        let row = |i: usize| &rows[i * w..i * w + w];
+        let mut base = 0;
+        while size > 1 {
+            let half = size / 2;
+            let mid = base + half;
+            let cmp = row(mid)[..r].cmp(c);
+            base = std::hint::select_unpredictable(cmp == Greater, base, mid);
+            size -= half;
+        }
+        let row = row(base);
+        if row[..r].cmp(c) == Equal {
+            row[r] as u32
+        } else {
+            0
+        }
     }
 }
 impl crate::cache::CacheCharge for Multiplicities {
@@ -1211,11 +1262,6 @@ impl crate::cache::CacheCharge for Multiplicities {
         std::mem::size_of::<Self>()
             + crate::cache::ARC_COUNTS_BYTES
             + std::mem::size_of_val(self.0.as_ref())
-            + self
-                .0
-                .iter()
-                .map(|(c, _)| std::mem::size_of_val(c.as_ref()))
-                .sum::<usize>()
     }
 }
 /// Both projections are immutable and charged on publication in the same bounded tier.

@@ -953,11 +953,11 @@ fn warm_multiplicity_searches_the_cached_list_without_owning_it() {
     }
     // A pair no other fixture queries, with an inline channel list.
     let (a, b) = ([9001, 1], [9001, 2]);
-    let rows: Arc<[(Box<[i64]>, u32)]> = Arc::from(vec![
-        (vec![0, 3].into_boxed_slice(), 1),
-        (vec![1, 1].into_boxed_slice(), 2),
-        (vec![2, 0].into_boxed_slice(), 1),
-    ]);
+    let rows = Multiplicities::new(
+        2,
+        BTreeMap::from([(vec![0, 3], 1), (vec![1, 1], 2), (vec![2, 0], 1)]),
+    )
+    .0;
     let query = |c: &[i64], compute: &dyn Fn() -> Multiplicities| {
         crate::cache::product_multiplicity::<std::convert::Infallible>(
             RootSystem::A(2),
@@ -982,4 +982,44 @@ fn warm_multiplicity_searches_the_cached_list_without_owning_it() {
     assert_eq!(n, 2);
     assert_eq!(OWNERS.with(std::cell::Cell::take), Some(resident));
     crate::cache::reset();
+}
+
+// The packed rows return each stored channel's N, 0 for every label between,
+// before or after them, and iterate the channels in Dynkin order.
+#[test]
+fn flat_rows_find_each_stored_channel_and_only_those() {
+    let stored = [
+        (vec![0, 0], 1),
+        (vec![0, 3], 1),
+        (vec![1, 1], 2),
+        (vec![2, 2], 1),
+        (vec![3, 0], 4),
+    ];
+    let table = Multiplicities::new(2, BTreeMap::from(stored.clone()));
+    for (c, n) in &stored {
+        assert_eq!(table.multiplicity(c), *n, "{c:?}");
+    }
+    for c in [[-1, 0], [0, 1], [1, 2], [2, 3], [4, 0]] {
+        assert_eq!(table.multiplicity(&c), 0, "{c:?}");
+    }
+    let rows: Vec<_> = table.iter(2).map(|(c, n)| (c.to_vec(), n)).collect();
+    assert_eq!(rows, stored);
+    let one = Multiplicities::new(2, BTreeMap::from([(vec![0, 3], 1)]));
+    assert_eq!(
+        (one.multiplicity(&[0, 3]), one.multiplicity(&[0, 2])),
+        (1, 0)
+    );
+    assert_eq!(
+        Multiplicities::new(2, BTreeMap::new()).multiplicity(&[0, 3]),
+        0
+    );
+}
+
+// A label of another width never reads the rows as if it fit: the one-channel
+// table `[0, 3] → 1` would otherwise answer the 1-word label `[0]` with 3.
+#[test]
+#[should_panic]
+fn flat_rows_reject_a_label_of_another_width() {
+    let one = Multiplicities::new(2, BTreeMap::from([(vec![0, 3], 1)]));
+    std::hint::black_box(one.multiplicity(&[0]));
 }
