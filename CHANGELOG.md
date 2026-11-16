@@ -101,6 +101,13 @@ value/gauge rule noted below.
 
 ### Performance
 
+- A cold SU(2) 3j, Clebsch–Gordan, 6j or F evaluation takes the shared
+  prime and factorial tables once instead of once per prime and per
+  factorial row: 51 lock round trips at spin 2 and about 2 900 at spin 100
+  become one. Cold evaluations are 14–32% faster from spin 1 to spin 1000,
+  and a first evaluation that grows the tables is 1–35% faster. Growing
+  the tables to a new largest label takes the write lock once. Values are
+  unchanged. (#286)
 - A warm `nsymbol` on a simple Lie group of rank at least two reads the
   multiplicity inside the cache hit instead of cloning the cached channel
   list. Concurrent queries of one pair therefore no longer contend on that

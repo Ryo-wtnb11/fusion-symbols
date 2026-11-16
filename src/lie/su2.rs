@@ -24,22 +24,22 @@ use malachite_q::Rational;
 
 use crate::cache;
 pub use crate::exact::SignedSqrtRational;
-use crate::primefactor::{factorial as pf_factorial, mul_factorial, sum_series, Pf};
+use crate::primefactor::{sum_series, with_tables, Pf, Tables};
 
 /// Prime-factorized squared triangle coefficient
 /// `Delta^2(a,b,c) = num/den` with `num = t1! t2! t3!` and `den = t4!`,
 /// `t4 = (a+b+c)/2 + 1`. Callers guarantee admissibility, so every factorial
 /// argument is a nonnegative integer. (`WignerSymbols.jl::Delta^2`.)
-fn delta_sq_pf(a: u32, b: u32, c: u32) -> (Pf, Pf) {
+fn delta_sq_pf(tab: &Tables, a: u32, b: u32, c: u32) -> (Pf, Pf) {
     let (a, b, c) = (a as i64, b as i64, c as i64);
     let t1 = ((a + b - c) / 2) as u64;
     let t2 = ((a - b + c) / 2) as u64;
     let t3 = ((-a + b + c) / 2) as u64;
     let t4 = ((a + b + c) / 2 + 1) as u64;
-    let mut num = pf_factorial(t1);
-    mul_factorial(&mut num, t2);
-    mul_factorial(&mut num, t3);
-    (num, pf_factorial(t4))
+    let mut num = tab.factorial(t1);
+    tab.mul_factorial(&mut num, t2);
+    tab.mul_factorial(&mut num, t3);
+    (num, tab.factorial(t4))
 }
 
 /// Triangle admissibility for a doubled-spin triple `(a, b, c)`:
@@ -98,30 +98,6 @@ fn wigner_6j_uncached(
         return SignedSqrtRational::zero();
     }
 
-    // Radical part: the product of the four squared triangle coefficients,
-    // assembled in exponent space. splitsquare pulls the perfect-square part
-    // out into the rational prefactor `s`, leaving a square-free radicand `r`,
-    // so no huge intermediate factorial is ever formed as a big integer.
-    // (`WignerSymbols.jl::_wigner6j`.)
-    let (n1, d1) = delta_sq_pf(dj1, dj2, dj3);
-    let (n2, d2) = delta_sq_pf(dj1, dj5, dj6);
-    let (n3, d3) = delta_sq_pf(dj4, dj2, dj6);
-    let (n4, d4) = delta_sq_pf(dj4, dj5, dj3);
-    let mut num = n1;
-    num.mul_assign(&n2);
-    num.mul_assign(&n3);
-    num.mul_assign(&n4);
-    let mut den = d1;
-    den.mul_assign(&d2);
-    den.mul_assign(&d3);
-    den.mul_assign(&d4);
-    let (mut snum, mut rnum) = num.splitsquare();
-    let (mut sden, mut rden) = den.splitsquare();
-    Pf::divgcd(&mut snum, &mut sden);
-    Pf::divgcd(&mut rnum, &mut rden);
-    let s = Rational::from_integers(snum.to_bigint(), sden.to_bigint());
-    let r = Rational::from_integers(rnum.to_bigint(), rden.to_bigint());
-
     // Racah alternating sum over k (in halved units). Widen to i64 before
     // summing (as delta_sq_pf does): u32 addition of four doubled spins could
     // wrap for absurd labels.
@@ -140,30 +116,60 @@ fn wigner_6j_uncached(
     let kmin = t1.max(t2).max(t3).max(t4);
     let kmax = t5.min(t6).min(t7);
 
-    // Each term is (-1)^k (k+1)! / [(k-t1)!...(k-t4)! (t5-k)!(t6-k)!(t7-k)!]
-    // built as a prime-factorized numerator/denominator pair; sum_series
-    // combines them over a common denominator. (`compute6jseries`.)
-    let mut terms = Vec::with_capacity((kmax - kmin + 1).max(0) as usize);
-    for k in kmin..=kmax {
-        let mut nump = pf_factorial((k + 1) as u64);
-        if k % 2 != 0 {
-            nump = nump.neg();
-        }
-        let mut denp = pf_factorial((k - t1) as u64);
-        mul_factorial(&mut denp, (k - t2) as u64);
-        mul_factorial(&mut denp, (k - t3) as u64);
-        mul_factorial(&mut denp, (k - t4) as u64);
-        mul_factorial(&mut denp, (t5 - k) as u64);
-        mul_factorial(&mut denp, (t6 - k) as u64);
-        mul_factorial(&mut denp, (t7 - k) as u64);
-        Pf::divgcd(&mut nump, &mut denp);
-        terms.push((nump, denp));
-    }
-    let series = sum_series(terms);
+    // Every factorial argument is <= kmax + 1: (k+1)! with k <= kmax;
+    // k - t_i <= kmax; t5-k <= t5-t1 <= t4, t6-k <= t6-t2 <= t1 and
+    // t7-k <= t7-t3 <= t1; the triangle denominators t_i + 1 <= kmin + 1,
+    // and kmin <= kmax because each t5..t7 - t1..t4 is a triangle quantity.
+    with_tables((kmax + 1) as u64, |tab| {
+        // Radical part: the product of the four squared triangle coefficients,
+        // assembled in exponent space. splitsquare pulls the perfect-square part
+        // out into the rational prefactor `s`, leaving a square-free radicand `r`,
+        // so no huge intermediate factorial is ever formed as a big integer.
+        // (`WignerSymbols.jl::_wigner6j`.)
+        let (n1, d1) = delta_sq_pf(tab, dj1, dj2, dj3);
+        let (n2, d2) = delta_sq_pf(tab, dj1, dj5, dj6);
+        let (n3, d3) = delta_sq_pf(tab, dj4, dj2, dj6);
+        let (n4, d4) = delta_sq_pf(tab, dj4, dj5, dj3);
+        let mut num = n1;
+        num.mul_assign(&n2);
+        num.mul_assign(&n3);
+        num.mul_assign(&n4);
+        let mut den = d1;
+        den.mul_assign(&d2);
+        den.mul_assign(&d3);
+        den.mul_assign(&d4);
+        let (mut snum, mut rnum) = num.splitsquare();
+        let (mut sden, mut rden) = den.splitsquare();
+        Pf::divgcd(&mut snum, &mut sden);
+        Pf::divgcd(&mut rnum, &mut rden);
+        let s = Rational::from_integers(snum.to_bigint(tab), sden.to_bigint(tab));
+        let r = Rational::from_integers(rnum.to_bigint(tab), rden.to_bigint(tab));
 
-    // value = (s * series) * sqrt(r); `r` is nonnegative (square-free part of a
-    // factorial product), so the clamp in from_prefactor_radical never fires.
-    SignedSqrtRational::from_prefactor_radical(s * series, r)
+        // Each term is (-1)^k (k+1)! / [(k-t1)!...(k-t4)! (t5-k)!(t6-k)!(t7-k)!]
+        // built as a prime-factorized numerator/denominator pair; sum_series
+        // combines them over a common denominator. (`compute6jseries`.)
+        let mut terms = Vec::with_capacity((kmax - kmin + 1).max(0) as usize);
+        for k in kmin..=kmax {
+            let mut nump = tab.factorial((k + 1) as u64);
+            if k % 2 != 0 {
+                nump = nump.neg();
+            }
+            let mut denp = tab.factorial((k - t1) as u64);
+            tab.mul_factorial(&mut denp, (k - t2) as u64);
+            tab.mul_factorial(&mut denp, (k - t3) as u64);
+            tab.mul_factorial(&mut denp, (k - t4) as u64);
+            tab.mul_factorial(&mut denp, (t5 - k) as u64);
+            tab.mul_factorial(&mut denp, (t6 - k) as u64);
+            tab.mul_factorial(&mut denp, (t7 - k) as u64);
+            Pf::divgcd(&mut nump, &mut denp);
+            terms.push((nump, denp));
+        }
+        let series = sum_series(tab, terms);
+
+        // value = (s * series) * sqrt(r); `r` is nonnegative (square-free part of a
+        // factorial product), so the clamp in from_prefactor_radical never fires.
+        SignedSqrtRational::from_prefactor_radical(s * series, r)
+    })
 }
 
 /// Wigner 3j symbol $(dj_1\, dj_2\, dj_3;\, dm_1\, dm_2\, dm_3)$ (doubled spins/projections).
@@ -219,65 +225,71 @@ fn wigner_3j_uncached(
         return SignedSqrtRational::zero();
     }
 
-    let (j1, j2, j3) = (dj1 as i64, dj2 as i64, dj3 as i64);
-    let (m1, m2, m3) = (dm1, dm2, dm3);
+    // Every factorial argument is <= (j1+j2+j3)/2 + 1, the triangle
+    // denominator: (j_i +- m_i)/2 <= j_i, and k + add1 <= (j3 - m3)/2,
+    // k + add2 <= (j3 + m3)/2.
+    let n_max = (u64::from(dj1) + u64::from(dj2) + u64::from(dj3)) / 2 + 1;
+    with_tables(n_max, |tab| {
+        let (j1, j2, j3) = (dj1 as i64, dj2 as i64, dj3 as i64);
+        let (m1, m2, m3) = (dm1, dm2, dm3);
 
-    // Radical: Delta^2(j1,j2,j3) * prod_i (j_i+m_i)! (j_i-m_i)!, all halved,
-    // assembled in exponent space. splitsquare separates the perfect-square
-    // prefactor `s` from the square-free radicand `r`, so the big factorials
-    // are never multiplied out as big integers. (`WignerSymbols.jl::_wigner3j`.)
-    let (mut num, den) = delta_sq_pf(dj1, dj2, dj3);
-    for (dj, dm) in [(j1, m1), (j2, m2), (j3, m3)] {
-        mul_factorial(&mut num, ((dj + dm) / 2) as u64);
-        mul_factorial(&mut num, ((dj - dm) / 2) as u64);
-    }
-    let (mut snum, mut rnum) = num.splitsquare();
-    let (mut sden, mut rden) = den.splitsquare();
-    Pf::divgcd(&mut snum, &mut sden);
-    Pf::divgcd(&mut rnum, &mut rden);
-    let s = Rational::from_integers(snum.to_bigint(), sden.to_bigint());
-    let r = Rational::from_integers(rnum.to_bigint(), rden.to_bigint());
+        // Radical: Delta^2(j1,j2,j3) * prod_i (j_i+m_i)! (j_i-m_i)!, all halved,
+        // assembled in exponent space. splitsquare separates the perfect-square
+        // prefactor `s` from the square-free radicand `r`, so the big factorials
+        // are never multiplied out as big integers. (`WignerSymbols.jl::_wigner3j`.)
+        let (mut num, den) = delta_sq_pf(tab, dj1, dj2, dj3);
+        for (dj, dm) in [(j1, m1), (j2, m2), (j3, m3)] {
+            tab.mul_factorial(&mut num, ((dj + dm) / 2) as u64);
+            tab.mul_factorial(&mut num, ((dj - dm) / 2) as u64);
+        }
+        let (mut snum, mut rnum) = num.splitsquare();
+        let (mut sden, mut rden) = den.splitsquare();
+        Pf::divgcd(&mut snum, &mut sden);
+        Pf::divgcd(&mut rnum, &mut rden);
+        let s = Rational::from_integers(snum.to_bigint(tab), sden.to_bigint(tab));
+        let r = Rational::from_integers(rnum.to_bigint(tab), rden.to_bigint(tab));
 
-    // Alternating k-sum (halved units). Arguments (all >= 0 within range):
-    //   k, (j1+j2-j3)/2 - k, (j1-m1)/2 - k, (j2+m2)/2 - k,
-    //   k + (j3-j2+m1)/2, k + (j3-j1-m2)/2
-    let a = (j1 + j2 - j3) / 2;
-    let b = (j1 - m1) / 2;
-    let c = (j2 + m2) / 2;
-    let add1 = (j3 - j2 + m1) / 2;
-    let add2 = (j3 - j1 - m2) / 2;
+        // Alternating k-sum (halved units). Arguments (all >= 0 within range):
+        //   k, (j1+j2-j3)/2 - k, (j1-m1)/2 - k, (j2+m2)/2 - k,
+        //   k + (j3-j2+m1)/2, k + (j3-j1-m2)/2
+        let a = (j1 + j2 - j3) / 2;
+        let b = (j1 - m1) / 2;
+        let c = (j2 + m2) / 2;
+        let add1 = (j3 - j2 + m1) / 2;
+        let add2 = (j3 - j1 - m2) / 2;
 
-    let kmin = 0i64.max(-add1).max(-add2);
-    let kmax = a.min(b).min(c);
+        let kmin = 0i64.max(-add1).max(-add2);
+        let kmax = a.min(b).min(c);
 
-    // Each term is (-1)^k / [k! (a-k)! (b-k)! (c-k)! (k+add1)! (k+add2)!]:
-    // a prime-factorized numerator (+-1) / denominator, combined by sum_series.
-    // (`compute3jseries`.)
-    let mut terms = Vec::with_capacity((kmax - kmin + 1).max(0) as usize);
-    for k in kmin..=kmax {
-        let nump = if k % 2 == 0 {
-            Pf::one()
-        } else {
-            Pf::one().neg()
-        };
-        let mut denp = pf_factorial(k as u64);
-        mul_factorial(&mut denp, (a - k) as u64);
-        mul_factorial(&mut denp, (b - k) as u64);
-        mul_factorial(&mut denp, (c - k) as u64);
-        mul_factorial(&mut denp, (k + add1) as u64);
-        mul_factorial(&mut denp, (k + add2) as u64);
-        terms.push((nump, denp));
-    }
-    let mut value = s * sum_series(terms);
+        // Each term is (-1)^k / [k! (a-k)! (b-k)! (c-k)! (k+add1)! (k+add2)!]:
+        // a prime-factorized numerator (+-1) / denominator, combined by sum_series.
+        // (`compute3jseries`.)
+        let mut terms = Vec::with_capacity((kmax - kmin + 1).max(0) as usize);
+        for k in kmin..=kmax {
+            let nump = if k % 2 == 0 {
+                Pf::one()
+            } else {
+                Pf::one().neg()
+            };
+            let mut denp = tab.factorial(k as u64);
+            tab.mul_factorial(&mut denp, (a - k) as u64);
+            tab.mul_factorial(&mut denp, (b - k) as u64);
+            tab.mul_factorial(&mut denp, (c - k) as u64);
+            tab.mul_factorial(&mut denp, (k + add1) as u64);
+            tab.mul_factorial(&mut denp, (k + add2) as u64);
+            terms.push((nump, denp));
+        }
+        let mut value = s * sum_series(tab, terms);
 
-    // Overall Condon-Shortley phase (-1)^((j1-j2-m3)/2) folds into the sign.
-    if phase_is_negative((j1 - j2 - m3) / 2) {
-        value = -value;
-    }
+        // Overall Condon-Shortley phase (-1)^((j1-j2-m3)/2) folds into the sign.
+        if phase_is_negative((j1 - j2 - m3) / 2) {
+            value = -value;
+        }
 
-    // `r` is the square-free part of a factorial product, hence nonnegative, so
-    // the clamp in from_prefactor_radical is never exercised here.
-    SignedSqrtRational::from_prefactor_radical(value, r)
+        // `r` is the square-free part of a factorial product, hence nonnegative, so
+        // the clamp in from_prefactor_radical is never exercised here.
+        SignedSqrtRational::from_prefactor_radical(value, r)
+    })
 }
 
 /// Clebsch-Gordan coefficient $\langle dj_1\, dm_1, dj_2\, dm_2 \,|\, dj_3\, dm_3 \rangle$ (doubled spins).
