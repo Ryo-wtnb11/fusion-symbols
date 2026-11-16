@@ -3,10 +3,12 @@
 //! Exact-value evaluation on doubled spins <= 254, the thousands tier, and the
 //! repeated-label (cache hit) regime. Run with `cargo bench`.
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use std::hint::black_box;
 
-use fusion_symbols::lie::su2::{wigner_3j, wigner_6j};
+use fusion_symbols::category::{FusionCategory, SymbolBlock};
+use fusion_symbols::lie::su2::{clebsch_gordan, wigner_3j, wigner_6j};
+use fusion_symbols::lie::{GroupId, LieGroup};
 
 /// Admissible 6j label sets (doubled spins, all <= 254): equal-spin sextuples
 /// at a spread of magnitudes so the timing reflects the k-sum length.
@@ -121,8 +123,77 @@ fn bench_repeated_labels(c: &mut Criterion) {
     g.finish();
 }
 
+/// Cold misses with the shared factorial tables already grown: every coefficient
+/// cache is reset before each sample (outside the timer), so the time is one
+/// full exact evaluation at each label scale.
+fn bench_su2_cold(c: &mut Criterion) {
+    // Grow the tables past every row (largest factorial 4401!).
+    black_box(wigner_6j(2200, 2200, 2200, 2200, 2200, 2200));
+    let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+    let mut g = c.benchmark_group("su2_cold");
+    for dj in [4u32, 20, 200, 2000] {
+        g.bench_function(format!("3j/{dj}"), |b| {
+            b.iter_batched(
+                fusion_symbols::cache::reset,
+                |()| black_box(wigner_3j(dj, dj, dj, 0, 0, 0).to_f64()),
+                BatchSize::PerIteration,
+            )
+        });
+    }
+    for [j1, m1, j2, m2, j3, m3] in [
+        [2, 2, 4, -2, 4, 0],
+        [20, 6, 20, -10, 20, -4],
+        [200, 60, 200, -100, 200, -40],
+        [2000, 600, 2000, -1000, 2000, -400],
+    ] {
+        g.bench_function(format!("cg/{j1}"), |b| {
+            b.iter_batched(
+                fusion_symbols::cache::reset,
+                |()| {
+                    black_box(clebsch_gordan(j1 as u32, m1, j2 as u32, m2, j3 as u32, m3).to_f64())
+                },
+                BatchSize::PerIteration,
+            )
+        });
+    }
+    for d in [
+        [2u32, 4, 4, 2, 4, 2],
+        [20, 18, 16, 19, 17, 21],
+        [200, 180, 160, 190, 170, 210],
+        [2000, 1800, 1600, 1900, 1700, 2100],
+    ] {
+        g.bench_function(format!("6j/{}", d[0]), |b| {
+            b.iter_batched(
+                fusion_symbols::cache::reset,
+                |()| black_box(wigner_6j(d[0], d[1], d[2], d[3], d[4], d[5]).to_f64()),
+                BatchSize::PerIteration,
+            )
+        });
+    }
+    for d in [
+        [2i64, 2, 2, 2, 2, 4],
+        [20, 20, 20, 20, 18, 22],
+        [200, 200, 200, 200, 180, 220],
+        [2000, 2000, 2000, 2000, 1800, 2200],
+    ] {
+        let x: Vec<_> = d.iter().map(|&dj| su2.irrep(&[dj]).unwrap()).collect();
+        g.bench_function(format!("f/{}", d[0]), |b| {
+            b.iter_batched(
+                fusion_symbols::cache::reset,
+                |()| {
+                    let f = su2.f_symbol(&x[0], &x[1], &x[2], &x[3], &x[4], &x[5]);
+                    black_box(f.unwrap().as_slice()[0])
+                },
+                BatchSize::PerIteration,
+            )
+        });
+    }
+    g.finish();
+}
+
 criterion_group!(
     benches,
+    bench_su2_cold,
     bench_6j,
     bench_3j,
     bench_6j_thousands,

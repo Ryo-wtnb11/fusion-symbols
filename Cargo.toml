@@ -128,6 +128,10 @@ name = "integration"
 path = "tests/integration.rs"
 
 [[test]]
+name = "su2_tables_first_use"
+path = "tests/su2_tables_first_use.rs"
+
+[[test]]
 name = "allocations"
 path = "tests/allocations.rs"
 
