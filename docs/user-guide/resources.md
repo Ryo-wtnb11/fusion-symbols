@@ -43,7 +43,8 @@ channel is retained independently of its modules.
 All materialized simple-Lie tensor products use the Product tier. Its
 borrowed key is the root-system presentation, an unordered pair of exact
 Dynkin labels, and the stored projection (multiplicities or fusion labels).
-N reads a dimension-free channel list; fusion builds a separate immutable label
+N reads a dimension-free channel list, stored as one allocation of Dynkin
+labels and multiplicities; fusion builds a separate immutable label
 projection from that list, which keeps each channel's multiplicity, so
 `fusion` yields every channel with its N from one lookup. Each projection occupies one entry in the same tier
 and is fully charged at publication. Fusion payloads include exact dimensions
