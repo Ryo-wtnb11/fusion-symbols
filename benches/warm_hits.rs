@@ -9,6 +9,8 @@
 //! - `FS_WARM_MODE=dist cargo bench --bench warm_hits`: the label-tier key
 //!   hash distribution, beside std's `RandomState` (SipHash) over the same
 //!   keys written as the previous per-word key hash did.
+//! - With `--features disk-cache`, `FS_DISK_CACHE=<file>` enables the disk
+//!   cache there before any row, so the warm hits run with a store present.
 //!
 //! Distribution coverage: for each root A1, A2, A4, B2, C3, D4, D5, G2, F4,
 //! E6, E7 and E8, six distinct labels: the unit, ω1, a complex conjugate pair
@@ -299,6 +301,10 @@ fn dist() {
 }
 
 fn main() {
+    #[cfg(feature = "disk-cache")]
+    if let Some(path) = std::env::var_os("FS_DISK_CACHE") {
+        fusion_symbols::cache::enable_disk_cache(path, 64 << 20).unwrap();
+    }
     match std::env::var("FS_WARM_MODE").as_deref() {
         Ok("dist") => dist(),
         Ok("allocs") => {

@@ -51,11 +51,13 @@ fusion-symbols = "0.11"
 |---|---|---|
 | `lie-generated` | yes | Higher-rank SU(N), SO(N), Spin(N), Sp(2r) and G₂, F₄, E₆, E₇, E₈ groups. A capability switch: every build compiles the same exact Cartan engine (serial entries; `lie::prefill` runs on the caller's execution token) |
 | `anyonwiki-unitary` | no | 303 rank 5–7 table categories, data only |
+| `disk-cache` | no | An opt-in SQLite file that serves generated CGC, F and R values (and Frobenius–Schur phases) to later processes: `cache::enable_disk_cache(path, max_bytes)`. Adds `rusqlite` with bundled SQLite, which needs a C compiler |
 
 The required dependencies include Malachite 0.14 (`malachite-base`,
 `malachite-nz`, `malachite-q`) for exact arithmetic beyond machine words, `num-traits`,
 `num-complex`, `seize` and `threadteam` (without its `parallel`
-feature, so this crate starts no thread pool); no feature adds a dependency.
+feature, so this crate starts no thread pool). Only `disk-cache` adds a
+dependency.
 Use `default-features = false` for the base build without higher-rank groups.
 
 ## Example

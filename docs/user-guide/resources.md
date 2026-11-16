@@ -199,6 +199,64 @@ tier and is not a cap on the process's memory. Any other token evaluates the ite
 the calling thread. The order in which a batch publishes values, and so
 which ones a full tier keeps, is not specified.
 
+### Disk cache (`disk-cache` feature)
+
+Every tier above lives in one process. With the `disk-cache` feature, an
+application can also keep the *generated* values in one SQLite file, so that
+later processes load them instead of generating them again:
+
+```rust,ignore
+fusion_symbols::cache::enable_disk_cache("/local/scratch/fs-0.11.sqlite", 1 << 30)?;
+```
+
+- **What is stored.** Cartan-engine CGC channels (every simple factor,
+  including SU(2)), computed Frobenius–Schur phases, and Cartan F and R
+  blocks. These cost far more to generate than to load. Exact SU(2) 3j/6j
+  symbols and the SU(2) F scalar are never stored: computing them is cheaper
+  than loading them. Irrep modules and products stay in memory.
+- **How it is used.** A miss of a stored kind reads its row before generating;
+  a warm hit never touches the disk. Only the thread that claims a key reads
+  it. A loaded value is retained in memory like a generated one, so `reset`
+  and `trim_to` act on memory only. Generated values are queued per thread
+  (at most 4 MiB and 1024 rows; a larger row is written on its own) and
+  committed in one transaction at the end of each call or `prefill` batch,
+  or whenever the queue is full. A call that panics drops its uncommitted
+  rows; rows committed earlier stay.
+- **Identity.** A row is keyed by the storage schema, this crate's
+  major.minor version, the kind, the presented root system and the labels.
+  A file holds one version: enabling another version at the same path
+  removes the old rows, and a process whose version lost the file stops using
+  it. Give each version its own path. Released versions fix every value
+  behind their key; builds from unreleased sources should use a disposable
+  path.
+- **Integrity.** A row is used only if its checksum (over key and payload)
+  matches and its payload has exactly the shape its labels determine: Weyl
+  dimensions and multiplicities, every CGC index in range and in order,
+  every multiplicity column present, finite values, and the F and R
+  generation gates. Otherwise the value is generated and the row
+  overwritten. The CGC isometry certificate is not re-run: rows are trusted
+  to be what a gated generation of this crate wrote. The checksum detects
+  later accidental damage (bit rot, truncation), not a faulty writer or an
+  adversary.
+- **Bound.** `max_bytes` bounds the stored key and value bytes; oldest rows
+  are removed first. It holds when `enable_disk_cache` returns and after every
+  commit of the committing process. File pages, the free list and the
+  write-ahead log are not counted; `clear_disk_cache` removes every row and
+  compacts the file.
+- **Files and processes.** The path is a literal file path whose directory
+  must exist. SQLite runs in WAL mode, which needs shared memory: use a
+  node-local file system, one file per node. Processes on one node share the
+  file; a write that waits more than one second for another writer's lock is
+  skipped.
+- **Failures.** `enable_disk_cache` returns `DiskCacheError::Open`, and
+  installs nothing, when the file cannot be opened as a WAL database. After
+  that, no disk failure fails a coefficient call: a failed read is a miss and a
+  failed write is skipped. `disk_cache_stats` counts hits, misses, rejected
+  rows, failures, evictions and bytes for this process.
+- **Cost.** The first process that fills the file pays for one row lookup per
+  miss and one transaction per call; that cost is accepted in exchange for
+  the later processes' loads.
+
 ### Concurrency
 
 A warm hit takes no lock. It reads the published table under a `seize`

@@ -34,6 +34,8 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy --all-targets
       - run: cargo clippy --all-targets --no-default-features
+      - run: cargo clippy --all-targets --features disk-cache
+      - run: cargo clippy --all-targets --no-default-features --features disk-cache
       - run: cargo clippy --all-targets --all-features
 
   # Parallel full suites shorten latency without narrowing all-features coverage.
@@ -50,6 +52,11 @@ jobs:
             args: "--all-features"
           - name: base
             args: "--no-default-features"
+          # The disk tier with and without the higher-rank groups.
+          - name: disk
+            args: "--features disk-cache"
+          - name: base-disk
+            args: "--no-default-features --features disk-cache"
     env:
       # Plain --release would disable correctness guards; coverage keeps its profile.
       CARGO_PROFILE_TEST_OPT_LEVEL: "1"

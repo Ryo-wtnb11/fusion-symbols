@@ -41,6 +41,10 @@ enum Flight<V> {
     Abandoned,
 }
 
+/// Waiters that registered on an in-flight placeholder (test probe).
+#[cfg(test)]
+pub(crate) static WAITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// One in-flight miss, shared by its leader and waiters.
 pub(crate) struct Placeholder<V> {
     /// The outcome and the number of blocked waiters.
@@ -70,6 +74,10 @@ impl<V: Clone> Placeholder<V> {
     fn wait(&self) -> Option<V> {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.1 += 1;
+        // Counted under the placeholder lock, which `finish` needs: once the
+        // count is seen, this waiter is blocked or will see the outcome.
+        #[cfg(test)]
+        WAITS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         loop {
             match &state.0 {
                 Flight::Pending => {
