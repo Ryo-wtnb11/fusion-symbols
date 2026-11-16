@@ -15,9 +15,11 @@ thread_local! {
     pub(crate) static CHUNK: Cell<Option<usize>> = const { Cell::new(None) };
     /// Largest queued byte count reached on this thread.
     pub(crate) static PEAK: Cell<usize> = const { Cell::new(0) };
-    /// Replaces the setup deadline on this thread.
-    pub(crate) static SETUP_DEADLINE_OVERRIDE: Cell<Option<Duration>> = const { Cell::new(None) };
-    /// Lock waits granted to setup statements on this thread.
+    /// Replaces the setup lock-wait budget on this thread.
+    pub(crate) static SETUP_BUDGET_OVERRIDE: Cell<Option<Duration>> = const { Cell::new(None) };
+    /// Sleeps setup work this long after the WAL switch, on this thread.
+    pub(crate) static SLOW_SETUP: Cell<Option<Duration>> = const { Cell::new(None) };
+    /// Lock-wait sleeps of setups on this thread.
     pub(crate) static SETUP_WAITS: std::cell::RefCell<Vec<Duration>> = const { std::cell::RefCell::new(Vec::new()) };
     /// Run on this thread after a row was read, before it is checked.
     pub(crate) static AFTER_READ: Cell<Option<fn()>> = const { Cell::new(None) };
@@ -542,6 +544,9 @@ fn concurrent_first_creation_yields_one_store() {
     let barrier = std::sync::Barrier::new(2);
     let stores: Vec<Store> = std::thread::scope(|s| {
         let open = || {
+            // This test is about one creation winning, not about how long the
+            // loser may wait for a slow creator: give it ample lock-wait time.
+            SETUP_BUDGET_OVERRIDE.with(|d| d.set(Some(Duration::from_secs(60))));
             barrier.wait();
             store(&db, 1 << 20)
         };
@@ -558,28 +563,39 @@ fn concurrent_first_creation_yields_one_store() {
     assert_eq!(meta_bytes(&stores[1]), (52, 52));
 }
 
-/// A file another connection keeps write-locked: setup gives up within its
-/// one total deadline, and no lock wait it grants exceeds what is left of it.
+/// A file another connection keeps write-locked: setup gives up once its one
+/// lock-wait budget is spent, and its sleeps never add up to more.
 #[test]
-fn locked_setup_shares_one_deadline() {
+fn locked_setup_shares_one_wait_budget() {
     let db = TempDb::new("locked");
     drop(store(&db, 1 << 20));
     let holder = Connection::open(db.path()).unwrap();
     holder.execute_batch("BEGIN IMMEDIATE").unwrap();
     let budget = Duration::from_millis(60);
-    SETUP_DEADLINE_OVERRIDE.with(|d| d.set(Some(budget)));
+    SETUP_BUDGET_OVERRIDE.with(|d| d.set(Some(budget)));
     SETUP_WAITS.with(|w| w.borrow_mut().clear());
     let refused = Store::open(db.path(), 1 << 20, Identity::CURRENT);
-    SETUP_DEADLINE_OVERRIDE.with(|d| d.set(None));
+    SETUP_BUDGET_OVERRIDE.with(|d| d.set(None));
     assert!(matches!(refused, Err(DiskCacheError::Open { .. })));
     let waits = SETUP_WAITS.with(|w| w.take());
-    assert!(waits.len() >= 2, "{waits:?}");
-    assert!(waits.iter().all(|&w| w <= budget), "{waits:?}");
-    assert!(
-        waits.windows(2).all(|p| p[1] <= p[0]),
-        "a retry got a fresh budget: {waits:?}"
-    );
+    assert!(!waits.is_empty());
+    assert!(waits.iter().sum::<Duration>() <= budget, "{waits:?}");
     holder.execute_batch("ROLLBACK").unwrap();
     let ok = store(&db, 1 << 20);
     assert_eq!(owner(&ok.lock()).unwrap(), Some(Identity::CURRENT));
+}
+
+/// Setup work that outlasts the whole lock-wait budget (slow file creation
+/// or fsync on a loaded machine) is not a lock wait: an uncontended file
+/// still opens.
+#[test]
+fn slow_uncontended_setup_still_opens() {
+    let db = TempDb::new("slow");
+    SETUP_BUDGET_OVERRIDE.with(|d| d.set(Some(Duration::from_millis(20))));
+    SLOW_SETUP.with(|s| s.set(Some(Duration::from_millis(100))));
+    let opened = Store::open(db.path(), 1 << 20, Identity::CURRENT);
+    SLOW_SETUP.with(|s| s.set(None));
+    SETUP_BUDGET_OVERRIDE.with(|d| d.set(None));
+    let opened = opened.unwrap();
+    assert_eq!(owner(&opened.lock()).unwrap(), Some(Identity::CURRENT));
 }
