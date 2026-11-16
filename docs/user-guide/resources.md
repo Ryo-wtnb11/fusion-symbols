@@ -206,7 +206,7 @@ application can also keep the *generated* values in one SQLite file, so that
 later processes load them instead of generating them again:
 
 ```rust,ignore
-fusion_symbols::cache::enable_disk_cache("/local/scratch/fs-0.11.sqlite", 1 << 30)?;
+fusion_symbols::cache::enable_disk_cache("/local/scratch/fs-0.12.sqlite", 1 << 30)?;
 ```
 
 - **What is stored.** Cartan-engine CGC channels (every simple factor,
