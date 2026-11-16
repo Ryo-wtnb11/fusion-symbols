@@ -87,8 +87,12 @@ const PENDING_MAX_ENTRIES: usize = 1024;
 
 /// How long one SQLite call waits for another connection's lock.
 const BUSY_TIMEOUT: Duration = Duration::from_millis(1000);
-/// How long `enable_disk_cache` retries a setup that found the file locked.
-const SETUP_DEADLINE: Duration = Duration::from_millis(1000);
+/// The total time `enable_disk_cache` may spend waiting for other
+/// connections' locks, across every statement and retry of its setup. File
+/// creation and I/O are not waits and are not charged.
+const SETUP_WAIT_BUDGET: Duration = Duration::from_millis(1000);
+/// Longest single sleep of a setup lock wait.
+const SETUP_MAX_STEP: Duration = Duration::from_millis(50);
 /// WAL truncation target after a checkpoint; not a bound on the live WAL.
 const JOURNAL_SIZE_LIMIT: i64 = 64 << 20;
 
@@ -178,7 +182,7 @@ pub enum DiskCacheError {
     NotEnabled,
     /// The path is not a database file this crate can own: empty or
     /// `:memory:`, not openable or creatable, WAL mode not granted, or still
-    /// locked after the setup deadline. Nothing was installed.
+    /// locked after setup spent its lock-wait budget. Nothing was installed.
     Open {
         /// The path as given.
         path: PathBuf,
@@ -266,7 +270,8 @@ static ENABLE: Mutex<()> = Mutex::new(());
 ///
 /// [`DiskCacheError::AlreadyEnabled`] after a success, and
 /// [`DiskCacheError::Open`] when the file cannot be opened as a WAL database
-/// within the setup deadline.
+/// while other connections hold its locks for the whole one-second setup
+/// lock-wait budget (time spent creating or syncing the file is not charged).
 ///
 /// # Examples
 ///
@@ -328,6 +333,45 @@ pub(super) struct Store {
     counters: Counters,
 }
 
+/// Lock-wait time left to one `enable_disk_cache` setup, shared by SQLite's
+/// busy handler and the retry loop. Only time spent sleeping for a lock is
+/// charged, so a slow but uncontended setup is never reported as locked.
+struct WaitBudget {
+    left_nanos: AtomicU64,
+}
+
+impl WaitBudget {
+    fn new(budget: Duration) -> Self {
+        Self {
+            left_nanos: AtomicU64::new(u64::try_from(budget.as_nanos()).unwrap_or(u64::MAX)),
+        }
+    }
+
+    /// Sleeps the `attempt`-th lock wait (1 ms doubling to
+    /// [`SETUP_MAX_STEP`], never past the budget) and charges the time
+    /// slept; `false`, without sleeping, once the budget is spent.
+    fn wait(&self, attempt: usize) -> bool {
+        let left = Duration::from_nanos(self.left_nanos.load(Ordering::Relaxed));
+        if left.is_zero() {
+            return false;
+        }
+        let step = Duration::from_millis(1u64 << attempt.min(6))
+            .min(SETUP_MAX_STEP)
+            .min(left);
+        #[cfg(test)]
+        tests::SETUP_WAITS.with(|w| w.borrow_mut().push(step));
+        let start = Instant::now();
+        std::thread::sleep(step);
+        let slept = u64::try_from(start.elapsed().max(step).as_nanos()).unwrap_or(u64::MAX);
+        // One setup at a time uses a budget: its retry loop and the busy
+        // handler of its current connection run on the calling thread.
+        let left = u64::try_from(left.as_nanos()).unwrap_or(u64::MAX);
+        self.left_nanos
+            .store(left.saturating_sub(slept), Ordering::Relaxed);
+        true
+    }
+}
+
 enum SetupError {
     /// Locked by another connection; worth retrying.
     Busy(Box<dyn std::error::Error + Send + Sync>),
@@ -366,33 +410,36 @@ impl Store {
             return Err(open_error(Box::new(Reason("not a database file path"))));
         }
         #[cfg(test)]
-        let deadline = Instant::now()
-            + tests::SETUP_DEADLINE_OVERRIDE
-                .with(std::cell::Cell::get)
-                .unwrap_or(SETUP_DEADLINE);
+        let budget = tests::SETUP_BUDGET_OVERRIDE
+            .with(std::cell::Cell::get)
+            .unwrap_or(SETUP_WAIT_BUDGET);
         #[cfg(not(test))]
-        let deadline = Instant::now() + SETUP_DEADLINE;
-        let mut pause = Duration::from_millis(1);
+        let budget = SETUP_WAIT_BUDGET;
+        let waits = Arc::new(WaitBudget::new(budget));
+        let mut attempt = 0;
         loop {
-            match Self::try_open(path, max_bytes, identity, deadline) {
+            match Self::try_open(path, max_bytes, identity, &waits) {
                 Ok(store) => return Ok(store),
-                Err(SetupError::Busy(_)) if Instant::now() + pause < deadline => {
-                    std::thread::sleep(pause);
-                    pause = (pause * 2).min(Duration::from_millis(50));
+                // Every busy outcome retries while lock-wait budget is left.
+                Err(SetupError::Busy(e)) => {
+                    if !waits.wait(attempt) {
+                        return Err(open_error(e));
+                    }
+                    attempt += 1;
                 }
-                Err(SetupError::Busy(e) | SetupError::Fatal(e)) => return Err(open_error(e)),
+                Err(SetupError::Fatal(e)) => return Err(open_error(e)),
             }
         }
     }
 
-    /// One setup attempt. Every lock wait is capped at the time left before
-    /// `deadline`, so retries share one budget; the installed connection then
-    /// gets the ordinary busy timeout.
+    /// One setup attempt. Its lock waits, in SQLite's busy handler, draw on
+    /// the shared `waits` budget; the installed connection then gets the
+    /// ordinary busy timeout.
     fn try_open(
         path: &Path,
         max_bytes: u64,
         identity: Identity,
-        deadline: Instant,
+        waits: &Arc<WaitBudget>,
     ) -> Result<Self, SetupError> {
         // No `SQLITE_OPEN_URI`: the path is a literal file name.
         let mut conn = Connection::open_with_flags(
@@ -404,22 +451,17 @@ impl Store {
         if conn.path().is_none_or(str::is_empty) {
             return Err(SetupError::Fatal(Box::new(Reason("not a file database"))));
         }
-        let cap = |conn: &Connection| -> Result<(), SetupError> {
-            let left = deadline.saturating_duration_since(Instant::now());
-            if left.is_zero() {
-                return Err(SetupError::Busy(Box::new(Reason(
-                    "the file stayed locked until the setup deadline",
-                ))));
-            }
-            let wait = left.min(BUSY_TIMEOUT);
-            #[cfg(test)]
-            tests::SETUP_WAITS.with(|w| w.borrow_mut().push(wait));
-            conn.busy_timeout(wait)?;
-            Ok(())
-        };
-        cap(&conn)?;
+        let handler = Arc::clone(waits);
+        conn.busy_handler(Some(move |count: i32| {
+            handler.wait(usize::try_from(count).unwrap_or(usize::MAX))
+        }))?;
         let mode: String =
             conn.pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get(0))?;
+        #[cfg(test)]
+        if let Some(slow) = tests::SLOW_SETUP.with(std::cell::Cell::get) {
+            // Stands in for slow file creation and fsync: work, not a wait.
+            std::thread::sleep(slow);
+        }
         #[cfg(test)]
         let mode = if tests::FAULT_WAL_MODE.with(std::cell::Cell::get) {
             "delete".to_owned()
@@ -434,7 +476,6 @@ impl Store {
         }
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.pragma_update(None, "journal_size_limit", JOURNAL_SIZE_LIMIT)?;
-        cap(&conn)?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         tx.execute_batch(META)?;
         if owner(&tx)? != Some(identity) {
@@ -446,6 +487,7 @@ impl Store {
         }
         let evicted = trim(&tx, max_bytes)?;
         tx.commit()?;
+        // Replaces the setup handler.
         conn.busy_timeout(BUSY_TIMEOUT)?;
         let counters = Counters::default();
         // Rows this process removed to bring an existing file within its bound.
