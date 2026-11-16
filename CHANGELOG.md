@@ -83,11 +83,14 @@ value/gauge rule noted below.
   more bytes per entry on 64-bit targets (an SU(2) F scalar charges 224
   instead of 104 bytes), so a tier holds fewer small entries under the same
   byte cap.
-- The Product tier's default retained-charge cap grows from 128 KiB to
-  158 KiB (161 792 bytes on 64-bit targets), derived as 256 rank-one entries
-  at the new charge, so its documented 256-entry cap still binds for them;
-  `GENERATED_CACHE_MAX_BYTES` grows by the same 30 KiB to 64 MiB + 158 KiB.
-  This is a disclosed increase of the maximum retained charge.
+- The Product tier's default caps grow from 128 KiB and 256 entries to
+  64 MiB and 65 536 entries, the same as the R tier. The old default was
+  smaller than a modest SU(3) working set, so a cycle over more products than
+  it held regenerated every decomposition on every call. The new default
+  keeps every SU(3) pair with Dynkin sum at most 6 resident, under both
+  fusion and N. `GENERATED_CACHE_MAX_BYTES` grows from 64 MiB + 128 KiB to
+  128 MiB. This is a disclosed increase of the maximum retained charge;
+  `configure_cache_budgets` can shrink it.
 - `trim_to` and `reset` release a removed entry's memory once concurrent hits
   finish, possibly after the call returns; at most one reclamation batch per
   removing thread stays pending until that thread removes more entries. Each

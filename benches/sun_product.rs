@@ -1,4 +1,5 @@
-//! SU(N) tensor-product cache working-set collector and cold/warm timing.
+//! SU(N) tensor-product cache working-set collector, cold/warm timing and
+//! warm cycles over many distinct SU(3) pairs.
 //!
 //! Not a CI gate. Run with
 //! `cargo bench --bench sun_product --features lie-generated`.
@@ -227,5 +228,51 @@ fn bench_product(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_product);
+/// One query per iteration, cycling over the first `k` pairs `a <= b` of the
+/// SU(3) labels with Dynkin sum at most 6 (406 pairs in all), after one
+/// priming pass: `n` asks only N, `mixed` iterates the fusion channels first.
+fn bench_cycle(c: &mut Criterion) {
+    use fusion_symbols::category::FusionCategory;
+    let g = lie_test::group(&irr(&[1, 0]));
+    let labels: Vec<Irrep> = (0..=6)
+        .flat_map(|p| (0..=6 - p).map(move |q| irr(&[p, q])))
+        .collect();
+    let mut pairs = Vec::new();
+    for (i, a) in labels.iter().enumerate() {
+        for b in &labels[i..] {
+            let target = g.fusion(a, b).unwrap().next().unwrap().0;
+            pairs.push((a.clone(), b.clone(), target));
+        }
+    }
+    let n = |(a, b, t): &Key| g.nsymbol(a, b, t).unwrap();
+    let mixed = |key: &Key| g.fusion(&key.0, &key.1).unwrap().count() as u32 + n(key);
+    for k in [16, 200, 406] {
+        cycle(c, "n", &pairs[..k], &n);
+    }
+    for k in [200, 406] {
+        cycle(c, "mixed", &pairs[..k], &mixed);
+    }
+}
+
+type Key = (Irrep, Irrep, Irrep);
+
+fn cycle(c: &mut Criterion, name: &str, keys: &[Key], query: &dyn Fn(&Key) -> u32) {
+    cache::reset();
+    keys.iter().for_each(|key| {
+        black_box(query(key));
+    });
+    let mut i = 0;
+    c.bench_function(
+        &format!("sun_product/su3_cycle/{name}/{}", keys.len()),
+        |bench| {
+            bench.iter(|| {
+                let key = &keys[i];
+                i = (i + 1) % keys.len();
+                black_box(query(black_box(key)))
+            })
+        },
+    );
+}
+
+criterion_group!(benches, bench_product, bench_cycle);
 criterion_main!(benches);
