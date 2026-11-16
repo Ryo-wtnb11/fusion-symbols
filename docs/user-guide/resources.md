@@ -16,11 +16,11 @@ least-recently-used replacement. Default retained-entry charge caps are:
 | `FSymbol` (`"f_symbol"`) | rounded SU(2) F scalars and Cartan-engine F blocks | 64 MiB |
 | `Cgc` (`"cgc"`) | Cartan-engine irrep modules, completed CGC channels and computed Frobenius–Schur phases, every simple factor including A(1) | 256 MiB |
 | `RSymbol` (`"r_symbol"`) | Cartan-engine R blocks (SU(2) R is a closed-form sign) | 64 MiB |
-| `Product` (`"product"`) | exact simple-Lie tensor products | 158 KiB, 256 entries |
+| `Product` (`"product"`) | exact simple-Lie tensor products | 64 MiB |
 
 `BASE_CACHE_MAX_BYTES` (448 MiB) is the sum of the four tiers a build
-without `lie-generated` can fill; `GENERATED_CACHE_MAX_BYTES` (64 MiB +
-158 KiB) adds Product and R, which only higher-rank groups fill. Every build
+without `lie-generated` can fill; `GENERATED_CACHE_MAX_BYTES` (128 MiB)
+adds Product and R, which only higher-rank groups fill. Every build
 compiles every tier.
 
 The CGC tier holds the construction data of one operation under one limit. A
@@ -147,12 +147,15 @@ The minimum weight enforces at most `floor(B / ceil(B / E)) <= E` resident
 entries when `B > 0`, with amortized O(1) CLOCK eviction rather than a scan of
 residents on insertion. Nondivisible caps can retain fewer than `E` entries,
 and entries charged above `ceil(B / E)` leave fewer than `E` resident; the
-minimum weight can also leave real-byte headroom unused. The Product cap is
-derived from the charge formula as exactly 256 rank-one entries (632 bytes
-each on 64-bit targets: key, one-channel fusion-label projection, node and
-ring position), so for rank-one products the 256-entry cap binds; larger
-products make the byte cap bind first. Sizes quoted in KiB are for 64-bit
-targets.
+minimum weight can also leave real-byte headroom unused. The Product tier
+has `E = 2^16`, so its minimum weight is 1 KiB: label-free channel lists
+charging at most 1 KiB (the smallest SU(3) and SU(4) lists charge about 300
+bytes) are weighted at 1 KiB, and larger lists keep their real charge. At
+most 65 536 entries stay resident. Its default is sized for
+working sets far above the SU(3) labels with Dynkin sum at most 6: all 406
+pairs, with both the fusion-label projection and the channel list, charge
+about 1.8 MB. For comparison, SUNRepresentations.jl keeps 10 000 products by
+default. Sizes are for 64-bit targets.
 Statistics and trim reports count real charge, excluding weight padding;
 real bytes are tracked through publication and eviction, so snapshots
 do not scan residents. Hits count retained or shared in-flight results.

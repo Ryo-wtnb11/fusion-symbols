@@ -117,18 +117,29 @@ fn product_cache_contract() {
     assert_eq!(warm.misses, misses, "warm call must not re-sweep");
     assert!(warm.hits > hits);
 
-    // Rich label payloads can reach the byte cap before the unchanged entry ceiling.
+    // The default budget keeps its documented working set resident: every
+    // SU(3) pair with Dynkin sum at most 6, through both fusion and N.
     cache::reset();
-    let trivial = lie_test::trivial(3).unwrap();
-    for label in 1..=257 {
-        let _ = outcomes(&trivial, &irr(&[label, 0]));
-    }
-    let entry_bound = cache::tier_stats(cache::CoefficientCacheTier::Product);
-    assert!(entry_bound.entries <= 256);
-    assert!(entry_bound.evictions > 0);
-    assert!(
-        entry_bound.bytes <= cache::cache_budgets().limit(cache::CoefficientCacheTier::Product)
-    );
+    let su3 = group(&irr(&[1, 0]));
+    let labels: Vec<Irrep> = (0..=6)
+        .flat_map(|p| (0..=6 - p).map(move |q| irr(&[p, q])))
+        .collect();
+    let pass = || {
+        for (i, a) in labels.iter().enumerate() {
+            for b in &labels[i..] {
+                let (c, _) = su3.fusion(a, b).unwrap().next().unwrap();
+                assert!(su3.nsymbol(a, b, &c).unwrap() > 0);
+            }
+        }
+    };
+    pass();
+    let first = cache::tier_stats(cache::CoefficientCacheTier::Product);
+    pass();
+    let second = cache::tier_stats(cache::CoefficientCacheTier::Product);
+    assert!(second.entries <= 1 << 16);
+    assert_eq!((first.evictions, second.evictions), (0, 0));
+    assert_eq!(second.misses, first.misses, "a resident pair re-swept");
+    assert!(second.bytes <= cache::cache_budgets().limit(cache::CoefficientCacheTier::Product));
 
     // Root-system identity is part of the key: these rank-five weights differ in fusion.
     use fusion_symbols::lie::{GroupId, LieGroup};

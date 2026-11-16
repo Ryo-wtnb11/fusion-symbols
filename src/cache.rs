@@ -133,19 +133,8 @@ const CGC_MAX_ENTRIES: usize = 1 << 16;
 /// estimated).
 const CGC_MAX_BYTES: usize = 256 << 20;
 
-/// Entry cap of the Product tier.
-const PRODUCT_MAX_ENTRIES: usize = 256;
-/// Charge of a rank-one Product entry: two one-word labels in the key, the
-/// fusion-label projection of one channel (the larger rank-one projection),
-/// and the entry's table node and ring position.
-const RANK_ONE_PRODUCT_CHARGE: usize = std::mem::size_of::<ProductKey>()
-    + 2 * std::mem::size_of::<i64>()
-    + crate::lie::general::roots::RANK_ONE_LABELS_BYTES
-    + clock::entry_shell::<ProductKey, ProductValue>();
-/// Retained-charge cap of the Product tier: exactly [`PRODUCT_MAX_ENTRIES`]
-/// rank-one entries (158 KiB on 64-bit targets), so the entry cap binds for
-/// them.
-const PRODUCT_MAX_BYTES: usize = PRODUCT_MAX_ENTRIES * RANK_ONE_PRODUCT_CHARGE;
+/// Entry cap of the Product tier; the retained-charge cap is the real backstop.
+const PRODUCT_MAX_ENTRIES: usize = 1 << 16;
 
 /// Strong and weak reference counts heading every `Arc` allocation; charged
 /// with each shared label, product or channel payload so retained bytes stay
@@ -287,7 +276,7 @@ impl Default for CoefficientCacheBudgets {
             wigner_6j_bytes: DEFAULT_MAX_BYTES,
             f_symbol_bytes: DEFAULT_MAX_BYTES,
             r_symbol_bytes: DEFAULT_MAX_BYTES,
-            product_bytes: PRODUCT_MAX_BYTES,
+            product_bytes: DEFAULT_MAX_BYTES,
             cgc_bytes: CGC_MAX_BYTES,
         }
     }
@@ -433,10 +422,9 @@ pub const BASE_CACHE_MAX_BYTES: usize = 448 << 20;
 const _: () = assert!(BASE_CACHE_MAX_BYTES == 3 * DEFAULT_MAX_BYTES + CGC_MAX_BYTES);
 
 /// Aggregate conservative retained-charge cap of the two tiers only
-/// higher-rank (`lie-generated`) groups fill, Product and R: 64 MiB plus the
-/// Product cap, which holds 256 rank-one entries (158 KiB on 64-bit targets,
-/// so `64 MiB + 158 KiB` = 67 270 656 bytes). Added to
-/// [`BASE_CACHE_MAX_BYTES`] it is the whole-process cap.
+/// higher-rank (`lie-generated`) groups fill, Product and R:
+/// `128 MiB` = `64 + 64 MiB`. Added to [`BASE_CACHE_MAX_BYTES`] it is the
+/// whole-process cap.
 ///
 /// **Unstable: shape may change.** There is no Cargo-feature way to express an
 /// instability tier, so this doc label is the marker.
@@ -445,7 +433,12 @@ const _: () = assert!(BASE_CACHE_MAX_BYTES == 3 * DEFAULT_MAX_BYTES + CGC_MAX_BY
 /// `Σ tier charged bytes ≤ Σ tier caps` holds as a corollary without global
 /// enforcement.
 #[cfg(feature = "lie-generated")]
-pub const GENERATED_CACHE_MAX_BYTES: usize = DEFAULT_MAX_BYTES + PRODUCT_MAX_BYTES;
+pub const GENERATED_CACHE_MAX_BYTES: usize = 128 << 20;
+
+// Compile-time tie, as for the base cap: R and Product each default to
+// `DEFAULT_MAX_BYTES`.
+#[cfg(feature = "lie-generated")]
+const _: () = assert!(GENERATED_CACHE_MAX_BYTES == 2 * DEFAULT_MAX_BYTES);
 
 /// Snapshot of one coefficient-cache tier, returned by [`tier_stats`].
 ///
@@ -1975,33 +1968,10 @@ mod tests {
         }
     }
     #[test]
-    fn product_entry_cap_is_256() {
-        let (key, value) = product_fixture(crate::lie::RootSystem::A(1), &[0]);
-        // The default budget holds 256 rank-one entries of the tier's own
-        // value type, so the entry cap binds for them.
-        let labels = ProductValue::Labels(value.clone());
-        assert!(PRODUCT_MAX_ENTRIES * entry_charge(&key, &labels) <= PRODUCT_MAX_BYTES);
-        let local = CoefficientCache::new(256, PRODUCT_MAX_BYTES);
-        for n in 0..257 {
-            local.get_or_compute(
-                ProductKey(
-                    crate::lie::RootSystem::A(1),
-                    Box::new([n]),
-                    Box::new([0]),
-                    false,
-                ),
-                || value.clone(),
-            );
-        }
-        assert_eq!(local.tier_stats().entries, 256);
-        assert_eq!(local.tier_stats().evictions, 1);
-    }
-
-    #[test]
     fn product_reset_during_parked_load_preserves_external_value() {
         use std::sync::mpsc;
         let (key, value) = product_fixture(crate::lie::RootSystem::E6, &[1, 0, 0, 0, 0, 0]);
-        let cache = Arc::new(CoefficientCache::new(256, PRODUCT_MAX_BYTES));
+        let cache = Arc::new(CoefficientCache::new(256, DEFAULT_MAX_BYTES));
         let (started, loading) = mpsc::channel();
         let (release, released) = mpsc::channel();
         let worker = {
@@ -2030,7 +2000,7 @@ mod tests {
         use std::sync::{mpsc, Barrier};
         for root in [R::A(5), R::D(5), R::E6] {
             let (key, value) = product_fixture(root, &vec![0; root.rank()]);
-            let cache = Arc::new(CoefficientCache::new(256, PRODUCT_MAX_BYTES));
+            let cache = Arc::new(CoefficientCache::new(256, DEFAULT_MAX_BYTES));
             let count = Arc::new(AtomicU64::new(0));
             let start = Arc::new(Barrier::new(9));
             let (loaded, loading) = mpsc::channel();
