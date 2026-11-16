@@ -7,35 +7,14 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
-### Added
+## [0.12.0] - 2026-11-17
 
-- `disk-cache` feature (off by default): `cache::enable_disk_cache(path,
-  max_bytes)` keeps generated coefficients (Cartan-engine CGC channels,
-  Frobenius–Schur phases, F and R blocks) in one SQLite file. Later processes
-  load them instead of generating them; the memory tiers and their warm hits
-  are unchanged. `cache::clear_disk_cache`, `cache::disk_cache_stats`,
-  `cache::DiskCacheStats` and `cache::DiskCacheError` complete the surface.
-  Rows are keyed by storage schema and major.minor version, checked against
-  their labels' shape and a checksum, and bounded by `max_bytes`. The feature
-  adds `rusqlite` 0.43 with bundled SQLite. Exact SU(2) symbols are never
-  stored.
+Coefficient values, gauges and label order are unchanged from 0.11.0. The
+release breaks the `FusionCategory::fusion` item type and the `HalfInt` and
+`CU1Irrep` constructors.
 
 ### Breaking
 
-- `lie::HalfInt::new(num, den)` is a `const fn` returning
-  `Result<HalfInt, HalfIntError>`. Only denominators `1` and `2` are
-  accepted (no fraction reduction); an invalid denominator or an
-  unrepresentable doubled value returns `HalfIntError::Denominator` or
-  `HalfIntError::Overflow`. `half(n)` is renamed to `from_doubled(n)`;
-  `integer(n)` is removed: use `new(n, 1)` and handle the typed error.
-- `lie::CU1Irrep::new(j, s)` takes `HalfInt` rather than a doubled `u32`
-  charge. `from_twice_charge(n)`, which chose `s = 0` for charge 0 and
-  `s = 2` otherwise, is private; use `new(HalfInt::from_doubled(n), s)`
-  with `s` given explicitly.
-  `charge()` reads the `HalfInt`; `twice_charge()` remains available.
-  The admitted labels, enumeration indices and coefficients are unchanged.
-  These constructor changes ship together in the next pre-1.0 minor release,
-  without deprecation aliases.
 - `FusionCategory::fusion` yields `(c, N(a, b, c))` instead of `c`: every
   outcome comes with its multiplicity `N ≥ 1`, equal to `nsymbol(a, b, c)`.
   For a Lie group the count is read from the decomposition the call already
@@ -43,9 +22,9 @@ value/gauge rule noted below.
   cache lookup per generated simple factor (one lookup for a simple Lie
   pair), with no per-channel N lookup; a product multiplies its factors'
   counts without querying them again. `FusionCategory::Fusion` must now be an
-  `Iterator<Item = (Self::Object, u32)>`, and so must the `Item` of
-  `LieFusion`, `TableFusion`, `CU1Fusion` and `ProductFusion`.
-  `nsymbol` is unchanged.
+  `Iterator<Item = (Self::Object, u32)>`; `LieFusion`, `TableFusion`,
+  `CU1Fusion`, `ProductFusion` and the `std::iter::Once` iterators of U(1),
+  Z_N and fermion parity yield those pairs. `nsymbol` is unchanged.
   Migration: `for c in cat.fusion(a, b)? { let n = cat.nsymbol(a, b, &c)?; … }`
   becomes `for (c, n) in cat.fusion(a, b)? { … }`; label-only callers write
   `cat.fusion(a, b)?.map(|(c, _)| c)`. A downstream `FusionCategory` yields
@@ -60,10 +39,21 @@ value/gauge rule noted below.
   which every category of this crate states when its iterator is built; a
   `FusionStyle::Generic` factor defined outside the crate is read once more
   at construction to find its largest multiplicity.
+- `lie::HalfInt::new(num, den)` is a `const fn` returning
+  `Result<HalfInt, HalfIntError>`. Only denominators `1` and `2` are
+  accepted (no fraction reduction); an invalid denominator or an
+  unrepresentable doubled value returns `HalfIntError::Denominator` or
+  `HalfIntError::Overflow`. `half(n)` is renamed to `from_doubled(n)`;
+  `integer(n)` is removed: use `new(n, 1)` and handle the typed error.
+- `lie::CU1Irrep::new(j, s)` takes `HalfInt` rather than a doubled `u32`
+  charge. `from_twice_charge(n)`, which chose `s = 0` for charge 0 and
+  `s = 2` otherwise, is private; use `new(HalfInt::from_doubled(n), s)`
+  with `s` given explicitly. `charge()` reads the `HalfInt`;
+  `twice_charge()` remains available. The admitted labels, enumeration
+  indices and coefficients are unchanged. There are no deprecation aliases.
 
 ### Added
 
-- `lie::U1Irrep::new` is now a `const fn`, with the same charge domain.
 - `lie::prefill(&PrefillRequest, threadteam::Exec<'_>)` makes a batch of
   Lie-group coefficients resident in one call: CGC channels, F and R blocks,
   tensor products and Frobenius–Schur phases, built with `PrefillRequest`.
@@ -73,14 +63,31 @@ value/gauge rule noted below.
   in one reset epoch, so a reset at any point retains nothing the call
   generates afterwards. On a token that carries a team, the exact descent of
   each Cartan channel runs one depth layer at a time in team sections, at a
-  width chosen from the measured cost of the layer's first items, and its
-  isometry gate checks the weight blocks in team sections whose scratch
-  beyond the serial gate's stays within the CGC tier's byte budget; any other
-  token evaluates serially on the calling thread. Values are bit-identical at
-  every width. `A^{ab}_c` and `B^{ab}_c` are warmed through the F block and
-  phase named in the `PrefillRequest` docs.
-- New required dependency `threadteam` 0.6 with `default-features = false`,
-  for the execution token; it starts no scheduler.
+  width chosen from the measured cost of the layer's first items: each
+  layer's coupling pairs are built in a team section (one scan scratch of
+  `8r + 16·min(|W_a|, |W_b|)` bytes per participant), the support check
+  (every entry in range, finite and on its weight) runs over fixed chunks of
+  2^16 entries with the serial error and column runs, and the isometry gate
+  checks the weight blocks in team sections whose scratch beyond the serial
+  gate's stays within the CGC tier's byte budget. Any other token evaluates
+  serially on the calling thread. Values are bit-identical at every width.
+  `A^{ab}_c` and `B^{ab}_c` are warmed through the F block and phase named in
+  the `PrefillRequest` docs.
+- `disk-cache` feature (off by default): `cache::enable_disk_cache(path,
+  max_bytes)` keeps generated coefficients (Cartan-engine CGC channels,
+  Frobenius–Schur phases, F and R blocks) in one SQLite file. Later processes
+  load them instead of generating them; the memory tiers and their warm hits
+  are unchanged. `cache::clear_disk_cache`, `cache::disk_cache_stats`,
+  `cache::DiskCacheStats` and `cache::DiskCacheError` complete the surface.
+  Rows are keyed by storage schema and major.minor version, checked against
+  their labels' shape and a checksum, and bounded by `max_bytes`. Exact SU(2)
+  symbols are never stored. Accepted tradeoff: the first process that fills
+  the file pays one row lookup per miss and one transaction per call, which
+  measured 1.02–1.13× on large single rows, 1.4–2.4× on rows under 300 µs
+  and 2.5–4.6× on SU(3)/SU(4) end-to-end working sets, with 1.2–3.8 MiB more
+  RSS; a later process loading the same values ran those large rows at
+  0.017–0.24× of generating them (#106).
+- `lie::U1Irrep::new` is now a `const fn`, with the same charge domain.
 
 ### Changed
 
@@ -88,10 +95,8 @@ value/gauge rule noted below.
   `Cargo.toml`), checked in CI.
 - Coefficient-cache tiers are byte-weighted CLOCK caches with lock-free hits
   (a port of MemoizationKit's `ClockCache`) instead of quick_cache's
-  Clock-PRO. The dependency `quick_cache` (and with it `hashbrown` 0.17,
-  `crossbeam-utils` and `equivalent`) is replaced by `seize` 0.5 (with `libc`,
-  already required by `threadteam`), which reclaims removed entries. Budgets, single flight, reset
-  epochs and the trim/reset accounting are unchanged.
+  Clock-PRO. Budgets, single flight, reset epochs and the trim/reset
+  accounting are unchanged.
 - An entry's charge now also counts its table node and ring position: 48–120
   more bytes per entry on 64-bit targets (an SU(2) F scalar charges 224
   instead of 104 bytes), so a tier holds fewer small entries under the same
@@ -102,40 +107,67 @@ value/gauge rule noted below.
   it held regenerated every decomposition on every call. The new default
   keeps every SU(3) pair with Dynkin sum at most 6 resident, under both
   fusion and N. `GENERATED_CACHE_MAX_BYTES` grows from 64 MiB + 128 KiB to
-  128 MiB. This is a disclosed increase of the maximum retained charge;
-  `configure_cache_budgets` can shrink it.
+  128 MiB, so the whole-process charged ceiling with `lie-generated`
+  (`BASE_CACHE_MAX_BYTES + GENERATED_CACHE_MAX_BYTES`) grows from
+  512 MiB + 128 KiB to 576 MiB. Accepted tradeoff: this is a disclosed
+  increase of the maximum retained charge, reached only as distinct products
+  are computed; `configure_cache_budgets` can shrink it (#290).
 - `trim_to` and `reset` release a removed entry's memory once concurrent hits
   finish, possibly after the call returns; at most one reclamation batch per
   removing thread stays pending until that thread removes more entries. Each
   call makes one explicit reclamation attempt plus at most one automatic
   attempt per retiring tier section, whatever the number of removed entries:
   at most two process-wide barriers in the ordinary case, at most seven when
-  `reset` retries for its six retirements (see the resources guide). The removed entries are dropped by the
-  last thread to leave a cache call that overlapped the removal, which can be
-  a warm hit dropping a whole tier's removed entries. The charged bytes
-  reported by `tier_stats` and `CacheTrimReport` drop at once.
+  `reset` retries for its six retirements (see the resources guide). The
+  removed entries are dropped by the last thread to leave a cache call that
+  overlapped the removal, which can be a warm hit dropping a whole tier's
+  removed entries. The charged bytes reported by `tier_stats` and
+  `CacheTrimReport` drop at once.
+
+### Dependencies
+
+- Replace `quick_cache` (and with it `hashbrown` 0.17, `crossbeam-utils` and
+  `equivalent`) with `seize` 0.5, which reclaims removed cache entries.
+- New required dependency `threadteam` 0.6 with `default-features = false`,
+  for the execution token of `lie::prefill`; it starts no scheduler.
+- New optional dependency `rusqlite` 0.43 with bundled SQLite, behind
+  `disk-cache` only.
 
 ### Performance
 
+- Warm coefficient-cache hits take no lock: they read the published table
+  under a `seize` guard and write only the entry's reference bit when it is
+  clear, so aggregate warm-hit throughput keeps growing with the thread count
+  instead of falling from 8 to 16 threads. A key touched once per cycle of a
+  working set that fits the budget now stays resident. Hits on one shared
+  multi-entry block still write its `Arc` reference count.
+- A warm `nsymbol` on a simple Lie group of rank at least two reads the
+  multiplicity inside the cache hit instead of cloning the cached channel
+  list, and the Product tier stores each label-free channel list as one
+  allocation (the channel count, then each channel's Dynkin label and
+  multiplicity) instead of a separately allocated label per channel.
+  Concurrent queries of one pair no longer contend on the list's shared
+  reference count, a warm search reads one contiguous block with the same
+  comparisons, and each list is charged 16 bytes less per channel, less
+  8 bytes for the count. Warm N is now faster than before the shared
+  root-system layer on every measured row (SU(3), SU(6), SO(12), Sp(8), E6,
+  E7), so the warm `nsymbol` regression disclosed in 0.11.0 no longer holds.
+  Values are unchanged. (#252)
+- Warm F, R, CGC and Product-tier lookups from Cartan labels hash one stored
+  64-bit fingerprint per label instead of every Dynkin word, so their query
+  hash no longer grows with rank. Each Cartan label payload computes the
+  fingerprints of its coordinate views once at construction (16 more bytes per
+  Cartan label payload, charged where a cached value holds labels). Rank-one
+  (A1) CGC queries build three temporary one-word fingerprints per query, and
+  SU(2) F keys hash their packed Regge key. Keys still compare every word. The
+  Wigner tiers are unchanged.
 - A cold SU(2) 3j, Clebsch–Gordan, 6j or F evaluation takes the shared
   prime and factorial tables once instead of once per prime and per
   factorial row: 51 lock round trips at spin 2 and about 2 900 at spin 100
   become one. Cold evaluations are 14–32% faster from spin 1 to spin 1000,
   and a first evaluation that grows the tables is 1–35% faster. Growing
-  the tables to a new largest label takes the write lock once. Values are
-  unchanged. (#286)
-- A warm `nsymbol` on a simple Lie group of rank at least two reads the
-  multiplicity inside the cache hit instead of cloning the cached channel
-  list. Concurrent queries of one pair therefore no longer contend on that
-  list's shared reference count; single-thread timings are neutral within the
-  measured variation. The CGC engine's own N checks take the same path.
-  Values are unchanged. (#252)
-- The Product tier stores each label-free channel list of a simple Lie group
-  as one allocation: the channel count, then each channel's Dynkin label and
-  multiplicity, instead of a separately allocated label per channel. A warm N
-  search reads one contiguous block with the same comparisons as before, and
-  each list is charged 16 bytes less per channel, less 8 bytes for the count.
-  Values are unchanged. (#252)
+  the tables to a new largest label takes the write lock once, and waits for
+  evaluations already holding them. Values are unchanged. (#286)
 - Product F, R, A and B symbols whose product axes are all 1 skip the
   product's repeated validation lookups of each leaf factor's N: a product
   axis is the product of its leaves' positive multiplicities, so each leaf
@@ -153,32 +185,6 @@ value/gauge rule noted below.
   already give the public order (Gelfand–Tsetlin), not for Gram–Schmidt.
   Cold E7 channels of `1539 ⊗ 1539` make 81–91% fewer allocations; values
   are bit-identical.
-- On a team token, `lie::prefill` builds the coupling pairs of every weight of
-  a depth layer in a team section before the layer is lowered, instead of on
-  the calling thread: each participant holds one scan scratch of
-  `8r + 16·min(|W_a|, |W_b|)` bytes. Cold E7 `1539 ⊗ 1539` channels at 8
-  threads are 11–18% faster; values are bit-identical.
-- On a team token, the support check of a cold Cartan CGC channel (every entry
-  in range, finite and on its weight) runs in a team section over fixed chunks
-  of 2^16 entries; the calling thread then checks column contiguity over the
-  entries before the first failure, so the returned error and the column runs
-  are the serial ones. At 8 threads the heavy cold channels are 3–10% faster
-  (E7 `1539 ⊗ 1539`: 10%).
-- Warm coefficient-cache hits take no lock: they read the published table
-  under a `seize` guard and write only the entry's reference bit when it is
-  clear, so aggregate warm-hit throughput keeps growing with the thread count
-  instead of falling from 8 to 16 threads. A key touched once per cycle of a
-  working set that fits the budget now stays resident (the Product tier during
-  a 200-pair SU(3) N cycle no longer misses on every call). Hits on one shared
-  multi-entry block still write its `Arc` reference count.
-- Warm F, R, CGC and Product-tier lookups from Cartan labels hash one stored
-  64-bit fingerprint per label instead of every Dynkin word, so their query
-  hash no longer grows with rank. Each Cartan label payload computes the
-  fingerprints of its coordinate views once at construction (16 more bytes per
-  Cartan label payload, charged where a cached value holds labels). Rank-one
-  (A1) CGC queries build three temporary one-word fingerprints per query, and
-  SU(2) F keys hash their packed Regge key. Keys still compare every word. The
-  Wigner tiers are unchanged.
 - The once-only `f64` rounding of an exact CGC entry and of an exact SU(2)
   value no longer allocates when its unreduced radicand `U/V` has
   `U, V < 2^384`: the radicand products, the scaled square root and the
@@ -190,6 +196,12 @@ value/gauge rule noted below.
   guarantee holds with Malachite's default 64-bit limbs; under its
   `32_bit_limbs` feature the values are the same but the rounding still
   allocates.
+
+### Notes
+
+- Moved to 0.13.0: a same-machine comparison of large-label SU(2) 6j and F
+  evaluation against TensorKit (#286), and the measurement of the disk cache
+  on a symtn SU(N ≥ 3) workload (#106).
 
 ## [0.11.0] - 2026-11-12
 
@@ -1458,7 +1470,8 @@ consumers may key caches and persisted data on the crate version. Such a
 change ships as a specification edit, a breaking entry in this file,
 regenerated golden values and a semver-breaking release, in one pull request.
 
-[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.9.1...v0.9.2
