@@ -63,12 +63,21 @@
 //! algorithm-version tag can change which value it maps to. Global forms only
 //! restrict which labels exist and are not part of any key.
 //!
-//! # Why this cache must never be persisted to disk
+//! # What may be persisted to disk
 //!
-//! Persisting these entries across builds would need an algorithm-version key:
-//! a corrected gauge or a widened type could alter the stored bytes for a key.
-//! Keeping the cache process-local sidesteps that entirely — it is rebuilt
-//! every run, so it can never disagree with the code that filled it.
+//! The tiers themselves are process-local. With the `disk-cache` feature, an
+//! application may additionally enable one SQLite file
+//! (`enable_disk_cache`) that serves the *generated* values on a miss:
+//! Cartan-engine CGC channels, computed Frobenius–Schur phases, and Cartan F
+//! and R blocks. Loading those costs far less than generating them. The exact
+//! SU(2) 3j/6j symbols and the SU(2) F scalar are never persisted, because
+//! computing them is cheaper than loading them (about 1 µs against about
+//! 10 µs). Irrep modules and products are construction data and stay in
+//! memory. A persisted value is identified by the storage schema and this
+//! crate's major.minor version: any change that can move a coefficient ships
+//! as a breaking release (`docs/gauge.md`, "Status"), so a released version
+//! names exactly one value per key. Unreleased builds give no such guarantee
+//! and should use a disposable path.
 //!
 //! # Resource contract (static partition)
 //!
@@ -107,6 +116,14 @@ mod clock;
 use clock::Equivalent;
 #[cfg(all(test, feature = "lie-generated"))]
 pub(crate) use clock::SEARCHES;
+#[cfg(feature = "disk-cache")]
+pub(crate) mod disk;
+#[cfg(feature = "disk-cache")]
+pub(crate) use disk::through;
+#[cfg(feature = "disk-cache")]
+pub use disk::{
+    clear_disk_cache, disk_cache_stats, enable_disk_cache, DiskCacheError, DiskCacheStats,
+};
 mod fingerprint;
 use fingerprint::{key_hash, FoldBuild};
 pub(crate) use fingerprint::{label_hash, Label};
@@ -950,7 +967,46 @@ fn generation<T>(epoch: u64, compute: impl FnOnce() -> T) -> T {
         return compute();
     }
     GENERATION.with(|g| g.set(Some(epoch)));
+    #[cfg(feature = "disk-cache")]
+    let _discard = disk::DiscardOnUnwind;
     let _restore = Restore;
+    let value = compute();
+    // Valid inner results of a failed outer generation are kept too.
+    #[cfg(feature = "disk-cache")]
+    disk::flush();
+    value
+}
+
+/// Persisted kinds of the disk cache: part of its stored keys.
+pub(crate) const DISK_CHANNEL: u8 = 1;
+pub(crate) const DISK_PHASE: u8 = 2;
+pub(crate) const DISK_F: u8 = 3;
+pub(crate) const DISK_R: u8 = 4;
+
+/// The shape a persisted value must have, derived from its labels, so a stored
+/// row that decodes cleanly but does not belong to its key is rejected.
+#[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+pub(crate) enum Shape {
+    /// Weyl dimensions of the three labels and `N^c_{ab}`.
+    Channel { dims: [usize; 3], mult: usize },
+    /// A phase is `±1`.
+    Phase,
+    /// `[N(a,b,e), N(e,c,d), N(b,c,f), N(a,f,d)]`.
+    F([usize; 4]),
+    /// `N^c_{ab}`.
+    R(usize),
+}
+
+/// Without `disk-cache`, every persisted kind is just generated.
+#[cfg(not(feature = "disk-cache"))]
+#[inline(always)]
+pub(crate) fn through<V, E, const N: usize>(
+    _kind: u8,
+    _root: RootSystem,
+    _parts: [Label<'_>; N],
+    _shape: impl FnOnce() -> Result<Shape, E>,
+    compute: impl FnOnce() -> Result<V, E>,
+) -> Result<V, E> {
     compute()
 }
 
@@ -1522,6 +1578,12 @@ pub fn tier_stats(tier: CoefficientCacheTier) -> TierStats {
     #[cfg(test)]
     assert_cache_access_allowed();
     control(tier).tier_stats()
+}
+
+/// Waiters that have registered on an in-flight placeholder of any tier.
+#[cfg(all(test, feature = "disk-cache"))]
+pub(crate) fn placeholder_waits() -> u64 {
+    clock::WAITS.load(Ordering::SeqCst)
 }
 
 // Serialize unit tests that reset process-global coefficient caches.

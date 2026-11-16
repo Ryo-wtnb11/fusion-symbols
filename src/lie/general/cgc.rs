@@ -1957,21 +1957,44 @@ impl GeneralFamily {
         b: Label<'l>,
         c: Label<'l>,
         modules: &mut RequestModules<'l>,
-        mut exec: Option<&mut Exec<'_>>,
+        exec: Option<&mut Exec<'_>>,
     ) -> Result<Arc<CgcChannel>, LieError> {
         #[cfg(test)]
         if let Some(hook) = BEFORE_LOAD.with(std::cell::Cell::get) {
             hook();
         }
         crate::cache::cgc_channel(self.root(), [a, b, c], || {
-            #[cfg(test)]
-            count_build(1);
             let n = self.mult(a, b, c)?;
             let dimension = |l: Label<'_>| -> Result<usize, LieError> {
                 usize::try_from(&self.data.weyl_dimension(l.words)?)
                     .map_err(|_| LieError::LabelOverflow)
             };
-            crate::lie::checked_size([dimension(a)?, dimension(b)?, dimension(c)?, n])?;
+            let dims = [dimension(a)?, dimension(b)?, dimension(c)?];
+            crate::lie::checked_size([dims[0], dims[1], dims[2], n])?;
+            crate::cache::through(
+                crate::cache::DISK_CHANNEL,
+                self.root(),
+                [a, b, c],
+                || Ok(crate::cache::Shape::Channel { dims, mult: n }),
+                || self.generate_channel(a, b, c, n, modules, exec),
+            )
+        })
+    }
+
+    /// The miss body of [`Self::cgc_entries_in`] once `N` and the block size
+    /// are known: an exact empty certificate, or the descent and its gates.
+    fn generate_channel<'l>(
+        &self,
+        a: Label<'l>,
+        b: Label<'l>,
+        c: Label<'l>,
+        n: usize,
+        modules: &mut RequestModules<'l>,
+        mut exec: Option<&mut Exec<'_>>,
+    ) -> Result<Arc<CgcChannel>, LieError> {
+        #[cfg(test)]
+        count_build(1);
+        {
             let empty = || {
                 Ok(Arc::new(CgcChannel {
                     mult: 0,
@@ -2023,7 +2046,7 @@ impl GeneralFamily {
                 mult: n,
                 entries: entries.into_boxed_slice(),
             }))
-        })
+        }
     }
 
     /// `κ_a` (§5.3) of `a` with dual label `dual`: `(−1)^{⟨λ, 2ρ∨⟩}` for a
@@ -2046,9 +2069,17 @@ impl GeneralFamily {
         // κ_ā = κ_a (§5.3), so one generation answers both labels.
         let key = if a.words <= dual.words { a } else { dual };
         crate::cache::cgc_phase(self.root(), key, || {
-            let sigma_a = self.module(a)?.principal_sign(a.words)?;
-            let sigma_dual = self.module(dual)?.principal_sign(dual.words)?;
-            Ok(closed * sigma_a * sigma_dual)
+            crate::cache::through(
+                crate::cache::DISK_PHASE,
+                self.root(),
+                [key],
+                || Ok(crate::cache::Shape::Phase),
+                || {
+                    let sigma_a = self.module(a)?.principal_sign(a.words)?;
+                    let sigma_dual = self.module(dual)?.principal_sign(dual.words)?;
+                    Ok(closed * sigma_a * sigma_dual)
+                },
+            )
         })
     }
 
@@ -2059,6 +2090,31 @@ impl GeneralFamily {
         exec: Option<&mut Exec<'_>>,
     ) -> Result<FBlock<f64>, LieError> {
         crate::cache::f_block(self.root(), labels, || {
+            let [a, b, c, d, e, f] = labels;
+            crate::cache::through(
+                crate::cache::DISK_F,
+                self.root(),
+                labels,
+                || {
+                    Ok(crate::cache::Shape::F([
+                        self.mult(a, b, e)?,
+                        self.mult(e, c, d)?,
+                        self.mult(b, c, f)?,
+                        self.mult(a, f, d)?,
+                    ]))
+                },
+                || self.generate_f(labels, exec),
+            )
+        })
+    }
+
+    /// The gated contraction behind [`Self::f_symbol`].
+    fn generate_f(
+        &self,
+        labels: [Label<'_>; 6],
+        exec: Option<&mut Exec<'_>>,
+    ) -> Result<FBlock<f64>, LieError> {
+        {
             let block = f_block_raw(self, labels, exec)?;
             #[cfg(test)]
             let block = match CORRUPT_BLOCK.with(std::cell::Cell::get) {
@@ -2073,7 +2129,7 @@ impl GeneralFamily {
             };
             check_f_block(&block)?;
             Ok(block)
-        })
+        }
     }
 
     /// `R^{ab}_c` (§6), gated by gate 6 before it is retained.
@@ -2083,6 +2139,24 @@ impl GeneralFamily {
         exec: Option<&mut Exec<'_>>,
     ) -> Result<RBlock<f64>, LieError> {
         crate::cache::r_block(self.root(), labels, || {
+            let [a, b, c] = labels;
+            crate::cache::through(
+                crate::cache::DISK_R,
+                self.root(),
+                labels,
+                || Ok(crate::cache::Shape::R(self.mult(a, b, c)?)),
+                || self.generate_r(labels, exec),
+            )
+        })
+    }
+
+    /// The gated contraction behind [`Self::r_symbol`].
+    fn generate_r(
+        &self,
+        labels: [Label<'_>; 3],
+        exec: Option<&mut Exec<'_>>,
+    ) -> Result<RBlock<f64>, LieError> {
+        {
             let block = r_block_raw(self, labels, exec)?;
             #[cfg(test)]
             let block = match CORRUPT_BLOCK.with(std::cell::Cell::get) {
@@ -2097,7 +2171,7 @@ impl GeneralFamily {
             };
             check_r_block(&block)?;
             Ok(block)
-        })
+        }
     }
 }
 
@@ -2107,3 +2181,6 @@ fn magnetic_index(value: usize) -> Result<u32, LieError> {
 
 #[cfg(test)]
 pub(super) mod tests;
+
+#[cfg(all(test, feature = "disk-cache"))]
+mod disk_tests;

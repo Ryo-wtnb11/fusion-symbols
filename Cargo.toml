@@ -32,6 +32,11 @@ anyonwiki-unitary = []
 # switch only. Every build compiles the same exact Cartan engine; A(1) needs
 # no feature. Serial entries; `lie::prefill` runs on the caller's token.
 lie-generated = []
+# Opt-in persistent tier for generated coefficients (Cartan-engine CGC
+# channels, Frobenius-Schur phases, F and R blocks) in one SQLite file the
+# application names with `cache::enable_disk_cache`. Bundled SQLite: needs a
+# C compiler; nothing is read or written until that call.
+disk-cache = ["dep:rusqlite"]
 
 [dependencies]
 # Reclamation of the coefficient tiers' lock-free tables. The default
@@ -50,6 +55,9 @@ malachite-base = "0.14"
 # Execution token of `lie::prefill`. No `parallel` feature: fs starts no
 # scheduler; a consumer that enables it shares its pool through the token.
 threadteam = { version = "0.6", default-features = false }
+# `disk-cache` only. Bundled SQLite (no system library); no statement cache,
+# so `hashlink` stays out.
+rusqlite = { version = "=0.43.0", default-features = false, features = ["bundled"], optional = true }
 
 [dev-dependencies]
 # Real teams for the prefill tests only.
@@ -115,6 +123,11 @@ name = "prefill_small"
 harness = false
 required-features = ["lie-generated"]
 
+# Fresh-process disk-cache probe (off / fill / disk), for the lg gate.
+[[example]]
+name = "disk_cache"
+required-features = ["lie-generated"]
+
 # Cache timing, live-allocation and RSS reports (not tests).
 [[example]]
 name = "cache_pressure"
@@ -158,6 +171,11 @@ path = "tests/coefficient_cache_budget_generated.rs"
 [[test]]
 name = "coefficient_cache_budget_observation"
 path = "tests/coefficient_cache_budget_observation.rs"
+
+[[test]]
+name = "disk_cache"
+path = "tests/disk_cache.rs"
+required-features = ["disk-cache"]
 
 [[test]]
 name = "doc_examples"

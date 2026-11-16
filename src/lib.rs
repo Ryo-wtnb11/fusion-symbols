@@ -93,6 +93,11 @@
 //!   sequential; the caller owns parallelism.
 //! - **`anyonwiki-unitary`**: the 303 rank 5–7 [`table`] categories (embedded
 //!   data only).
+//! - **`disk-cache`**: an opt-in SQLite file for generated coefficients
+//!   (Cartan-engine CGC channels, Frobenius–Schur phases, F and R blocks),
+//!   enabled at run time with `cache::enable_disk_cache`. Adds `rusqlite`
+//!   with bundled SQLite (a C compiler is needed to build it); nothing touches
+//!   the disk until that call.
 //!
 //! Public exact values use `malachite_nz::natural::Natural` for dimensions,
 //! `malachite_nz::integer::Integer` for signed integers, and

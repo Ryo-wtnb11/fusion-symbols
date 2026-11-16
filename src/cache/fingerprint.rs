@@ -14,13 +14,13 @@ use crate::lie::RootSystem;
 use std::hash::{BuildHasher, Hasher};
 
 const P0: u64 = 0xa076_1d64_78bd_642f;
-const P1: u64 = 0xe703_7ed1_a0b4_28db;
-const P2: u64 = 0x8ebc_6af0_9c88_c6e3;
-const P3: u64 = 0x5899_65cc_7537_4cc3;
+pub(crate) const P1: u64 = 0xe703_7ed1_a0b4_28db;
+pub(crate) const P2: u64 = 0x8ebc_6af0_9c88_c6e3;
+pub(crate) const P3: u64 = 0x5899_65cc_7537_4cc3;
 
 /// The folded 64×64→128 multiply of wyhash and foldhash.
 #[inline(always)]
-fn fold(a: u64, b: u64) -> u64 {
+pub(crate) fn fold(a: u64, b: u64) -> u64 {
     let x = u128::from(a) * u128::from(b);
     x as u64 ^ (x >> 64) as u64
 }
@@ -61,8 +61,9 @@ pub(crate) fn key_hash(tag: u64, root: RootSystem, parts: impl IntoIterator<Item
         .fold(fold(tag ^ P2, root_code(root) ^ P3), |h, f| fold(h ^ f, P1))
 }
 
-/// `family << 32 | rank`: distinct for distinct presented roots.
-fn root_code(root: RootSystem) -> u64 {
+/// `family << 32 | rank`: distinct for distinct presented roots. The disk
+/// cache stores this code in its keys, so it is a frozen format contract.
+pub(crate) fn root_code(root: RootSystem) -> u64 {
     let (family, rank) = match root {
         RootSystem::A(r) => (1, r),
         RootSystem::B(r) => (2, r),

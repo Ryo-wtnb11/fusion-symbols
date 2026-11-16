@@ -7,6 +7,19 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Added
+
+- `disk-cache` feature (off by default): `cache::enable_disk_cache(path,
+  max_bytes)` keeps generated coefficients (Cartan-engine CGC channels,
+  Frobenius–Schur phases, F and R blocks) in one SQLite file. Later processes
+  load them instead of generating them; the memory tiers and their warm hits
+  are unchanged. `cache::clear_disk_cache`, `cache::disk_cache_stats`,
+  `cache::DiskCacheStats` and `cache::DiskCacheError` complete the surface.
+  Rows are keyed by storage schema and major.minor version, checked against
+  their labels' shape and a checksum, and bounded by `max_bytes`. The feature
+  adds `rusqlite` 0.43 with bundled SQLite. Exact SU(2) symbols are never
+  stored.
+
 ### Breaking
 
 - `lie::HalfInt::new(num, den)` is a `const fn` returning
