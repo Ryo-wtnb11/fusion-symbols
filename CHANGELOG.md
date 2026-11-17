@@ -7,6 +7,29 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+Coefficient values, gauges, label order and the public API are unchanged
+from 0.12.0.
+
+### Fixed
+
+- The first coefficient lookup of a Linux process that already runs other
+  threads no longer waits for an RCU grace period (8–21 ms measured on
+  Linux 4.18). `seize` is now built without its `fast-barrier` feature, so
+  fusion-symbols no longer registers `membarrier`; the kernel completes that
+  registration only after a grace period once a process has a second thread.
+  A warm hit now marks its reclamation guard with a sequentially consistent
+  store, as on macOS: on x86 Linux a warm coefficient hit costs about 1–5 ns
+  more (2–12% on 30–60 ns hits), and a trim or reset attempt is a fence with
+  no system call. `libc` leaves the dependency
+  graph.
+- Building and dropping labels of one group on several threads no longer
+  contends on a shared reference count. Each distinct `GroupId` presentation
+  is now stored once per process and kept until exit (40 bytes plus 16 per
+  root block and 24 per non-identity lattice entry, so 56 bytes for a simple
+  cover), so cloning or dropping a `GroupId`, and a rank-one or U(1) label,
+  writes no shared memory. Equality, hashing and ordering are unchanged; an
+  equal presentation constructed again reuses the stored one.
+
 ## [0.12.0] - 2026-11-17
 
 Coefficient values, gauges and label order are unchanged from 0.11.0. The

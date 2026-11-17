@@ -90,7 +90,7 @@ concurrently with the removal finish, which can be after `trim_to` or
 `seize` as one object, so `trim_to` adds one object to the calling thread's
 reclamation batch and `reset` at most one per tier, whatever the number of
 entries, and then submits that batch. Each submission attempt is one
-process-wide memory barrier (Linux `membarrier`), and seize also attempts a
+sequentially consistent fence (no system call), and seize also attempts a
 submission on its own when an object fills its batch. A call therefore makes
 one explicit attempt plus at most one automatic attempt per retiring tier
 section: at most two barriers in the ordinary case, and at most seven when
@@ -294,6 +294,21 @@ than repeating the query. A warm `nsymbol` returns only a count: it reads the
 multiplicity inside the hit and clones nothing, so it writes no reference count.
 
 ## Retained group data and allocation
+
+Every distinct group presentation (`GroupId`: root blocks, torus rank and
+character-lattice basis) is stored once per process, on its first
+construction, and kept until the process exits; constructing an equal group
+again reuses it and allocates nothing. Each stored presentation retains 40
+bytes plus 16 per root block and 24 per non-identity basis entry (56 bytes
+for SU(N), Spin(N) or Sp(2r)), plus one pointer in the process-wide set of
+presentations. The total is therefore bounded by the number of distinct
+presentations the process constructs, not by how many groups or labels it
+creates; a rejected `GroupId::new` basis retains nothing. In exchange,
+cloning or dropping a `GroupId` writes no shared memory, so threads that
+build and drop labels of one group do not contend on a shared group count:
+rank-one and U(1) labels then write nothing shared, while a Cartan or
+composite label still shares its payload with its own clones. Cache reset
+does not release presentations.
 
 Groups of rank at least two own immutable shared root-system context for
 repeated label construction; clones share it. The context initializes on the
