@@ -37,7 +37,7 @@
 //! Retiring one graveyard per lock section, rather than one seize object per
 //! node, makes a trim one entry of the thread's seize batch and a reset at
 //! most six (one per retiring tier section), whatever the number of removed
-//! entries. Each submission attempt is a process-wide barrier: a call makes
+//! entries. Each submission attempt is one sequentially consistent fence: a call makes
 //! one explicit attempt ([`release`]) plus at most one automatic attempt per
 //! retiring tier section, so at most two barriers in the ordinary case and at
 //! most seven when `reset` retries for its six retirements (seize retries

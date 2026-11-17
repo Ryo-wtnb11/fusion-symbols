@@ -39,10 +39,13 @@ lie-generated = []
 disk-cache = ["dep:rusqlite"]
 
 [dependencies]
-# Reclamation of the coefficient tiers' lock-free tables. The default
-# `fast-barrier` feature (libc) makes the reader-side barrier a compiler fence
-# on Linux and Windows.
-seize = "0.5.1"
+# Reclamation of the coefficient tiers' lock-free tables. Without the default
+# `fast-barrier` feature, a hit marks its guard with a sequentially consistent
+# store and a reclamation attempt is a fence. Why not `fast-barrier`: on Linux
+# it registers `membarrier` when the first collector is built, and once the
+# process has a second thread the kernel finishes that registration only after
+# an RCU grace period, which the first coefficient lookup then waits for.
+seize = { version = "0.5.1", default-features = false }
 num-traits = "0.2"
 # R-symbols and twists of braided categories are complex (`table`). Default `std` feature kept: `Complex64::norm` and
 # `from_polar` need it.

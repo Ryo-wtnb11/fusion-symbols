@@ -9,7 +9,9 @@
 use malachite_base::num::basic::traits::One;
 use malachite_nz::integer::Integer;
 
-use std::{fmt, sync::Arc};
+use std::collections::HashSet;
+use std::fmt;
+use std::sync::{Mutex, PoisonError};
 
 /// Root-system presentation of a compact semisimple Lie algebra.
 ///
@@ -87,15 +89,141 @@ struct Datum {
 /// fixes equality and hashing independently of the supplied basis. This is
 /// presentation identity, not a test for abstract group isomorphism.
 /// Classification does not imply an available [`super::LieGroup`] engine.
-// The pointer shortcut is equivalent to content equality, matching derived Hash.
+///
+/// Each distinct presentation is stored once per process and kept until the
+/// process exits, so cloning or dropping a `GroupId` writes no shared memory.
+/// The retained memory is one entry per distinct presentation the process
+/// constructs (see the resources guide).
+// Interned: equal content implies the same address, so the pointer comparison
+// is content equality and matches the derived content Hash and Ord. Why not a
+// shared `Arc`: every label clone and drop would then be an atomic update of
+// one refcount line that all threads using the group contend on.
 #[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Clone, Debug, Eq, Hash, PartialOrd, Ord)]
-pub struct GroupId(Arc<Datum>);
+pub struct GroupId(&'static Datum);
 
 impl PartialEq for GroupId {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0) || self.0 == other.0
+        std::ptr::eq(self.0, other.0)
+    }
+}
+
+/// Every datum a [`GroupId`] has been built from, each leaked once.
+static INTERNED: Mutex<Option<HashSet<&'static Datum>>> = Mutex::new(None);
+
+impl Datum {
+    /// The process-wide copy of this datum, stored on first use.
+    fn intern(self) -> GroupId {
+        let mut set = INTERNED.lock().unwrap_or_else(PoisonError::into_inner);
+        let set = set.get_or_insert_with(HashSet::new);
+        if let Some(&datum) = set.get(&self) {
+            return GroupId(datum);
+        }
+        let datum: &'static Datum = Box::leak(Box::new(self));
+        set.insert(datum);
+        GroupId(datum)
+    }
+
+    fn contains_roots(&self) -> bool {
+        let n = self.roots.iter().map(|r| r.rank()).sum::<usize>() + self.torus_rank;
+        let mut root = vec![0; n];
+        let mut offset = 0;
+        for &system in self.roots.iter() {
+            for i in 0..system.rank() {
+                root.fill(0);
+                for j in 0..system.rank() {
+                    root[offset + j] = cartan(system, i, j);
+                }
+                if !self.contains_coordinates(&root, &[]) {
+                    return false;
+                }
+            }
+            offset += system.rank();
+        }
+        true
+    }
+
+    // HNF unit-pivot columns have no entries above the diagonal, so their
+    // solution coefficient is the input coordinate. Simple centers need at most
+    // two nonunit pivots: keep those on the stack for allocation-free labels.
+    fn contains_coordinates(&self, dynkin: &[i64], charges: &[i64]) -> bool {
+        let n = dynkin.len() + charges.len();
+        let coordinate = |i: usize| {
+            if i < dynkin.len() {
+                dynkin[i]
+            } else {
+                charges[i - dynkin.len()]
+            }
+        };
+        let fast = || -> Option<bool> {
+            let mut pivots = [(0usize, 0i128); 2];
+            let mut used = 0;
+            for &(i, j, _) in &self.hnf {
+                if i == j {
+                    if used == pivots.len() {
+                        return None;
+                    }
+                    pivots[used] = (i, i128::from(coordinate(i)));
+                    used += 1;
+                }
+            }
+            let mut entries = self.hnf.iter().peekable();
+            for i in 0..n {
+                let mut coefficient = i128::from(coordinate(i));
+                if let Some(&&(row, col, pivot)) = entries.peek() {
+                    if row == i && col == i {
+                        let value = pivots[..used].iter().find(|&&(j, _)| j == i)?.1;
+                        if value % i128::from(pivot) != 0 {
+                            return Some(false);
+                        }
+                        coefficient = value / i128::from(pivot);
+                        entries.next();
+                    }
+                }
+                while let Some(&&(row, col, value)) = entries.peek() {
+                    if row != i {
+                        break;
+                    }
+                    let remainder = &mut pivots[..used].iter_mut().find(|(j, _)| *j == col)?.1;
+                    *remainder =
+                        remainder.checked_sub(coefficient.checked_mul(i128::from(value))?)?;
+                    entries.next();
+                }
+            }
+            Some(true)
+        };
+        fast().unwrap_or_else(|| {
+            // Arbitrarily coupled lattices can require larger exact intermediates.
+            let mut remainder: Vec<Integer> =
+                (0..n).map(|i| Integer::from(coordinate(i))).collect();
+            let mut entries = self.hnf.iter().peekable();
+            for i in 0..n {
+                let pivot = if let Some(&&(row, col, value)) = entries.peek() {
+                    if row == i && col == i {
+                        entries.next();
+                        value
+                    } else {
+                        1
+                    }
+                } else {
+                    1
+                };
+                let pivot = Integer::from(pivot);
+                if (&remainder[i] % &pivot) != 0 {
+                    return false;
+                }
+                let coefficient = &remainder[i] / &pivot;
+                while let Some(&&(row, col, value)) = entries.peek() {
+                    if row != i {
+                        break;
+                    }
+                    remainder[col] -= &coefficient * Integer::from(value);
+                    entries.next();
+                }
+            }
+            true
+        })
     }
 }
 
@@ -244,36 +372,18 @@ impl GroupId {
                 ));
             }
         }
-        let group = Self(Arc::new(Datum {
+        let datum = Datum {
             roots: roots.into(),
             torus_rank,
             hnf: hnf.into(),
-        }));
-        if !group.contains_roots() {
+        };
+        // Checked before interning, so a rejected basis retains nothing.
+        if !datum.contains_roots() {
             return Err(GroupError::InvalidLattice {
                 reason: "character lattice omits a root",
             });
         }
-        Ok(group)
-    }
-
-    fn contains_roots(&self) -> bool {
-        let n = self.semisimple_rank() + self.torus_rank();
-        let mut root = vec![0; n];
-        let mut offset = 0;
-        for &system in self.root_systems() {
-            for i in 0..system.rank() {
-                root.fill(0);
-                for j in 0..system.rank() {
-                    root[offset + j] = cartan(system, i, j);
-                }
-                if !self.contains_coordinates(&root, &[]) {
-                    return false;
-                }
-            }
-            offset += system.rank();
-        }
-        true
+        Ok(datum.intern())
     }
 
     /// The full weight/charge lattice `P ⊕ Z^t` in the given presentation.
@@ -292,11 +402,12 @@ impl GroupId {
     /// ```
     pub fn cover(roots: &[RootSystem], torus_rank: usize) -> Result<Self, GroupError> {
         lattice_size(roots, torus_rank)?;
-        Ok(Self(Arc::new(Datum {
+        Ok(Datum {
             roots: roots.into(),
             torus_rank,
             hnf: Box::new([]),
-        })))
+        }
+        .intern())
     }
 
     /// Standard rank-`rank` torus, with integer charges. Requires rank ≥ 1.
@@ -403,86 +514,8 @@ impl GroupId {
         self.contains_coordinates(dynkin, charges)
     }
 
-    // HNF unit-pivot columns have no entries above the diagonal, so their
-    // solution coefficient is the input coordinate. Simple centers need at most
-    // two nonunit pivots: keep those on the stack for allocation-free labels.
     fn contains_coordinates(&self, dynkin: &[i64], charges: &[i64]) -> bool {
-        let n = dynkin.len() + charges.len();
-        let coordinate = |i: usize| {
-            if i < dynkin.len() {
-                dynkin[i]
-            } else {
-                charges[i - dynkin.len()]
-            }
-        };
-        let fast = || -> Option<bool> {
-            let mut pivots = [(0usize, 0i128); 2];
-            let mut used = 0;
-            for &(i, j, _) in &self.0.hnf {
-                if i == j {
-                    if used == pivots.len() {
-                        return None;
-                    }
-                    pivots[used] = (i, i128::from(coordinate(i)));
-                    used += 1;
-                }
-            }
-            let mut entries = self.0.hnf.iter().peekable();
-            for i in 0..n {
-                let mut coefficient = i128::from(coordinate(i));
-                if let Some(&&(row, col, pivot)) = entries.peek() {
-                    if row == i && col == i {
-                        let value = pivots[..used].iter().find(|&&(j, _)| j == i)?.1;
-                        if value % i128::from(pivot) != 0 {
-                            return Some(false);
-                        }
-                        coefficient = value / i128::from(pivot);
-                        entries.next();
-                    }
-                }
-                while let Some(&&(row, col, value)) = entries.peek() {
-                    if row != i {
-                        break;
-                    }
-                    let remainder = &mut pivots[..used].iter_mut().find(|(j, _)| *j == col)?.1;
-                    *remainder =
-                        remainder.checked_sub(coefficient.checked_mul(i128::from(value))?)?;
-                    entries.next();
-                }
-            }
-            Some(true)
-        };
-        fast().unwrap_or_else(|| {
-            // Arbitrarily coupled lattices can require larger exact intermediates.
-            let mut remainder: Vec<Integer> =
-                (0..n).map(|i| Integer::from(coordinate(i))).collect();
-            let mut entries = self.0.hnf.iter().peekable();
-            for i in 0..n {
-                let pivot = if let Some(&&(row, col, value)) = entries.peek() {
-                    if row == i && col == i {
-                        entries.next();
-                        value
-                    } else {
-                        1
-                    }
-                } else {
-                    1
-                };
-                let pivot = Integer::from(pivot);
-                if (&remainder[i] % &pivot) != 0 {
-                    return false;
-                }
-                let coefficient = &remainder[i] / &pivot;
-                while let Some(&&(row, col, value)) = entries.peek() {
-                    if row != i {
-                        break;
-                    }
-                    remainder[col] -= &coefficient * Integer::from(value);
-                    entries.next();
-                }
-            }
-            true
-        })
+        self.0.contains_coordinates(dynkin, charges)
     }
     pub(super) fn is_cover(&self) -> bool {
         self.0.hnf.is_empty()
@@ -850,14 +883,17 @@ impl GroupId {
     }
 
     fn named(roots: &[RootSystem], torus_rank: usize, hnf: Vec<(usize, usize, i64)>) -> Self {
-        let group = Self(Arc::new(Datum {
+        let datum = Datum {
             roots: roots.into(),
             torus_rank,
             hnf: hnf.into(),
-        }));
+        };
         // Roots have trivial central character; check the construction at small ranks.
-        debug_assert!(group.semisimple_rank() + torus_rank > 64 || group.contains_roots());
-        group
+        debug_assert!(
+            datum.roots.iter().map(|r| r.rank()).sum::<usize>() + torus_rank > 64
+                || datum.contains_roots()
+        );
+        datum.intern()
     }
 }
 
@@ -945,4 +981,30 @@ fn half_spin_root_system(n: usize) -> Result<RootSystem, GroupError> {
         });
     }
     Ok(RootSystem::D(n / 2))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GroupId, RootSystem};
+    use std::hash::BuildHasher;
+
+    #[test]
+    fn equal_presentations_share_one_datum_and_keep_content_equality_and_hash() {
+        // U(2) from its explicit basis and from the named constructor.
+        let named = GroupId::u(2).unwrap();
+        let explicit = GroupId::new(&[RootSystem::A(1)], 1, &[vec![1, 1], vec![0, 2]]).unwrap();
+        assert!(std::ptr::eq(named.0, explicit.0));
+        assert_eq!(named, explicit);
+        let hasher = std::collections::hash_map::RandomState::new();
+        assert_eq!(hasher.hash_one(&named), hasher.hash_one(&explicit));
+        // A different lattice over the same roots is a different group.
+        let su2_u1 = GroupId::cover(&[RootSystem::A(1)], 1).unwrap();
+        assert_ne!(named, su2_u1);
+        assert!(!std::ptr::eq(named.0, su2_u1.0));
+        // Labels of one group carry the same identity.
+        let g = crate::lie::LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+        let (a, b) = (g.irrep(&[1]).unwrap(), g.irrep(&[2]).unwrap());
+        assert!(std::ptr::eq(a.group.0, b.group.0));
+        assert!(std::ptr::eq(a.group.0, GroupId::su(2).unwrap().0));
+    }
 }
