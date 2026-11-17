@@ -7,6 +7,8 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-11-17
+
 Coefficient values, gauges, label order and the public API are unchanged
 from 0.12.0.
 
@@ -1493,7 +1495,8 @@ consumers may key caches and persisted data on the crate version. Such a
 change ships as a specification edit, a breaking entry in this file,
 regenerated golden values and a semver-breaking release, in one pull request.
 
-[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.12.1...HEAD
+[0.12.1]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.9.2...v0.10.0
