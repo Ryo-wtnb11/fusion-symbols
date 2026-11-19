@@ -24,7 +24,7 @@ use malachite_q::Rational;
 
 use crate::cache;
 pub use crate::exact::SignedSqrtRational;
-use crate::primefactor::{sum_series, with_tables, Pf, Tables};
+use crate::primefactor::{with_tables, Pf, Tables};
 
 /// Prime-factorized squared triangle coefficient
 /// `Delta^2(a,b,c) = num/den` with `num = t1! t2! t3!` and `den = t4!`,
@@ -145,26 +145,14 @@ fn wigner_6j_uncached(
         let s = Rational::from_integers(snum.to_bigint(tab), sden.to_bigint(tab));
         let r = Rational::from_integers(rnum.to_bigint(tab), rden.to_bigint(tab));
 
-        // Each term is (-1)^k (k+1)! / [(k-t1)!...(k-t4)! (t5-k)!(t6-k)!(t7-k)!]
-        // built as a prime-factorized numerator/denominator pair; sum_series
-        // combines them over a common denominator. (`compute6jseries`.)
-        let mut terms = Vec::with_capacity((kmax - kmin + 1).max(0) as usize);
+        // Each term is (-1)^k (k+1)! / [(k-t1)!...(k-t4)! (t5-k)!(t6-k)!(t7-k)!],
+        // combined over a common denominator. (`compute6jseries`.)
+        let mut terms = tab.series((kmax + 1) as u64, (kmax - kmin + 1) as usize);
         for k in kmin..=kmax {
-            let mut nump = tab.factorial((k + 1) as u64);
-            if k % 2 != 0 {
-                nump = nump.neg();
-            }
-            let mut denp = tab.factorial((k - t1) as u64);
-            tab.mul_factorial(&mut denp, (k - t2) as u64);
-            tab.mul_factorial(&mut denp, (k - t3) as u64);
-            tab.mul_factorial(&mut denp, (k - t4) as u64);
-            tab.mul_factorial(&mut denp, (t5 - k) as u64);
-            tab.mul_factorial(&mut denp, (t6 - k) as u64);
-            tab.mul_factorial(&mut denp, (t7 - k) as u64);
-            Pf::divgcd(&mut nump, &mut denp);
-            terms.push((nump, denp));
+            let den = [k - t1, k - t2, k - t3, k - t4, t5 - k, t6 - k, t7 - k].map(|x| x as u64);
+            terms.push(k % 2 != 0, &[(k + 1) as u64], &den);
         }
-        let series = sum_series(tab, terms);
+        let series = terms.sum();
 
         // value = (s * series) * sqrt(r); `r` is nonnegative (square-free part of a
         // factorial product), so the clamp in from_prefactor_radical never fires.
@@ -261,25 +249,14 @@ fn wigner_3j_uncached(
         let kmin = 0i64.max(-add1).max(-add2);
         let kmax = a.min(b).min(c);
 
-        // Each term is (-1)^k / [k! (a-k)! (b-k)! (c-k)! (k+add1)! (k+add2)!]:
-        // a prime-factorized numerator (+-1) / denominator, combined by sum_series.
-        // (`compute3jseries`.)
-        let mut terms = Vec::with_capacity((kmax - kmin + 1).max(0) as usize);
+        // Each term is (-1)^k / [k! (a-k)! (b-k)! (c-k)! (k+add1)! (k+add2)!],
+        // combined over a common denominator. (`compute3jseries`.)
+        let mut terms = tab.series(n_max, (kmax - kmin + 1).max(0) as usize);
         for k in kmin..=kmax {
-            let nump = if k % 2 == 0 {
-                Pf::one()
-            } else {
-                Pf::one().neg()
-            };
-            let mut denp = tab.factorial(k as u64);
-            tab.mul_factorial(&mut denp, (a - k) as u64);
-            tab.mul_factorial(&mut denp, (b - k) as u64);
-            tab.mul_factorial(&mut denp, (c - k) as u64);
-            tab.mul_factorial(&mut denp, (k + add1) as u64);
-            tab.mul_factorial(&mut denp, (k + add2) as u64);
-            terms.push((nump, denp));
+            let den = [k, a - k, b - k, c - k, k + add1, k + add2].map(|x| x as u64);
+            terms.push(k % 2 != 0, &[], &den);
         }
-        let mut value = s * sum_series(tab, terms);
+        let mut value = s * terms.sum();
 
         // Overall Condon-Shortley phase (-1)^((j1-j2-m3)/2) folds into the sign.
         if phase_is_negative((j1 - j2 - m3) / 2) {

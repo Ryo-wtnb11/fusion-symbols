@@ -1,5 +1,5 @@
-//! Exact 6j symbols at large doubled spins (hundreds and thousands): the
-//! evaluator has no spin ceiling.
+//! Exact 6j and 3j symbols at large doubled spins (hundreds and thousands):
+//! the evaluator has no spin ceiling.
 //!
 //! Contracts: the exact orthogonality `Σ_x (2x+1)(2f+1) {a b x; c d f}² = 1`
 //! (every term is a rational square, so the sum is exact) on generic large
@@ -11,7 +11,7 @@ use malachite_base::num::basic::traits::{One, Zero};
 use malachite_nz::integer::Integer;
 use malachite_q::Rational;
 
-use fusion_symbols::lie::su2::wigner_6j;
+use fusion_symbols::lie::su2::{wigner_3j, wigner_6j};
 
 fn tri(a: u32, b: u32, c: u32) -> bool {
     (a + b + c).is_multiple_of(2) && c >= a.abs_diff(b) && c <= a + b
@@ -86,4 +86,20 @@ fn six_j_large_values_checked_against_wignersymbols() {
             "{d:?}: {got}"
         );
     }
+}
+
+#[test]
+fn three_j_large_value_checked_against_wignersymbols() {
+    // Checked against WignerSymbols.jl 2.0.0 (`RationalRoot{BigInt}`):
+    // (100 90 80; 10 -30 20), an alternating sum of 61 terms.
+    let got = wigner_3j(200, 180, 160, 20, -60, 40);
+    let want = Rational::from_integers(
+        "423693483195533928745950955010833233195590198517109782364073967526042868519558704400"
+            .parse()
+            .unwrap(),
+        "45505589016958504807373459669619686779627063890313551927800963514428459959608837454693509"
+            .parse()
+            .unwrap(),
+    );
+    assert_eq!(got.signed_square(), want);
 }

@@ -7,6 +7,19 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Performance
+
+- Cold SU(2) 3j, Clebsch–Gordan, 6j and F evaluations reconstruct each
+  term of the Racah sum by multiplying prime powers into one machine word
+  and folding it into the big integer only when the next factor would
+  overflow, instead of one big-integer power and multiply per prime. Every
+  term's exponents sit in two fixed-width buffers per sum and every term is
+  rebuilt in one reused limb buffer, so a term allocates nothing. Values
+  are bit-identical. With the factorial tables already grown, a cold 6j or
+  F at spin 50-200 takes 0.43-0.63x as long as before (Linux x86-64), and a
+  first evaluation in a fresh process, which also grows the tables,
+  0.88-0.96x. Evaluations at small spins are within 6%.
+
 ## [0.12.1] - 2026-11-17
 
 Coefficient values, gauges, label order and the public API are unchanged
