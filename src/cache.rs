@@ -125,8 +125,8 @@ pub use disk::{
     clear_disk_cache, disk_cache_stats, enable_disk_cache, DiskCacheError, DiskCacheStats,
 };
 mod fingerprint;
-use fingerprint::{key_hash, FoldBuild};
-pub(crate) use fingerprint::{label_hash, Label};
+use fingerprint::key_hash;
+pub(crate) use fingerprint::{label_hash, FoldBuild, Label};
 
 /// Default entry cap of the Wigner and F tiers. Matches the reference order of
 /// magnitude (WignerSymbols.jl uses `10^6`); the retained-charge cap is the real

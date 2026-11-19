@@ -7,6 +7,16 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Performance
+
+- Hashing a `GroupId`, and therefore a `LieIrrep` or `LieGroup`, writes
+  one stored `u64` instead of walking the root blocks, the torus rank and
+  the lattice basis. The value is computed once by the fixed crate hasher
+  when the presentation is first interned, so it is the same in every
+  process; equality and ordering are unchanged. A warm `RandomState` hash
+  of a `GroupId` takes 0.07-0.21x as long as before and a first
+  construction 0.86-0.98x (Linux x86-64).
+
 ## [0.12.2] - 2026-11-19
 
 Coefficient values, gauges, label order and the public API are unchanged.
