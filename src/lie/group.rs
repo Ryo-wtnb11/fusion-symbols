@@ -9,8 +9,11 @@
 use malachite_base::num::basic::traits::One;
 use malachite_nz::integer::Integer;
 
+use crate::cache::FoldBuild;
+use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::fmt;
+use std::hash::{BuildHasher, Hash, Hasher};
 use std::sync::{Mutex, PoisonError};
 
 /// Root-system presentation of a compact semisimple Lie algebra.
@@ -95,12 +98,33 @@ struct Datum {
 /// The retained memory is one entry per distinct presentation the process
 /// constructs (see the resources guide).
 // Interned: equal content implies the same address, so the pointer comparison
-// is content equality and matches the derived content Hash and Ord. Why not a
-// shared `Arc`: every label clone and drop would then be an atomic update of
-// one refcount line that all threads using the group contend on.
-#[allow(clippy::derived_hash_with_manual_eq)]
-#[derive(Clone, Debug, Eq, Hash, PartialOrd, Ord)]
-pub struct GroupId(&'static Datum);
+// is content equality, and the content hash stored at interning agrees with it.
+// Why not a shared `Arc`: every label clone and drop would then be an atomic
+// update of one refcount line that all threads using the group contend on. Why
+// not hash the address: it also agrees with `Eq`, but hash values would then
+// depend on allocation order.
+#[derive(Clone)]
+pub struct GroupId(&'static Interned);
+
+/// A datum with its content hash under the fixed [`FoldBuild`] hasher.
+struct Interned {
+    hash: u64,
+    datum: Datum,
+}
+
+impl PartialEq for Interned {
+    fn eq(&self, other: &Self) -> bool {
+        self.hash == other.hash && self.datum == other.datum
+    }
+}
+
+impl Eq for Interned {}
+
+impl Hash for Interned {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(self.hash);
+    }
+}
 
 impl PartialEq for GroupId {
     #[inline]
@@ -109,20 +133,51 @@ impl PartialEq for GroupId {
     }
 }
 
+impl Eq for GroupId {}
+
+impl Hash for GroupId {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(self.0.hash);
+    }
+}
+
+impl PartialOrd for GroupId {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for GroupId {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.datum.cmp(&other.0.datum)
+    }
+}
+
+impl fmt::Debug for GroupId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("GroupId").field(&self.0.datum).finish()
+    }
+}
+
 /// Every datum a [`GroupId`] has been built from, each leaked once.
-static INTERNED: Mutex<Option<HashSet<&'static Datum>>> = Mutex::new(None);
+static INTERNED: Mutex<Option<HashSet<&'static Interned>>> = Mutex::new(None);
 
 impl Datum {
     /// The process-wide copy of this datum, stored on first use.
     fn intern(self) -> GroupId {
+        let entry = Interned {
+            hash: FoldBuild.hash_one(&self),
+            datum: self,
+        };
         let mut set = INTERNED.lock().unwrap_or_else(PoisonError::into_inner);
         let set = set.get_or_insert_with(HashSet::new);
-        if let Some(&datum) = set.get(&self) {
-            return GroupId(datum);
+        if let Some(&interned) = set.get(&entry) {
+            return GroupId(interned);
         }
-        let datum: &'static Datum = Box::leak(Box::new(self));
-        set.insert(datum);
-        GroupId(datum)
+        let interned: &'static Interned = Box::leak(Box::new(entry));
+        set.insert(interned);
+        GroupId(interned)
     }
 
     fn contains_roots(&self) -> bool {
@@ -471,15 +526,15 @@ impl GroupId {
 
     /// Ordered root-system blocks; D(2) retains its two-coordinate presentation.
     pub fn root_systems(&self) -> &[RootSystem] {
-        &self.0.roots
+        &self.0.datum.roots
     }
     /// Total number of Dynkin coordinates.
     pub fn semisimple_rank(&self) -> usize {
-        self.0.roots.iter().map(|r| r.rank()).sum()
+        self.0.datum.roots.iter().map(|r| r.rank()).sum()
     }
     /// Number of integer torus charges.
     pub fn torus_rank(&self) -> usize {
-        self.0.torus_rank
+        self.0.datum.torus_rank
     }
     /// Canonical row-HNF basis, in Dynkin-then-charge coordinate order.
     /// Allocates an n×n dense matrix, where n is the total rank.
@@ -489,7 +544,7 @@ impl GroupId {
         for (i, row) in rows.iter_mut().enumerate() {
             row[i] = 1;
         }
-        for &(i, j, value) in &self.0.hnf {
+        for &(i, j, value) in &self.0.datum.hnf {
             rows[i][j] = value;
         }
         rows
@@ -515,10 +570,10 @@ impl GroupId {
     }
 
     fn contains_coordinates(&self, dynkin: &[i64], charges: &[i64]) -> bool {
-        self.0.contains_coordinates(dynkin, charges)
+        self.0.datum.contains_coordinates(dynkin, charges)
     }
     pub(super) fn is_cover(&self) -> bool {
-        self.0.hnf.is_empty()
+        self.0.datum.hnf.is_empty()
     }
 
     /// SU(n), the A(n−1) cover. Requires n ≥ 2.
@@ -1006,5 +1061,17 @@ mod tests {
         let (a, b) = (g.irrep(&[1]).unwrap(), g.irrep(&[2]).unwrap());
         assert!(std::ptr::eq(a.group.0, b.group.0));
         assert!(std::ptr::eq(a.group.0, GroupId::su(2).unwrap().0));
+    }
+
+    #[test]
+    fn group_hash_is_the_stored_content_hash_and_separates_lattices() {
+        use crate::cache::FoldBuild;
+        let u2 = GroupId::u(2).unwrap();
+        let su2_u1 = GroupId::cover(&[RootSystem::A(1)], 1).unwrap();
+        for g in [&u2, &su2_u1] {
+            assert_eq!(g.0.hash, FoldBuild.hash_one(&g.0.datum));
+        }
+        // Same roots and torus, different HNF: a fixed hasher tells them apart.
+        assert_ne!(FoldBuild.hash_one(&u2), FoldBuild.hash_one(&su2_u1));
     }
 }
