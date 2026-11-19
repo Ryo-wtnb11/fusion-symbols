@@ -7,6 +7,10 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-11-19
+
+Coefficient values, gauges, label order and the public API are unchanged.
+
 ### Performance
 
 - Cold SU(2) 3j, Clebsch–Gordan, 6j and F evaluations reconstruct each
@@ -1508,7 +1512,8 @@ consumers may key caches and persisted data on the crate version. Such a
 change ships as a specification edit, a breaking entry in this file,
 regenerated golden values and a semver-breaking release, in one pull request.
 
-[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.12.1...HEAD
+[Unreleased]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.12.2...HEAD
+[0.12.2]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/Ryo-wtnb11/fusion-symbols/compare/v0.10.0...v0.11.0
