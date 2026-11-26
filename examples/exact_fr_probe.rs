@@ -3,7 +3,8 @@
 //!
 //! ```text
 //! cargo run --release --features exact-fr-probe --example exact_fr_probe -- \
-//!     [--max-seconds S] [--only PAT]... [--skip PAT]... [SPEC]...
+//!     [--max-seconds S] [--only PAT]... [--skip PAT]... \
+//!     [--b64-only | --exact-only] [--accum auto|big|check] [SPEC]...
 //! ```
 //!
 //! A `SPEC` is `KIND:GROUP:LABELS`, labels as Dynkin labels `1,1` joined by
@@ -21,9 +22,15 @@
 //! (`b64_cold_s`, modules, channels and contraction included), then the exact
 //! evaluation (`exact_gen_s`: modules, exact channels and common
 //! denominators; `exact_contract_s`: joins, integer accumulation, radicands
-//! and the single rounding). Between them, untimed, the production block's
-//! error bound is formed from its own (warm) rounded channels. No disk tier
-//! is enabled.
+//! and the single rounding; of it, `exact_join_s` for the partial joins and
+//! `exact_sum_s` for the final sum). Between them, untimed, the production
+//! block's error bound is formed from its own (warm) rounded channels. No
+//! disk tier is enabled. `--b64-only` and `--exact-only` measure one side
+//! (the comparison columns stay empty); `--accum` selects the exact F final
+//! sum: `auto` (fixed-width limbs when they fit, the `accum` column names
+//! the width), `big` (`Q`/Malachite throughout) or `check` (both, the child
+//! panics and the row reads `FAILED` unless every `S` agrees). Progress of
+//! every phase goes to stderr.
 //!
 //! Columns: `s_bits_*` are bit lengths of the exact integer numerators `S`
 //! (`T` for R; per factor for products), `u_bits_*`/`v_bits_*` of the radicand
@@ -50,7 +57,7 @@ use fusion_symbols::category::{FusionCategory, SymbolBlock};
 use fusion_symbols::lie::{GroupId, LieGroup, LieIrrep, RootSystem};
 
 const HEADER: &str = "kind,group,labels,shape,entries,b64_cold_s,exact_gen_s,exact_contract_s,\
-exact_total_s,s_bits_max,s_bits_med,u_bits_max,u_bits_med,v_bits_max,v_bits_med,x_big_frac,\
+exact_join_s,exact_sum_s,exact_total_s,accum,s_bits_max,s_bits_med,u_bits_max,u_bits_med,v_bits_max,v_bits_med,x_big_frac,\
 s_big_frac,max_ulp_nonzero,max_abs_diff,zero_exact_nonzero_prod,zero_exact_max_abs_prod,\
 within_tol,status";
 
@@ -218,7 +225,54 @@ fn build(gid: &GroupId, kind: &str, labels: &str) -> Result<(LieGroup, Vec<LieIr
     Ok((g, objects))
 }
 
-fn measure(spec: &str) -> Result<String, String> {
+/// Which sides a child measures, and how the exact F sum accumulates.
+#[derive(Clone, Copy)]
+struct Opts {
+    b64: bool,
+    exact: bool,
+    accum: probe::Accum,
+}
+
+impl Opts {
+    fn args(self) -> [&'static str; 2] {
+        let mode = match (self.b64, self.exact) {
+            (true, false) => "b64",
+            (false, true) => "exact",
+            _ => "both",
+        };
+        let accum = match self.accum {
+            probe::Accum::Auto => "auto",
+            probe::Accum::Big => "big",
+            probe::Accum::Check => "check",
+        };
+        [mode, accum]
+    }
+
+    fn parse(mode: &str, accum: &str) -> Result<Self, String> {
+        let (b64, exact) = match mode {
+            "both" => (true, true),
+            "b64" => (true, false),
+            "exact" => (false, true),
+            _ => return Err(format!("mode {mode}")),
+        };
+        let accum = match accum {
+            "auto" => probe::Accum::Auto,
+            "big" => probe::Accum::Big,
+            "check" => probe::Accum::Check,
+            _ => return Err(format!("--accum {accum}: auto, big or check")),
+        };
+        Ok(Self { b64, exact, accum })
+    }
+}
+
+fn shape(dims: &[usize]) -> String {
+    dims.iter()
+        .map(usize::to_string)
+        .collect::<Vec<_>>()
+        .join("x")
+}
+
+fn measure(spec: &str, o: Opts) -> Result<String, String> {
     let mut parts = spec.splitn(3, ':');
     let (Some(kind), Some(gtok), Some(labels)) = (parts.next(), parts.next(), parts.next()) else {
         return Err(format!("bad spec {spec}"));
@@ -227,79 +281,123 @@ fn measure(spec: &str) -> Result<String, String> {
     let err = |e: fusion_symbols::lie::LieError| e.to_string();
 
     // Cold production query, then its error bound from the warm channels.
-    cache::reset();
-    let (g, x) = build(&gid, kind, labels)?;
-    let (b64, dims, current, tol) = if kind == "R" {
-        let t = Instant::now();
-        let block = g.r_symbol(&x[0], &x[1], &x[2]).map_err(err)?;
-        let secs = t.elapsed().as_secs_f64();
-        let tol = probe::tol_r(&g, [&x[0], &x[1], &x[2]]).map_err(err)?;
-        (secs, block.dims().to_vec(), block.as_slice().to_vec(), tol)
+    let production = if o.b64 {
+        eprintln!("exact-fr-probe: {spec}: binary64 query");
+        cache::reset();
+        let (g, x) = build(&gid, kind, labels)?;
+        let side = if kind == "R" {
+            let t = Instant::now();
+            let block = g.r_symbol(&x[0], &x[1], &x[2]).map_err(err)?;
+            let secs = t.elapsed().as_secs_f64();
+            eprintln!("exact-fr-probe: binary64 done in {secs:.3}s; error bound");
+            let tol = probe::tol_r(&g, [&x[0], &x[1], &x[2]]).map_err(err)?;
+            (secs, block.dims().to_vec(), block.as_slice().to_vec(), tol)
+        } else {
+            let t = Instant::now();
+            let block = g
+                .f_symbol(&x[0], &x[1], &x[2], &x[3], &x[4], &x[5])
+                .map_err(err)?;
+            let secs = t.elapsed().as_secs_f64();
+            eprintln!("exact-fr-probe: binary64 done in {secs:.3}s; error bound");
+            let tol = probe::tol_f(&g, [&x[0], &x[1], &x[2], &x[3], &x[4], &x[5]]).map_err(err)?;
+            (secs, block.dims().to_vec(), block.as_slice().to_vec(), tol)
+        };
+        Some(side)
     } else {
-        let t = Instant::now();
-        let block = g
-            .f_symbol(&x[0], &x[1], &x[2], &x[3], &x[4], &x[5])
-            .map_err(err)?;
-        let secs = t.elapsed().as_secs_f64();
-        let tol = probe::tol_f(&g, [&x[0], &x[1], &x[2], &x[3], &x[4], &x[5]]).map_err(err)?;
-        (secs, block.dims().to_vec(), block.as_slice().to_vec(), tol)
+        None
     };
-    drop((g, x));
 
     // Cold exact evaluation.
-    cache::reset();
-    let (g, x) = build(&gid, kind, labels)?;
-    let exact = if kind == "R" {
-        probe::exact_r(&g, [&x[0], &x[1], &x[2]])
-    } else {
-        probe::exact_f(&g, [&x[0], &x[1], &x[2], &x[3], &x[4], &x[5]])
-    }
-    .map_err(err)?;
-
-    let shape = dims
-        .iter()
-        .map(usize::to_string)
-        .collect::<Vec<_>>()
-        .join("x");
-    let mut status = "OK";
-    if exact.dims != dims || exact.values.len() != current.len() || tol.len() != current.len() {
-        status = "DIMS_MISMATCH";
-    }
-    let (mut max_ulp, mut max_abs, mut within) = (0u64, 0.0f64, true);
-    // Entries whose exact value is 0 but whose production value is not.
-    let (mut zero_count, mut zero_max) = (0u64, 0.0f64);
-    for ((&c, &e), &t) in current.iter().zip(&exact.values).zip(&tol) {
-        let diff = (c - e).abs();
-        if e == 0.0 {
-            if c != 0.0 {
-                zero_count += 1;
-                zero_max = zero_max.max(c.abs());
-            }
+    let exact = if o.exact {
+        eprintln!("exact-fr-probe: {spec}: exact evaluation");
+        cache::reset();
+        let (g, x) = build(&gid, kind, labels)?;
+        let block = if kind == "R" {
+            probe::exact_r(&g, [&x[0], &x[1], &x[2]])
         } else {
-            max_ulp = max_ulp.max(ulps(c, e));
+            probe::exact_f(&g, [&x[0], &x[1], &x[2], &x[3], &x[4], &x[5]], o.accum)
         }
-        max_abs = max_abs.max(diff);
-        within &= diff <= t + U * e.abs();
+        .map_err(err)?;
+        Some(block)
+    } else {
+        None
+    };
+
+    let e = String::new;
+    let mut row = vec![kind.to_string(), gtok.to_string(), format!("\"{labels}\"")];
+    let dims = match (&production, &exact) {
+        (Some((_, dims, ..)), _) => dims.clone(),
+        (None, Some(x)) => x.dims.clone(),
+        (None, None) => Vec::new(),
+    };
+    let entries: usize = dims.iter().product();
+    row.push(shape(&dims));
+    row.push(entries.to_string());
+    row.push(
+        production
+            .as_ref()
+            .map_or_else(e, |p| format!("{:.6e}", p.0)),
+    );
+    match &exact {
+        Some(x) => {
+            let st = &x.stats;
+            row.extend([
+                format!("{:.6e}", st.gen_secs),
+                format!("{:.6e}", st.contract_secs),
+                format!("{:.6e}", st.join_secs),
+                format!("{:.6e}", st.sum_secs),
+                format!("{:.6e}", st.gen_secs + st.contract_secs),
+                st.accum.clone(),
+                max(&st.s_bits),
+                median(st.s_bits.clone()),
+                max(&st.u_bits),
+                median(st.u_bits.clone()),
+                max(&st.v_bits),
+                median(st.v_bits.clone()),
+                frac(st.x_big, st.x_values),
+                frac(st.s_big, st.s_values),
+            ]);
+        }
+        None => row.extend(std::iter::repeat_with(e).take(14)),
     }
-    let st = &exact.stats;
-    Ok(format!(
-        "{kind},{gtok},\"{labels}\",{shape},{},{b64:.6e},{:.6e},{:.6e},{:.6e},{},{},{},{},{},{},{},{},{max_ulp},{max_abs:.3e},{zero_count},{zero_max:.3e},{within},{status}",
-        current.len(),
-        st.gen_secs,
-        st.contract_secs,
-        st.gen_secs + st.contract_secs,
-        max(&st.s_bits),
-        median(st.s_bits.clone()),
-        max(&st.u_bits),
-        median(st.u_bits.clone()),
-        max(&st.v_bits),
-        median(st.v_bits.clone()),
-        frac(st.x_big, st.x_values),
-        frac(st.s_big, st.s_values),
-    ))
+    let mut status = "OK";
+    match (&production, &exact) {
+        (Some((_, dims, current, tol)), Some(x)) => {
+            if x.dims != *dims || x.values.len() != current.len() || tol.len() != current.len() {
+                status = "DIMS_MISMATCH";
+            }
+            let (mut max_ulp, mut max_abs, mut within) = (0u64, 0.0f64, true);
+            // Entries whose exact value is 0 but whose production value is not.
+            let (mut zero_count, mut zero_max) = (0u64, 0.0f64);
+            for ((&c, &v), &t) in current.iter().zip(&x.values).zip(tol) {
+                let diff = (c - v).abs();
+                if v == 0.0 {
+                    if c != 0.0 {
+                        zero_count += 1;
+                        zero_max = zero_max.max(c.abs());
+                    }
+                } else {
+                    max_ulp = max_ulp.max(ulps(c, v));
+                }
+                max_abs = max_abs.max(diff);
+                within &= diff <= t + U * v.abs();
+            }
+            row.extend([
+                max_ulp.to_string(),
+                format!("{max_abs:.3e}"),
+                zero_count.to_string(),
+                format!("{zero_max:.3e}"),
+                within.to_string(),
+            ]);
+        }
+        _ => row.extend(std::iter::repeat_with(e).take(5)),
+    }
+    row.push(status.to_string());
+    debug_assert_eq!(row.len(), HEADER.split(',').count());
+    Ok(row.join(","))
 }
 
-fn run_child(spec: &str, limit: Duration) -> String {
+fn run_child(spec: &str, opts: Opts, limit: Duration) -> String {
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
         Err(e) => return blank_row(spec, &format!("ERROR: {e}")),
@@ -307,6 +405,7 @@ fn run_child(spec: &str, limit: Duration) -> String {
     let mut child = match Command::new(exe)
         .arg("--one")
         .arg(spec)
+        .args(opts.args())
         .stdout(Stdio::piped())
         .spawn()
     {
@@ -341,16 +440,18 @@ fn run_child(spec: &str, limit: Duration) -> String {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if let [flag, spec] = args.as_slice() {
+    if let [flag, spec, mode, accum] = args.as_slice() {
         if flag == "--one" {
+            let row = Opts::parse(mode, accum).and_then(|o| measure(spec, o));
             println!(
                 "{}",
-                measure(spec).unwrap_or_else(|e| blank_row(spec, &format!("ERROR: {e}")))
+                row.unwrap_or_else(|e| blank_row(spec, &format!("ERROR: {e}")))
             );
             return;
         }
     }
     let (mut limit, mut only, mut skip, mut specs) = (600u64, Vec::new(), Vec::new(), Vec::new());
+    let (mut mode, mut accum) = ("both", String::from("auto"));
     let mut it = args.into_iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -362,9 +463,13 @@ fn main() {
             }
             "--only" => only.push(it.next().expect("--only takes a pattern")),
             "--skip" => skip.push(it.next().expect("--skip takes a pattern")),
+            "--b64-only" => mode = "b64",
+            "--exact-only" => mode = "exact",
+            "--accum" => accum = it.next().expect("--accum takes auto, big or check"),
             _ => specs.push(arg),
         }
     }
+    let opts = Opts::parse(mode, &accum).unwrap_or_else(|e| panic!("{e}"));
     if specs.is_empty() {
         specs = sweep();
     }
@@ -375,6 +480,6 @@ fn main() {
         {
             continue;
         }
-        println!("{}", run_child(&spec, Duration::from_secs(limit)));
+        println!("{}", run_child(&spec, opts, Duration::from_secs(limit)));
     }
 }
