@@ -274,3 +274,8 @@ pub mod finite;
 pub mod table;
 
 pub mod product;
+
+/// Exact F and R measurement probe; not a public API.
+#[cfg(feature = "exact-fr-probe")]
+#[doc(hidden)]
+pub use crate::lie::general::cgc::probe as __exact_fr_probe;

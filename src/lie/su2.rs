@@ -382,7 +382,7 @@ pub(super) fn twist(dj: u32) -> f64 {
 /// triangle set matches [`wigner_6j`]) and the phase `(-1)^(j1+j2+j3+j4)` --
 /// integer-valued exactly when that 6j is admissible, i.e. `(dj1+dj2+dj3+dj4)/2`
 /// here.
-fn f_symbol_exact(
+pub(super) fn f_symbol_exact(
     dj1: u32,
     dj2: u32,
     dj3: u32,

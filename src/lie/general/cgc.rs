@@ -2179,6 +2179,9 @@ fn magnetic_index(value: usize) -> Result<u32, LieError> {
     u32::try_from(value).map_err(|_| LieError::LabelOverflow)
 }
 
+#[cfg(feature = "exact-fr-probe")]
+pub mod probe;
+
 #[cfg(test)]
 pub(super) mod tests;
 

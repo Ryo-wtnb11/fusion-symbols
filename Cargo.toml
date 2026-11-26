@@ -37,6 +37,9 @@ lie-generated = []
 # application names with `cache::enable_disk_cache`. Bundled SQLite: needs a
 # C compiler; nothing is read or written until that call.
 disk-cache = ["dep:rusqlite"]
+# Measurement probe for exact F and R (`examples/exact_fr_probe.rs`); hidden,
+# not a public API, no dependency.
+exact-fr-probe = ["lie-generated"]
 
 [dependencies]
 # Reclamation of the coefficient tiers' lock-free tables. Without the default
@@ -135,6 +138,11 @@ required-features = ["lie-generated"]
 [[example]]
 name = "cache_pressure"
 required-features = ["lie-generated"]
+
+# Exact F/R cost and agreement probe (not a test).
+[[example]]
+name = "exact_fr_probe"
+required-features = ["exact-fr-probe"]
 
 [profile.dev]
 debug = "line-tables-only"

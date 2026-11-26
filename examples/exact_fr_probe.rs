@@ -1,0 +1,364 @@
+//! Cost and agreement probe for exactly evaluated F and R blocks, one CSV row
+//! per block on stdout. A measurement, not a test: it asserts nothing.
+//!
+//! ```text
+//! cargo run --release --features exact-fr-probe --example exact_fr_probe -- \
+//!     [--max-seconds S] [--only PAT]... [--skip PAT]... [SPEC]...
+//! ```
+//!
+//! A `SPEC` is `KIND:GROUP:LABELS`, labels as Dynkin labels `1,1` joined by
+//! `/`. Kinds: `F` (six labels `a/b/c/d/e/f`, `F^{abc}_d[e,f]`), `R` (three,
+//! `R^{ab}_c`), and for a sector `a/b/c` the two sextets of the A and B
+//! symbols, `B` = `F^{a b b̄}_a[c, 𝟙]` and `A` = `F^{ā a b}_b[𝟙, c]`. Groups:
+//! `suN`, `spN`, `spinN`, `soN`, `g2`, `f4`, `e6`, `e7`, `e8`, and the
+//! product `su3xsu2` (labels concatenated in factor order). Without a `SPEC`
+//! the built-in sweep runs; `--only`/`--skip` filter specs by substring.
+//!
+//! Every spec runs in a fresh child process (single-threaded, deterministic
+//! values), killed after `--max-seconds` (default 600) and then reported as a
+//! `SKIPPED` row. In the child, `cache::reset()` and a new `LieGroup` precede
+//! each of the two cold measurements: the production binary64 query
+//! (`b64_cold_s`, modules, channels and contraction included), then the exact
+//! evaluation (`exact_gen_s`: modules, exact channels and common
+//! denominators; `exact_contract_s`: joins, integer accumulation, radicands
+//! and the single rounding). Between them, untimed, the production block's
+//! error bound is formed from its own (warm) rounded channels. No disk tier
+//! is enabled.
+//!
+//! Columns: `s_bits_*` are bit lengths of the exact integer numerators `S`
+//! (`T` for R; per factor for products), `u_bits_*`/`v_bits_*` of the radicand
+//! `U/V` passed to the rounding, `*_big_frac` the fraction of exact CGC
+//! coordinates `x` and of accumulators `S` outside the inline word form of
+//! `Q`, `max_ulp`/`max_abs_diff` the largest distance between the production
+//! value and the rounded exact one, and `within_tol` whether every entry
+//! satisfies `|current − exact_rounded| ≤ γ_k Σ|terms| + u |exact_rounded|`
+//! (the forward bound of the §6.2 recipe, `k = 2(n + 7)` for F and
+//! `2(n + 3)` for R with `n` summed terms; the last term is the rounding of
+//! the exact value).
+
+use std::io::Read;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
+
+use fusion_symbols::__exact_fr_probe as probe;
+use fusion_symbols::cache;
+use fusion_symbols::category::{FusionCategory, SymbolBlock};
+use fusion_symbols::lie::{GroupId, LieGroup, LieIrrep, RootSystem};
+
+const HEADER: &str = "kind,group,labels,shape,entries,b64_cold_s,exact_gen_s,exact_contract_s,\
+exact_total_s,s_bits_max,s_bits_med,u_bits_max,u_bits_med,v_bits_max,v_bits_med,x_big_frac,\
+s_big_frac,max_ulp,max_abs_diff,within_tol,status";
+
+/// Sweep sectors `a/b/c`, smallest first. Each yields its B, A and R rows,
+/// plus `F^{aaa}_a[a,a]` when `a = b = c`.
+const SECTORS: &[(&str, &str)] = &[
+    ("su3", "1,1/1,1/1,1"),
+    ("su3xsu2", "1,1,1/1,1,1/1,1,2"),
+    ("su3xsu2", "1,1,2/1,1,2/1,1,2"),
+    ("g2", "1,0/1,0/1,0"),
+    ("sp4", "1,1/1,1/2,0"),
+    ("spin5", "1,1/1,1/0,2"),
+    ("sp4", "1,1/1,1/1,1"),
+    ("su4", "1,0,1/1,0,1/1,0,1"),
+    ("f4", "0,0,0,1/0,0,0,1/0,0,0,1"),
+    ("su3", "2,2/2,2/2,2"),
+    ("g2", "2,0/2,0/2,0"),
+    ("su3", "3,3/3,3/3,3"),
+    ("e6", "0,1,0,0,0,0/0,1,0,0,0,0/0,1,0,0,0,0"),
+    ("su4", "2,0,2/2,0,2/2,0,2"),
+    ("e7", "0,0,0,0,0,0,1/0,0,0,0,0,0,1/1,0,0,0,0,0,0"),
+    ("e7", "1,0,0,0,0,0,0/1,0,0,0,0,0,0/1,0,0,0,0,0,0"),
+    ("e8", "0,0,0,0,0,0,0,1/0,0,0,0,0,0,0,1/0,0,0,0,0,0,0,1"),
+    ("f4", "0,0,1,0/0,0,1,0/0,0,1,0"),
+    ("su3", "6,6/6,6/6,6"),
+    ("g2", "2,2/2,2/2,2"),
+    ("e7", "0,0,0,0,0,1,0/0,0,0,0,0,1,0/0,0,0,0,0,1,0"),
+];
+
+/// Unit roundoff of binary64.
+const U: f64 = f64::EPSILON / 2.0;
+
+fn sweep() -> Vec<String> {
+    let mut specs = Vec::new();
+    for (group, labels) in SECTORS {
+        for kind in ["B", "A", "R"] {
+            specs.push(format!("{kind}:{group}:{labels}"));
+        }
+        let parts: Vec<&str> = labels.split('/').collect();
+        if parts.iter().all(|x| *x == parts[0]) {
+            let a = parts[0];
+            specs.push(format!("F:{group}:{a}/{a}/{a}/{a}/{a}/{a}"));
+        }
+    }
+    specs
+}
+
+fn group(tok: &str) -> Result<GroupId, String> {
+    let n = |prefix: &str| {
+        tok[prefix.len()..]
+            .parse::<usize>()
+            .map_err(|e| format!("group {tok}: {e}"))
+    };
+    let g = match tok {
+        "g2" => return Ok(GroupId::g2()),
+        "f4" => return Ok(GroupId::f4()),
+        "e6" => return Ok(GroupId::e6()),
+        "e7" => return Ok(GroupId::e7()),
+        "e8" => return Ok(GroupId::e8()),
+        "su3xsu2" => GroupId::cover(&[RootSystem::A(2), RootSystem::A(1)], 0),
+        t if t.starts_with("spin") => GroupId::spin(n("spin")?),
+        t if t.starts_with("sp") => GroupId::sp(n("sp")?),
+        t if t.starts_with("su") => GroupId::su(n("su")?),
+        t if t.starts_with("so") => GroupId::so(n("so")?),
+        _ => return Err(format!("unknown group {tok}")),
+    };
+    g.map_err(|e| format!("group {tok}: {e:?}"))
+}
+
+fn dynkin(label: &str) -> Result<Vec<i64>, String> {
+    label
+        .split(',')
+        .map(|x| {
+            x.trim()
+                .parse::<i64>()
+                .map_err(|e| format!("label {label}: {e}"))
+        })
+        .collect()
+}
+
+fn clean(s: &str) -> String {
+    s.replace([',', '\n', '\r'], ";")
+}
+
+/// The first three columns, every measured column empty, then `status`.
+fn blank_row(spec: &str, status: &str) -> String {
+    let mut parts = spec.splitn(3, ':');
+    let kind = parts.next().unwrap_or("");
+    let group = parts.next().unwrap_or("");
+    let labels = parts.next().unwrap_or("");
+    let empty = HEADER.split(',').count() - 4;
+    format!(
+        "{kind},{group},\"{labels}\",{}{}",
+        ",".repeat(empty),
+        clean(status)
+    )
+}
+
+fn median(mut v: Vec<u64>) -> String {
+    if v.is_empty() {
+        return String::new();
+    }
+    v.sort_unstable();
+    v[v.len() / 2].to_string()
+}
+
+fn max(v: &[u64]) -> String {
+    v.iter().max().map_or_else(String::new, u64::to_string)
+}
+
+fn frac(part: u64, whole: u64) -> String {
+    if whole == 0 {
+        String::new()
+    } else {
+        format!("{:.6}", part as f64 / whole as f64)
+    }
+}
+
+/// Distance in units in the last place over the ordered binary64 line.
+fn ulps(a: f64, b: f64) -> u64 {
+    let key = |x: f64| {
+        let bits = x.to_bits() as i64;
+        i128::from(if bits < 0 { i64::MIN - bits } else { bits })
+    };
+    (key(a) - key(b)).unsigned_abs() as u64
+}
+
+/// The six (F) or three (R) objects of the query of `kind`.
+fn objects(g: &LieGroup, kind: &str, raw: Vec<LieIrrep>) -> Result<Vec<LieIrrep>, String> {
+    let n = raw.len();
+    if matches!((kind, n), ("F", 6) | ("R", 3)) {
+        return Ok(raw);
+    }
+    let one = g.unit();
+    match (kind, raw.as_slice()) {
+        ("B", [a, b, c]) => Ok(vec![
+            a.clone(),
+            b.clone(),
+            g.dual(b),
+            a.clone(),
+            c.clone(),
+            one,
+        ]),
+        ("A", [a, b, c]) => Ok(vec![
+            g.dual(a),
+            a.clone(),
+            b.clone(),
+            b.clone(),
+            one,
+            c.clone(),
+        ]),
+        _ => Err(format!("kind {kind} with {n} labels")),
+    }
+}
+
+fn build(gid: &GroupId, kind: &str, labels: &str) -> Result<(LieGroup, Vec<LieIrrep>), String> {
+    let g = LieGroup::new(gid.clone()).map_err(|e| e.to_string())?;
+    let raw = labels
+        .split('/')
+        .map(|l| g.irrep(&dynkin(l)?).map_err(|e| e.to_string()))
+        .collect::<Result<Vec<_>, _>>()?;
+    let objects = objects(&g, kind, raw)?;
+    Ok((g, objects))
+}
+
+fn measure(spec: &str) -> Result<String, String> {
+    let mut parts = spec.splitn(3, ':');
+    let (Some(kind), Some(gtok), Some(labels)) = (parts.next(), parts.next(), parts.next()) else {
+        return Err(format!("bad spec {spec}"));
+    };
+    let gid = group(gtok)?;
+    let err = |e: fusion_symbols::lie::LieError| e.to_string();
+
+    // Cold production query, then its error bound from the warm channels.
+    cache::reset();
+    let (g, x) = build(&gid, kind, labels)?;
+    let (b64, dims, current, tol) = if kind == "R" {
+        let t = Instant::now();
+        let block = g.r_symbol(&x[0], &x[1], &x[2]).map_err(err)?;
+        let secs = t.elapsed().as_secs_f64();
+        let tol = probe::tol_r(&g, [&x[0], &x[1], &x[2]]).map_err(err)?;
+        (secs, block.dims().to_vec(), block.as_slice().to_vec(), tol)
+    } else {
+        let t = Instant::now();
+        let block = g
+            .f_symbol(&x[0], &x[1], &x[2], &x[3], &x[4], &x[5])
+            .map_err(err)?;
+        let secs = t.elapsed().as_secs_f64();
+        let tol = probe::tol_f(&g, [&x[0], &x[1], &x[2], &x[3], &x[4], &x[5]]).map_err(err)?;
+        (secs, block.dims().to_vec(), block.as_slice().to_vec(), tol)
+    };
+    drop((g, x));
+
+    // Cold exact evaluation.
+    cache::reset();
+    let (g, x) = build(&gid, kind, labels)?;
+    let exact = if kind == "R" {
+        probe::exact_r(&g, [&x[0], &x[1], &x[2]])
+    } else {
+        probe::exact_f(&g, [&x[0], &x[1], &x[2], &x[3], &x[4], &x[5]])
+    }
+    .map_err(err)?;
+
+    let shape = dims
+        .iter()
+        .map(usize::to_string)
+        .collect::<Vec<_>>()
+        .join("x");
+    let mut status = "OK";
+    if exact.dims != dims || exact.values.len() != current.len() || tol.len() != current.len() {
+        status = "DIMS_MISMATCH";
+    }
+    let (mut max_ulp, mut max_abs, mut within) = (0u64, 0.0f64, true);
+    for ((&c, &e), &t) in current.iter().zip(&exact.values).zip(&tol) {
+        let diff = (c - e).abs();
+        max_ulp = max_ulp.max(ulps(c, e));
+        max_abs = max_abs.max(diff);
+        within &= diff <= t + U * e.abs();
+    }
+    let st = &exact.stats;
+    Ok(format!(
+        "{kind},{gtok},\"{labels}\",{shape},{},{b64:.6e},{:.6e},{:.6e},{:.6e},{},{},{},{},{},{},{},{},{max_ulp},{max_abs:.3e},{within},{status}",
+        current.len(),
+        st.gen_secs,
+        st.contract_secs,
+        st.gen_secs + st.contract_secs,
+        max(&st.s_bits),
+        median(st.s_bits.clone()),
+        max(&st.u_bits),
+        median(st.u_bits.clone()),
+        max(&st.v_bits),
+        median(st.v_bits.clone()),
+        frac(st.x_big, st.x_values),
+        frac(st.s_big, st.s_values),
+    ))
+}
+
+fn run_child(spec: &str, limit: Duration) -> String {
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(e) => return blank_row(spec, &format!("ERROR: {e}")),
+    };
+    let mut child = match Command::new(exe)
+        .arg("--one")
+        .arg(spec)
+        .stdout(Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(e) => return blank_row(spec, &format!("ERROR: spawn {e}")),
+    };
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let mut out = String::new();
+                if let Some(mut stdout) = child.stdout.take() {
+                    let _ = stdout.read_to_string(&mut out);
+                }
+                let row = out.trim_end();
+                return if status.success() && !row.is_empty() {
+                    row.to_string()
+                } else {
+                    blank_row(spec, &format!("FAILED: {status}"))
+                };
+            }
+            Ok(None) if start.elapsed() > limit => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return blank_row(spec, &format!("SKIPPED: over {}s", limit.as_secs()));
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+            Err(e) => return blank_row(spec, &format!("ERROR: wait {e}")),
+        }
+    }
+}
+
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let [flag, spec] = args.as_slice() {
+        if flag == "--one" {
+            println!(
+                "{}",
+                measure(spec).unwrap_or_else(|e| blank_row(spec, &format!("ERROR: {e}")))
+            );
+            return;
+        }
+    }
+    let (mut limit, mut only, mut skip, mut specs) = (600u64, Vec::new(), Vec::new(), Vec::new());
+    let mut it = args.into_iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--max-seconds" => {
+                limit = it
+                    .next()
+                    .and_then(|s| s.parse().ok())
+                    .expect("--max-seconds takes a whole number of seconds");
+            }
+            "--only" => only.push(it.next().expect("--only takes a pattern")),
+            "--skip" => skip.push(it.next().expect("--skip takes a pattern")),
+            _ => specs.push(arg),
+        }
+    }
+    if specs.is_empty() {
+        specs = sweep();
+    }
+    println!("{HEADER}");
+    for spec in specs {
+        if (!only.is_empty() && !only.iter().any(|p| spec.contains(p.as_str())))
+            || skip.iter().any(|p| spec.contains(p.as_str()))
+        {
+            continue;
+        }
+        println!("{}", run_child(&spec, Duration::from_secs(limit)));
+    }
+}
