@@ -135,12 +135,14 @@ impl Integral {
     }
 }
 
-/// [`Integral::new`] in machine words: `(negative, X)` per input, `D` and
-/// `g`, or `None` when a value does not fit.
+/// `(negative, X)` per input, the common denominator `D` and the content `g`.
+type WordIntegral = (Vec<(bool, u64)>, u64, u64);
+
+/// [`Integral::new`] in machine words, or `None` when a value does not fit.
 fn word_integral<'a>(
     xs: impl Iterator<Item = &'a Q> + Clone,
     negate: bool,
-) -> Option<(Vec<(bool, u64)>, u64, u64)> {
+) -> Option<WordIntegral> {
     let mut den = 1u64;
     for x in xs.clone() {
         let (_, _, q) = x.word_parts()?;
@@ -285,11 +287,12 @@ impl Coords {
         let pairs = bytes.get(*at..at.checked_add(count.checked_mul(8)?)?)?;
         *at += pairs.len();
         let m_ab: Box<[(u32, u32)]> = pairs
-            .chunks_exact(8)
-            .map(|p| {
-                let w = |i: usize| u32::from_le_bytes(p[i..i + 4].try_into().expect("4 bytes"));
-                (w(0), w(4))
-            })
+            .as_chunks::<4>()
+            .0
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|[a, b]| (u32::from_le_bytes(*a), u32::from_le_bytes(*b)))
             .collect();
         if m_ab
             .iter()
@@ -301,8 +304,10 @@ impl Coords {
         let raw = bytes.get(*at..at.checked_add(columns.checked_mul(4)?)?)?;
         *at += raw.len();
         let ends: Box<[usize]> = raw
-            .chunks_exact(4)
-            .map(|e| u32::from_le_bytes(e.try_into().expect("4 bytes")) as usize)
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|e| u32::from_le_bytes(*e) as usize)
             .collect();
         let mut start = 0;
         for &end in ends.iter() {
@@ -703,8 +708,10 @@ impl NormTable {
         let raw = payload.get(*at..at.checked_add(dim.checked_mul(4)?)?)?;
         *at += raw.len();
         let rank: Box<[u32]> = raw
-            .chunks_exact(4)
-            .map(|r| u32::from_le_bytes(r.try_into().expect("4 bytes")))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|r| u32::from_le_bytes(*r))
             .collect();
         let slots = read_u32(payload, at)?;
         let top = read_u32(payload, at)?;

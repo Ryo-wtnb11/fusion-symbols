@@ -130,6 +130,7 @@ impl SignedInts {
         })
     }
 
+    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
     pub(crate) fn len(&self) -> usize {
         self.len
     }
@@ -336,8 +337,10 @@ fn read_words(bytes: &[u8], at: &mut usize, count: usize) -> Option<Box<[u64]>> 
     let b = bytes.get(*at..end)?;
     *at = end;
     Some(
-        b.chunks_exact(8)
-            .map(|w| u64::from_le_bytes(w.try_into().expect("8 bytes")))
+        b.as_chunks::<8>()
+            .0
+            .iter()
+            .map(|w| u64::from_le_bytes(*w))
             .collect(),
     )
 }

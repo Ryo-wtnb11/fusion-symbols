@@ -287,8 +287,11 @@ fn failed_flush_leaves_cache_usable() {
         FAULT_WRITE.with(|f| f.set(true));
         let cold = octet_channel(&fam);
         FAULT_WRITE.with(|f| f.set(false));
-        assert_eq!(disk_cache_stats().failures, failures + 1);
+        // Failures count rows: the channel row and the octet's norm row of
+        // the one failed commit.
+        assert_eq!(disk_cache_stats().failures, failures + 2);
         assert_eq!(db.rows_of_kind(DISK_CHANNEL), 0);
+        assert_eq!(db.rows_of_kind(DISK_NORMS), 0);
         reset();
         assert_eq!(bits(&octet_channel(&fam)), bits(&cold));
         assert_eq!(db.rows_of_kind(DISK_CHANNEL), 1, "a fresh miss persists");

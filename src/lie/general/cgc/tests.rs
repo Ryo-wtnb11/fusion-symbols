@@ -14,10 +14,11 @@ use crate::category::{
 use crate::frcore::{f_block_raw, r_block_raw};
 use crate::lie::general::{GeneralFamily, RequestModules};
 use crate::rounding::cgc::{
-    check_rounded, gate_bytes, gate_replaced, isometry_block, round_channel, support_runs, worst,
-    BlockEntry, GateBlock, GateCounts, GateScratch, GATE_ALLOWANCE, SUPPORT_CHUNK_OVERRIDE,
-    SUPPORT_SECTIONS,
+    check_rounded, gate_bytes, gate_replaced, round_channel, support_runs, worst, BlockEntry,
+    GateBlock, GateCounts, GATE_ALLOWANCE, SUPPORT_CHUNK_OVERRIDE, SUPPORT_SECTIONS,
 };
+#[cfg(feature = "lie-generated")]
+use crate::rounding::cgc::{isometry_block, GateScratch};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Instant;
