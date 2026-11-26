@@ -174,7 +174,7 @@ pub(crate) fn checked_integral_quotient(
 
 /// [`word_gcd`] whenever both operands fit; otherwise binary gcd, since a
 /// `u128` division is a slow library call and shifts are not.
-fn gcd(mut a: u128, mut b: u128) -> u128 {
+pub(crate) fn gcd(mut a: u128, mut b: u128) -> u128 {
     if let (Ok(x), Ok(y)) = (u64::try_from(a), u64::try_from(b)) {
         return u128::from(word_gcd(x, y));
     }
@@ -206,10 +206,18 @@ pub(crate) fn word_gcd(mut a: u64, mut b: u64) -> u64 {
 }
 
 /// `a / b`, in a hardware `u64` division whenever both operands fit.
-fn div(a: u128, b: u128) -> u128 {
+pub(crate) fn div(a: u128, b: u128) -> u128 {
     match (u64::try_from(a), u64::try_from(b)) {
         (Ok(a), Ok(b)) => u128::from(a / b),
         _ => a / b,
+    }
+}
+
+/// `a % b`, in a hardware `u64` division whenever both operands fit.
+pub(crate) fn rem(a: u128, b: u128) -> u128 {
+    match (u64::try_from(a), u64::try_from(b)) {
+        (Ok(a), Ok(b)) => u128::from(a % b),
+        _ => a % b,
     }
 }
 

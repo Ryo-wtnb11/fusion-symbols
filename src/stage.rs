@@ -113,6 +113,63 @@ pub(crate) fn run_stage<S: Send, T: Send + Sync>(
     )
 }
 
+/// Runs `kernel(i)` for every item `i` of `units`, leaving the results in
+/// `buf` in item order: one stage of [`run_stage`] on `exec`, without
+/// scratch, or every item inline in item order without a token. Returns the
+/// width of the stage's section, 1 when it ran none.
+pub(crate) fn run_items<T: Send + Sync>(
+    exec: Option<&mut Exec<'_>>,
+    units: &[u64],
+    buf: &mut StageBuf<T>,
+    kernel: impl Fn(usize) -> T + Sync,
+) -> NonZeroUsize {
+    match exec {
+        Some(exec) => {
+            run_stage(
+                exec,
+                units,
+                &SystemClock,
+                &mut None,
+                buf,
+                || (),
+                |(), i| kernel(i),
+            )
+            .width
+        }
+        None => {
+            buf.out.clear();
+            buf.out.extend((0..units.len()).map(|i| Some(kernel(i))));
+            NonZeroUsize::MIN
+        }
+    }
+}
+
+/// The parts of one buffer that a stage's items write in place: item `i`
+/// owns `out[ends[i − 1]..ends[i]]` (from 0), for nondecreasing `ends` at
+/// most `out.len()`. Each item takes its part once ([`take_part`]), so the
+/// items write disjoint ranges of one allocation and nothing is merged or
+/// copied after the stage.
+pub(crate) fn split_parts<T>(
+    mut out: &mut [T],
+    ends: impl IntoIterator<Item = usize>,
+) -> Vec<Mutex<&mut [T]>> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    for end in ends {
+        let whole = std::mem::take(&mut out);
+        let (part, rest) = whole.split_at_mut(end - start);
+        parts.push(Mutex::new(part));
+        out = rest;
+        start = end;
+    }
+    parts
+}
+
+/// Item `i`'s part of [`split_parts`]; empty once taken.
+pub(crate) fn take_part<'a, T>(parts: &[Mutex<&'a mut [T]>], i: usize) -> &'a mut [T] {
+    std::mem::take(&mut *parts[i].lock().unwrap_or_else(PoisonError::into_inner))
+}
+
 /// The widest section a stage's participants' scratch allows over the items
 /// still to run, given as their indices; at least 1.
 pub(crate) type MemoryWidth<'a> = &'a (dyn Fn(&[usize]) -> usize + Sync);

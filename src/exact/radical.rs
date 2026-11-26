@@ -87,6 +87,7 @@ pub(crate) struct SignedInts {
 impl SignedInts {
     /// The slab of `values`, `(negative, |x|)` per entry, when its words can
     /// be counted.
+    #[cfg(test)]
     pub(crate) fn from_words(values: &[(bool, u64)]) -> Option<Self> {
         let len = values.len();
         let stride = usize::from(values.iter().any(|&(_, m)| m != 0));
@@ -143,6 +144,24 @@ impl SignedInts {
             neg: neg.into_boxed_slice(),
             mag: mag.into_boxed_slice(),
         })
+    }
+
+    /// The slab of `len` entries at `stride` words whose sign words `neg`
+    /// and magnitudes `mag` its producer wrote in canonical form (checked in
+    /// debug builds): the integralization fills both in place, range by range.
+    pub(crate) fn from_raw(len: usize, stride: usize, neg: Vec<u64>, mag: Vec<u64>) -> Self {
+        let slab = Self {
+            len,
+            stride,
+            neg: neg.into_boxed_slice(),
+            mag: mag.into_boxed_slice(),
+        };
+        debug_assert!(
+            slab.neg.len() == len.div_ceil(64)
+                && Some(slab.mag.len()) == len.checked_mul(stride)
+                && slab.is_canonical()
+        );
+        slab
     }
 
     #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]

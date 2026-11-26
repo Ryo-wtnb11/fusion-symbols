@@ -196,7 +196,9 @@ passes `Exec::serial()`. On a token that carries a team
 (`Exec::carries_team`), each Cartan channel's exact descent runs one depth
 layer at a time in team sections: the leader times the layer's first items
 and opens a section only when the measured work pays for the team's dispatch
-cost. Values are bit-identical at every width, and the live exact working
+cost. The integralization of the emitted columns and the rounding of the
+view run over the channel's columns the same way. Values are bit-identical
+at every width, and the live exact working
 set grows from one weight's lowered candidates to one depth layer's (see
 `docs/gauge_cartan.md` §9). The channel's isometry gate checks its weight
 blocks in team sections the same way; their scratch beyond the serial
@@ -221,7 +223,15 @@ fusion_symbols::cache::enable_disk_cache("/local/scratch/fs-0.12.sqlite", 1 << 3
   rounded CGC channel is never stored: after a load it is rounded from the
   exact row with the stored norm tables, building no irrep module (a norm
   table whose row was removed is rebuilt from its module). F and R rows hold
-  rounded blocks. These cost far more to generate than to load. Exact SU(2) 3j/6j
+  rounded blocks. These cost far more to generate than to load.
+- **What a load costs.** The first view of a channel loaded from disk is one
+  correctly rounded conversion per stored entry, a few hundred nanoseconds
+  each (a channel of 1.6 million entries takes about half a second on one
+  thread), on top of the read and the checks; it is the price of storing the
+  exact channel only. `prefill` with a token that carries a team rounds the
+  loaded channel in team sections, as it does a generated one; `cgc` and any
+  other call without a token round on the calling thread. Later views are
+  memory hits. Exact SU(2) 3j/6j
   symbols and the SU(2) F scalar are never stored: computing them is cheaper
   than loading them. Irrep modules and products stay in memory.
 - **How it is used.** A miss of a stored kind reads its row before generating;

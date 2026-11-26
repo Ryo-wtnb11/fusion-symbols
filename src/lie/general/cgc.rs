@@ -994,7 +994,8 @@ fn track<'v>(v: impl IntoIterator<Item = &'v Vec<Q>>, live: bool) {
 /// The exact channel `a ⊗ b → c` of multiplicity `n` (§4.2–§4.4, §4.7):
 /// every exactly nonzero coordinate, emitted per column `(μ, m_c)` as its
 /// coupled state completes and integralized per `μ` once the descent ends,
-/// every `X` negated when `negate` (the `A_1` vertex sign, §4.6).
+/// in stages over the columns on the same token, every `X` negated when
+/// `negate` (the `A_1` vertex sign, §4.6).
 ///
 /// This is the descent's split point: a token that carries a team of two or
 /// more descends layer by layer ([`descend_layers`]); any other token, and
@@ -1010,11 +1011,10 @@ pub(super) fn exact_channel(
     exec: Option<&mut Exec<'_>>,
 ) -> Result<ExactCgc, LieError> {
     let dims = [a.dim(), b.dim(), c.dim()];
-    let (columns, norms) = match exec {
-        Some(exec) if exec.carries_team() && !exec.is_serial() => {
-            descend_layers(data, a, b, c, n, exec)?
-        }
-        _ => {
+    let mut exec = exec.filter(|exec| exec.carries_team() && !exec.is_serial());
+    let (columns, norms) = match exec.as_deref_mut() {
+        Some(exec) => descend_layers(data, a, b, c, n, exec)?,
+        None => {
             let dc = c.dim();
             let mut columns: Vec<Column> = vec![Vec::new(); n * dc];
             let mut norms = Vec::new();
@@ -1031,7 +1031,7 @@ pub(super) fn exact_channel(
             (columns, norms)
         }
     };
-    ExactCgc::from_columns(dims, columns, &norms, negate)
+    ExactCgc::from_columns(dims, columns, &norms, negate, exec)
 }
 
 /// The highest-weight column of `a ⊗ b → c` (engine index 0 of `c`): the

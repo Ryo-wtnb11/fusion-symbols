@@ -1338,6 +1338,29 @@ fn cgc_load<const N: usize, E>(
     CACHE_CGC.get_or_try_compute(&key, || key.to_key(), compute)
 }
 
+/// [`cgc_load`] for the lookups that only a view miss or an exact consumer
+/// makes (exact channel, seeds): out of line, with a projection of its own,
+/// so the view's warm hit in [`cgc_channel`] stays the only caller of its
+/// `get_with` instantiation and is inlined there. Why not share
+/// [`cgc_load`]: with a second caller that instantiation was emitted out of
+/// line, a call and a clone thunk on every warm view hit (about 38
+/// instructions, 8 ns, measured).
+#[inline(never)]
+fn cgc_load_cold<E>(
+    kind: u8,
+    root: RootSystem,
+    parts: [Label<'_>; 3],
+    compute: impl FnOnce() -> Result<CgcValue, E>,
+) -> Result<CgcValue, E> {
+    let key = LabelRef { kind, root, parts };
+    CACHE_CGC.get_or_try_sweep(
+        &key,
+        |v: &CgcValue| v.clone(),
+        || key.to_key(),
+        |_| compute(),
+    )
+}
+
 /// The irrep module of `label`.
 pub(crate) fn cgc_module<E>(
     root: RootSystem,
@@ -1370,7 +1393,7 @@ pub(crate) fn cgc_exact_channel<E>(
     parts: [Label<'_>; 3],
     compute: impl FnOnce() -> Result<Arc<ExactCgc>, E>,
 ) -> Result<Arc<ExactCgc>, E> {
-    match cgc_load(EXACT_CHANNEL, root, parts, || {
+    match cgc_load_cold(EXACT_CHANNEL, root, parts, || {
         compute().map(CgcValue::ExactChannel)
     })? {
         CgcValue::ExactChannel(c) => Ok(c),
@@ -1385,7 +1408,7 @@ pub(crate) fn cgc_seeds<E>(
     parts: [Label<'_>; 3],
     compute: impl FnOnce() -> Result<Arc<HighestColumn>, E>,
 ) -> Result<Arc<HighestColumn>, E> {
-    match cgc_load(SEEDS, root, parts, || compute().map(CgcValue::Seeds))? {
+    match cgc_load_cold(SEEDS, root, parts, || compute().map(CgcValue::Seeds))? {
         CgcValue::Seeds(s) => Ok(s),
         _ => unreachable!("a seeds key stores seeds"),
     }

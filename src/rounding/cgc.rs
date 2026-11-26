@@ -5,11 +5,10 @@
 //! and never change a value.
 
 use std::collections::HashMap;
-use std::ops::Range;
 
 use threadteam::Exec;
 
-use super::{round_radical, Factor};
+use super::{round_radical, Factor, SharedFactors};
 use crate::frcore::{GateError, MEntry};
 use crate::lie::general::cgc::exact::{ExactCgc, NormTable};
 use crate::lie::general::cgc::{CgcChannel, Ladders};
@@ -22,104 +21,110 @@ use crate::lie::general::roots::CartanData;
 /// rounds to zero; an exactly zero coordinate has no entry.
 ///
 /// The norms are resolved by the caller, so no participant reads a cache.
-/// On a team token the entries are one stage of
-/// [`crate::stage::run_stage`] over chunks of the support stage's grain;
-/// every entry is the same conversion at every width, so the bits are too.
+/// The items are the channel's columns, the grain of the descent's phase B
+/// that emitted them, as one stage of [`crate::stage::run_items`] whose
+/// planner prices them by their entries; each column writes its own range of
+/// the one view allocation, so nothing is merged. Every entry is the same
+/// conversion at every width, so the bits are too.
 pub(crate) fn round_channel(
     exact: &ExactCgc,
     norms: [&NormTable; 3],
     exec: Option<&mut Exec<'_>>,
 ) -> CgcChannel {
-    let len = exact.len();
-    let entries = match exec {
-        Some(exec) if exec.carries_team() && !exec.is_serial() => {
-            use crate::stage::{run_stage, StageBuf, SystemClock};
-            let chunk = support_chunk();
-            let units: Vec<u64> = (0..len.div_ceil(chunk))
-                .map(|j| chunk.min(len - j * chunk) as u64)
-                .collect();
-            let mut buf = StageBuf::default();
-            run_stage(
-                exec,
-                &units,
-                &SystemClock,
-                &mut None,
-                &mut buf,
-                || (),
-                |(), j| {
-                    let start = j * chunk;
-                    let range = start..(start + chunk).min(len);
-                    let mut out = Vec::with_capacity(range.len());
-                    round_range(exact, norms, range, &mut out);
-                    out
-                },
-            );
-            let mut entries = Vec::with_capacity(len);
-            for part in buf.drain() {
-                entries.extend(part);
-            }
-            entries
-        }
-        _ => {
-            let mut entries = Vec::with_capacity(len);
-            round_range(exact, norms, 0..len, &mut entries);
-            entries
-        }
+    use crate::stage::{run_items, split_parts, take_part, StageBuf};
+    let ends = exact.column_ends();
+    let mut start = 0;
+    let units: Vec<u64> = ends
+        .iter()
+        .map(|&end| {
+            let n = (end - start) as u64;
+            start = end;
+            n
+        })
+        .collect();
+    // Every entry is overwritten by its column below.
+    let unset = MEntry {
+        m1: 0,
+        m2: 0,
+        m3: 0,
+        mu: 0,
+        value: 0.0,
     };
+    let mut entries = vec![unset; exact.len()];
+    {
+        let parts = split_parts(&mut entries, ends.iter().copied());
+        let _width = run_items(exec, &units, &mut StageBuf::default(), |k| {
+            round_column(exact, norms, k, take_part(&parts, k));
+        });
+        #[cfg(test)]
+        if _width.get() > 1 {
+            ROUND_SECTIONS.with(|s| s.set(s.get() + 1));
+        }
+    }
     CgcChannel {
         mult: exact.mult(),
         entries: entries.into_boxed_slice(),
     }
 }
 
-/// Rounds the entries `range` of `exact` into `out`.
-fn round_range(
-    exact: &ExactCgc,
-    [na, nb, nc]: [&NormTable; 3],
-    range: Range<usize>,
-    out: &mut Vec<MEntry>,
-) {
+/// Rounds column `k = μ·d_c + m_c` of `exact` into `out`, its entries.
+///
+/// `ρ_μ` and `n^c` are the column's constants, multiplied once into
+/// [`SharedFactors`], so an entry multiplies only `X²` and the words of
+/// `n^a n^b`; an entry outside that stack path converts all its factors in
+/// one [`round_radical`], with the same bits.
+fn round_column(exact: &ExactCgc, [na, nb, nc]: [&NormTable; 3], k: usize, out: &mut [MEntry]) {
     let dc = exact.dims()[2];
-    let ends = exact.column_ends();
-    let mut k = ends.partition_point(|&end| end <= range.start);
-    for i in range {
-        while ends[k] <= i {
-            k += 1;
-        }
-        let (mu, mc) = (k / dc, k % dc);
-        let coords = exact.coords(mu);
-        let j = i - exact.mu_range(mu).start;
+    let (mu, mc) = (k / dc, k % dc);
+    let coords = exact.coords(mu);
+    let base = exact.mu_range(mu).start;
+    let (rn, rd) = (coords.vertex.num(), coords.vertex.den());
+    let (pc, qc) = nc.norm[mc].magnitudes();
+    let shared = SharedFactors::new(
+        &[Factor::Natural(rn), Factor::Natural(&qc)],
+        &[Factor::Natural(rd), Factor::Natural(&pc)],
+    );
+    for (slot, i) in out.iter_mut().zip(exact.column(k)) {
+        let j = i - base;
         let (ma, mb) = exact.m_ab()[i];
         let x = coords.x.magnitude(j);
         let sign = if coords.x.is_negative(j) { -1 } else { 1 };
-        let (pa, qa) = na.norm[ma as usize].magnitudes();
-        let (pb, qb) = nb.norm[mb as usize].magnitudes();
-        let (pc, qc) = nc.norm[mc].magnitudes();
-        let value = round_radical(
-            sign,
-            &[
-                Factor::Words(x),
-                Factor::Words(x),
-                Factor::Natural(coords.vertex.num()),
-                Factor::Natural(&pa),
-                Factor::Natural(&pb),
-                Factor::Natural(&qc),
-            ],
-            &[
-                Factor::Natural(coords.vertex.den()),
-                Factor::Natural(&qa),
-                Factor::Natural(&qb),
-                Factor::Natural(&pc),
-            ],
-        );
+        let (a, b) = (&na.norm[ma as usize], &nb.norm[mb as usize]);
+        let fast = match (shared.as_ref(), a.word_parts(), b.word_parts()) {
+            (Some(s), Some((_, pa, qa)), Some((_, pb, qb))) => {
+                s.round_square(sign, x, [pa, pb], [qa, qb])
+            }
+            _ => None,
+        };
+        let value = fast.unwrap_or_else(|| {
+            let (pa, qa) = a.magnitudes();
+            let (pb, qb) = b.magnitudes();
+            round_radical(
+                sign,
+                &[
+                    Factor::Words(x),
+                    Factor::Words(x),
+                    Factor::Natural(rn),
+                    Factor::Natural(&pa),
+                    Factor::Natural(&pb),
+                    Factor::Natural(&qc),
+                ],
+                &[
+                    Factor::Natural(rd),
+                    Factor::Natural(&qa),
+                    Factor::Natural(&qb),
+                    Factor::Natural(&pc),
+                ],
+            )
+        });
         // The multiplicity and every dimension fit `u32` (§7 gate 1).
-        out.push(MEntry {
+        *slot = MEntry {
             m1: ma,
             m2: mb,
             m3: mc as u32,
             mu: mu as u32,
             value,
-        });
+        };
     }
 }
 
@@ -649,6 +654,9 @@ pub(crate) fn check_rounded(
 
 #[cfg(test)]
 thread_local! {
+    /// Rounding stages of [`round_channel`] on this thread that ran a
+    /// section of width two or more.
+    pub(crate) static ROUND_SECTIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// Support stages of [`check_rounded`] on this thread that ran a section
     /// of width two or more.
     pub(crate) static SUPPORT_SECTIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };

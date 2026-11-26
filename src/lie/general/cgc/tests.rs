@@ -2434,7 +2434,8 @@ fn bits(entries: &[MEntry]) -> Vec<(u32, u32, u32, u32, u64)> {
 /// entries bit for bit and in order,
 /// through real sections of widths 2–5, widths above a stage's items, and a
 /// narrow child token of a team section; each forced stage really opened a
-/// section, under the shares' no-cache guard. At a forced width every layer
+/// section, under the shares' no-cache guard, the integralization's and the
+/// rounding's column stages among them. At a forced width every layer
 /// of two or more weights builds its product spaces in a section of its
 /// own, so phase A reads each `tos[w]` from that section; calibrated, every
 /// layer whose first weight leaves two or more to share does.
@@ -2482,8 +2483,13 @@ fn layer_descent_matches_the_serial_bits_at_every_width() {
         for width in [2, 3, 4, 5, 64] {
             let _force = crate::stage::force_width(width);
             crate::stage::SECTIONS.with(|s| s.borrow_mut().clear());
+            let integral = || exact::INTEGRAL_SECTIONS.with(|s| s.replace(0));
+            let round = || crate::rounding::cgc::ROUND_SECTIONS.with(|s| s.replace(0));
+            let _ = (integral(), round());
             let got = rounded_entries(&data, &a, &b, &c, n, Some(&mut team.exec(5))).unwrap();
             assert_eq!(bits(&got), serial, "{root:?} width {width}");
+            assert!(integral() >= 2, "{root:?} width {width}: scale and write");
+            assert_eq!(round(), 1, "{root:?} width {width}");
             assert_eq!(built(), shared(2), "{root:?} width {width}");
             let exact = exact_channel(&data, &a, &b, &c, n, false, Some(&mut team.exec(5)));
             assert!(exact.unwrap() == serial_exact, "{root:?} width {width}");
@@ -2783,7 +2789,7 @@ fn reset_between_view_and_exact_publication_retains_neither() {
 
 /// The view keeps an exactly nonzero coordinate that rounds to a signed zero
 /// and has no entry for an exactly zero one, which `LieCgc::get` reads as
-/// `+0.0`; on the serial token and on a team in one-entry chunks alike.
+/// `+0.0`; on the serial token and on a team token alike.
 #[test]
 fn view_keeps_rounded_zeros_and_omits_exact_zeros() {
     let r = |n: i64, d: malachite_nz::natural::Natural| {
@@ -2797,7 +2803,7 @@ fn view_keeps_rounded_zeros_and_omits_exact_zeros() {
     // exactly zero, `(1,1)` is `1`.
     let column = vec![(0, 0, r(-1, tiny)), (1, 1, Q::from(1))];
     let exact =
-        exact::ExactCgc::from_columns([2, 2, 1], vec![column], &[Q::from(1)], false).unwrap();
+        exact::ExactCgc::from_columns([2, 2, 1], vec![column], &[Q::from(1)], false, None).unwrap();
     let unit = |dim: usize| NormTable {
         norm: vec![Q::from(1); dim].into_boxed_slice(),
         nu: crate::exact::radical::SignedInts::from_words(&vec![(false, 1); dim]).unwrap(),
@@ -2822,7 +2828,6 @@ fn view_keeps_rounded_zeros_and_omits_exact_zeros() {
     check(round_channel(&exact, [&two, &two, &one], None), "serial");
     let team = layer_team(2);
     let _force = crate::stage::force_width(2);
-    let _chunk = ChunkGuard::set(1);
     check(
         round_channel(&exact, [&two, &two, &one], Some(&mut team.exec(2))),
         "team",

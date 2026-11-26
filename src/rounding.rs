@@ -48,6 +48,52 @@ pub(crate) fn round_radical(sign: i8, num: &[Factor<'_>], den: &[Factor<'_>]) ->
     signed_sqrt_to_f64(sign, &big_product(num), &big_product(den))
 }
 
+/// The factors that many conversions share, multiplied once in stack limbs:
+/// a conversion that adds its own few factors then multiplies only by those
+/// ([`Self::round_square`]).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SharedFactors {
+    num: Limbs<INPUT_LIMBS>,
+    den: Limbs<INPUT_LIMBS>,
+}
+
+impl SharedFactors {
+    /// `Π num` and `Π den`, when both fit the stack limbs.
+    pub(crate) fn new(num: &[Factor<'_>], den: &[Factor<'_>]) -> Option<Self> {
+        Some(Self {
+            num: stack_product(num)?,
+            den: stack_product(den)?,
+        })
+    }
+
+    /// `sign·√(r² · Π num · Π words_num / (Π den · Π words_den))` with these
+    /// shared factors and the root `r` given as little-endian words: the
+    /// value [`round_radical`] gives for all the factors in one list, since
+    /// both products are the same integers and the result depends on the
+    /// ratio alone. `None` when a product leaves the stack limbs; the caller
+    /// then converts with [`round_radical`].
+    pub(crate) fn round_square(
+        &self,
+        sign: i8,
+        root: &[u64],
+        words_num: [u64; 2],
+        words_den: [u64; 2],
+    ) -> Option<f64> {
+        if sign == 0 {
+            return Some(0.0);
+        }
+        let mut n = Limbs::<INPUT_LIMBS>::from_words(root)?;
+        n.checked_mul_words(root)?;
+        n.checked_mul_limbs(&self.num)?;
+        let mut d = self.den;
+        for (&p, &q) in words_num.iter().zip(&words_den) {
+            n.checked_mul_word(p)?;
+            d.checked_mul_word(q)?;
+        }
+        Some(signed_sqrt_limbs_to_f64(sign, n, d))
+    }
+}
+
 /// `Π f` in stack limbs, when every partial product fits. Every factor is at
 /// least 1, so a partial product overflows only when the whole one does.
 fn stack_product(factors: &[Factor<'_>]) -> Option<Limbs<INPUT_LIMBS>> {
@@ -493,6 +539,17 @@ impl<const N: usize> Limbs<N> {
             [w] => self.checked_mul_word(*w),
             wide => {
                 *self = self.checked_mul(&Self::from_words(wide)?)?;
+                Some(())
+            }
+        }
+    }
+
+    /// `self *= x`, in one pass in place when `x` is a word.
+    fn checked_mul_limbs(&mut self, x: &Self) -> Option<()> {
+        match x.word() {
+            Some(w) => self.checked_mul_word(w),
+            None => {
+                *self = self.checked_mul(x)?;
                 Some(())
             }
         }
