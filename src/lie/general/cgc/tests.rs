@@ -1158,7 +1158,7 @@ fn sparse_nullspace_matches_dense_channels() {
             fam.module(Label::new(&b)).unwrap(),
         );
         for (c, n) in outcomes.iter() {
-            compare_nullspace(&fam.data, &ma, &mb, c.dynkin(), *n as usize);
+            compare_nullspace(fam.data(), &ma, &mb, c.dynkin(), *n as usize);
             count += 1;
         }
     }
@@ -2794,7 +2794,7 @@ fn view_keeps_rounded_zeros_and_omits_exact_zeros() {
             .collect();
         assert_eq!(
             got,
-            [(0, 0, (-0.0f64).to_bits()), (1, 1, 1.0f64.to_bits())],
+            [(0u32, 0u32, (-0.0f64).to_bits()), (1, 1, 1.0f64.to_bits())],
             "{token}"
         );
     };

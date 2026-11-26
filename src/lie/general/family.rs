@@ -234,7 +234,7 @@ impl GeneralFamily {
             ];
             Ok(Arc::new(round_channel(
                 &exact,
-                [&norms[0], &norms[1], &norms[2]],
+                norms.each_ref().map(|n| &**n),
                 exec,
             )))
         })
@@ -350,11 +350,7 @@ impl GeneralFamily {
                 self.norm_table_in(b, modules)?,
                 self.norm_table_in(c, modules)?,
             ];
-            round_channel(
-                &exact,
-                [&norms[0], &norms[1], &norms[2]],
-                exec.as_deref_mut(),
-            )
+            round_channel(&exact, norms.each_ref().map(|n| &**n), exec.as_deref_mut())
         };
         #[cfg(test)]
         if let Some(corrupt) = CORRUPT.with(std::cell::Cell::get) {
@@ -433,7 +429,8 @@ impl GeneralFamily {
                 || {
                     #[cfg(test)]
                     count_build(3);
-                    NormTable::new(&modules.load(self, label)?).map(Arc::new)
+                    let module = modules.load(self, label)?;
+                    NormTable::new(&module).map(Arc::new)
                 },
             )
         })
