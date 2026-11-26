@@ -19,7 +19,7 @@ use super::cgc::{CgcChannel, Ladders, ProductScratch, ProductSpace};
 #[cfg(test)]
 use super::cgc::{ExactChannel, AT_CONTRACTION, BEFORE_FOURTH, BUILDS, REQUEST_MODULES};
 #[cfg(test)]
-use super::cgc::{BEFORE_LOAD, CORRUPT, CORRUPT_BLOCK, FAIL_PHASE};
+use super::cgc::{AFTER_EXACT, BEFORE_LOAD, CORRUPT, CORRUPT_BLOCK, FAIL_PHASE};
 use super::roots::CartanData;
 use crate::cache::Label;
 use crate::category::{FBlock, RBlock};
@@ -218,6 +218,10 @@ impl GeneralFamily {
         crate::cache::cgc_channel(self.root(), [a, b, c], || {
             let mut fresh = None;
             let exact = self.exact_channel_in(a, b, c, modules, exec.as_deref_mut(), &mut fresh)?;
+            #[cfg(test)]
+            if let Some(hook) = AFTER_EXACT.with(std::cell::Cell::take) {
+                hook();
+            }
             if let Some(view) = fresh {
                 return Ok(view);
             }

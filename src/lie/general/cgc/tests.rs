@@ -2734,28 +2734,48 @@ fn view_miss_over_a_resident_exact_channel_runs_no_descent() {
     crate::cache::reset();
 }
 
-/// A reset after the view's claim and before the exact generation it leads
-/// retains neither entry (one inherited epoch), returns the right bits, and a
-/// later call retains both. The labels are used by no other test.
+/// A reset after the exact channel's publication and before its view's
+/// retains neither (the exact entry is cleared, the view's epoch is stale),
+/// returns the right bits, and the next call regenerates once and retains
+/// both. The labels are used by no other test.
 #[test]
 fn reset_between_view_and_exact_publication_retains_neither() {
+    static EXACT_AT_RESET: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+    fn reset_after_exact() {
+        let resident =
+            crate::cache::cgc_exact_channel_is_resident(RootSystem::G2, [&G14, &G64, &G64]);
+        EXACT_AT_RESET.store(resident, std::sync::atomic::Ordering::SeqCst);
+        crate::cache::reset();
+    }
     let _guard = crate::cache::TEST_CACHE_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let fam = GeneralFamily::new(RootSystem::G2);
-    let (a, b) = (G14.to_vec(), G64.to_vec());
-    let [la, lb] = [&a, &b].map(|x| Label::new(x));
+    let [la, lb] = [&G14, &G64].map(|x| Label::new(x));
     let resident = || {
         (
-            crate::cache::cgc_channel_is_resident(RootSystem::G2, [&a, &b, &b]),
-            crate::cache::cgc_exact_channel_is_resident(RootSystem::G2, [&a, &b, &b]),
+            crate::cache::cgc_channel_is_resident(RootSystem::G2, [&G14, &G64, &G64]),
+            crate::cache::cgc_exact_channel_is_resident(RootSystem::G2, [&G14, &G64, &G64]),
         )
     };
     crate::cache::reset();
-    crate::cache::AFTER_GUARD.with(|h| h.set(Some(crate::cache::reset)));
+    EXACT_AT_RESET.store(false, std::sync::atomic::Ordering::SeqCst);
+    AFTER_EXACT.with(|h| h.set(Some(reset_after_exact)));
     let first = fam.cgc_entries(la, lb, lb, None).unwrap();
+    AFTER_EXACT.with(|h| h.set(None));
+    assert!(
+        EXACT_AT_RESET.load(std::sync::atomic::Ordering::SeqCst),
+        "the exact channel was published before the reset"
+    );
     assert_eq!(resident(), (false, false));
+    let builds = BUILDS.with(std::cell::Cell::get)[1];
     let again = fam.cgc_entries(la, lb, lb, None).unwrap();
+    assert_eq!(
+        BUILDS.with(std::cell::Cell::get)[1],
+        builds + 1,
+        "regenerated once"
+    );
     assert_eq!(resident(), (true, true));
     assert_eq!(bits(&first), bits(&again));
     crate::cache::reset();

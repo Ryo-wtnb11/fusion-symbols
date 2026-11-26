@@ -1263,6 +1263,9 @@ thread_local! {
     pub(super) static ROW_WRITES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// Product spaces whose emitted order needed [`ProductSpace::new`]'s sort.
     pub(super) static FIBRE_SORTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Run once by the next view miss of this thread, after its exact
+    /// channel was published and before the view is.
+    pub(super) static AFTER_EXACT: Fault<fn()> = const { std::cell::Cell::new(None) };
     /// Fault injection between rounding and the gates.
     pub(super) static CORRUPT: Fault<fn(&mut [MEntry])> = const { std::cell::Cell::new(None) };
     /// Called on entry to every module and channel load, before its cache lookup.

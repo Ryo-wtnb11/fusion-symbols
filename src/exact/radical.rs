@@ -110,17 +110,32 @@ impl SignedInts {
 
     /// The slab of `values`, `(negative, |x|)` per entry, when its words can
     /// be counted.
+    ///
+    /// The stride is found first, so the limbs are written straight into one
+    /// slab allocation with no per-entry buffer.
     pub(crate) fn from_naturals(values: &[(bool, Natural)]) -> Option<Self> {
-        let words: Vec<Vec<u64>> = values.iter().map(|(_, x)| natural_words(x)).collect();
         let len = values.len();
-        let stride = words.iter().map(Vec::len).max().unwrap_or(0);
+        let stride = values
+            .iter()
+            .map(|(_, x)| x.significant_bits().div_ceil(64))
+            .max()
+            .map_or(Some(0), |w| usize::try_from(w).ok())?;
         let mut neg = vec![0u64; len.div_ceil(64)];
         let mut mag = vec![0u64; len.checked_mul(stride)?];
-        for (i, ((n, _), w)) in values.iter().zip(&words).enumerate() {
-            if *n && !w.is_empty() {
+        for (i, (n, x)) in values.iter().enumerate() {
+            if *n && *x != Natural::ZERO {
                 neg[i / 64] |= 1 << (i % 64);
             }
-            mag[i * stride..i * stride + w.len()].copy_from_slice(w);
+            let words = &mut mag[i * stride..(i + 1) * stride];
+            for (j, w) in x.limbs().enumerate() {
+                let bit = j * Limb::BITS as usize;
+                // A Malachite limb is 64 bits wide, or 32 under its
+                // `32_bit_limbs` feature, where this conversion is not the
+                // identity.
+                #[allow(clippy::useless_conversion)]
+                let w = u64::from(w);
+                words[bit / 64] |= w << (bit % 64);
+            }
         }
         Some(Self {
             len,
@@ -248,6 +263,7 @@ impl SignedInts {
 
 /// The little-endian 64-bit words of `x`, without high zero words. Reads
 /// Malachite's limbs in place, at either limb width.
+#[cfg_attr(not(any(test, feature = "disk-cache")), allow(dead_code))]
 pub(crate) fn natural_words(x: &Natural) -> Vec<u64> {
     let mut words = vec![0u64; x.significant_bits().div_ceil(64) as usize];
     for (i, w) in x.limbs().enumerate() {
@@ -428,6 +444,37 @@ mod tests {
         for len in 0..good.len() {
             assert!(!decodes(&good[..len]), "prefix {len}");
         }
+    }
+
+    /// The big-integer constructor lays out the canonical slab written out
+    /// here: the empty slab, an all-word slab, and mixed widths with a zero
+    /// entry, whose stride is the widest entry's word count.
+    #[test]
+    fn natural_slab_layout() {
+        let empty = SignedInts::from_naturals(&[]).unwrap();
+        assert_eq!(
+            (empty.len, empty.stride, &*empty.neg, &*empty.mag),
+            (0, 0, &[][..], &[][..])
+        );
+        let words = SignedInts::from_naturals(&[
+            (false, Natural::from(3u32)),
+            (true, Natural::from(u64::MAX)),
+        ])
+        .unwrap();
+        assert_eq!(
+            (words.len, words.stride, &*words.neg, &*words.mag),
+            (2, 1, &[0b10u64][..], &[3, u64::MAX][..])
+        );
+        let mixed = SignedInts::from_naturals(&[
+            (true, (Natural::ONE << 64u32) + Natural::from(5u32)),
+            (true, Natural::ZERO),
+            (false, Natural::from(7u32)),
+        ])
+        .unwrap();
+        assert_eq!(
+            (mixed.len, mixed.stride, &*mixed.neg, &*mixed.mag),
+            (3, 2, &[0b001u64][..], &[5, 1, 0, 0, 7, 0][..])
+        );
     }
 
     /// A radicand needs both parts positive and canonical words.
