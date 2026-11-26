@@ -68,9 +68,10 @@ pub struct ProbeStats {
     pub join_secs: f64,
     /// Of `contract_secs`: the final sum over keys.
     pub sum_secs: f64,
-    /// Accumulator of each simple block's final sum (`words`, `limbs4`,
-    /// `limbs8`, `limbs16`, `big`, `q` for R; `=big` when checked), joined
-    /// by `+` over product factors.
+    /// Join and final-sum arithmetic of each simple block: `join128` (word
+    /// joins), `joinlimbsJ` (`J`-limb joins) or `qjoin` (`Q` joins), then
+    /// `words`/`limbs4`/`limbs8`/`limbs16`/`big`; `q` for R; `=…` the
+    /// reference when checked; joined by `+` over product factors.
     pub accum: String,
     /// Bit length of each exact integer numerator `S` (resp. `T`); for a
     /// product group, of each factor's numerators.
@@ -241,14 +242,18 @@ fn divide_content<'v>(values: impl Iterator<Item = &'v Q>) -> Natural {
     }
 }
 
-fn integral(raw: Vec<Raw>, norms: Vec<Q>, st: &mut ProbeStats) -> IntChannel {
+fn integral(raw: Vec<Raw>, norms: Vec<Q>, name: &str, st: &mut ProbeStats) -> IntChannel {
     let t = Instant::now();
     let n = norms.len();
     let mut den = vec![one(); n];
+    // Per μ: the largest bit lengths of the numerators and denominators of x.
+    let mut x_bits = vec![(0u64, 0u64); n];
     for (.., mu, x) in &raw {
         st.x_values += 1;
         st.x_big += u64::from(x.heap_bytes() != 0);
-        let (_, q) = x.magnitudes();
+        let (p, q) = x.magnitudes();
+        let b = &mut x_bits[*mu];
+        *b = (b.0.max(p.significant_bits()), b.1.max(q.significant_bits()));
         if *q != one() {
             let d = std::mem::replace(&mut den[*mu], one());
             den[*mu] = d.lcm(q.into_owned());
@@ -263,13 +268,38 @@ fn integral(raw: Vec<Raw>, norms: Vec<Q>, st: &mut ProbeStats) -> IntChannel {
         .map(|mu| divide_content(scaled.iter().filter(|e| e.3 == mu).map(|e| &e.4)))
         .collect();
     let div: Vec<Q> = content.iter().map(to_q).collect();
-    let entries = scaled
+    let entries: Vec<Raw> = scaled
         .into_iter()
         .map(|(p, q, m, mu, x)| {
             let x = if div[mu].is_one() { x } else { x / &div[mu] };
             (p, q, m, mu, x)
         })
         .collect();
+    // Report where an integer coordinate X = x·D_μ / content_μ leaves the
+    // word range, against the widths of x itself and of D_μ.
+    for mu in 0..n {
+        let (wide, widest) = entries
+            .iter()
+            .filter(|e: &&Raw| e.3 == mu)
+            .map(|e| bits(&e.4))
+            .fold((0usize, 0u64), |(k, m), b| {
+                (k + usize::from(b > 63), m.max(b))
+            });
+        if wide > 0 {
+            let at = entries
+                .iter()
+                .find(|e: &&Raw| e.3 == mu && bits(&e.4) > 63)
+                .map(|e| (e.0, e.1, e.2));
+            eprintln!(
+                "exact-fr-probe: {name} μ={mu}: {wide} X above 63 bits (max {widest}); \
+                 bits D_μ={}, content_μ={}, max bits num(x)={}, den(x)={}; first at engine {at:?}",
+                den[mu].significant_bits(),
+                content[mu].significant_bits(),
+                x_bits[mu].0,
+                x_bits[mu].1,
+            );
+        }
+    }
     st.prep_secs += t.elapsed().as_secs_f64();
     IntChannel {
         entries,
@@ -445,6 +475,31 @@ impl<const L: usize> Mag<L> {
         }
     }
 
+    /// `Σ pos − Σ neg` of two lazy-carry column banks; each bank's value, a
+    /// partial sum of `|terms|`, fits `L` limbs by the caller's bound.
+    fn from_cols(pos: &[u128], neg: &[u128]) -> Self {
+        let (p, n) = (settled::<L>(pos), settled::<L>(neg));
+        let negative = p.iter().rev().cmp(n.iter().rev()) == Ordering::Less;
+        let (x, y) = if negative { (n, p) } else { (p, n) };
+        let mut limbs = [0u64; L];
+        let mut borrow = false;
+        for ((r, &a), &b) in limbs.iter_mut().zip(&x).zip(&y) {
+            let (d, b1) = a.overflowing_sub(b);
+            let (d, b2) = d.overflowing_sub(u64::from(borrow));
+            *r = d;
+            borrow = b1 || b2;
+        }
+        let mut len = L;
+        while len > 0 && limbs[len - 1] == 0 {
+            len -= 1;
+        }
+        Self {
+            neg: negative,
+            len,
+            limbs,
+        }
+    }
+
     /// `self · other`, which the caller's bit bound fits into `L` limbs.
     fn mul(&self, other: &Self) -> Self {
         let mut r = [0u64; L];
@@ -483,6 +538,28 @@ impl<const L: usize> Mag<L> {
             }
         }
     }
+}
+
+/// `Σ_k col[k] 2^(64k)` in `L` limbs, for a value the caller's bound fits
+/// there (higher columns are then zero once carried).
+fn settled<const L: usize>(col: &[u128]) -> [u64; L] {
+    let mut r = [0u64; L];
+    let mut carry = 0u128;
+    for (k, &c) in col.iter().enumerate() {
+        let t = c + carry;
+        if let Some(slot) = r.get_mut(k) {
+            *slot = t as u64;
+        }
+        carry = t >> 64;
+    }
+    for slot in r.iter_mut().skip(col.len()) {
+        if carry == 0 {
+            break;
+        }
+        *slot = carry as u64;
+        carry >>= 64;
+    }
+    r
 }
 
 /// `Σ_k col[k] 2^(64k)`. A column receives two summands below `2^64` per
@@ -612,30 +689,95 @@ fn settle(cols: &[u128], c: usize) -> Vec<Signed> {
         .collect()
 }
 
-/// A channel entry regrouped for the word join: `(g0, g1, m_b, multiplicity,
-/// X)`, sorted by the group `(g0, g1)`.
-type WordEntry = (usize, usize, usize, usize, i64);
-/// A sliced channel grouped by one engine index: `(other index, multiplicity,
-/// X)`.
-type WordGroup = HashMap<usize, Vec<(usize, usize, i64)>>;
-
-/// `q` as a word, when it fits.
-fn word(q: &Q) -> Option<i64> {
-    let (p, _) = q.magnitudes();
-    let v = i64::try_from(u64::try_from(p.as_ref()).ok()?).ok()?;
-    Some(if q.signum() == Ordering::Less { -v } else { v })
+/// The arithmetic of the dense-slot joins: one operand type and a fixed
+/// number of `u128` cells per accumulated join value.
+trait JoinArith {
+    /// One exact coordinate `X`.
+    type X: Copy;
+    /// `u128` cells per accumulated value.
+    const CELLS: usize;
+    /// The tag in the `accum` column.
+    fn name() -> String;
+    /// `q`, which the block's bound fits into `X`.
+    fn operand(q: &Q) -> Self::X;
+    /// `cells += a · b`.
+    fn mac(cells: &mut [u128], a: &Self::X, b: &Self::X);
+    /// The accumulated value, which the block's bound fits into `L` limbs.
+    fn read<const L: usize>(cells: &[u128]) -> Mag<L>;
 }
 
-fn word_bits(v: i64) -> u64 {
-    u64::from(64 - v.unsigned_abs().leading_zeros())
+/// Word operands into one `i128` cell, held in two's complement as `u128`.
+struct Word;
+
+impl JoinArith for Word {
+    type X = i64;
+    const CELLS: usize = 1;
+    fn name() -> String {
+        "join128".into()
+    }
+    fn operand(q: &Q) -> i64 {
+        let (p, _) = q.magnitudes();
+        let v = u64::try_from(p.as_ref())
+            .ok()
+            .and_then(|m| i64::try_from(m).ok())
+            .expect("the block bound admits only word coordinates");
+        if q.signum() == Ordering::Less {
+            -v
+        } else {
+            v
+        }
+    }
+    fn mac(cells: &mut [u128], a: &i64, b: &i64) {
+        cells[0] = cells[0].wrapping_add((i128::from(*a) * i128::from(*b)) as u128);
+    }
+    fn read<const L: usize>(cells: &[u128]) -> Mag<L> {
+        Mag::from_i128(cells[0] as i128)
+    }
 }
+
+/// `J`-limb operands into lazy-carry columns: `2J` cells for positive
+/// products, then `2J` for negative ones.
+struct Wide<const J: usize>;
+
+impl<const J: usize> JoinArith for Wide<J> {
+    type X = Mag<J>;
+    const CELLS: usize = 4 * J;
+    fn name() -> String {
+        format!("joinlimbs{J}")
+    }
+    fn operand(q: &Q) -> Mag<J> {
+        Mag::from_q(q)
+    }
+    fn mac(cells: &mut [u128], a: &Mag<J>, b: &Mag<J>) {
+        let c = 2 * J;
+        let off = if a.neg != b.neg { c } else { 0 };
+        a.mac_into(b, &mut cells[off..off + c]);
+    }
+    fn read<const L: usize>(cells: &[u128]) -> Mag<L> {
+        Mag::from_cols(&cells[..2 * J], &cells[2 * J..])
+    }
+}
+
+/// A full channel regrouped as `(g0, g1, m_b, multiplicity, X)`, sorted by
+/// `(g0, g1)`.
+type Entries<X> = Vec<(usize, usize, usize, usize, X)>;
+/// A sliced channel grouped by one engine index: `(other, multiplicity, X)`.
+type Groups<X> = HashMap<usize, Vec<(usize, usize, X)>>;
+/// `(g0, g1)` → the range of that group in a sorted entry list.
+type Ranges = HashMap<(usize, usize), Range<usize>>;
 
 fn bit_len(n: usize) -> u64 {
     u64::from(usize::BITS - n.leading_zeros())
 }
 
-/// `(g0, g1)` → the range of that group in a sorted entry list.
-type Ranges = HashMap<(usize, usize), Range<usize>>;
+/// The most entries of `ch` sharing one `key`.
+fn longest(ch: &IntChannel, key: impl Fn(&Raw) -> usize) -> usize {
+    let mut n: HashMap<usize, usize> = HashMap::new();
+    for e in &ch.entries {
+        *n.entry(key(e)).or_default() += 1;
+    }
+    n.into_values().max().unwrap_or(0)
+}
 
 /// One flag per engine index of a module, set for `idx`.
 fn marks(n: usize, idx: impl Iterator<Item = usize>) -> Vec<bool> {
@@ -646,20 +788,20 @@ fn marks(n: usize, idx: impl Iterator<Item = usize>) -> Vec<bool> {
     v
 }
 
-/// Entries of a full channel as `(g0, g1, m_b, μ, X)` sorted by `(g0, g1)`,
-/// with the range of each group: one sort, no per-key allocation.
-fn sorted_groups(
+/// A full channel as `(g0, g1, m_b, μ, X)` sorted by `(g0, g1)`, with the
+/// range of each group: one sort, no per-key allocation.
+fn sorted_groups<A: JoinArith>(
     ch: &IntChannel,
     regroup: impl Fn(&Raw) -> (usize, usize, usize),
-) -> Option<(Vec<WordEntry>, Ranges)> {
-    let mut v = ch
+) -> (Entries<A::X>, Ranges) {
+    let mut v: Entries<A::X> = ch
         .entries
         .iter()
         .map(|e| {
             let (g0, g1, mb) = regroup(e);
-            Some((g0, g1, mb, e.3, word(&e.4)?))
+            (g0, g1, mb, e.3, A::operand(&e.4))
         })
-        .collect::<Option<Vec<WordEntry>>>()?;
+        .collect();
     v.sort_unstable_by_key(|e| (e.0, e.1));
     let mut at = HashMap::new();
     let mut start = 0;
@@ -667,87 +809,95 @@ fn sorted_groups(
         at.insert((g[0].0, g[0].1), start..start + g.len());
         start += g.len();
     }
-    Some((v, at))
+    (v, at)
 }
 
-/// A sliced channel grouped by `key(entry)`, with `(other, multiplicity, X)`.
-fn word_group(ch: &IntChannel, key: impl Fn(&Raw) -> (usize, usize)) -> Option<WordGroup> {
-    let mut g: WordGroup = HashMap::new();
+/// A sliced channel grouped by `key(entry) = (group, other)`.
+fn groups<A: JoinArith>(ch: &IntChannel, key: impl Fn(&Raw) -> (usize, usize)) -> Groups<A::X> {
+    let mut g: Groups<A::X> = HashMap::new();
     for e in &ch.entries {
         let (k, other) = key(e);
-        g.entry(k).or_default().push((other, e.3, word(&e.4)?));
+        g.entry(k).or_default().push((other, e.3, A::operand(&e.4)));
     }
-    Some(g)
+    g
 }
 
-/// The inputs of [`fused`], with every bound checked.
-struct Fused<'a> {
-    /// `A` as `(m_a, m_e, m_b, μ, X)` and its `(m_a, m_e)` ranges.
-    a: Vec<WordEntry>,
-    a_at: Ranges,
-    /// `Cb` as `(m_c, m_f, m_b, κ, X)` and its `(m_c, m_f)` ranges.
-    c: Vec<WordEntry>,
-    c_at: Ranges,
-    /// `B` seeds by `m_c` → `(m_e, ν, X)`; `D` seeds by `m_a` → `(m_f, λ, X)`.
-    b_by_mc: WordGroup,
-    d_by_ma: WordGroup,
+/// The bound-checked shape of one fused evaluation.
+struct Plan<'a> {
     nu: [&'a [Q]; 3],
-    /// Position of each `m_b` within its weight space, and the largest
-    /// weight multiplicity of `b`.
+    /// Position of each `m_b` within its weight space.
     rank: &'a [u32],
+    /// The largest weight multiplicity of `b`.
     slots: usize,
     dims: [usize; 4],
     w_on_ab: bool,
 }
 
+/// The inputs of [`fused`] in the arithmetic `A`.
+struct Fused<'a, A: JoinArith> {
+    /// `A` as `(m_a, m_e, m_b, μ, X)` and its `(m_a, m_e)` ranges.
+    a: Entries<A::X>,
+    a_at: Ranges,
+    /// `Cb` as `(m_c, m_f, m_b, κ, X)` and its `(m_c, m_f)` ranges.
+    c: Entries<A::X>,
+    c_at: Ranges,
+    /// `B` seeds by `m_c` → `(m_e, ν, X)`; `D` seeds by `m_a` → `(m_f, λ, X)`.
+    b_by_mc: Groups<A::X>,
+    d_by_ma: Groups<A::X>,
+    plan: Plan<'a>,
+}
+
 /// The joins and the final sum per `(m_a, m_c)`: all keys `(m_a, m_b, m_c)`
 /// of one pair share the weight `top(d) − wt(m_a) − wt(m_c)` of `m_b`, so
 /// `m_b` indexes a dense slot by its rank in that weight space. Each partial
-/// join is a word × word multiply–accumulate into an `i128` slot, read once
-/// by the final sum as stack limbs; slots are cleared as they are read.
-fn fused<const L: usize>(x: &Fused<'_>, st: &mut ProbeStats) -> Vec<Signed> {
-    let [n1, n2, n3, n4] = x.dims;
-    let (n12, n34, c) = (n1 * n2, n3 * n4, 2 * L);
+/// join accumulates in `A`'s cells and is read once by the final sum as
+/// `L`-limb operands; slots are cleared as they are read.
+fn fused<A: JoinArith, const L: usize>(x: &Fused<'_, A>, st: &mut ProbeStats) -> Vec<Signed> {
+    let p = &x.plan;
+    let [n1, n2, n3, n4] = p.dims;
+    let (n12, n34, c, k) = (n1 * n2, n3 * n4, 2 * L, A::CELLS);
     let mut cols = vec![0u128; n12 * n34 * 2 * c];
-    let nus: [Vec<Mag<L>>; 3] = x.nu.map(|v| v.iter().map(Mag::from_q).collect());
-    let mut ab = vec![0i128; x.slots * n12];
-    let mut cd = vec![0i128; x.slots * n34];
+    let nus: [Vec<Mag<L>>; 3] = p.nu.map(|v| v.iter().map(Mag::from_q).collect());
+    let mut ab = vec![0u128; p.slots * n12 * k];
+    let mut cd = vec![0u128; p.slots * n34 * k];
     // The `m_b` of a slot reached by the AB join, `usize::MAX` otherwise.
-    let mut slot_mb = vec![usize::MAX; x.slots];
-    let mut has_cd = vec![false; x.slots];
-    let mut touched: Vec<usize> = Vec::with_capacity(x.slots);
+    let mut slot_mb = vec![usize::MAX; p.slots];
+    let mut has_cd = vec![false; p.slots];
+    let mut touched: Vec<usize> = Vec::with_capacity(p.slots);
     let (mut left, mut right): (Vec<Mag<L>>, Vec<Mag<L>>) =
         (Vec::with_capacity(n12), Vec::with_capacity(n34));
     let (mut join, mut sum) = (0.0, 0.0);
     for (&ma, dl) in &x.d_by_ma {
         for (&mc, bl) in &x.b_by_mc {
             let t0 = Instant::now();
-            for &(me, nu, xb) in bl {
-                let Some(r) = x.a_at.get(&(ma, me)) else {
+            for (me, nu, xb) in bl {
+                let Some(r) = x.a_at.get(&(ma, *me)) else {
                     continue;
                 };
-                for &(_, _, mb, mu, xa) in &x.a[r.clone()] {
-                    let s = x.rank[mb] as usize;
+                for (_, _, mb, mu, xa) in &x.a[r.clone()] {
+                    let s = p.rank[*mb] as usize;
                     if slot_mb[s] == usize::MAX {
-                        slot_mb[s] = mb;
+                        slot_mb[s] = *mb;
                         touched.push(s);
                     }
-                    ab[s * n12 + mu * n2 + nu] += i128::from(xa) * i128::from(xb);
+                    let at = (s * n12 + mu * n2 + nu) * k;
+                    A::mac(&mut ab[at..at + k], xa, xb);
                 }
             }
             if touched.is_empty() {
                 join += t0.elapsed().as_secs_f64();
                 continue;
             }
-            for &(mf, lambda, xd) in dl {
-                let Some(r) = x.c_at.get(&(mc, mf)) else {
+            for (mf, lambda, xd) in dl {
+                let Some(r) = x.c_at.get(&(mc, *mf)) else {
                     continue;
                 };
-                for &(_, _, mb, kappa, xc) in &x.c[r.clone()] {
-                    let s = x.rank[mb] as usize;
-                    if slot_mb[s] == mb {
+                for (_, _, mb, kappa, xc) in &x.c[r.clone()] {
+                    let s = p.rank[*mb] as usize;
+                    if slot_mb[s] == *mb {
                         has_cd[s] = true;
-                        cd[s * n34 + kappa * n4 + lambda] += i128::from(xc) * i128::from(xd);
+                        let at = (s * n34 + kappa * n4 + lambda) * k;
+                        A::mac(&mut cd[at..at + k], xc, xd);
                     }
                 }
             }
@@ -755,17 +905,21 @@ fn fused<const L: usize>(x: &Fused<'_>, st: &mut ProbeStats) -> Vec<Signed> {
             join += (t1 - t0).as_secs_f64();
             let wac = nus[0][ma].mul(&nus[2][mc]);
             for &s in &touched {
-                let (abr, cdr) = (s * n12..(s + 1) * n12, s * n34..(s + 1) * n34);
+                let (abr, cdr) = (
+                    s * n12 * k..(s + 1) * n12 * k,
+                    s * n34 * k..(s + 1) * n34 * k,
+                );
                 if has_cd[s] {
                     let w = wac.mul(&nus[1][slot_mb[s]]);
+                    let read = A::read::<L>;
                     left.clear();
                     right.clear();
-                    if x.w_on_ab {
-                        left.extend(ab[abr.clone()].iter().map(|&v| Mag::from_i128(v).mul(&w)));
-                        right.extend(cd[cdr.clone()].iter().map(|&v| Mag::from_i128(v)));
+                    if p.w_on_ab {
+                        left.extend(ab[abr.clone()].chunks_exact(k).map(|v| read(v).mul(&w)));
+                        right.extend(cd[cdr.clone()].chunks_exact(k).map(read));
                     } else {
-                        left.extend(ab[abr.clone()].iter().map(|&v| Mag::from_i128(v)));
-                        right.extend(cd[cdr.clone()].iter().map(|&v| Mag::from_i128(v).mul(&w)));
+                        left.extend(ab[abr.clone()].chunks_exact(k).map(read));
+                        right.extend(cd[cdr.clone()].chunks_exact(k).map(|v| read(v).mul(&w)));
                     }
                     for (i, l) in left.iter().enumerate() {
                         if l.len == 0 {
@@ -794,36 +948,59 @@ fn fused<const L: usize>(x: &Fused<'_>, st: &mut ProbeStats) -> Vec<Signed> {
     settle(&cols, c)
 }
 
-/// The word join and final sum when every bound holds before the loop:
-/// each `X` a word; `bits(AB) ≤ bits X_A + bits X_B + bit_len(max |B[m_c]|)`
-/// within `i128`, likewise CD with `max |D[m_a]|`; and the final operands
-/// within 16 limbs. `None` leaves the block to the `Q` join.
-fn fused_sum(
+/// Builds the fused inputs in `A` and runs them with `L`-limb final operands.
+fn run<A: JoinArith>(
     (ca, cb, cc, cd): (&IntChannel, &IntChannel, &IntChannel, &IntChannel),
+    plan: Plan<'_>,
+    limbs: usize,
+    st: &mut ProbeStats,
+) -> Option<(String, Vec<Signed>)> {
+    let t = Instant::now();
+    let (a, a_at) = sorted_groups::<A>(ca, |e| (e.0, e.2, e.1));
+    let (c, c_at) = sorted_groups::<A>(cc, |e| (e.1, e.2, e.0));
+    let x = Fused::<A> {
+        a,
+        a_at,
+        c,
+        c_at,
+        b_by_mc: groups::<A>(cb, |e| (e.1, e.0)),
+        d_by_ma: groups::<A>(cd, |e| (e.0, e.1)),
+        plan,
+    };
+    st.join_secs += t.elapsed().as_secs_f64();
+    let (kind, out) = match limbs {
+        0..=1 => ("words", fused::<A, 1>(&x, st)),
+        2..=4 => ("limbs4", fused::<A, 4>(&x, st)),
+        5..=8 => ("limbs8", fused::<A, 8>(&x, st)),
+        9..=16 => ("limbs16", fused::<A, 16>(&x, st)),
+        _ => return None,
+    };
+    Some((format!("{}+{kind}", A::name()), out))
+}
+
+/// The fused joins and final sum, with the arithmetic chosen from bounds
+/// computed before the loop. With `b_X` the largest `bits(X)` of a channel
+/// and `t_B = max_{m_c} |B[m_c]|`, `t_D = max_{m_a} |D[m_a]|` (the most
+/// terms of one AB, resp. CD, value), every partial sum of `|terms|` obeys
+/// `bits(AB) ≤ b_A + b_B + bit_len(t_B)` and `bits(CD) ≤ b_C + b_D +
+/// bit_len(t_D)`. The joins run in words into `i128` when every `X` is a
+/// word and both bounds are at most 127 bits, otherwise in `J`-limb
+/// operands (`J = ⌈max b_X / 64⌉ ≤ 4`) into lazy-carry columns; the final
+/// operands take `L` limbs from `bits(w) + narrower bound` and the wider
+/// bound, `bits(w) ≤ Σ max bits(ν)`. `None` (any `X` above 256 bits or an
+/// operand above 1024) leaves the block to the `Q` join.
+fn fused_sum(
+    chans: (&IntChannel, &IntChannel, &IntChannel, &IntChannel),
     nu: [&[Q]; 3],
     lb: &Ladders,
     dims: [usize; 4],
     st: &mut ProbeStats,
 ) -> Option<Vec<Signed>> {
-    let t = Instant::now();
-    let (a, a_at) = sorted_groups(ca, |e| (e.0, e.2, e.1))?;
-    let (c, c_at) = sorted_groups(cc, |e| (e.1, e.2, e.0))?;
-    let b_by_mc = word_group(cb, |e| (e.1, e.0))?;
-    let d_by_ma = word_group(cd, |e| (e.0, e.1))?;
-    let bits = |v: &[WordEntry]| v.iter().map(|e| word_bits(e.4)).max().unwrap_or(0);
-    let gbits = |g: &WordGroup| {
-        g.values()
-            .flatten()
-            .map(|e| word_bits(e.2))
-            .max()
-            .unwrap_or(0)
-    };
-    let longest = |g: &WordGroup| g.values().map(Vec::len).max().unwrap_or(0);
-    let ab_bits = bits(&a) + gbits(&b_by_mc) + bit_len(longest(&b_by_mc));
-    let cd_bits = bits(&c) + gbits(&d_by_ma) + bit_len(longest(&d_by_ma));
-    if ab_bits > 127 || cd_bits > 127 {
-        return None;
-    }
+    let (ca, cb, cc, cd) = chans;
+    let xbits = |ch: &IntChannel| ch.entries.iter().map(|e| bits(&e.4)).max().unwrap_or(0);
+    let (ba, bb, bc, bd) = (xbits(ca), xbits(cb), xbits(cc), xbits(cd));
+    let ab_bits = ba + bb + bit_len(longest(cb, |e| e.1));
+    let cd_bits = bc + bd + bit_len(longest(cd, |e| e.0));
     let w_bits: u64 = nu.iter().map(|v| max_bits(v)).sum();
     let w_on_ab = ab_bits <= cd_bits;
     let widest = if w_on_ab {
@@ -831,13 +1008,8 @@ fn fused_sum(
     } else {
         ab_bits.max(w_bits + cd_bits)
     };
-    let x = Fused {
-        a,
-        a_at,
-        c,
-        c_at,
-        b_by_mc,
-        d_by_ma,
+    let limbs = widest.div_ceil(64) as usize;
+    let plan = Plan {
         nu,
         rank: &lb.rank,
         slots: lb
@@ -850,16 +1022,18 @@ fn fused_sum(
         dims,
         w_on_ab,
     };
-    st.join_secs += t.elapsed().as_secs_f64();
-    let (kind, out) = match widest.div_ceil(64) {
-        0..=1 => ("words", fused::<1>(&x, st)),
-        2..=4 => ("limbs4", fused::<4>(&x, st)),
-        5..=8 => ("limbs8", fused::<8>(&x, st)),
-        9..=16 => ("limbs16", fused::<16>(&x, st)),
-        _ => return None,
+    let xmax = ba.max(bb).max(bc).max(bd);
+    let (kind, out) = if xmax <= 63 && ab_bits.max(cd_bits) <= 127 {
+        run::<Word>(chans, plan, limbs, st)?
+    } else {
+        match xmax.div_ceil(64) {
+            0..=1 => run::<Wide<1>>(chans, plan, limbs, st)?,
+            2 => run::<Wide<2>>(chans, plan, limbs, st)?,
+            3..=4 => run::<Wide<4>>(chans, plan, limbs, st)?,
+            _ => return None,
+        }
     };
-    st.accum.push_str("join128+");
-    st.accum.push_str(kind);
+    st.accum.push_str(&kind);
     Some(out)
 }
 
@@ -962,9 +1136,9 @@ fn simple_f(
     let lf = modules.load(fam, f)?;
     progress("modules", t0);
     let (raw, norms) = seeds(data, (&le, &lc, &ld), n2)?;
-    let cb = integral(raw, norms, st);
+    let cb = integral(raw, norms, "B", st);
     let (raw, norms) = seeds(data, (&la, &lf, &ld), n4)?;
-    let cd = integral(raw, norms, st);
+    let cd = integral(raw, norms, "D", st);
     progress("seeds B, D", t0);
     // Only A entries whose m_e meets B and whose m_a meets D, and Cb entries
     // whose m_f meets D and whose m_c meets B, reach a key of both joins.
@@ -980,7 +1154,7 @@ fn simple_f(
         &|pa, _, pe| me_in[pe] && ma_in[pa],
         &mut capture,
     )?;
-    let ca = integral(raw, norms, st);
+    let ca = integral(raw, norms, "A", st);
     progress("descent A", t0);
     let (raw, norms) = full(
         data,
@@ -989,7 +1163,7 @@ fn simple_f(
         &|_, pc, pf| mf_in[pf] && mc_in[pc],
         &mut capture,
     )?;
-    let cc = integral(raw, norms, st);
+    let cc = integral(raw, norms, "Cb", st);
     st.capture_secs += capture;
     progress("descent Cb", t0);
     let tn = Instant::now();
@@ -1068,9 +1242,9 @@ fn simple_r(
     let lc = modules.load(fam, c)?;
     progress("modules", t0);
     let (raw, norms) = seeds(data, (&la, &lb, &lc), n)?;
-    let ca = integral(raw, norms, st);
+    let ca = integral(raw, norms, "R ab", st);
     let (raw, norms) = seeds(data, (&lb, &la, &lc), n)?;
-    let cb = integral(raw, norms, st);
+    let cb = integral(raw, norms, "R ba", st);
     progress("seeds", t0);
     let (nu_a, da, ga) = integral_norms(&la);
     let (nu_b, db, gb) = integral_norms(&lb);

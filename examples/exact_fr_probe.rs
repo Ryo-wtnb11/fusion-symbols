@@ -30,7 +30,8 @@
 //! disk tier is enabled. `--b64-only` and `--exact-only` measure one side
 //! (the comparison columns stay empty); `--accum` selects the exact F joins
 //! and final sum: `auto` (word joins into `i128` and stack-limb final sum
-//! when their bounds hold, `join128+limbsN`; else `Q` joins, `qjoin+…`),
+//! when their bounds hold, `join128+limbsN`, else limb joins
+//! `joinlimbsJ+limbsN`; `Q` joins `qjoin+…` only above 256-bit X),
 //! `big` (`Q` joins and `Q` sum, `qjoin+big`) or `check` (auto, then big;
 //! the child panics and the row reads `FAILED` unless every `S` agrees).
 //! Progress of every phase goes to stderr.
