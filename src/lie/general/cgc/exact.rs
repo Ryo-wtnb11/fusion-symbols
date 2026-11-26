@@ -112,7 +112,7 @@ fn integral<'a>(
     ];
     let (neg, bits) = plan.write(len, xs, negate, &mut mag);
     let (stride, mag) = if plan.stride == 2 && bits <= 64 {
-        (1, mag.chunks_exact(2).map(|w| w[0]).collect())
+        (1, mag.as_chunks::<2>().0.iter().map(|w| w[0]).collect())
     } else {
         (plan.stride, mag)
     };
@@ -364,20 +364,16 @@ impl Coords {
         });
         #[cfg(test)]
         count_section(_w);
-        let plans: Vec<Option<Plan>> = {
-            let mut by_column = scales.drain();
-            (0..mult)
-                .map(|_| {
-                    by_column
-                        .by_ref()
-                        .take(width)
-                        .fold(Some(Scale::EMPTY), |acc, s| {
-                            acc.zip(s).and_then(|(a, s)| a.merge(s))
-                        })
-                        .and_then(Scale::plan)
-                })
-                .collect()
-        };
+        let by_column: Vec<Option<Scale>> = scales.drain().collect();
+        let plans: Vec<Option<Plan>> = by_column
+            .chunks(width.max(1))
+            .take(mult)
+            .map(|cols| {
+                cols.iter()
+                    .try_fold(Scale::EMPTY, |acc, s| acc.merge((*s)?))
+                    .and_then(Scale::plan)
+            })
+            .collect();
 
         let mut per_mu: Vec<Option<MuCoords>> = (0..mult).map(|_| None).collect();
         for (mu, plan) in plans.iter().enumerate() {
@@ -490,7 +486,7 @@ impl Coords {
                         let from = 2 * (col_start(k) - starts[mu]);
                         for (d, w) in take_part(&parts, k)
                             .iter_mut()
-                            .zip(mags[mu][from..].chunks_exact(2))
+                            .zip(mags[mu][from..].as_chunks::<2>().0)
                         {
                             *d = w[0];
                         }
