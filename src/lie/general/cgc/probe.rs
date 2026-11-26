@@ -37,7 +37,8 @@
 //! rounding of the absolute sum itself).
 
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use std::ops::Range;
 use std::time::Instant;
 
 use malachite_base::num::arithmetic::traits::{Gcd, Lcm, Square};
@@ -78,6 +79,10 @@ pub struct ProbeStats {
     pub u_bits: Vec<u64>,
     /// Bit length of each radicand denominator `V` passed to rounding.
     pub v_bits: Vec<u64>,
+    /// Of `gen_secs`: capturing exact coordinates inside the descents.
+    pub capture_secs: f64,
+    /// Of `gen_secs`: common denominators, contents and module norms.
+    pub prep_secs: f64,
     /// Exact CGC coordinates `x` read.
     pub x_values: u64,
     /// Of those, values outside the inline word representation.
@@ -102,9 +107,10 @@ pub struct ProbeBlock {
 /// How the final sum `S` of an F block is accumulated.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Accum {
-    /// Fixed-width stack limbs when the operand bound fits 16 limbs, else `Q`.
+    /// Word joins and fixed-width stack limbs when their bounds hold, else
+    /// the `Q` joins with stack limbs, else `Q` throughout.
     Auto,
-    /// `Q` (Malachite beyond words) throughout.
+    /// The `Q` hash-map joins and a `Q` final sum.
     Big,
     /// Both; panics unless every entry's `S` (hence `(sign, U, V)`) agrees.
     Check,
@@ -236,6 +242,7 @@ fn divide_content<'v>(values: impl Iterator<Item = &'v Q>) -> Natural {
 }
 
 fn integral(raw: Vec<Raw>, norms: Vec<Q>, st: &mut ProbeStats) -> IntChannel {
+    let t = Instant::now();
     let n = norms.len();
     let mut den = vec![one(); n];
     for (.., mu, x) in &raw {
@@ -263,6 +270,7 @@ fn integral(raw: Vec<Raw>, norms: Vec<Q>, st: &mut ProbeStats) -> IntChannel {
             (p, q, m, mu, x)
         })
         .collect();
+    st.prep_secs += t.elapsed().as_secs_f64();
     IntChannel {
         entries,
         den,
@@ -294,12 +302,14 @@ fn integral_norms(m: &Ladders) -> (Vec<Q>, Natural, Natural) {
 }
 
 /// The full exact channel `a ⊗ b → c` by the production descent, keeping
-/// the coupled states in `keep`.
+/// the entries `(m_a, m_b, m_c)` that `keep` accepts; the capture time is
+/// added to `capture`.
 fn full(
     data: &CartanData,
     (a, b, c): (&Ladders, &Ladders, &Ladders),
     n: usize,
-    keep: &HashSet<usize>,
+    keep: &dyn Fn(usize, usize, usize) -> bool,
+    capture: &mut f64,
 ) -> Result<(Vec<Raw>, Vec<Q>), LieError> {
     let mut raw = Vec::new();
     let mut norms = Vec::new();
@@ -316,15 +326,15 @@ fn full(
                 start.elapsed().as_secs_f64()
             );
         }
-        if keep.contains(&m) {
-            for (mu, v) in per_mu.iter().enumerate() {
-                for (&(pa, pb), x) in space.pairs.iter().zip(v) {
-                    if !x.is_zero() {
-                        raw.push((pa, pb, m, mu, x.clone()));
-                    }
+        let t = Instant::now();
+        for (mu, v) in per_mu.iter().enumerate() {
+            for (&(pa, pb), x) in space.pairs.iter().zip(v) {
+                if !x.is_zero() && keep(pa, pb, m) {
+                    raw.push((pa, pb, m, mu, x.clone()));
                 }
             }
         }
+        *capture += t.elapsed().as_secs_f64();
         Ok(())
     })?;
     Ok((raw, norms))
@@ -415,6 +425,22 @@ impl<const L: usize> Mag<L> {
         Self {
             neg: q.signum() == Ordering::Less,
             len: p.significant_bits().div_ceil(64) as usize,
+            limbs,
+        }
+    }
+
+    /// The word sum `v`, which the caller's bit bound fits into `L` limbs.
+    fn from_i128(v: i128) -> Self {
+        let m = v.unsigned_abs();
+        let (lo, hi) = (m as u64, (m >> 64) as u64);
+        let mut limbs = [0u64; L];
+        limbs[0] = lo;
+        if hi != 0 {
+            limbs[1] = hi;
+        }
+        Self {
+            neg: v < 0,
+            len: if hi != 0 { 2 } else { usize::from(lo != 0) },
             limbs,
         }
     }
@@ -517,16 +543,7 @@ fn sum_fixed<const L: usize>(
             }
         }
     }
-    cols.chunks_exact(2 * c)
-        .map(|e| {
-            let (pos, neg) = (column_natural(&e[..c]), column_natural(&e[c..]));
-            match pos.cmp(&neg) {
-                Ordering::Greater => (1, pos - neg),
-                Ordering::Less => (-1, neg - pos),
-                Ordering::Equal => (0, Natural::from(0u32)),
-            }
-        })
-        .collect()
+    settle(&cols, c)
 }
 
 /// The same sum accumulated in `Q`.
@@ -581,91 +598,282 @@ fn sum_auto(
     out
 }
 
-fn final_sum(
-    ab: &Keyed,
-    cd: &Keyed,
+/// Splits per-entry lazy-carry columns `[pos; c][neg; c]` into `(sign, |S|)`.
+fn settle(cols: &[u128], c: usize) -> Vec<Signed> {
+    cols.chunks_exact(2 * c)
+        .map(|e| {
+            let (pos, neg) = (column_natural(&e[..c]), column_natural(&e[c..]));
+            match pos.cmp(&neg) {
+                Ordering::Greater => (1, pos - neg),
+                Ordering::Less => (-1, neg - pos),
+                Ordering::Equal => (0, Natural::from(0u32)),
+            }
+        })
+        .collect()
+}
+
+/// A channel entry regrouped for the word join: `(g0, g1, m_b, multiplicity,
+/// X)`, sorted by the group `(g0, g1)`.
+type WordEntry = (usize, usize, usize, usize, i64);
+/// A sliced channel grouped by one engine index: `(other index, multiplicity,
+/// X)`.
+type WordGroup = HashMap<usize, Vec<(usize, usize, i64)>>;
+
+/// `q` as a word, when it fits.
+fn word(q: &Q) -> Option<i64> {
+    let (p, _) = q.magnitudes();
+    let v = i64::try_from(u64::try_from(p.as_ref()).ok()?).ok()?;
+    Some(if q.signum() == Ordering::Less { -v } else { v })
+}
+
+fn word_bits(v: i64) -> u64 {
+    u64::from(64 - v.unsigned_abs().leading_zeros())
+}
+
+fn bit_len(n: usize) -> u64 {
+    u64::from(usize::BITS - n.leading_zeros())
+}
+
+/// `(g0, g1)` → the range of that group in a sorted entry list.
+type Ranges = HashMap<(usize, usize), Range<usize>>;
+
+/// One flag per engine index of a module, set for `idx`.
+fn marks(n: usize, idx: impl Iterator<Item = usize>) -> Vec<bool> {
+    let mut v = vec![false; n];
+    for i in idx {
+        v[i] = true;
+    }
+    v
+}
+
+/// Entries of a full channel as `(g0, g1, m_b, μ, X)` sorted by `(g0, g1)`,
+/// with the range of each group: one sort, no per-key allocation.
+fn sorted_groups(
+    ch: &IntChannel,
+    regroup: impl Fn(&Raw) -> (usize, usize, usize),
+) -> Option<(Vec<WordEntry>, Ranges)> {
+    let mut v = ch
+        .entries
+        .iter()
+        .map(|e| {
+            let (g0, g1, mb) = regroup(e);
+            Some((g0, g1, mb, e.3, word(&e.4)?))
+        })
+        .collect::<Option<Vec<WordEntry>>>()?;
+    v.sort_unstable_by_key(|e| (e.0, e.1));
+    let mut at = HashMap::new();
+    let mut start = 0;
+    for g in v.chunk_by(|x, y| (x.0, x.1) == (y.0, y.1)) {
+        at.insert((g[0].0, g[0].1), start..start + g.len());
+        start += g.len();
+    }
+    Some((v, at))
+}
+
+/// A sliced channel grouped by `key(entry)`, with `(other, multiplicity, X)`.
+fn word_group(ch: &IntChannel, key: impl Fn(&Raw) -> (usize, usize)) -> Option<WordGroup> {
+    let mut g: WordGroup = HashMap::new();
+    for e in &ch.entries {
+        let (k, other) = key(e);
+        g.entry(k).or_default().push((other, e.3, word(&e.4)?));
+    }
+    Some(g)
+}
+
+/// The inputs of [`fused`], with every bound checked.
+struct Fused<'a> {
+    /// `A` as `(m_a, m_e, m_b, μ, X)` and its `(m_a, m_e)` ranges.
+    a: Vec<WordEntry>,
+    a_at: Ranges,
+    /// `Cb` as `(m_c, m_f, m_b, κ, X)` and its `(m_c, m_f)` ranges.
+    c: Vec<WordEntry>,
+    c_at: Ranges,
+    /// `B` seeds by `m_c` → `(m_e, ν, X)`; `D` seeds by `m_a` → `(m_f, λ, X)`.
+    b_by_mc: WordGroup,
+    d_by_ma: WordGroup,
+    nu: [&'a [Q]; 3],
+    /// Position of each `m_b` within its weight space, and the largest
+    /// weight multiplicity of `b`.
+    rank: &'a [u32],
+    slots: usize,
+    dims: [usize; 4],
+    w_on_ab: bool,
+}
+
+/// The joins and the final sum per `(m_a, m_c)`: all keys `(m_a, m_b, m_c)`
+/// of one pair share the weight `top(d) − wt(m_a) − wt(m_c)` of `m_b`, so
+/// `m_b` indexes a dense slot by its rank in that weight space. Each partial
+/// join is a word × word multiply–accumulate into an `i128` slot, read once
+/// by the final sum as stack limbs; slots are cleared as they are read.
+fn fused<const L: usize>(x: &Fused<'_>, st: &mut ProbeStats) -> Vec<Signed> {
+    let [n1, n2, n3, n4] = x.dims;
+    let (n12, n34, c) = (n1 * n2, n3 * n4, 2 * L);
+    let mut cols = vec![0u128; n12 * n34 * 2 * c];
+    let nus: [Vec<Mag<L>>; 3] = x.nu.map(|v| v.iter().map(Mag::from_q).collect());
+    let mut ab = vec![0i128; x.slots * n12];
+    let mut cd = vec![0i128; x.slots * n34];
+    // The `m_b` of a slot reached by the AB join, `usize::MAX` otherwise.
+    let mut slot_mb = vec![usize::MAX; x.slots];
+    let mut has_cd = vec![false; x.slots];
+    let mut touched: Vec<usize> = Vec::with_capacity(x.slots);
+    let (mut left, mut right): (Vec<Mag<L>>, Vec<Mag<L>>) =
+        (Vec::with_capacity(n12), Vec::with_capacity(n34));
+    let (mut join, mut sum) = (0.0, 0.0);
+    for (&ma, dl) in &x.d_by_ma {
+        for (&mc, bl) in &x.b_by_mc {
+            let t0 = Instant::now();
+            for &(me, nu, xb) in bl {
+                let Some(r) = x.a_at.get(&(ma, me)) else {
+                    continue;
+                };
+                for &(_, _, mb, mu, xa) in &x.a[r.clone()] {
+                    let s = x.rank[mb] as usize;
+                    if slot_mb[s] == usize::MAX {
+                        slot_mb[s] = mb;
+                        touched.push(s);
+                    }
+                    ab[s * n12 + mu * n2 + nu] += i128::from(xa) * i128::from(xb);
+                }
+            }
+            if touched.is_empty() {
+                join += t0.elapsed().as_secs_f64();
+                continue;
+            }
+            for &(mf, lambda, xd) in dl {
+                let Some(r) = x.c_at.get(&(mc, mf)) else {
+                    continue;
+                };
+                for &(_, _, mb, kappa, xc) in &x.c[r.clone()] {
+                    let s = x.rank[mb] as usize;
+                    if slot_mb[s] == mb {
+                        has_cd[s] = true;
+                        cd[s * n34 + kappa * n4 + lambda] += i128::from(xc) * i128::from(xd);
+                    }
+                }
+            }
+            let t1 = Instant::now();
+            join += (t1 - t0).as_secs_f64();
+            let wac = nus[0][ma].mul(&nus[2][mc]);
+            for &s in &touched {
+                let (abr, cdr) = (s * n12..(s + 1) * n12, s * n34..(s + 1) * n34);
+                if has_cd[s] {
+                    let w = wac.mul(&nus[1][slot_mb[s]]);
+                    left.clear();
+                    right.clear();
+                    if x.w_on_ab {
+                        left.extend(ab[abr.clone()].iter().map(|&v| Mag::from_i128(v).mul(&w)));
+                        right.extend(cd[cdr.clone()].iter().map(|&v| Mag::from_i128(v)));
+                    } else {
+                        left.extend(ab[abr.clone()].iter().map(|&v| Mag::from_i128(v)));
+                        right.extend(cd[cdr.clone()].iter().map(|&v| Mag::from_i128(v).mul(&w)));
+                    }
+                    for (i, l) in left.iter().enumerate() {
+                        if l.len == 0 {
+                            continue;
+                        }
+                        for (j, r) in right.iter().enumerate() {
+                            if r.len == 0 {
+                                continue;
+                            }
+                            let base = ((i * n34 + j) * 2 + usize::from(l.neg != r.neg)) * c;
+                            l.mac_into(r, &mut cols[base..base + c]);
+                        }
+                    }
+                    cd[cdr].fill(0);
+                    has_cd[s] = false;
+                }
+                ab[abr].fill(0);
+                slot_mb[s] = usize::MAX;
+            }
+            touched.clear();
+            sum += t1.elapsed().as_secs_f64();
+        }
+    }
+    st.join_secs += join;
+    st.sum_secs += sum;
+    settle(&cols, c)
+}
+
+/// The word join and final sum when every bound holds before the loop:
+/// each `X` a word; `bits(AB) ≤ bits X_A + bits X_B + bit_len(max |B[m_c]|)`
+/// within `i128`, likewise CD with `max |D[m_a]|`; and the final operands
+/// within 16 limbs. `None` leaves the block to the `Q` join.
+fn fused_sum(
+    (ca, cb, cc, cd): (&IntChannel, &IntChannel, &IntChannel, &IntChannel),
     nu: [&[Q]; 3],
-    len: usize,
-    n34: usize,
+    lb: &Ladders,
+    dims: [usize; 4],
+    st: &mut ProbeStats,
+) -> Option<Vec<Signed>> {
+    let t = Instant::now();
+    let (a, a_at) = sorted_groups(ca, |e| (e.0, e.2, e.1))?;
+    let (c, c_at) = sorted_groups(cc, |e| (e.1, e.2, e.0))?;
+    let b_by_mc = word_group(cb, |e| (e.1, e.0))?;
+    let d_by_ma = word_group(cd, |e| (e.0, e.1))?;
+    let bits = |v: &[WordEntry]| v.iter().map(|e| word_bits(e.4)).max().unwrap_or(0);
+    let gbits = |g: &WordGroup| {
+        g.values()
+            .flatten()
+            .map(|e| word_bits(e.2))
+            .max()
+            .unwrap_or(0)
+    };
+    let longest = |g: &WordGroup| g.values().map(Vec::len).max().unwrap_or(0);
+    let ab_bits = bits(&a) + gbits(&b_by_mc) + bit_len(longest(&b_by_mc));
+    let cd_bits = bits(&c) + gbits(&d_by_ma) + bit_len(longest(&d_by_ma));
+    if ab_bits > 127 || cd_bits > 127 {
+        return None;
+    }
+    let w_bits: u64 = nu.iter().map(|v| max_bits(v)).sum();
+    let w_on_ab = ab_bits <= cd_bits;
+    let widest = if w_on_ab {
+        (w_bits + ab_bits).max(cd_bits)
+    } else {
+        ab_bits.max(w_bits + cd_bits)
+    };
+    let x = Fused {
+        a,
+        a_at,
+        c,
+        c_at,
+        b_by_mc,
+        d_by_ma,
+        nu,
+        rank: &lb.rank,
+        slots: lb
+            .module
+            .weights
+            .iter()
+            .map(|s| s.norms.len())
+            .max()
+            .unwrap_or(0),
+        dims,
+        w_on_ab,
+    };
+    st.join_secs += t.elapsed().as_secs_f64();
+    let (kind, out) = match widest.div_ceil(64) {
+        0..=1 => ("words", fused::<1>(&x, st)),
+        2..=4 => ("limbs4", fused::<4>(&x, st)),
+        5..=8 => ("limbs8", fused::<8>(&x, st)),
+        9..=16 => ("limbs16", fused::<16>(&x, st)),
+        _ => return None,
+    };
+    st.accum.push_str("join128+");
+    st.accum.push_str(kind);
+    Some(out)
+}
+
+/// The `Q` hash-map joins of every key `(m_a, m_b, m_c)` and the final sum
+/// over them: the fallback, and the reference of [`Accum::Check`].
+fn legacy_sum(
+    (ca, cb, cc, cd): (&IntChannel, &IntChannel, &IntChannel, &IntChannel),
+    nu: [&[Q]; 3],
+    dims: [usize; 4],
     accum: Accum,
     st: &mut ProbeStats,
 ) -> Vec<Signed> {
-    if !st.accum.is_empty() {
-        st.accum.push('+');
-    }
-    if cd.is_empty() {
-        st.accum.push_str("none");
-        return vec![(0, Natural::from(0u32)); len];
-    }
-    match accum {
-        Accum::Big => {
-            st.accum.push_str("big");
-            sum_big(ab, cd, nu, len, n34)
-        }
-        Accum::Auto => sum_auto(ab, cd, nu, len, n34, st),
-        Accum::Check => {
-            let fixed = sum_auto(ab, cd, nu, len, n34, st);
-            st.accum.push_str("=big");
-            assert!(
-                fixed == sum_big(ab, cd, nu, len, n34),
-                "fixed-width and Q accumulations of S differ"
-            );
-            fixed
-        }
-    }
-}
-
-fn simple_f(
-    fam: &GeneralFamily,
-    [a, b, c, d, e, f]: [Label<'_>; 6],
-    accum: Accum,
-    st: &mut ProbeStats,
-) -> Result<Block, LieError> {
-    let dims = [
-        fam.mult(a, b, e)?,
-        fam.mult(e, c, d)?,
-        fam.mult(b, c, f)?,
-        fam.mult(a, f, d)?,
-    ];
     let [n1, n2, n3, n4] = dims;
-    let len = crate::lie::checked_size(dims)?;
-    if len == 0 {
-        return Ok(Block::zeros(dims.to_vec()));
-    }
-    let t0 = Instant::now();
-    let data = fam.data();
-    let mut modules = RequestModules::default();
-    let la = modules.load(fam, a)?;
-    let lb = modules.load(fam, b)?;
-    let lc = modules.load(fam, c)?;
-    let ld = modules.load(fam, d)?;
-    let le = modules.load(fam, e)?;
-    let lf = modules.load(fam, f)?;
-    progress("modules", t0);
-    let (raw, norms) = seeds(data, (&le, &lc, &ld), n2)?;
-    let cb = integral(raw, norms, st);
-    let me: HashSet<usize> = cb.entries.iter().map(|x| x.0).collect();
-    progress("seeds B", t0);
-    let (raw, norms) = full(data, (&la, &lb, &le), n1, &me)?;
-    let ca = integral(raw, norms, st);
-    progress("descent A", t0);
-    let (raw, norms) = seeds(data, (&la, &lf, &ld), n4)?;
-    let cd = integral(raw, norms, st);
-    let mf: HashSet<usize> = cd.entries.iter().map(|x| x.1).collect();
-    progress("seeds D", t0);
-    let (raw, norms) = full(data, (&lb, &lc, &lf), n3, &mf)?;
-    let cc = integral(raw, norms, st);
-    progress("descent Cb", t0);
-    let (nu_a, da, ga) = integral_norms(&la);
-    let (nu_b, db, gb) = integral_norms(&lb);
-    let (nu_c, dc, gc) = integral_norms(&lc);
-    let (p_d0, q_d0) = ld.norm[0].magnitudes();
-    let (p_d0, q_d0) = (p_d0.into_owned(), q_d0.into_owned());
-    drop(modules);
     let t1 = Instant::now();
-    st.gen_secs += (t1 - t0).as_secs_f64();
-
-    // Each partial join once per (key, μ, ν) and (key, κ, λ):
     // AB[(m_a,m_b,m_c)][μ,ν] = Σ_{m_e} X_A X_B.
     let mut b_by_me: ByIndex<'_> = HashMap::new();
     for (pe, pc, _, nu, x) in &cb.entries {
@@ -698,16 +906,124 @@ fn simple_f(
     }
     let t2 = Instant::now();
     st.join_secs += (t2 - t1).as_secs_f64();
-    eprintln!(
-        "exact-fr-probe: joins done at {:.3}s ({} keys)",
-        t0.elapsed().as_secs_f64(),
-        cdm.len()
-    );
+    st.accum.push_str("qjoin+");
+    let s = final_sum(&ab, &cdm, nu, n1 * n2 * n3 * n4, n3 * n4, accum, st);
+    st.sum_secs += t2.elapsed().as_secs_f64();
+    s
+}
+
+/// The `Q` final sum: [`Accum::Big`] in `Q`, otherwise fixed limbs.
+fn final_sum(
+    ab: &Keyed,
+    cd: &Keyed,
+    nu: [&[Q]; 3],
+    len: usize,
+    n34: usize,
+    accum: Accum,
+    st: &mut ProbeStats,
+) -> Vec<Signed> {
+    if cd.is_empty() {
+        st.accum.push_str("none");
+        return vec![(0, Natural::from(0u32)); len];
+    }
+    if accum == Accum::Big {
+        st.accum.push_str("big");
+        sum_big(ab, cd, nu, len, n34)
+    } else {
+        sum_auto(ab, cd, nu, len, n34, st)
+    }
+}
+
+fn simple_f(
+    fam: &GeneralFamily,
+    [a, b, c, d, e, f]: [Label<'_>; 6],
+    accum: Accum,
+    st: &mut ProbeStats,
+) -> Result<Block, LieError> {
+    let dims = [
+        fam.mult(a, b, e)?,
+        fam.mult(e, c, d)?,
+        fam.mult(b, c, f)?,
+        fam.mult(a, f, d)?,
+    ];
+    let [n1, n2, n3, n4] = dims;
+    let len = crate::lie::checked_size(dims)?;
+    if len == 0 {
+        return Ok(Block::zeros(dims.to_vec()));
+    }
+    let t0 = Instant::now();
+    let data = fam.data();
+    let mut modules = RequestModules::default();
+    let la = modules.load(fam, a)?;
+    let lb = modules.load(fam, b)?;
+    let lc = modules.load(fam, c)?;
+    let ld = modules.load(fam, d)?;
+    let le = modules.load(fam, e)?;
+    let lf = modules.load(fam, f)?;
+    progress("modules", t0);
+    let (raw, norms) = seeds(data, (&le, &lc, &ld), n2)?;
+    let cb = integral(raw, norms, st);
+    let (raw, norms) = seeds(data, (&la, &lf, &ld), n4)?;
+    let cd = integral(raw, norms, st);
+    progress("seeds B, D", t0);
+    // Only A entries whose m_e meets B and whose m_a meets D, and Cb entries
+    // whose m_f meets D and whose m_c meets B, reach a key of both joins.
+    let me_in = marks(le.dim(), cb.entries.iter().map(|x| x.0));
+    let mc_in = marks(lc.dim(), cb.entries.iter().map(|x| x.1));
+    let ma_in = marks(la.dim(), cd.entries.iter().map(|x| x.0));
+    let mf_in = marks(lf.dim(), cd.entries.iter().map(|x| x.1));
+    let mut capture = 0.0;
+    let (raw, norms) = full(
+        data,
+        (&la, &lb, &le),
+        n1,
+        &|pa, _, pe| me_in[pe] && ma_in[pa],
+        &mut capture,
+    )?;
+    let ca = integral(raw, norms, st);
+    progress("descent A", t0);
+    let (raw, norms) = full(
+        data,
+        (&lb, &lc, &lf),
+        n3,
+        &|_, pc, pf| mf_in[pf] && mc_in[pc],
+        &mut capture,
+    )?;
+    let cc = integral(raw, norms, st);
+    st.capture_secs += capture;
+    progress("descent Cb", t0);
+    let tn = Instant::now();
+    let (nu_a, da, ga) = integral_norms(&la);
+    let (nu_b, db, gb) = integral_norms(&lb);
+    let (nu_c, dc, gc) = integral_norms(&lc);
+    st.prep_secs += tn.elapsed().as_secs_f64();
+    let (p_d0, q_d0) = ld.norm[0].magnitudes();
+    let (p_d0, q_d0) = (p_d0.into_owned(), q_d0.into_owned());
+    drop(modules);
+    let t1 = Instant::now();
+    st.gen_secs += (t1 - t0).as_secs_f64();
+
     // S = Σ_key ν_a ν_b ν_c AB·CD. The sum is exact, so key order is free.
     let nu = [nu_a.as_slice(), nu_b.as_slice(), nu_c.as_slice()];
-    let s = final_sum(&ab, &cdm, nu, len, n3 * n4, accum, st);
-    st.sum_secs += t2.elapsed().as_secs_f64();
-    progress("final sum", t0);
+    let chans = (&ca, &cb, &cc, &cd);
+    if !st.accum.is_empty() {
+        st.accum.push('+');
+    }
+    let s = match accum {
+        Accum::Big => legacy_sum(chans, nu, dims, Accum::Big, st),
+        Accum::Auto | Accum::Check => match fused_sum(chans, nu, &lb, dims, st) {
+            Some(s) => s,
+            None => legacy_sum(chans, nu, dims, Accum::Auto, st),
+        },
+    };
+    if accum == Accum::Check {
+        let mut reference = ProbeStats::default();
+        let big = legacy_sum(chans, nu, dims, Accum::Big, &mut reference);
+        st.accum.push('=');
+        st.accum.push_str(&reference.accum);
+        assert!(s == big, "word/limb and Q evaluations of S differ");
+    }
+    progress("joins and final sum", t0);
     // U = S² q(n_d0)² (g_a g_b g_c)² Π q(N) g²;  V = (Δa Δb Δc)² p(n_d0)² Π D² p(N).
     let (uq_a, vp_a) = ca.radicand_parts();
     let (uq_b, vp_b) = cb.radicand_parts();

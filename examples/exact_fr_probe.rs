@@ -21,16 +21,19 @@
 //! each of the two cold measurements: the production binary64 query
 //! (`b64_cold_s`, modules, channels and contraction included), then the exact
 //! evaluation (`exact_gen_s`: modules, exact channels and common
-//! denominators; `exact_contract_s`: joins, integer accumulation, radicands
+//! denominators, of which `exact_capture_s` is copying exact coordinates out
+//! of the descents and `exact_prep_s` the denominators and contents, the rest
+//! being the production descent and elimination themselves; `exact_contract_s`: joins, integer accumulation, radicands
 //! and the single rounding; of it, `exact_join_s` for the partial joins and
 //! `exact_sum_s` for the final sum). Between them, untimed, the production
 //! block's error bound is formed from its own (warm) rounded channels. No
 //! disk tier is enabled. `--b64-only` and `--exact-only` measure one side
-//! (the comparison columns stay empty); `--accum` selects the exact F final
-//! sum: `auto` (fixed-width limbs when they fit, the `accum` column names
-//! the width), `big` (`Q`/Malachite throughout) or `check` (both, the child
-//! panics and the row reads `FAILED` unless every `S` agrees). Progress of
-//! every phase goes to stderr.
+//! (the comparison columns stay empty); `--accum` selects the exact F joins
+//! and final sum: `auto` (word joins into `i128` and stack-limb final sum
+//! when their bounds hold, `join128+limbsN`; else `Q` joins, `qjoin+…`),
+//! `big` (`Q` joins and `Q` sum, `qjoin+big`) or `check` (auto, then big;
+//! the child panics and the row reads `FAILED` unless every `S` agrees).
+//! Progress of every phase goes to stderr.
 //!
 //! Columns: `s_bits_*` are bit lengths of the exact integer numerators `S`
 //! (`T` for R; per factor for products), `u_bits_*`/`v_bits_*` of the radicand
@@ -56,8 +59,8 @@ use fusion_symbols::cache;
 use fusion_symbols::category::{FusionCategory, SymbolBlock};
 use fusion_symbols::lie::{GroupId, LieGroup, LieIrrep, RootSystem};
 
-const HEADER: &str = "kind,group,labels,shape,entries,b64_cold_s,exact_gen_s,exact_contract_s,\
-exact_join_s,exact_sum_s,exact_total_s,accum,s_bits_max,s_bits_med,u_bits_max,u_bits_med,v_bits_max,v_bits_med,x_big_frac,\
+const HEADER: &str = "kind,group,labels,shape,entries,b64_cold_s,exact_gen_s,exact_capture_s,exact_prep_s,\
+exact_contract_s,exact_join_s,exact_sum_s,exact_total_s,accum,s_bits_max,s_bits_med,u_bits_max,u_bits_med,v_bits_max,v_bits_med,x_big_frac,\
 s_big_frac,max_ulp_nonzero,max_abs_diff,zero_exact_nonzero_prod,zero_exact_max_abs_prod,\
 within_tol,status";
 
@@ -343,6 +346,8 @@ fn measure(spec: &str, o: Opts) -> Result<String, String> {
             let st = &x.stats;
             row.extend([
                 format!("{:.6e}", st.gen_secs),
+                format!("{:.6e}", st.capture_secs),
+                format!("{:.6e}", st.prep_secs),
                 format!("{:.6e}", st.contract_secs),
                 format!("{:.6e}", st.join_secs),
                 format!("{:.6e}", st.sum_secs),
@@ -358,7 +363,7 @@ fn measure(spec: &str, o: Opts) -> Result<String, String> {
                 frac(st.s_big, st.s_values),
             ]);
         }
-        None => row.extend(std::iter::repeat_with(e).take(14)),
+        None => row.extend(std::iter::repeat_with(e).take(16)),
     }
     let mut status = "OK";
     match (&production, &exact) {
