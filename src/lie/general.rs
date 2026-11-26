@@ -3,6 +3,7 @@
 //! per-type input is the irrep basis of §3. Crate-private.
 
 pub(crate) mod cgc;
+mod family;
 mod gt;
 pub(crate) mod module;
 mod rational;
@@ -11,8 +12,8 @@ pub(crate) mod roots;
 use std::sync::LazyLock;
 
 #[cfg(test)]
-pub(crate) use self::cgc::observe_contraction;
-pub(crate) use self::cgc::{GeneralFamily, RequestModules};
+pub(crate) use self::family::observe_contraction;
+pub(crate) use self::family::{GeneralFamily, RequestModules};
 use self::roots::CartanData;
 use crate::lie::RootSystem;
 
@@ -33,7 +34,7 @@ mod tests {
     use super::*;
     use crate::category::SymbolBlock;
 
-    fn builds() -> [usize; 2] {
+    fn builds() -> [usize; 4] {
         BUILDS.with(std::cell::Cell::get)
     }
 

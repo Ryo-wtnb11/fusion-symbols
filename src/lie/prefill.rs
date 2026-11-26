@@ -197,7 +197,7 @@ mod tests {
     }
 
     /// Modules, channels and tensor products this thread generated.
-    fn builds() -> ([usize; 2], usize) {
+    fn builds() -> ([usize; 4], usize) {
         (
             general::cgc::BUILDS.with(std::cell::Cell::get),
             general::roots::THREAD_PRODUCT_BUILDS.with(std::cell::Cell::get),

@@ -15,14 +15,14 @@ use std::cmp::Ordering;
 use std::num::NonZeroU64;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
-use crate::exact::{word_gcd as gcd, Limbs, INPUT_LIMBS};
-use malachite_base::num::arithmetic::traits::{NegAssign, Reciprocal, Square};
+use crate::exact::word_gcd as gcd;
+use malachite_base::num::arithmetic::traits::{NegAssign, Reciprocal};
 use malachite_nz::natural::Natural;
 use malachite_q::Rational;
 
 /// An exact rational in its unique representation (see the module docs).
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub(super) struct Q(Repr);
+pub(crate) struct Q(Repr);
 
 // Private, so no sibling can build an unreduced word pair or a fitting Big.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -89,7 +89,16 @@ impl Q {
         }
     }
 
-    pub(super) fn is_zero(&self) -> bool {
+    /// `(negative, |numerator|, denominator)` of a word value; `None` for a
+    /// Big one.
+    pub(crate) fn word_parts(&self) -> Option<(bool, u64, u64)> {
+        match &self.0 {
+            Repr::Small(n, d) => Some((*n < 0, n.unsigned_abs(), d.get())),
+            Repr::Big(_) => None,
+        }
+    }
+
+    pub(crate) fn is_zero(&self) -> bool {
         matches!(self.0, Repr::Small(0, _))
     }
 
@@ -98,7 +107,7 @@ impl Q {
     }
 
     /// The sign of the value against zero.
-    pub(super) fn signum(&self) -> Ordering {
+    pub(crate) fn signum(&self) -> Ordering {
         match &self.0 {
             Repr::Small(n, _) => n.cmp(&0),
             Repr::Big(r) => r.as_ref().partial_cmp(&0u32).expect("total order"),
@@ -107,7 +116,7 @@ impl Q {
 
     /// `(|numerator|, denominator)` of the reduced value; borrowed from a Big
     /// value and one inline limb each for a word value.
-    pub(super) fn magnitudes(&self) -> (Cow<'_, Natural>, Cow<'_, Natural>) {
+    pub(crate) fn magnitudes(&self) -> (Cow<'_, Natural>, Cow<'_, Natural>) {
         match &self.0 {
             Repr::Small(n, d) => (
                 Cow::Owned(Natural::from(n.unsigned_abs())),
@@ -402,50 +411,6 @@ impl Neg for Q {
 pub(super) fn radical(s: &Q, a: &Q, b: &Q, scale: &Q) -> crate::exact::SignedSqrtRational {
     let sign = if s.signum() == Ordering::Less { -1 } else { 1 };
     crate::exact::SignedSqrtRational::from_radicand(sign, (s * s * a * b / scale).to_rational())
-}
-
-/// `s·√(a·b/scale)` rounded once, by the conversion of
-/// [`crate::exact::SignedSqrtRational::to_f64`]: round-only callers never hold
-/// the exact value. With `s = ps/qs`, `a = pa/qa`, `b = pb/qb` and
-/// `scale = pt/qt` (`a, b, scale > 0`), the radicand is `U/V` with
-/// `U = ps²·pa·pb·qt` and `V = qs²·qa·qb·pt`; the conversion depends only on
-/// the ratio, so the products are passed unreduced and no gcd is taken.
-/// `U` and `V` are formed in stack limbs when both fit
-/// [`INPUT_LIMBS`](crate::exact::INPUT_LIMBS), so the rounding allocates
-/// nothing (with Malachite's default 64-bit limbs); a zero `s` returns `+0.0`
-/// without forming them, and wider products are formed in big integers.
-pub(super) fn rounded_radical(s: &Q, a: &Q, b: &Q, scale: &Q) -> f64 {
-    if s.is_zero() {
-        return 0.0;
-    }
-    let (ps, qs) = s.magnitudes();
-    let (pa, qa) = a.magnitudes();
-    let (pb, qb) = b.magnitudes();
-    let (pt, qt) = scale.magnitudes();
-    let sign = if s.signum() == Ordering::Less { -1 } else { 1 };
-    // Every factor is at least 1, so a partial product overflows only when
-    // the whole one does.
-    let limbs = |f: [&Natural; 5]| {
-        let mut acc = Limbs::<INPUT_LIMBS>::ONE;
-        for x in f {
-            acc.checked_mul_assign(x)?;
-        }
-        Some(acc)
-    };
-    let u = limbs([&ps, &ps, &pa, &pb, &qt]);
-    let v = limbs([&qs, &qs, &qa, &qb, &pt]);
-    if let (Some(u), Some(v)) = (u, v) {
-        return crate::exact::signed_sqrt_limbs_to_f64(sign, u, v);
-    }
-    let mut u = ps.as_ref().square();
-    u *= pa.as_ref();
-    u *= pb.as_ref();
-    u *= qt.as_ref();
-    let mut v = qs.as_ref().square();
-    v *= qa.as_ref();
-    v *= qb.as_ref();
-    v *= pt.as_ref();
-    crate::exact::signed_sqrt_to_f64(sign, &u, &v)
 }
 
 #[cfg(test)]

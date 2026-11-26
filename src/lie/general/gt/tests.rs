@@ -5,11 +5,12 @@
 //! and exact CGC identities on channels built from this basis.
 
 use super::*;
-use crate::lie::general::cgc::tests::check_exact;
-use crate::lie::general::cgc::{check_rounded, rounded_entries, ExactChannel, Ladders};
+use crate::lie::general::cgc::tests::{check_exact, rounded_entries};
+use crate::lie::general::cgc::{ExactChannel, Ladders};
 use crate::lie::general::module::depth_order;
 use crate::lie::general::module::tests::{check_recipes, check_relations_of};
 use crate::lie::RootSystem;
+use crate::rounding::cgc::check_rounded;
 use std::sync::Arc;
 
 fn build(lambda: &[i64]) -> (Arc<CartanData>, Ladders) {

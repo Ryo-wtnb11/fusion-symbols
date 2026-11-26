@@ -465,16 +465,21 @@ factor of `D_2`.
 `Ψ_μ = B_μ/√N_μ` with `B_μ` rational in the rational coordinates and
 `N_μ = ⟨B_μ, B_μ⟩` rational. The intertwiner keeps coordinates rational, so
 each CGC entry is `x·√(n^a_{m_a} n^b_{m_b} / (N_μ n^c_{m_c}))` with `x`
-rational: a single signed √rational. Its `f64` value is the conversion of
-`SignedSqrtRational::to_f64` (`src/exact.rs`), correctly rounded (to nearest,
-ties to even, once) over the whole `f64` range including subnormal results and
-underflow to a signed zero, and is
+rational: a single signed √rational. The exact channel is retained: per `μ`,
+every exactly nonzero `x` is stored as the integer `X = x·D_μ/g_μ`, with
+`D_μ` the common denominator of the `μ`'s coordinates and `g_μ` the content
+of `x·D_μ`, together with the vertex factor `ρ_μ = q(N_μ) g_μ²/(D_μ² p(N_μ))`,
+so that `X² ρ_μ = x²/N_μ` and the entry is `sign(X)·√(X² ρ_μ n^a n^b/n^c)`.
+The rounded channel is the correct rounding of the exact channel, entry by
+entry. Its `f64` value is the conversion of `src/rounding.rs`
+(`round_radical`, also behind `SignedSqrtRational::to_f64`), correctly rounded
+(to nearest, ties to even, once) over the whole `f64` range including
+subnormal results and underflow to a signed zero, and is
 **the only rounding of a CGC**. The conversion is a function of the radicand's
-value alone, so it is applied to the integer ratio `U/V` of the products of
-the operands' numerators and denominators (`U = p_x²·p_a·p_b·q_t`,
-`V = q_x²·q_a·q_b·p_t` for `x = p_x/q_x`, `n^a = p_a/q_a`, `n^b = p_b/q_b`,
-`N_μ n^c = p_t/q_t`) without reducing it; the bits equal those of the
-reduced radicand, including at ties and in the subnormal range. Only exactly zero
+value alone, so it is applied to the integer ratio of the products of the
+factors' numerators and denominators (`X` twice, `ρ_μ`, `n^a`, `n^b` over
+`n^c`) without reducing it; the bits equal those of the reduced radicand,
+including at ties and in the subnormal range. Only exactly zero
 coefficients are omitted; an exactly nonzero coefficient that rounds to a
 signed zero keeps its entry. An absent entry reads `+0.0`. There is no purge
 threshold.
@@ -837,13 +842,21 @@ column.
 - **SU(2).** The closed form remains the evaluator for a single coefficient
   (`su2::clebsch_gordan`) and for F and R (an `O(j)` Racah sum against
   `Ω(j²)` for any four-CGC contraction).
-- **Retention.** Modules, completed channels and computed dual-pair phases
-  are retained only by the process-wide CGC tier of
+- **Retention.** Modules, exact channels, their rounded views,
+  highest-weight seeds (the engine-0 column of a channel, from the
+  elimination alone), norm tables (per irrep at public indices: the reduced
+  norms, the integers `ν_m = n_m Δ/g` on the table's denominator lcm `Δ`
+  with content `g`, and the within-weight ranks) and computed dual-pair
+  phases are retained only by the process-wide CGC tier of
   [`cache`](user-guide/resources.md). Its configured charged-byte and entry
   limits apply in aggregate across presented roots and groups; after a query,
   retained cache-owned data obey those limits, while in-flight working memory
   and caller-owned values are excluded. Reset and trim cover every retained
-  kind. Values are exact, so eviction never changes a returned bit. A single
+  kind. A view and its exact channel are evicted independently; a view
+  missed over a resident exact channel is rounded again without a descent.
+  The memory and row multipliers of the exact retention against the rounded
+  channel alone are measured by the release gate. Values are exact, so
+  eviction never changes a returned bit. A single
   channel's working set is not bounded by these limits: `E8 248⊗248` has
   `61504` product states and at most `Σ_μ P(μ)² = 1 787 056` CGC nonzeros
   over its five channels.
@@ -873,10 +886,11 @@ column.
      - *elimination*: the sparse raising constraint matrix on `P_{λ_c}`, the
        pivot row in use and the emerging nullspace basis (`N` rational
        vectors of length `P_{λ_c}`);
-     - *descent and rounding*: a state at depth `ℓ = Σ_i k_i` is lowered only
-       from states at depth `ℓ − 1`, and a recipe may mix several of them,
-       so each exact vector is rounded once when it completes and kept
-       exactly until its last kept candidate has been lowered. With
+     - *descent and integralization*: a state at depth `ℓ = Σ_i k_i` is
+       lowered only from states at depth `ℓ − 1`, and a recipe may mix
+       several of them, so each exact vector emits its exactly nonzero
+       coordinates once when it completes and is kept exactly until its last
+       kept candidate has been lowered. With
        `D_ℓ = Σ_{depth w = ℓ} m_c(w) P_w`, the live exact slots (zeros
        included) are at most `N (max_ℓ (D_{ℓ−1} + D_ℓ) + max_w kept_w P_w)`:
        two depth layers plus one weight's lowered candidates (`kept_w` the
@@ -903,10 +917,14 @@ column.
        construction layer's `L`. A layer of `L` weights adds transient
        `O(L)` storage: the planner's sorted units of a calibrated stage
        (`run_priced`'s `sorted: Vec<u64>`) and a dispatched section's
-       per-item result cells (`Vec<OnceLock<ProductSpace>>`). The rounded entries are written per column
-       `(μ, m_c)` as they are formed and concatenated in §4.7 order at the
-       end, `O(nnz + N d_c)` with no sort; that final copy briefly holds the
-       rounded entries twice;
+       per-item result cells (`Vec<OnceLock<ProductSpace>>`). The emitted
+       coordinates (pair indices and a rational each) are written per column
+       `(μ, m_c)` as they are formed and integralized per `μ` once the
+       descent ends, `O(nnz + N d_c)` with no sort; a `μ`'s rationals are
+       released as its integers are formed. The rounded view is then formed
+       from the exact channel, one conversion per entry, in a section of
+       fixed chunks on a team token, so the exact channel and the view are
+       briefly live together;
      - *verification*, after the rational channel is released: the rounded
        entries, read in place through one `(start, end)` run per column
        `(m_c, μ)` (`N d_c` pairs; a column split into two runs is a support

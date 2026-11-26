@@ -10,15 +10,24 @@
 //! major.minor, the kind, the presented root and the labels in in-memory key
 //! order. A file holds one identity; enabling another one recreates it.
 //!
+//! **Contents.** CGC data is stored exactly: exact channels, highest-weight
+//! seeds and norm tables, never a rounded channel. A loaded exact channel is
+//! rounded into its view as after a generation. F and R rows keep their
+//! rounded blocks, their only authority until exact F and R.
+//!
 //! **Integrity.** A row is used only if its checksum (over key and payload)
 //! matches and its payload has exactly the shape its labels determine
-//! ([`Shape`]): Weyl dimensions and multiplicities, every CGC index in range
+//! ([`Shape`]), checked by structural decoders before any arithmetic or
+//! indexing: Weyl dimensions and multiplicities, every CGC index in range
 //! and in the order `LieCgc::get` searches, every multiplicity column
-//! present, finite values, and the F and R generation gates. The CGC
-//! isometry certificate is not re-run: it needs the irrep modules that
-//! persistence exists to avoid, so a row is trusted to be what a gated
-//! generation of this crate wrote. The checksum detects later accidental
-//! damage, not a faulty writer or an adversary.
+//! present, canonical integer slabs with nonzero coordinates and positive
+//! radicands, complete norm tables, no trailing bytes, finite F and R values
+//! and the F and R generation gates. The CGC isometry and ladder gates are
+//! not re-run on a loaded channel: they need the irrep modules that
+//! persistence exists to avoid, and no channel row is written before its
+//! view passed them, so a row is trusted to be what a gated generation of
+//! this crate wrote. The checksum detects later accidental damage, not a
+//! faulty writer or an adversary.
 //!
 //! **Writes.** Generated rows are encoded at once and queued per thread; the
 //! queue holds at most [`PENDING_MAX_BYTES`] (or the store bound, if smaller)
@@ -46,12 +55,13 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 use super::fingerprint::{fold, root_code, Label, P1, P2, P3};
 use super::Shape;
 use crate::category::{FBlock, RBlock, SymbolBlock};
-use crate::frcore::{check_f_block, check_r_block, MEntry};
-use crate::lie::general::cgc::CgcChannel;
+use crate::frcore::{check_f_block, check_r_block};
+use crate::lie::general::cgc::exact::{ExactCgc, HighestColumn, NormTable};
 use crate::lie::RootSystem;
 
 /// Storage format version: the key and value encodings and the table layout.
-const SCHEMA: u16 = 1;
+/// Schema 2 stores exact CGC channels, seeds and norm tables.
+const SCHEMA: u16 = 2;
 
 const fn parse_u16(s: &str) -> u16 {
     let bytes = s.as_bytes();
@@ -715,88 +725,57 @@ fn values(bytes: &[u8], at: usize, count: usize) -> Option<Vec<f64>> {
     Some((0..count).map(|i| f64_at(bytes, at + 8 * i)).collect())
 }
 
-/// `u32 mult, u32 count`, then `count × (u32 m1, m2, m3, mu, u64 value)`.
-impl Persist for Arc<CgcChannel> {
+/// The exact channel ([`ExactCgc::encode`]).
+impl Persist for Arc<ExactCgc> {
     fn payload_len(&self) -> Option<usize> {
-        u32::try_from(self.mult).ok()?;
-        u32::try_from(self.entries.len()).ok()?;
-        self.entries.len().checked_mul(24)?.checked_add(8)
+        self.encoded_len()
     }
 
     fn encode(&self, out: &mut Vec<u8>) {
-        put_u32(out, self.mult);
-        put_u32(out, self.entries.len());
-        for e in self.entries.iter() {
-            for x in [e.m1, e.m2, e.m3, e.mu] {
-                out.extend_from_slice(&x.to_le_bytes());
-            }
-            out.extend_from_slice(&e.value.to_bits().to_le_bytes());
-        }
+        ExactCgc::encode(self, out);
     }
 
     fn decode(payload: &[u8], shape: &Shape) -> Option<Self> {
-        let &Shape::Channel {
-            dims: [da, db, dc],
-            mult,
-        } = shape
-        else {
+        let &Shape::Channel { dims, mult } = shape else {
             return None;
         };
-        if payload.len() < 8 {
+        ExactCgc::decode(payload, dims, mult).map(Arc::new)
+    }
+}
+
+/// The highest-weight column ([`HighestColumn::encode`]).
+impl Persist for Arc<HighestColumn> {
+    fn payload_len(&self) -> Option<usize> {
+        self.encoded_len()
+    }
+
+    fn encode(&self, out: &mut Vec<u8>) {
+        HighestColumn::encode(self, out);
+    }
+
+    fn decode(payload: &[u8], shape: &Shape) -> Option<Self> {
+        let &Shape::Seeds { dims, mult } = shape else {
             return None;
-        }
-        let (stored, count) = (u32_at(payload, 0), u32_at(payload, 4));
-        if stored != mult || payload.len() - 8 != count.checked_mul(24)? {
+        };
+        HighestColumn::decode(payload, dims, mult).map(Arc::new)
+    }
+}
+
+/// The norm table of one irrep ([`NormTable::encode`]).
+impl Persist for Arc<NormTable> {
+    fn payload_len(&self) -> Option<usize> {
+        self.encoded_len()
+    }
+
+    fn encode(&self, out: &mut Vec<u8>) {
+        NormTable::encode(self, out);
+    }
+
+    fn decode(payload: &[u8], shape: &Shape) -> Option<Self> {
+        let &Shape::Norms { dim } = shape else {
             return None;
-        }
-        if mult == 0 {
-            return (count == 0).then(|| {
-                Arc::new(CgcChannel {
-                    mult: 0,
-                    entries: Box::new([]),
-                })
-            });
-        }
-        // Every `(μ, m_c)` column of an isometry holds an entry.
-        let columns = mult.checked_mul(dc)?;
-        if count < columns {
-            return None;
-        }
-        let mut entries = Vec::with_capacity(count);
-        let mut previous = None;
-        let mut reached = 0;
-        for row in payload[8..].as_chunks::<24>().0 {
-            let [m1, m2, m3, mu] = [0, 4, 8, 12].map(|at| u32_at(row, at));
-            let value = f64_at(row, 16);
-            // A coefficient that rounds to ±0.0 is kept (gauge_cartan §4.7).
-            if m1 >= da || m2 >= db || m3 >= dc || mu >= mult || !value.is_finite() {
-                return None;
-            }
-            let order = [mu, m3, m1, m2];
-            if previous.is_some_and(|p| p >= order) {
-                return None;
-            }
-            previous = Some(order);
-            let column = mu * dc + m3;
-            // Columns only grow in this order, so a skipped one leaves
-            // `reached` short for good.
-            if column == reached {
-                reached += 1;
-            }
-            entries.push(MEntry {
-                m1: m1 as u32,
-                m2: m2 as u32,
-                m3: m3 as u32,
-                mu: mu as u32,
-                value,
-            });
-        }
-        (reached == columns).then(|| {
-            Arc::new(CgcChannel {
-                mult,
-                entries: entries.into_boxed_slice(),
-            })
-        })
+        };
+        NormTable::decode(payload, dim).map(Arc::new)
     }
 }
 

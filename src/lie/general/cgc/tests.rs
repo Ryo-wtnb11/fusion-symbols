@@ -4,6 +4,7 @@
 //! pentagon/hexagon/unitarity gates through `frcore`, and `κ_a` against the
 //! sign of `F^{a ā a}_a[𝟙, 𝟙]`.
 
+use super::exact::NormTable;
 use super::*;
 use crate::cache::Label;
 use crate::category::{
@@ -11,8 +12,35 @@ use crate::category::{
     RBlock, SymbolBlock,
 };
 use crate::frcore::{f_block_raw, r_block_raw};
-use std::collections::BTreeMap;
+use crate::lie::general::{GeneralFamily, RequestModules};
+use crate::rounding::cgc::{
+    check_rounded, gate_bytes, gate_replaced, isometry_block, round_channel, support_runs, worst,
+    BlockEntry, GateBlock, GateCounts, GateScratch, GATE_ALLOWANCE, SUPPORT_CHUNK_OVERRIDE,
+    SUPPORT_SECTIONS,
+};
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 use std::time::Instant;
+
+/// The rounded view of a fresh exact channel through the production layers:
+/// exact emission, the three norm tables and `round_channel`, with no vertex
+/// sign and no gate.
+pub(crate) fn rounded_entries(
+    data: &CartanData,
+    a: &Ladders,
+    b: &Ladders,
+    c: &Ladders,
+    n: usize,
+    mut exec: Option<&mut threadteam::Exec<'_>>,
+) -> Result<Vec<MEntry>, LieError> {
+    let exact = exact_channel(data, a, b, c, n, false, exec.as_deref_mut())?;
+    let norms = [NormTable::new(a)?, NormTable::new(b)?, NormTable::new(c)?];
+    Ok(
+        round_channel(&exact, [&norms[0], &norms[1], &norms[2]], exec)
+            .entries
+            .into_vec(),
+    )
+}
 
 const G7: [i64; 2] = [1, 0];
 const G14: [i64; 2] = [0, 1];
@@ -706,6 +734,32 @@ fn check_radical_formation(root: RootSystem, a: &[i64], b: &[i64], c: &[i64]) {
     assert!(ch.exact_entries(&ma, &mb, &mc) == want);
 
     let odd = root == RootSystem::A(1) && (a[0] + b[0] - c[0]) / 2 % 2 != 0;
+    // The retained exact channel: each normalized signed square `X² ρ_μ` is
+    // `x²/N_μ` with the sign of `x`, after the `A_1` vertex sign.
+    let mut squares = Vec::new();
+    for mu in 0..ch.mult {
+        for m in mc.engine() {
+            for (&(pa, pb), x) in ch.spaces[mc.space[m]].pairs.iter().zip(&ch.phi[m][mu]) {
+                if x.is_zero() {
+                    continue;
+                }
+                let sq = (x * x / &ch.seed_norms[mu]).to_rational();
+                let negative = x.signum().is_lt() != odd;
+                squares.push((
+                    ma.public[pa],
+                    mb.public[pb],
+                    mc.public[m],
+                    mu as u32,
+                    if negative { -sq } else { sq },
+                ));
+            }
+        }
+    }
+    let exact = fam
+        .exact_channel(Label::new(a), Label::new(b), Label::new(c), None)
+        .unwrap();
+    assert_eq!(exact.mult(), ch.mult);
+    assert!(exact.signed_squares() == squares);
     let want: Vec<_> = want
         .iter()
         .map(|(pa, pb, pc, mu, old)| {
@@ -754,46 +808,6 @@ fn radical_formation_preserves_exact_entries() {
     // A_1: odd and even vertex signs.
     for (a, b, c) in [(1, 1, 0), (2, 2, 2), (2, 1, 1), (1, 1, 2), (3, 2, 3)] {
         check_radical_formation(RootSystem::A(1), &[a], &[b], &[c]);
-    }
-}
-
-/// Round-only formation from the unreduced ratio gives the bits of the exact
-/// value and, with no canonical temporary and no gcd, allocates less over a
-/// channel than forming the exact value first (GS and GT bases, N = 2).
-#[cfg(feature = "lie-generated")]
-#[test]
-fn round_only_formation_skips_the_exact_temporary() {
-    use super::super::rational::{radical, rounded_radical};
-    let calls = crate::audit_alloc::thread_allocation_calls;
-    for (root, a, b, c) in [
-        (RootSystem::G2, G27.to_vec(), G27.to_vec(), G64.to_vec()),
-        (RootSystem::A(2), vec![2, 1], vec![1, 2], vec![2, 2]),
-    ] {
-        let fam = GeneralFamily::new(root);
-        let (ch, ma, mb, mc) = fam.channel(&a, &b, &c).unwrap();
-        let (mut nonzero, mut exact_calls, mut round_calls) = (0, 0, 0);
-        for mu in 0..ch.mult {
-            for (m, per_mu) in ch.phi.iter().enumerate() {
-                let scale = &ch.seed_norms[mu] * &mc.norm[m];
-                for (&(pa, pb), x) in ch.spaces[mc.space[m]].pairs.iter().zip(&per_mu[mu]) {
-                    if x.is_zero() {
-                        continue;
-                    }
-                    let (na, nb) = (&ma.norm[pa], &mb.norm[pb]);
-                    let start = calls();
-                    let old = radical(x, na, nb, &scale).to_f64();
-                    let mid = calls();
-                    let new = rounded_radical(x, na, nb, &scale);
-                    let end = calls();
-                    assert_eq!(old.to_bits(), new.to_bits());
-                    exact_calls += mid - start;
-                    round_calls += end - mid;
-                    nonzero += 1;
-                }
-            }
-        }
-        assert!(nonzero > 0);
-        assert!(round_calls < exact_calls, "{round_calls} vs {exact_calls}");
     }
 }
 
@@ -2093,8 +2107,10 @@ fn team_gates_keep_support_isometry_ladder_order() {
     });
 }
 
-/// A channel failing a gate is never retained, its error is a typed
-/// generation failure, and a valid retry builds and retains it once: on the
+/// A channel failing a gate is never retained, neither its view nor its exact
+/// channel, its error is a typed generation failure, and once the fault (on
+/// every attempt of this thread) is cleared a valid retry builds and retains
+/// it once: on the
 /// serial token, and on a team token whose support check runs in a section
 /// of four-entry chunks. The channel is used by no other test, so no
 /// concurrent test publishes it; the cache is reset before the team run.
@@ -2109,6 +2125,8 @@ fn failed_gate_is_not_retained_and_retry_succeeds() {
     let [la, lb, lc] = [&a, &b, &c].map(|x| Label::new(x));
     assert_eq!(fam.mult(la, lb, lc).unwrap(), 1);
     let resident = || crate::cache::cgc_channel_is_resident(RootSystem::G2, [&a, &b, &c]);
+    let exact_resident =
+        || crate::cache::cgc_exact_channel_is_resident(RootSystem::G2, [&a, &b, &c]);
     let team = layer_team(5);
     for on_team in [false, true] {
         let mut exec = team.exec(5);
@@ -2134,9 +2152,12 @@ fn failed_gate_is_not_retained_and_retry_succeeds() {
             LieError::from(GateError::NonFinite { gate: "isometry" })
         );
         assert!(matches!(err, LieError::Generation(_)));
+        // Neither the view nor its exact channel is retained; the norm
+        // tables it published first are valid and may stay.
         assert!(!resident());
+        assert!(!exact_resident());
         let good = fam.cgc_entries(la, lb, lc, exec.as_deref_mut()).unwrap();
-        assert!(resident());
+        assert!(resident() && exact_resident());
         let builds = BUILDS.with(std::cell::Cell::get);
         let again = fam.cgc_entries(la, lb, lc, exec).unwrap();
         assert_eq!(
@@ -2408,7 +2429,8 @@ fn bits(entries: &[MEntry]) -> Vec<(u32, u32, u32, u32, u64)> {
         .collect()
 }
 
-/// The layer descent emits the serial entries bit for bit and in order,
+/// The layer descent emits the serial exact channel, and its view the serial
+/// entries bit for bit and in order,
 /// through real sections of widths 2–5, widths above a stage's items, and a
 /// narrow child token of a team section; each forced stage really opened a
 /// section, under the shares' no-cache guard. At a forced width every layer
@@ -2437,6 +2459,8 @@ fn layer_descent_matches_the_serial_bits_at_every_width() {
         let _ = built();
         let serial = bits(&rounded_entries(&data, &a, &b, &c, n, None).unwrap());
         assert!(!serial.is_empty());
+        let serial_exact = exact_channel(&data, &a, &b, &c, n, false, None).unwrap();
+        let _ = built();
         // Neither the serial nor a plain-pool token builds in a section.
         let pool = threadteam::Pool::builder()
             .threads(4)
@@ -2460,6 +2484,9 @@ fn layer_descent_matches_the_serial_bits_at_every_width() {
             let got = rounded_entries(&data, &a, &b, &c, n, Some(&mut team.exec(5))).unwrap();
             assert_eq!(bits(&got), serial, "{root:?} width {width}");
             assert_eq!(built(), shared(2), "{root:?} width {width}");
+            let exact = exact_channel(&data, &a, &b, &c, n, false, Some(&mut team.exec(5)));
+            assert!(exact.unwrap() == serial_exact, "{root:?} width {width}");
+            let _ = built();
             let sections = crate::stage::SECTIONS.with(|s| s.take());
             assert!(!sections.is_empty(), "{root:?} width {width}");
             assert!(
@@ -2531,8 +2558,8 @@ fn layer_descent_holds_two_layers_plus_one_layers_candidates() {
         let [live, max] = LIVE_EXACT.with(std::cell::Cell::get);
         assert_eq!(live, 0, "{root:?}: an exact vector outlived the descent");
         assert!(max <= bound, "{root:?}: live {max} > {bound}");
-        // The rounded payload: every column `(μ, m_c)` is placed once, by
-        // move, and holds exactly the returned entries.
+        // The exact payload: every column `(μ, m_c)` is emitted once, by
+        // move, and holds exactly the entries of the view.
         assert_eq!(
             COLUMNS.with(std::cell::Cell::get),
             [n * c.dim(), entries.len()],
@@ -2541,4 +2568,242 @@ fn layer_descent_holds_two_layers_plus_one_layers_candidates() {
         // The bound restricts: it is below the whole channel.
         assert!(bound < n * states.iter().sum::<usize>(), "{root:?}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// Exact retention: seeds, norm tables, views over exact channels.
+// ---------------------------------------------------------------------------
+
+/// The retained seeds are the highest-weight column of the channel: per `μ`
+/// the normalized signed squares `x²/N_μ` (sign of `x`) of `√N_μ Φ_μ(v_λ)`
+/// over `P`, at public indices, on Gram–Schmidt and GT bases with `N = 2`.
+/// Rank-one seeds are refused at the boundary.
+#[test]
+fn seeds_are_the_highest_weight_column() {
+    for (root, a, b, c) in [
+        (RootSystem::G2, G27.to_vec(), G27.to_vec(), G27.to_vec()),
+        (RootSystem::A(2), vec![1, 1], vec![1, 1], vec![1, 1]),
+        (
+            RootSystem::A(3),
+            vec![1, 0, 1],
+            vec![1, 0, 1],
+            vec![1, 0, 1],
+        ),
+    ] {
+        let fam = GeneralFamily::new(root);
+        let (ch, ma, mb, _) = fam.channel(&a, &b, &c).unwrap();
+        let mut want = Vec::new();
+        for mu in 0..ch.mult {
+            for (&(pa, pb), x) in ch.spaces[0].pairs.iter().zip(&ch.phi[0][mu]) {
+                if x.is_zero() {
+                    continue;
+                }
+                let sq = (x * x / &ch.seed_norms[mu]).to_rational();
+                let sq = if x.signum().is_lt() { -sq } else { sq };
+                want.push((ma.public[pa], mb.public[pb], mu as u32, sq));
+            }
+        }
+        let [la, lb, lc] = [&a, &b, &c].map(|x| Label::new(x));
+        let seeds = fam
+            .cgc_seeds_in(la, lb, lc, &mut RequestModules::default())
+            .unwrap();
+        assert_eq!(seeds.mult(), 2, "{root:?}");
+        assert!(seeds.signed_squares() == want, "{root:?}");
+    }
+    let one = Label::new(&[1]);
+    assert!(matches!(
+        GeneralFamily::new(RootSystem::A(1)).cgc_seeds_in(
+            one,
+            one,
+            Label::new(&[2]),
+            &mut RequestModules::default()
+        ),
+        Err(LieError::Unsupported { .. })
+    ));
+}
+
+/// A norm table is its module's norms and ranks moved to public indices,
+/// with `n_m = ν_m g/Δ` and every `ν_m ≥ 1`, the top at the highest weight's
+/// public index and every rank below the largest weight multiplicity; at
+/// least one GT module of the fixtures has a nontrivial public map.
+#[test]
+fn norm_tables_follow_the_public_index() {
+    let mut permuted = false;
+    for (root, l) in [
+        (RootSystem::A(2), vec![1, 1]),
+        (RootSystem::A(2), vec![2, 1]),
+        (RootSystem::A(3), vec![1, 0, 1]),
+        (RootSystem::G2, G27.to_vec()),
+    ] {
+        let data = CartanData::new(root);
+        let m = Ladders::new(&data, &l).unwrap();
+        let t = NormTable::new(&m).unwrap();
+        let scale = malachite_q::Rational::from_naturals(t.content.clone(), t.den.clone());
+        for e in 0..m.dim() {
+            let p = m.public[e] as usize;
+            permuted |= p != e;
+            assert_eq!(t.norm[p], m.norm[e], "{root:?} {l:?}");
+            assert_eq!(t.rank[p], m.rank[e], "{root:?} {l:?}");
+            assert!(!t.nu.is_negative(p) && t.nu.bits(p) > 0);
+            let nu = malachite_q::Rational::from(t.nu.integer(p));
+            assert_eq!(nu * &scale, m.norm[e].to_rational(), "{root:?} {l:?}");
+        }
+        assert_eq!(t.top, m.public[0]);
+        let slots = m.module.weights.iter().map(|s| s.norms.len()).max();
+        assert_eq!(Some(t.slots as usize), slots);
+        assert!(t.rank.iter().all(|&r| r < t.slots));
+    }
+    assert!(permuted, "a GT fixture permutes its indices");
+}
+
+/// Warm loads of an exact channel, its seeds and a norm table are each one
+/// cache search with no allocation and generate nothing on this thread.
+#[cfg(feature = "lie-generated")]
+#[test]
+fn warm_exact_loads_are_one_search_without_allocation() {
+    let _guard = crate::cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let fam = GeneralFamily::new(RootSystem::A(2));
+    let o = Label::new(&[1, 1]);
+    let exact = fam.exact_channel(o, o, o, None).unwrap();
+    let seeds = fam
+        .cgc_seeds_in(o, o, o, &mut RequestModules::default())
+        .unwrap();
+    let norms = fam
+        .norm_table_in(o, &mut RequestModules::default())
+        .unwrap();
+    let builds = BUILDS.with(std::cell::Cell::get);
+    let calls = crate::audit_alloc::thread_allocation_calls;
+    let search = |load: &mut dyn FnMut()| {
+        crate::cache::SEARCHES.with(|n| n.set(0));
+        let before = calls();
+        load();
+        (
+            crate::cache::SEARCHES.with(std::cell::Cell::get),
+            calls() - before,
+        )
+    };
+    let mut warm = None;
+    let got = search(&mut || warm = Some(fam.exact_channel(o, o, o, None).unwrap()));
+    assert_eq!(got, (1, 0), "exact channel");
+    assert!(Arc::ptr_eq(&warm.unwrap(), &exact));
+    let mut warm = None;
+    let got = search(&mut || {
+        warm = Some(
+            fam.cgc_seeds_in(o, o, o, &mut RequestModules::default())
+                .unwrap(),
+        )
+    });
+    assert_eq!(got, (1, 0), "seeds");
+    assert!(Arc::ptr_eq(&warm.unwrap(), &seeds));
+    let mut warm = None;
+    let got = search(&mut || {
+        warm = Some(
+            fam.norm_table_in(o, &mut RequestModules::default())
+                .unwrap(),
+        )
+    });
+    assert_eq!(got, (1, 0), "norm table");
+    assert!(Arc::ptr_eq(&warm.unwrap(), &norms));
+    assert_eq!(BUILDS.with(std::cell::Cell::get), builds);
+}
+
+/// With its view evicted and its exact channel resident, a view miss rounds
+/// the exact channel: no descent and no exact generation, and the same bits.
+#[test]
+fn view_miss_over_a_resident_exact_channel_runs_no_descent() {
+    let _guard = crate::cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let fam = GeneralFamily::new(RootSystem::G2);
+    let [a, c] = [&G27, &G64].map(|x| Label::new(x));
+    crate::cache::reset();
+    let cold = fam.cgc_entries(a, a, c, None).unwrap();
+    let exact = fam.exact_channel(a, a, c, None).unwrap();
+    crate::cache::reset();
+    let held = exact.clone();
+    crate::cache::cgc_exact_channel(RootSystem::G2, [a, a, c], || Ok::<_, LieError>(held)).unwrap();
+    COLUMNS.with(|x| x.set([0, 0]));
+    let builds = BUILDS.with(std::cell::Cell::get);
+    let warm = fam.cgc_entries(a, a, c, None).unwrap();
+    assert_eq!(COLUMNS.with(std::cell::Cell::get), [0, 0], "no descent");
+    assert_eq!(BUILDS.with(std::cell::Cell::get)[1], builds[1]);
+    assert_eq!(bits(&warm), bits(&cold));
+    crate::cache::reset();
+}
+
+/// A reset after the view's claim and before the exact generation it leads
+/// retains neither entry (one inherited epoch), returns the right bits, and a
+/// later call retains both. The labels are used by no other test.
+#[test]
+fn reset_between_view_and_exact_publication_retains_neither() {
+    let _guard = crate::cache::TEST_CACHE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let fam = GeneralFamily::new(RootSystem::G2);
+    let (a, b) = (G14.to_vec(), G64.to_vec());
+    let [la, lb] = [&a, &b].map(|x| Label::new(x));
+    let resident = || {
+        (
+            crate::cache::cgc_channel_is_resident(RootSystem::G2, [&a, &b, &b]),
+            crate::cache::cgc_exact_channel_is_resident(RootSystem::G2, [&a, &b, &b]),
+        )
+    };
+    crate::cache::reset();
+    crate::cache::AFTER_GUARD.with(|h| h.set(Some(crate::cache::reset)));
+    let first = fam.cgc_entries(la, lb, lb, None).unwrap();
+    assert_eq!(resident(), (false, false));
+    let again = fam.cgc_entries(la, lb, lb, None).unwrap();
+    assert_eq!(resident(), (true, true));
+    assert_eq!(bits(&first), bits(&again));
+    crate::cache::reset();
+}
+
+/// The view keeps an exactly nonzero coordinate that rounds to a signed zero
+/// and has no entry for an exactly zero one, which `LieCgc::get` reads as
+/// `+0.0`; on the serial token and on a team in one-entry chunks alike.
+#[test]
+fn view_keeps_rounded_zeros_and_omits_exact_zeros() {
+    let r = |n: i64, d: malachite_nz::natural::Natural| {
+        Q::from(malachite_q::Rational::from_naturals(
+            malachite_nz::natural::Natural::from(n.unsigned_abs()),
+            d,
+        )) * Q::from(n.signum())
+    };
+    let tiny = malachite_nz::natural::Natural::from(1u32) << 1100u32;
+    // `2 ⊗ 2 → 1`, one column: `(0,0)` is `−2^-1100`, `(0,1)` and `(1,0)` are
+    // exactly zero, `(1,1)` is `1`.
+    let column = vec![(0, 0, r(-1, tiny)), (1, 1, Q::from(1))];
+    let exact =
+        exact::ExactCgc::from_columns([2, 2, 1], vec![column], &[Q::from(1)], false).unwrap();
+    let unit = |dim: usize| NormTable {
+        norm: vec![Q::from(1); dim].into_boxed_slice(),
+        nu: crate::exact::radical::SignedInts::from_words(&vec![(false, 1); dim]).unwrap(),
+        den: malachite_nz::natural::Natural::from(1u32),
+        content: malachite_nz::natural::Natural::from(1u32),
+        rank: vec![0; dim].into_boxed_slice(),
+        slots: 1,
+        top: 0,
+    };
+    let (two, one) = (unit(2), unit(1));
+    let check = |view: CgcChannel, token: &str| {
+        let got: Vec<_> = view
+            .iter()
+            .map(|e| (e.m1, e.m2, e.value.to_bits()))
+            .collect();
+        assert_eq!(
+            got,
+            [(0, 0, (-0.0f64).to_bits()), (1, 1, 1.0f64.to_bits())],
+            "{token}"
+        );
+    };
+    check(round_channel(&exact, [&two, &two, &one], None), "serial");
+    let team = layer_team(2);
+    let _force = crate::stage::force_width(2);
+    let _chunk = ChunkGuard::set(1);
+    check(
+        round_channel(&exact, [&two, &two, &one], Some(&mut team.exec(2))),
+        "team",
+    );
 }
