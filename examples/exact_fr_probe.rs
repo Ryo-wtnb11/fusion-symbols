@@ -29,8 +29,12 @@
 //! (`T` for R; per factor for products), `u_bits_*`/`v_bits_*` of the radicand
 //! `U/V` passed to the rounding, `*_big_frac` the fraction of exact CGC
 //! coordinates `x` and of accumulators `S` outside the inline word form of
-//! `Q`, `max_ulp`/`max_abs_diff` the largest distance between the production
-//! value and the rounded exact one, and `within_tol` whether every entry
+//! `Q`, `max_ulp_nonzero` the largest ordered-binary64 step distance between
+//! the production value and the rounded exact one over entries whose exact
+//! value is nonzero, `max_abs_diff` the largest absolute difference over all
+//! entries, `zero_exact_nonzero_prod` / `zero_exact_max_abs_prod` the count
+//! and largest `|production|` of entries that are exactly zero but nonzero
+//! in production, and `within_tol` whether every entry
 //! satisfies `|current − exact_rounded| ≤ γ_k Σ|terms| + u |exact_rounded|`
 //! (the forward bound of the §6.2 recipe, `k = 2(n + 7)` for F and
 //! `2(n + 3)` for R with `n` summed terms; the last term is the rounding of
@@ -47,7 +51,8 @@ use fusion_symbols::lie::{GroupId, LieGroup, LieIrrep, RootSystem};
 
 const HEADER: &str = "kind,group,labels,shape,entries,b64_cold_s,exact_gen_s,exact_contract_s,\
 exact_total_s,s_bits_max,s_bits_med,u_bits_max,u_bits_med,v_bits_max,v_bits_med,x_big_frac,\
-s_big_frac,max_ulp,max_abs_diff,within_tol,status";
+s_big_frac,max_ulp_nonzero,max_abs_diff,zero_exact_nonzero_prod,zero_exact_max_abs_prod,\
+within_tol,status";
 
 /// Sweep sectors `a/b/c`, smallest first. Each yields its B, A and R rows,
 /// plus `F^{aaa}_a[a,a]` when `a = b = c`.
@@ -164,7 +169,9 @@ fn frac(part: u64, whole: u64) -> String {
     }
 }
 
-/// Distance in units in the last place over the ordered binary64 line.
+/// Steps between `a` and `b` on the ordered binary64 line (`±0` coincide,
+/// a pair across zero counts the steps through it). Only meaningful when the
+/// exact value is nonzero: from `0` to `1e-17` is about `4e18` steps.
 fn ulps(a: f64, b: f64) -> u64 {
     let key = |x: f64| {
         let bits = x.to_bits() as i64;
@@ -259,15 +266,24 @@ fn measure(spec: &str) -> Result<String, String> {
         status = "DIMS_MISMATCH";
     }
     let (mut max_ulp, mut max_abs, mut within) = (0u64, 0.0f64, true);
+    // Entries whose exact value is 0 but whose production value is not.
+    let (mut zero_count, mut zero_max) = (0u64, 0.0f64);
     for ((&c, &e), &t) in current.iter().zip(&exact.values).zip(&tol) {
         let diff = (c - e).abs();
-        max_ulp = max_ulp.max(ulps(c, e));
+        if e == 0.0 {
+            if c != 0.0 {
+                zero_count += 1;
+                zero_max = zero_max.max(c.abs());
+            }
+        } else {
+            max_ulp = max_ulp.max(ulps(c, e));
+        }
         max_abs = max_abs.max(diff);
         within &= diff <= t + U * e.abs();
     }
     let st = &exact.stats;
     Ok(format!(
-        "{kind},{gtok},\"{labels}\",{shape},{},{b64:.6e},{:.6e},{:.6e},{:.6e},{},{},{},{},{},{},{},{},{max_ulp},{max_abs:.3e},{within},{status}",
+        "{kind},{gtok},\"{labels}\",{shape},{},{b64:.6e},{:.6e},{:.6e},{:.6e},{},{},{},{},{},{},{},{},{max_ulp},{max_abs:.3e},{zero_count},{zero_max:.3e},{within},{status}",
         current.len(),
         st.gen_secs,
         st.contract_secs,
