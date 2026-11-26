@@ -5,16 +5,21 @@ on:
 jobs:
   sweep:
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
-        only: ['sp4', 'so5', 'su4', 'f4:0,0,0,1', 'f4:0,0,1,0', 'e6', 'e7:0,0,0,0,0,0,1', 'e7:1,0,0,0,0,0,0', 'e7:0,0,0,0,0,1,0', 'e8', 'su3:6,6', 'g2:2,2', 'su3xsu2']
+        only: ['F:su3', 'su4', 'f4:0,0,1,0', 'e7:0,0,0,0,0,1,0', 'su3:6,6', 'g2:2,0', 'e8', 'su3xsu2']
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release --features exact-fr-probe --example exact_fr_probe 2>&1 | tail -5; exit ${PIPESTATUS[0]}
-      - name: sweep
+        with: { components: clippy }
+      - run: cargo build --release --features exact-fr-probe --example exact_fr_probe 2>&1 | tail -40; exit ${PIPESTATUS[0]}
+      - name: check (auto vs big identical), then timings
         run: |
-          lscpu | grep "Model name"; free -g | head -2
-          target/release/examples/exact_fr_probe --max-seconds 3000 --only '${{ matrix.only }}' | tee out.csv
+          lscpu | grep "Model name"
+          echo "== check"; target/release/examples/exact_fr_probe --max-seconds 2400 --only '${{ matrix.only }}' --accum check 2>/dev/null
+          echo "== auto";  target/release/examples/exact_fr_probe --max-seconds 2400 --only '${{ matrix.only }}' --accum auto 2>/dev/null
+          echo "== big";   target/release/examples/exact_fr_probe --max-seconds 2400 --only '${{ matrix.only }}' --accum big --exact-only 2>/dev/null
+      - run: cargo clippy --all-targets --all-features -- -D warnings 2>&1 | tail -60
+        if: matrix.only == 'e8'
