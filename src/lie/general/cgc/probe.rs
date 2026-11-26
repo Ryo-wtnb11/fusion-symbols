@@ -15,11 +15,19 @@
 //! so `B`, `D` and both R channels are read at engine index 0, the highest
 //! weight, for every basis: they are the elimination seeds of §4.2–§4.3 and
 //! need no descent. Each `(channel, μ)` and each module's norms are put on
-//! one common denominator, so `S` and `T` are integer multiply–accumulates in
-//! `Q`, and every denominator enters only the final radicand `U / V`, which
+//! one common denominator and their content divided out, so `S` and `T` are
+//! integer multiply–accumulates, and every denominator and content enters
+//! only the final radicand `U / V`, which
 //! `exact::signed_sqrt_to_f64` rounds once. Product groups take the exact
 //! Kronecker product of the factor radicands (factor order, row-major, as
 //! `product.rs`) and round once.
+//!
+//! The F final sum `S[μν, κλ] = Σ_key ν_a ν_b ν_c AB[key][μν] CD[key][κλ]`
+//! reads each partial join once per key; its cost is `K · n1 n2 n3 n4`
+//! multiply–accumulates for `K` keys. [`Accum::Auto`] runs it in
+//! sign–magnitude stack limbs (`L ∈ {1, 4, 8, 16}`, chosen before the loop
+//! from the widest operand) into per-entry lazy-carry `u128` columns, with
+//! no allocation or gcd per term, and falls back to `Q` above 1024 bits.
 //!
 //! The tolerance functions bound `|current − exact|` for the production
 //! binary64 evaluation of §6.2 from its own rounded channels:
@@ -32,9 +40,10 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
-use malachite_base::num::arithmetic::traits::{Lcm, Square};
+use malachite_base::num::arithmetic::traits::{Gcd, Lcm, Square};
 use malachite_base::num::logic::traits::SignificantBits;
 use malachite_nz::natural::Natural;
+use malachite_nz::platform::Limb;
 use malachite_q::Rational;
 
 use super::{descend, highest, GeneralFamily, Ladders, ProductScratch, RequestModules, RowScratch};
@@ -54,6 +63,14 @@ pub struct ProbeStats {
     pub gen_secs: f64,
     /// Joins, integer multiply–accumulate, radicand formation, rounding.
     pub contract_secs: f64,
+    /// Of `contract_secs`: the partial joins `Σ_me X_A X_B`, `Σ_mf X_C X_D`.
+    pub join_secs: f64,
+    /// Of `contract_secs`: the final sum over keys.
+    pub sum_secs: f64,
+    /// Accumulator of each simple block's final sum (`words`, `limbs4`,
+    /// `limbs8`, `limbs16`, `big`, `q` for R; `=big` when checked), joined
+    /// by `+` over product factors.
+    pub accum: String,
     /// Bit length of each exact integer numerator `S` (resp. `T`); for a
     /// product group, of each factor's numerators.
     pub s_bits: Vec<u64>,
@@ -82,8 +99,19 @@ pub struct ProbeBlock {
     pub stats: ProbeStats,
 }
 
+/// How the final sum `S` of an F block is accumulated.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Accum {
+    /// Fixed-width stack limbs when the operand bound fits 16 limbs, else `Q`.
+    Auto,
+    /// `Q` (Malachite beyond words) throughout.
+    Big,
+    /// Both; panics unless every entry's `S` (hence `(sign, U, V)`) agrees.
+    Check,
+}
+
 /// `sign·√(u/v)`, unreduced; zero has sign 0.
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 struct Exact {
     sign: i8,
     u: Natural,
@@ -142,24 +170,26 @@ type PairAbs = HashMap<(u32, u32), Vec<(u32, f64)>>;
 /// One exact entry `(left engine, right engine, coupled engine, μ, value)`.
 type Raw = (usize, usize, usize, usize, Q);
 
-/// An exact channel on per-`μ` common denominators: `X = x·D_μ` is an
-/// integer.
+/// An exact channel on per-`μ` common denominators with the content divided
+/// out: `x = content_μ · X / D_μ` with `X` an integer.
 struct IntChannel {
     entries: Vec<Raw>,
     den: Vec<Natural>,
+    content: Vec<Natural>,
     norms: Vec<Q>,
 }
 
 impl IntChannel {
-    /// Per `μ`: the radicand factors `q(N_μ)` (numerator side) and
-    /// `D_μ²·p(N_μ)` (denominator side).
+    /// Per `μ`: the radicand factors `q(N_μ)·content_μ²` (numerator side)
+    /// and `D_μ²·p(N_μ)` (denominator side).
     fn radicand_parts(&self) -> (Vec<Natural>, Vec<Natural>) {
         self.norms
             .iter()
             .zip(&self.den)
-            .map(|(n, d)| {
+            .zip(&self.content)
+            .map(|((n, d), g)| {
                 let (p, q) = n.magnitudes();
-                (q.into_owned(), d.square() * p.as_ref())
+                (q.into_owned() * g.square(), d.square() * p.as_ref())
             })
             .unzip()
     }
@@ -173,8 +203,41 @@ fn to_q(n: &Natural) -> Q {
     Q::from(Rational::from(n.clone()))
 }
 
+fn bits(q: &Q) -> u64 {
+    q.magnitudes().0.significant_bits()
+}
+
+fn max_bits(v: &[Q]) -> u64 {
+    v.iter().map(bits).max().unwrap_or(0)
+}
+
+/// Progress of the exact path on stderr, so a long run shows its phase.
+fn progress(phase: &str, since: Instant) {
+    eprintln!(
+        "exact-fr-probe: {phase} done at {:.3}s",
+        since.elapsed().as_secs_f64()
+    );
+}
+
+/// The content (gcd) of the integers `values`; 1 when there are none.
+fn divide_content<'v>(values: impl Iterator<Item = &'v Q>) -> Natural {
+    let mut g = Natural::from(0u32);
+    for x in values {
+        if g == one() {
+            break;
+        }
+        g = g.gcd(x.magnitudes().0.into_owned());
+    }
+    if g == Natural::from(0u32) {
+        one()
+    } else {
+        g
+    }
+}
+
 fn integral(raw: Vec<Raw>, norms: Vec<Q>, st: &mut ProbeStats) -> IntChannel {
-    let mut den = vec![one(); norms.len()];
+    let n = norms.len();
+    let mut den = vec![one(); n];
     for (.., mu, x) in &raw {
         st.x_values += 1;
         st.x_big += u64::from(x.heap_bytes() != 0);
@@ -185,19 +248,32 @@ fn integral(raw: Vec<Raw>, norms: Vec<Q>, st: &mut ProbeStats) -> IntChannel {
         }
     }
     let scale: Vec<Q> = den.iter().map(to_q).collect();
-    let entries = raw
+    let scaled: Vec<Raw> = raw
         .into_iter()
         .map(|(p, q, m, mu, x)| (p, q, m, mu, x * &scale[mu]))
+        .collect();
+    let content: Vec<Natural> = (0..n)
+        .map(|mu| divide_content(scaled.iter().filter(|e| e.3 == mu).map(|e| &e.4)))
+        .collect();
+    let div: Vec<Q> = content.iter().map(to_q).collect();
+    let entries = scaled
+        .into_iter()
+        .map(|(p, q, m, mu, x)| {
+            let x = if div[mu].is_one() { x } else { x / &div[mu] };
+            (p, q, m, mu, x)
+        })
         .collect();
     IntChannel {
         entries,
         den,
+        content,
         norms,
     }
 }
 
-/// `ν_m = n_m Δ` with `Δ` the lcm of every norm denominator of `m`.
-fn integral_norms(m: &Ladders) -> (Vec<Q>, Natural) {
+/// `n_m = g ν_m / Δ` with `Δ` the lcm of every norm denominator of `m`, `g`
+/// the content of `n_m Δ`, and `ν_m` an integer; returns `(ν, Δ, g)`.
+fn integral_norms(m: &Ladders) -> (Vec<Q>, Natural, Natural) {
     let mut den = one();
     for n in &m.norm {
         let (_, q) = n.magnitudes();
@@ -206,7 +282,15 @@ fn integral_norms(m: &Ladders) -> (Vec<Q>, Natural) {
         }
     }
     let scale = to_q(&den);
-    (m.norm.iter().map(|n| n * &scale).collect(), den)
+    let nu: Vec<Q> = m.norm.iter().map(|n| n * &scale).collect();
+    let g = divide_content(nu.iter());
+    let div = to_q(&g);
+    let nu = if div.is_one() {
+        nu
+    } else {
+        nu.into_iter().map(|x| x / &div).collect()
+    };
+    (nu, den, g)
 }
 
 /// The full exact channel `a ⊗ b → c` by the production descent, keeping
@@ -219,9 +303,18 @@ fn full(
 ) -> Result<(Vec<Raw>, Vec<Q>), LieError> {
     let mut raw = Vec::new();
     let mut norms = Vec::new();
+    let (start, dim) = (Instant::now(), c.dim());
+    let mut done = 0usize;
     descend(data, a, b, c, n, &mut |seed_norms, m, space, per_mu| {
         if norms.is_empty() {
             norms = seed_norms.to_vec();
+        }
+        done += 1;
+        if done % (dim / 10).max(1) == 0 {
+            eprintln!(
+                "exact-fr-probe:   descent {done}/{dim} states at {:.3}s",
+                start.elapsed().as_secs_f64()
+            );
         }
         if keep.contains(&m) {
             for (mu, v) in per_mu.iter().enumerate() {
@@ -275,26 +368,257 @@ fn sign_of(q: &Q) -> i8 {
     }
 }
 
-/// `sign(s)·√(s²·u_rest / v_rest)` with `s` an integer.
-fn radical(s: &Q, u_rest: &Natural, v_rest: Natural, st: &mut ProbeStats) -> Exact {
+/// An exact integer as `(sign, |value|)`.
+type Signed = (i8, Natural);
+
+fn signed(q: &Q) -> Signed {
+    (sign_of(q), q.magnitudes().0.into_owned())
+}
+
+/// `sign·√(|s|²·u_rest / v_rest)`.
+fn radical((sign, mag): Signed, u_rest: &Natural, v_rest: Natural, st: &mut ProbeStats) -> Exact {
     st.s_values += 1;
-    st.s_big += u64::from(s.heap_bytes() != 0);
-    let sign = sign_of(s);
     if sign == 0 {
         return Exact::zero();
     }
-    let (ps, _) = s.magnitudes();
-    st.s_bits.push(ps.as_ref().significant_bits());
+    let b = mag.significant_bits();
+    st.s_bits.push(b);
+    st.s_big += u64::from(b > 63);
     Exact {
         sign,
-        u: ps.as_ref().square() * u_rest,
+        u: mag.square() * u_rest,
         v: v_rest,
+    }
+}
+
+/// A signed integer of at most `L` little-endian limbs, as sign and
+/// magnitude; `len` counts limbs up to the highest nonzero one.
+#[derive(Clone, Copy)]
+struct Mag<const L: usize> {
+    neg: bool,
+    len: usize,
+    limbs: [u64; L],
+}
+
+impl<const L: usize> Mag<L> {
+    /// The integer `q`, which the caller's bit bound fits into `L` limbs.
+    fn from_q(q: &Q) -> Self {
+        let (p, _) = q.magnitudes();
+        let mut limbs = [0u64; L];
+        for (i, w) in p.limbs().enumerate() {
+            let bit = i * Limb::BITS as usize;
+            // A Malachite limb is 64 bits, or 32 under `32_bit_limbs`.
+            #[allow(clippy::useless_conversion)]
+            let w = u64::from(w);
+            limbs[bit / 64] |= w << (bit % 64);
+        }
+        Self {
+            neg: q.signum() == Ordering::Less,
+            len: p.significant_bits().div_ceil(64) as usize,
+            limbs,
+        }
+    }
+
+    /// `self · other`, which the caller's bit bound fits into `L` limbs.
+    fn mul(&self, other: &Self) -> Self {
+        let mut r = [0u64; L];
+        for (i, &x) in self.limbs[..self.len].iter().enumerate() {
+            let mut carry = 0u128;
+            for (j, &y) in other.limbs[..other.len].iter().enumerate() {
+                let t = u128::from(x) * u128::from(y) + u128::from(r[i + j]) + carry;
+                r[i + j] = t as u64;
+                carry = t >> 64;
+            }
+            if carry != 0 {
+                r[i + other.len] = carry as u64;
+            }
+        }
+        let mut len = (self.len + other.len).min(L);
+        while len > 0 && r[len - 1] == 0 {
+            len -= 1;
+        }
+        Self {
+            neg: self.neg != other.neg,
+            len,
+            limbs: r,
+        }
+    }
+
+    /// Adds the limb products of `|self · other|` into the `2L` lazy-carry
+    /// columns `col` (column `k` weighs `2^(64k)`); carries are resolved once
+    /// per entry by [`column_natural`].
+    #[inline]
+    fn mac_into(&self, other: &Self, col: &mut [u128]) {
+        for (i, &x) in self.limbs[..self.len].iter().enumerate() {
+            for (j, &y) in other.limbs[..other.len].iter().enumerate() {
+                let p = u128::from(x) * u128::from(y);
+                col[i + j] += u128::from(p as u64);
+                col[i + j + 1] += p >> 64;
+            }
+        }
+    }
+}
+
+/// `Σ_k col[k] 2^(64k)`. A column receives two summands below `2^64` per
+/// limb product, so it stays below `2^128` for fewer than `2^63` products.
+fn column_natural(col: &[u128]) -> Natural {
+    let mut limbs = Vec::with_capacity(col.len() + 2);
+    let mut carry = 0u128;
+    for &c in col {
+        let t = c + carry;
+        limbs.push(t as u64);
+        carry = t >> 64;
+    }
+    while carry != 0 {
+        limbs.push(carry as u64);
+        carry >>= 64;
+    }
+    limbs.iter().rev().fold(Natural::from(0u32), |acc, &w| {
+        (acc << 64u32) + Natural::from(w)
+    })
+}
+
+/// `S[μν, κλ] = Σ_key w_key · AB[key][μν] · CD[key][κλ]`, `w = ν_a ν_b ν_c`:
+/// one multiply–accumulate per key and entry pair, no per-term allocation.
+/// `w` multiplies the narrower side once per `(key, μν)` or `(key, κλ)`.
+fn sum_fixed<const L: usize>(
+    ab: &Keyed,
+    cd: &Keyed,
+    nu: [&[Q]; 3],
+    len: usize,
+    n34: usize,
+    w_on_ab: bool,
+) -> Vec<Signed> {
+    let c = 2 * L;
+    let mut cols = vec![0u128; len * 2 * c];
+    let nus: [Vec<Mag<L>>; 3] = nu.map(|v| v.iter().map(Mag::from_q).collect());
+    let (mut left, mut right): (Vec<Mag<L>>, Vec<Mag<L>>) = (Vec::new(), Vec::new());
+    for (key, cdv) in cd {
+        let w = nus[0][key.0].mul(&nus[1][key.1]).mul(&nus[2][key.2]);
+        left.clear();
+        right.clear();
+        if w_on_ab {
+            left.extend(ab[key].iter().map(|x| Mag::from_q(x).mul(&w)));
+            right.extend(cdv.iter().map(Mag::from_q));
+        } else {
+            left.extend(ab[key].iter().map(Mag::from_q));
+            right.extend(cdv.iter().map(|x| Mag::from_q(x).mul(&w)));
+        }
+        for (i, l) in left.iter().enumerate() {
+            if l.len == 0 {
+                continue;
+            }
+            for (j, r) in right.iter().enumerate() {
+                if r.len == 0 {
+                    continue;
+                }
+                let base = ((i * n34 + j) * 2 + usize::from(l.neg != r.neg)) * c;
+                l.mac_into(r, &mut cols[base..base + c]);
+            }
+        }
+    }
+    cols.chunks_exact(2 * c)
+        .map(|e| {
+            let (pos, neg) = (column_natural(&e[..c]), column_natural(&e[c..]));
+            match pos.cmp(&neg) {
+                Ordering::Greater => (1, pos - neg),
+                Ordering::Less => (-1, neg - pos),
+                Ordering::Equal => (0, Natural::from(0u32)),
+            }
+        })
+        .collect()
+}
+
+/// The same sum accumulated in `Q`.
+fn sum_big(ab: &Keyed, cd: &Keyed, nu: [&[Q]; 3], len: usize, n34: usize) -> Vec<Signed> {
+    let mut s = vec![Q::from(0); len];
+    for (key, cdv) in cd {
+        let w = &(&nu[0][key.0] * &nu[1][key.1]) * &nu[2][key.2];
+        for (i, xab) in ab[key].iter().enumerate() {
+            if xab.is_zero() {
+                continue;
+            }
+            let t = &w * xab;
+            for (j, xcd) in cdv.iter().enumerate() {
+                if !xcd.is_zero() {
+                    s[i * n34 + j].add_mul(&t, xcd);
+                }
+            }
+        }
+    }
+    s.iter().map(signed).collect()
+}
+
+/// Chooses the accumulator from a bound computed before the loop: the
+/// widest operand is `bits(w) + bits(narrower side)` or the wider side, with
+/// `bits(w) ≤ Σ max bits(ν)`; the lazy columns hold any sum, so only the
+/// operand width selects `L`.
+fn sum_auto(
+    ab: &Keyed,
+    cd: &Keyed,
+    nu: [&[Q]; 3],
+    len: usize,
+    n34: usize,
+    st: &mut ProbeStats,
+) -> Vec<Signed> {
+    let w_bits: u64 = nu.iter().map(|v| max_bits(v)).sum();
+    let ab_bits = cd.keys().map(|k| max_bits(&ab[k])).max().unwrap_or(0);
+    let cd_bits = cd.values().map(|v| max_bits(v)).max().unwrap_or(0);
+    let w_on_ab = ab_bits <= cd_bits;
+    let widest = if w_on_ab {
+        (w_bits + ab_bits).max(cd_bits)
+    } else {
+        ab_bits.max(w_bits + cd_bits)
+    };
+    let (kind, out) = match widest.div_ceil(64) {
+        0..=1 => ("words", sum_fixed::<1>(ab, cd, nu, len, n34, w_on_ab)),
+        2..=4 => ("limbs4", sum_fixed::<4>(ab, cd, nu, len, n34, w_on_ab)),
+        5..=8 => ("limbs8", sum_fixed::<8>(ab, cd, nu, len, n34, w_on_ab)),
+        9..=16 => ("limbs16", sum_fixed::<16>(ab, cd, nu, len, n34, w_on_ab)),
+        _ => ("big", sum_big(ab, cd, nu, len, n34)),
+    };
+    st.accum.push_str(kind);
+    out
+}
+
+fn final_sum(
+    ab: &Keyed,
+    cd: &Keyed,
+    nu: [&[Q]; 3],
+    len: usize,
+    n34: usize,
+    accum: Accum,
+    st: &mut ProbeStats,
+) -> Vec<Signed> {
+    if !st.accum.is_empty() {
+        st.accum.push('+');
+    }
+    if cd.is_empty() {
+        st.accum.push_str("none");
+        return vec![(0, Natural::from(0u32)); len];
+    }
+    match accum {
+        Accum::Big => {
+            st.accum.push_str("big");
+            sum_big(ab, cd, nu, len, n34)
+        }
+        Accum::Auto => sum_auto(ab, cd, nu, len, n34, st),
+        Accum::Check => {
+            let fixed = sum_auto(ab, cd, nu, len, n34, st);
+            st.accum.push_str("=big");
+            assert!(
+                fixed == sum_big(ab, cd, nu, len, n34),
+                "fixed-width and Q accumulations of S differ"
+            );
+            fixed
+        }
     }
 }
 
 fn simple_f(
     fam: &GeneralFamily,
     [a, b, c, d, e, f]: [Label<'_>; 6],
+    accum: Accum,
     st: &mut ProbeStats,
 ) -> Result<Block, LieError> {
     let dims = [
@@ -317,25 +641,31 @@ fn simple_f(
     let ld = modules.load(fam, d)?;
     let le = modules.load(fam, e)?;
     let lf = modules.load(fam, f)?;
+    progress("modules", t0);
     let (raw, norms) = seeds(data, (&le, &lc, &ld), n2)?;
     let cb = integral(raw, norms, st);
     let me: HashSet<usize> = cb.entries.iter().map(|x| x.0).collect();
+    progress("seeds B", t0);
     let (raw, norms) = full(data, (&la, &lb, &le), n1, &me)?;
     let ca = integral(raw, norms, st);
+    progress("descent A", t0);
     let (raw, norms) = seeds(data, (&la, &lf, &ld), n4)?;
     let cd = integral(raw, norms, st);
     let mf: HashSet<usize> = cd.entries.iter().map(|x| x.1).collect();
+    progress("seeds D", t0);
     let (raw, norms) = full(data, (&lb, &lc, &lf), n3, &mf)?;
     let cc = integral(raw, norms, st);
-    let (nu_a, da) = integral_norms(&la);
-    let (nu_b, db) = integral_norms(&lb);
-    let (nu_c, dc) = integral_norms(&lc);
+    progress("descent Cb", t0);
+    let (nu_a, da, ga) = integral_norms(&la);
+    let (nu_b, db, gb) = integral_norms(&lb);
+    let (nu_c, dc, gc) = integral_norms(&lc);
     let (p_d0, q_d0) = ld.norm[0].magnitudes();
     let (p_d0, q_d0) = (p_d0.into_owned(), q_d0.into_owned());
     drop(modules);
     let t1 = Instant::now();
     st.gen_secs += (t1 - t0).as_secs_f64();
 
+    // Each partial join once per (key, μ, ν) and (key, κ, λ):
     // AB[(m_a,m_b,m_c)][μ,ν] = Σ_{m_e} X_A X_B.
     let mut b_by_me: ByIndex<'_> = HashMap::new();
     for (pe, pc, _, nu, x) in &cb.entries {
@@ -366,32 +696,27 @@ fn simple_f(
             }
         }
     }
+    let t2 = Instant::now();
+    st.join_secs += (t2 - t1).as_secs_f64();
+    eprintln!(
+        "exact-fr-probe: joins done at {:.3}s ({} keys)",
+        t0.elapsed().as_secs_f64(),
+        cdm.len()
+    );
     // S = Σ_key ν_a ν_b ν_c AB·CD. The sum is exact, so key order is free.
-    let mut s = vec![Q::from(0); len];
-    for (key, cdv) in &cdm {
-        let w = &(&nu_a[key.0] * &nu_b[key.1]) * &nu_c[key.2];
-        for (i, xab) in ab[key].iter().enumerate() {
-            if xab.is_zero() {
-                continue;
-            }
-            let t = &w * xab;
-            let base = i * n3 * n4;
-            for (j, xcd) in cdv.iter().enumerate() {
-                if !xcd.is_zero() {
-                    s[base + j].add_mul(&t, xcd);
-                }
-            }
-        }
-    }
-    // U = S² q(n_d0)² Π q(N);  V = (Δa Δb Δc)² p(n_d0)² Π D² p(N).
+    let nu = [nu_a.as_slice(), nu_b.as_slice(), nu_c.as_slice()];
+    let s = final_sum(&ab, &cdm, nu, len, n3 * n4, accum, st);
+    st.sum_secs += t2.elapsed().as_secs_f64();
+    progress("final sum", t0);
+    // U = S² q(n_d0)² (g_a g_b g_c)² Π q(N) g²;  V = (Δa Δb Δc)² p(n_d0)² Π D² p(N).
     let (uq_a, vp_a) = ca.radicand_parts();
     let (uq_b, vp_b) = cb.radicand_parts();
     let (uq_c, vp_c) = cc.radicand_parts();
     let (uq_d, vp_d) = cd.radicand_parts();
-    let u_common = q_d0.square();
+    let u_common = q_d0.square() * (&(&ga * &gb) * &gc).square();
     let v_common = (&(&da * &db) * &dc).square() * p_d0.square();
     let mut entries = Vec::with_capacity(len);
-    for (idx, x) in s.iter().enumerate() {
+    for (idx, x) in s.into_iter().enumerate() {
         let (mu, nu, kappa, lambda) = (
             idx / (n2 * n3 * n4),
             idx / (n3 * n4) % n2,
@@ -425,12 +750,14 @@ fn simple_r(
     let la = modules.load(fam, a)?;
     let lb = modules.load(fam, b)?;
     let lc = modules.load(fam, c)?;
+    progress("modules", t0);
     let (raw, norms) = seeds(data, (&la, &lb, &lc), n)?;
     let ca = integral(raw, norms, st);
     let (raw, norms) = seeds(data, (&lb, &la, &lc), n)?;
     let cb = integral(raw, norms, st);
-    let (nu_a, da) = integral_norms(&la);
-    let (nu_b, db) = integral_norms(&lb);
+    progress("seeds", t0);
+    let (nu_a, da, ga) = integral_norms(&la);
+    let (nu_b, db, gb) = integral_norms(&lb);
     let (p_c0, q_c0) = lc.norm[0].magnitudes();
     let (p_c0, q_c0) = (p_c0.into_owned(), q_c0.into_owned());
     drop(modules);
@@ -442,6 +769,13 @@ fn simple_r(
     for (pb, pa, _, nu, x) in &cb.entries {
         b_map.entry((*pa, *pb)).or_default().push((*nu, x));
     }
+    st.join_secs += t1.elapsed().as_secs_f64();
+    let t2 = Instant::now();
+    // T is seeds-only and small, so it stays in `Q`.
+    if !st.accum.is_empty() {
+        st.accum.push('+');
+    }
+    st.accum.push_str("q");
     let mut t = vec![Q::from(0); len];
     for (pa, pb, _, mu, xa) in &ca.entries {
         let Some(bl) = b_map.get(&(*pa, *pb)) else {
@@ -452,17 +786,20 @@ fn simple_r(
             t[mu * n + nu].add_mul(&w, xb);
         }
     }
-    // U = T² q(n_c0)² q(N_μ) q(N'_ν);  V = (Δa Δb)² p(n_c0)² D_μ² p(N_μ) D'_ν² p(N'_ν).
+    st.sum_secs += t2.elapsed().as_secs_f64();
+    progress("final sum", t0);
+    // U = T² q(n_c0)² (g_a g_b)² q(N_μ) g_μ² q(N'_ν) g'_ν²;
+    // V = (Δa Δb)² p(n_c0)² D_μ² p(N_μ) D'_ν² p(N'_ν).
     let (uq_a, vp_a) = ca.radicand_parts();
     let (uq_b, vp_b) = cb.radicand_parts();
-    let u_common = q_c0.square();
+    let u_common = q_c0.square() * (&ga * &gb).square();
     let v_common = (&da * &db).square() * p_c0.square();
     let mut entries = Vec::with_capacity(len);
     for (idx, x) in t.iter().enumerate() {
         let (mu, nu) = (idx / n, idx % n);
         let u = &(&u_common * &uq_a[mu]) * &uq_b[nu];
         let v = &(&v_common * &vp_a[mu]) * &vp_b[nu];
-        entries.push(radical(x, &u, v, st));
+        entries.push(radical(signed(x), &u, v, st));
     }
     st.contract_secs += t1.elapsed().as_secs_f64();
     Ok(Block {
@@ -504,12 +841,17 @@ fn unsupported() -> LieError {
     }
 }
 
-fn block_f(g: &LieGroup, labels: [&LieIrrep; 6], st: &mut ProbeStats) -> Result<Block, LieError> {
+fn block_f(
+    g: &LieGroup,
+    labels: [&LieIrrep; 6],
+    accum: Accum,
+    st: &mut ProbeStats,
+) -> Result<Block, LieError> {
     if let Some(product) = &g.composite {
         let mut acc: Option<Block> = None;
         for (i, factor) in product.factors().iter().enumerate() {
             let fl = labels.map(|x| &x.factors().expect("composite label")[i]);
-            let block = block_f(factor, fl, st)?;
+            let block = block_f(factor, fl, accum, st)?;
             let t = Instant::now();
             acc = Some(match acc {
                 None => block,
@@ -522,7 +864,7 @@ fn block_f(g: &LieGroup, labels: [&LieIrrep; 6], st: &mut ProbeStats) -> Result<
     match labels[0].payload {
         LiePayload::Simple(_) => {
             let ls = labels.map(|x| x.simple().expect("simple label").label());
-            simple_f(g.engine(), ls, st)
+            simple_f(g.engine(), ls, accum, st)
         }
         LiePayload::RankOne(_) => {
             let t = Instant::now();
@@ -611,12 +953,13 @@ fn finish(block: Block, mut st: ProbeStats) -> ProbeBlock {
     }
 }
 
-/// `F^{abc}_d[e, f]` evaluated exactly and rounded once. Reads modules
-/// through the CGC tier (reset it for a cold measurement) and retains no
-/// exact data.
-pub fn exact_f(g: &LieGroup, labels: [&LieIrrep; 6]) -> Result<ProbeBlock, LieError> {
+/// `F^{abc}_d[e, f]` evaluated exactly and rounded once, its final sum
+/// accumulated as `accum` says. Reads modules through the CGC tier (reset it
+/// for a cold measurement), retains no exact data, and reports each phase on
+/// stderr.
+pub fn exact_f(g: &LieGroup, labels: [&LieIrrep; 6], accum: Accum) -> Result<ProbeBlock, LieError> {
     let mut st = ProbeStats::default();
-    let block = block_f(g, labels, &mut st)?;
+    let block = block_f(g, labels, accum, &mut st)?;
     Ok(finish(block, st))
 }
 
