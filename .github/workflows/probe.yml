@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        only: ['F:su3', 'su3:6,6', 'su4', 'f4:0,0,1,0', 'e7:0,0,0,0,0,1,0', 'g2:2,0', 'e8', 'e6', 'sp4', 'spin5', 'su3xsu2']
+        only: ['su3:6,6', 'F:su3', 'su4', 'f4:0,0,1,0', 'e7:0,0,0,0,0,1,0', 'g2:2,0', 'e8']
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -18,7 +18,7 @@ jobs:
       - name: check (auto vs big identical), then timings
         run: |
           lscpu | grep "Model name"
-          echo "== check"; target/release/examples/exact_fr_probe --max-seconds 2400 --only '${{ matrix.only }}' --accum check 2>/dev/null
+          echo "== check"; target/release/examples/exact_fr_probe --max-seconds 2400 --only '${{ matrix.only }}' --accum check 2> err.txt; grep 'exact-fr-probe: .*above 63' err.txt | sort | uniq -c | head -30
           echo "== auto";  target/release/examples/exact_fr_probe --max-seconds 2400 --only '${{ matrix.only }}' --accum auto 2>/dev/null
           echo "== big";   target/release/examples/exact_fr_probe --max-seconds 2400 --only '${{ matrix.only }}' --accum big --exact-only 2>/dev/null
       - run: cargo clippy --all-targets --all-features -- -D warnings 2>&1 | tail -60
