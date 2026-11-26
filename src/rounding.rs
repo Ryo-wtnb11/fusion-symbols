@@ -66,29 +66,31 @@ impl SharedFactors {
         })
     }
 
-    /// `sign·√(r² · Π num · Π words_num / (Π den · Π words_den))` with these
-    /// shared factors and the root `r` given as little-endian words: the
-    /// value [`round_radical`] gives for all the factors in one list, since
-    /// both products are the same integers and the result depends on the
-    /// ratio alone. `None` when a product leaves the stack limbs; the caller
-    /// then converts with [`round_radical`].
+    /// `sign·√(r² · S_num · Π num / (S_den · Π den))` with these shared
+    /// factors `S` and the root `r` given as little-endian words: the value
+    /// [`round_radical`] gives for all the factors in one list, since both
+    /// products are the same integers and the result depends on the ratio
+    /// alone. `None` exactly when a product leaves the [`INPUT_LIMBS`] stack
+    /// limbs, as it would in [`round_radical`]; the caller then converts with
+    /// it.
     pub(crate) fn round_square(
         &self,
         sign: i8,
         root: &[u64],
-        words_num: [u64; 2],
-        words_den: [u64; 2],
+        num: [Factor<'_>; 2],
+        den: [Factor<'_>; 2],
     ) -> Option<f64> {
         if sign == 0 {
             return Some(0.0);
         }
+        let root = &root[..root.len() - root.iter().rev().take_while(|&&w| w == 0).count()];
         let mut n = Limbs::<INPUT_LIMBS>::from_words(root)?;
         n.checked_mul_words(root)?;
         n.checked_mul_limbs(&self.num)?;
         let mut d = self.den;
-        for (&p, &q) in words_num.iter().zip(&words_den) {
-            n.checked_mul_word(p)?;
-            d.checked_mul_word(q)?;
+        for (p, q) in num.iter().zip(&den) {
+            n.checked_mul_factor(p)?;
+            d.checked_mul_factor(q)?;
         }
         Some(signed_sqrt_limbs_to_f64(sign, n, d))
     }
@@ -99,10 +101,7 @@ impl SharedFactors {
 fn stack_product(factors: &[Factor<'_>]) -> Option<Limbs<INPUT_LIMBS>> {
     let mut acc = Limbs::<INPUT_LIMBS>::ONE;
     for f in factors {
-        match *f {
-            Factor::Natural(x) => acc.checked_mul_assign(x)?,
-            Factor::Words(w) => acc.checked_mul_words(w)?,
-        }
+        acc.checked_mul_factor(f)?;
     }
     Some(acc)
 }
@@ -541,6 +540,14 @@ impl<const N: usize> Limbs<N> {
                 *self = self.checked_mul(&Self::from_words(wide)?)?;
                 Some(())
             }
+        }
+    }
+
+    /// `self *= f` for a factor in either form.
+    fn checked_mul_factor(&mut self, f: &Factor<'_>) -> Option<()> {
+        match *f {
+            Factor::Natural(x) => self.checked_mul_assign(x),
+            Factor::Words(w) => self.checked_mul_words(w),
         }
     }
 

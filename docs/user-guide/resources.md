@@ -196,8 +196,8 @@ passes `Exec::serial()`. On a token that carries a team
 (`Exec::carries_team`), each Cartan channel's exact descent runs one depth
 layer at a time in team sections: the leader times the layer's first items
 and opens a section only when the measured work pays for the team's dispatch
-cost. The integralization of the emitted columns and the rounding of the
-view run over the channel's columns the same way. Values are bit-identical
+cost. After the descent, one stage over the channel's columns writes each
+column's integers and rounds it into the view, the same way. Values are bit-identical
 at every width, and the live exact working
 set grows from one weight's lowered candidates to one depth layer's (see
 `docs/gauge_cartan.md` §9). The channel's isometry gate checks its weight

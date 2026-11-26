@@ -4,16 +4,18 @@
 //! sanity checks of a rounded channel, never certificates of its rounding,
 //! and never change a value.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use threadteam::Exec;
 
 use super::{round_radical, Factor, SharedFactors};
 use crate::frcore::{GateError, MEntry};
-use crate::lie::general::cgc::exact::{ExactCgc, NormTable};
+use crate::lie::general::cgc::exact::{ColumnCoords, ExactCgc, NormTable};
 use crate::lie::general::cgc::{CgcChannel, Ladders};
 use crate::lie::general::module::Q;
 use crate::lie::general::roots::CartanData;
+use malachite_nz::natural::Natural;
 
 /// The rounded view of `exact`: one conversion per entry,
 /// `sign(X)·√(X² ρ_μ n^a n^b/n^c)` with the norms of `norms` at the entry's
@@ -21,40 +23,25 @@ use crate::lie::general::roots::CartanData;
 /// rounds to zero; an exactly zero coordinate has no entry.
 ///
 /// The norms are resolved by the caller, so no participant reads a cache.
-/// The items are the channel's columns, the grain of the descent's phase B
-/// that emitted them, as one stage of [`crate::stage::run_items`] whose
-/// planner prices them by their entries; each column writes its own range of
-/// the one view allocation, so nothing is merged. Every entry is the same
-/// conversion at every width, so the bits are too.
+/// The items are the channel's columns ([`round_column`]), as one stage of
+/// [`crate::stage::run_items`] whose planner prices them by their entries;
+/// each column writes its own range of the one view allocation, so nothing
+/// is merged. Every entry is the same conversion at every width, so the bits
+/// are too. A freshly generated channel is rounded column by column in the
+/// stage that writes it instead (`lie::general::family`).
 pub(crate) fn round_channel(
     exact: &ExactCgc,
     norms: [&NormTable; 3],
     exec: Option<&mut Exec<'_>>,
 ) -> CgcChannel {
-    use crate::stage::{run_items, split_parts, take_part, StageBuf};
+    use crate::stage::{part_units, run_items, split_parts, take_part, StageBuf};
     let ends = exact.column_ends();
-    let mut start = 0;
-    let units: Vec<u64> = ends
-        .iter()
-        .map(|&end| {
-            let n = (end - start) as u64;
-            start = end;
-            n
-        })
-        .collect();
-    // Every entry is overwritten by its column below.
-    let unset = MEntry {
-        m1: 0,
-        m2: 0,
-        m3: 0,
-        mu: 0,
-        value: 0.0,
-    };
-    let mut entries = vec![unset; exact.len()];
+    let units = part_units(ends);
+    let mut entries = view_slots(exact.len());
     {
         let parts = split_parts(&mut entries, ends.iter().copied());
         let _width = run_items(exec, &units, &mut StageBuf::default(), |k| {
-            round_column(exact, norms, k, take_part(&parts, k));
+            round_column(&exact.column_coords(k), norms, take_part(&parts, k));
         });
         #[cfg(test)]
         if _width.get() > 1 {
@@ -67,56 +54,91 @@ pub(crate) fn round_channel(
     }
 }
 
-/// Rounds column `k = μ·d_c + m_c` of `exact` into `out`, its entries.
+/// The `len` entry slots of a view, every one overwritten by its column.
+///
+/// Why not leave them uninitialized for the columns to fill in parallel: a
+/// `Vec` of written-but-unset elements needs `unsafe` to assume them
+/// initialized, and an `MEntry` has no zeroed allocation in `std`; so the
+/// slots are filled once here, a memset of the view.
+pub(crate) fn view_slots(len: usize) -> Vec<MEntry> {
+    let unset = MEntry {
+        m1: 0,
+        m2: 0,
+        m3: 0,
+        mu: 0,
+        value: 0.0,
+    };
+    vec![unset; len]
+}
+
+/// A norm's numerator and denominator as conversion factors: words for a
+/// word value, its limbs in place otherwise.
+enum NormParts<'a> {
+    Words([u64; 2]),
+    Big(Cow<'a, Natural>, Cow<'a, Natural>),
+}
+
+impl<'a> NormParts<'a> {
+    fn of(q: &'a Q) -> Self {
+        match q.word_parts() {
+            Some((_, p, d)) => Self::Words([p, d]),
+            None => {
+                let (p, d) = q.magnitudes();
+                Self::Big(p, d)
+            }
+        }
+    }
+
+    fn factors(&self) -> [Factor<'_>; 2] {
+        match self {
+            Self::Words(w) => [Factor::Words(&w[..1]), Factor::Words(&w[1..])],
+            Self::Big(p, d) => [Factor::Natural(p), Factor::Natural(d)],
+        }
+    }
+}
+
+/// Rounds the column `column` into `out`, its entries.
 ///
 /// `ρ_μ` and `n^c` are the column's constants, multiplied once into
-/// [`SharedFactors`], so an entry multiplies only `X²` and the words of
-/// `n^a n^b`; an entry outside that stack path converts all its factors in
-/// one [`round_radical`], with the same bits.
-fn round_column(exact: &ExactCgc, [na, nb, nc]: [&NormTable; 3], k: usize, out: &mut [MEntry]) {
-    let dc = exact.dims()[2];
-    let (mu, mc) = (k / dc, k % dc);
-    let coords = exact.coords(mu);
-    let base = exact.mu_range(mu).start;
-    let (rn, rd) = (coords.vertex.num(), coords.vertex.den());
+/// [`SharedFactors`], so an entry multiplies only `X²` and the factors of
+/// `n^a n^b`; an entry whose products leave the stack limbs converts all its
+/// factors in one [`round_radical`], with the same bits.
+pub(crate) fn round_column(
+    column: &ColumnCoords<'_>,
+    [na, nb, nc]: [&NormTable; 3],
+    out: &mut [MEntry],
+) {
+    let (mu, mc) = (column.mu(), column.mc());
+    let vertex = column.vertex();
+    let (rn, rd) = (vertex.num(), vertex.den());
     let (pc, qc) = nc.norm[mc].magnitudes();
     let shared = SharedFactors::new(
         &[Factor::Natural(rn), Factor::Natural(&qc)],
         &[Factor::Natural(rd), Factor::Natural(&pc)],
     );
-    for (slot, i) in out.iter_mut().zip(exact.column(k)) {
-        let j = i - base;
-        let (ma, mb) = exact.m_ab()[i];
-        let x = coords.x.magnitude(j);
-        let sign = if coords.x.is_negative(j) { -1 } else { 1 };
-        let (a, b) = (&na.norm[ma as usize], &nb.norm[mb as usize]);
-        let fast = match (shared.as_ref(), a.word_parts(), b.word_parts()) {
-            (Some(s), Some((_, pa, qa)), Some((_, pb, qb))) => {
-                s.round_square(sign, x, [pa, pb], [qa, qb])
-            }
-            _ => None,
-        };
-        let value = fast.unwrap_or_else(|| {
-            let (pa, qa) = a.magnitudes();
-            let (pb, qb) = b.magnitudes();
-            round_radical(
-                sign,
-                &[
-                    Factor::Words(x),
-                    Factor::Words(x),
-                    Factor::Natural(rn),
-                    Factor::Natural(&pa),
-                    Factor::Natural(&pb),
-                    Factor::Natural(&qc),
-                ],
-                &[
-                    Factor::Natural(rd),
-                    Factor::Natural(&qa),
-                    Factor::Natural(&qb),
-                    Factor::Natural(&pc),
-                ],
-            )
-        });
+    for (j, (slot, &(ma, mb))) in out.iter_mut().zip(column.pairs()).enumerate() {
+        let x = column.magnitude(j);
+        let sign = if column.is_negative(j) { -1 } else { 1 };
+        let a = NormParts::of(&na.norm[ma as usize]);
+        let b = NormParts::of(&nb.norm[mb as usize]);
+        let ([pa, qa], [pb, qb]) = (a.factors(), b.factors());
+        let value = shared
+            .as_ref()
+            .and_then(|s| s.round_square(sign, x, [pa, pb], [qa, qb]))
+            .unwrap_or_else(|| {
+                round_radical(
+                    sign,
+                    &[
+                        Factor::Words(x),
+                        Factor::Words(x),
+                        Factor::Natural(rn),
+                        pa,
+                        pb,
+                        Factor::Natural(&qc),
+                    ],
+                    &[Factor::Natural(rd), qa, qb, Factor::Natural(&pc)],
+                )
+            });
         // The multiplicity and every dimension fit `u32` (§7 gate 1).
         *slot = MEntry {
             m1: ma,

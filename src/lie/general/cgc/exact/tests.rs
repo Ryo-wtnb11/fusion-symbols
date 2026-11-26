@@ -1,10 +1,9 @@
 //! The integralization's contracts: every arithmetic width gives the
-//! integers of the definition, the column stages give the serial run's
-//! slab at every width, and a two-word run allocates per column, never per
-//! entry.
+//! integers of the definition, a column leaves two words alone, the column
+//! stage gives the serial run's slab at every width, and a two-word run
+//! allocates per column, never per entry.
 
 use super::*;
-use malachite_base::num::logic::traits::SignificantBits;
 use malachite_nz::integer::Integer;
 use malachite_q::Rational;
 
@@ -64,11 +63,11 @@ fn widest_words(xs: &[Integer]) -> usize {
 
 /// Boundary inputs written out: numerators and denominators at `2^64 ± 1`
 /// and `2^127`, a common denominator of exactly `2^128 − 1`, one beyond
-/// two words, a bound that overestimates the widest `X` by a word, mixed
-/// signs, zeros and the empty run. On each, the two-word integralization
-/// (hardware words where its operands fit) and the big-integer one give the
-/// integers, denominator and content of the definition, at the canonical
-/// stride, with and without the vertex sign.
+/// two words, a run whose largest numerator and smallest denominator sit
+/// on different entries, mixed signs, zeros and the empty run. On each, the
+/// two-word integralization (hardware words where its operands fit) and the
+/// big-integer one give the integers, denominator and content of the
+/// definition, at the canonical stride, with and without the vertex sign.
 #[test]
 fn every_width_gives_the_integers_of_the_definition() {
     let m64 = nat(u64::MAX as u128);
@@ -121,7 +120,7 @@ fn every_width_gives_the_integers_of_the_definition() {
             vec![q(false, pow2(130) + Natural::ONE, nat(3)), Q::from(-2)],
         ),
         (
-            "bound one word wide",
+            "largest p and smallest q apart",
             vec![
                 q(false, nat(3u128.pow(30)), pow2(40)),
                 q(true, nat(1), nat(1)),
@@ -132,7 +131,8 @@ fn every_width_gives_the_integers_of_the_definition() {
         for negate in [false, true] {
             let (want, den, content) = oracle(xs, negate);
             let fast = integral(xs.iter(), negate).unwrap();
-            let big = natural_integral(xs.iter(), negate).unwrap();
+            let big = Scale::Big(Scale::of(xs.iter()).big());
+            let big = integral_in(xs.iter(), negate, big).unwrap();
             assert_eq!(fast, big, "{name}, negate {negate}");
             let got: Vec<Integer> = (0..xs.len()).map(|i| fast.x.integer(i)).collect();
             assert_eq!(got, want, "{name}, negate {negate}");
@@ -142,9 +142,9 @@ fn every_width_gives_the_integers_of_the_definition() {
     }
 }
 
-/// Columns of four `μ` (four per `μ`): words only; a bound one word above
-/// the widest `X`, narrowed; two words with numerators near `2^64`; and a
-/// common denominator beyond two words, in big integers.
+/// Columns of four `μ` (four per `μ`): words only; a largest numerator and
+/// a smallest denominator on different entries; two words with numerators
+/// near `2^64`; and a common denominator beyond two words, in big integers.
 fn boundary_columns() -> (Vec<Column>, Vec<Q>) {
     let m64 = nat(u64::MAX as u128);
     let p64 = nat(1u128 << 64) + Natural::ONE;
@@ -167,11 +167,18 @@ fn boundary_columns() -> (Vec<Column>, Vec<Q>) {
                     (k, i, q((i + k) % 3 == 0, p, d))
                 })
                 .collect();
-            cols.push(col);
+            cols.push(Column::new(col));
         }
     }
     let norms = vec![Q::from(2), q(false, nat(3), nat(5)), Q::from(7), Q::from(1)];
     (cols, norms)
+}
+
+/// The rationals of `cols`, in order.
+fn rationals(cols: &[Column]) -> Vec<Q> {
+    cols.iter()
+        .flat_map(|c| c.entries.iter().map(|e| e.2.clone()))
+        .collect()
 }
 
 /// A real team of `width` threads.
@@ -185,21 +192,17 @@ fn team(width: usize) -> threadteam::Team {
         .unwrap()
 }
 
-/// The column stages give each `μ` the slab, scale and width of one serial
+/// The column stage gives each `μ` the slab, scale and width of one serial
 /// run over its entries, and the same coordinates through real sections of
 /// widths 2–4 as inline, with and without the vertex sign.
 #[test]
-fn column_stages_give_the_serial_run_at_every_width() {
+fn column_stage_gives_the_serial_run_at_every_width() {
     let (cols, norms) = boundary_columns();
     let team = team(4);
     for negate in [false, true] {
         let serial = Coords::new(cols.clone(), 4, &norms, negate, None).unwrap();
         for (mu, coords) in serial.per_mu.iter().enumerate() {
-            let run = integral(
-                cols[4 * mu..4 * mu + 4].iter().flatten().map(|e| &e.2),
-                negate,
-            )
-            .unwrap();
+            let run = integral(rationals(&cols[4 * mu..4 * mu + 4]).iter(), negate).unwrap();
             assert_eq!(coords.x, run.x, "μ {mu}");
             assert_eq!(coords.bits, run.x.max_bits(), "μ {mu}");
             assert_eq!(coords.vertex, vertex(&norms[mu], &run.den, &run.content));
@@ -212,11 +215,49 @@ fn column_stages_give_the_serial_run_at_every_width() {
             let got =
                 Coords::new(cols.clone(), 4, &norms, negate, Some(&mut team.exec(4))).unwrap();
             assert_eq!(got, serial, "width {width}");
-            assert!(
-                INTEGRAL_SECTIONS.with(std::cell::Cell::get) >= 2,
+            assert_eq!(
+                INTEGRAL_SECTIONS.with(std::cell::Cell::get),
+                1,
                 "width {width}"
             );
         }
+    }
+}
+
+/// In a `μ` whose one column holds an `X` of three words while the others
+/// fit one, only that column leaves two-word arithmetic; the slab takes the
+/// widest column's stride, and every integer is the definition's.
+#[test]
+fn only_a_column_beyond_two_words_leaves_them() {
+    let cols: Vec<Column> = (0..4u32)
+        .map(|k| {
+            Column::new(
+                (0..5u32)
+                    .map(|i| {
+                        let p = if k == 2 && i == 3 {
+                            pow2(150) + Natural::ONE
+                        } else {
+                            nat(u128::from(3 * i + k + 1))
+                        };
+                        (k, i, q((i + k) % 2 == 0, p, nat(u128::from(k + 1))))
+                    })
+                    .collect(),
+            )
+        })
+        .collect();
+    let all = rationals(&cols);
+    for negate in [false, true] {
+        let pending = Pending::new(cols.clone(), 4, &[Q::from(3)], negate).unwrap();
+        assert_eq!(pending.meta.wide, [true, true, false, true]);
+        let coords = pending.write_all(None);
+        let (want, den, content) = oracle(&all, negate);
+        let x = &coords.per_mu[0].x;
+        let got: Vec<Integer> = (0..all.len()).map(|i| x.integer(i)).collect();
+        assert_eq!(got, want, "negate {negate}");
+        assert_eq!(x.stride(), widest_words(&want));
+        assert_eq!(x.stride(), 3);
+        let run = integral(all.iter(), negate).unwrap();
+        assert_eq!((&run.den, &run.content), (&den, &content));
     }
 }
 
@@ -230,17 +271,19 @@ fn two_word_integralization_allocates_per_column() {
     let cost = |len: u64| {
         let cols: Vec<Column> = (0..8u64)
             .map(|k| {
-                (0..len)
-                    .map(|i| {
-                        let p = (1u64 << 50) + 6 * (k * len + i) + 1;
-                        let d = if i % 2 == 0 {
-                            1u128 << 40
-                        } else {
-                            3u128.pow(25)
-                        };
-                        (0, i as u32, q(false, nat(u128::from(p)), nat(d)))
-                    })
-                    .collect()
+                Column::new(
+                    (0..len)
+                        .map(|i| {
+                            let p = (1u64 << 50) + 6 * (k * len + i) + 1;
+                            let d = if i % 2 == 0 {
+                                1u128 << 40
+                            } else {
+                                3u128.pow(25)
+                            };
+                            (0, i as u32, q(false, nat(u128::from(p)), nat(d)))
+                        })
+                        .collect(),
+                )
             })
             .collect();
         let norms = [Q::from(1), Q::from(3)];

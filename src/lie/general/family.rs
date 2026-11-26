@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use threadteam::Exec;
 
-use super::cgc::exact::{ExactCgc, HighestColumn, NormTable};
+use super::cgc::exact::{ExactCgc, HighestColumn, NormTable, Pending};
 use super::cgc::{CgcChannel, Ladders, ProductScratch, ProductSpace};
 #[cfg(test)]
 use super::cgc::{ExactChannel, AT_CONTRACTION, BEFORE_FOURTH, BUILDS, REQUEST_MODULES};
@@ -25,7 +25,55 @@ use crate::cache::Label;
 use crate::category::{FBlock, RBlock};
 use crate::frcore::{check_f_block, check_r_block, f_block_raw, r_block_raw};
 use crate::lie::{LieError, RootSystem};
-use crate::rounding::cgc::{check_rounded, round_channel};
+use crate::rounding::cgc::{check_rounded, round_channel, round_column, view_slots};
+
+/// The exact channel over `dims` and its rounded view from the descent's
+/// `pending` columns, in the one stage after the descent: each item, one
+/// column, lets the exact layer write the column's integers and pairs
+/// ([`super::cgc::exact::Writer::column`]) and then the rounding layer round
+/// that column into its range of the view ([`round_column`]). Neither layer
+/// calls the other; a token without a team runs every column inline, and
+/// both outputs are the same at every width.
+pub(crate) fn write_and_round(
+    mut pending: Pending,
+    dims: [usize; 3],
+    norms: [&NormTable; 3],
+    exec: Option<&mut Exec<'_>>,
+) -> (ExactCgc, CgcChannel) {
+    use crate::stage::{run_items, split_parts, take_part, StageBuf};
+    let units = pending.units();
+    let mut view = view_slots(pending.len());
+    let signs = {
+        let writer = pending.writer();
+        let parts = split_parts(&mut view, writer.ends().iter().copied());
+        let mut buf = StageBuf::default();
+        let _width = run_items(exec, &units, &mut buf, |k| {
+            let column = writer.column(k);
+            round_column(&column.coords(), norms, take_part(&parts, k));
+            column.into_signs()
+        });
+        #[cfg(test)]
+        if _width.get() > 1 {
+            COLUMN_SECTIONS.with(|s| s.set(s.get() + 1));
+        }
+        buf.drain().collect()
+    };
+    let mult = pending.mult();
+    (
+        pending.into_channel(dims, signs),
+        CgcChannel {
+            mult,
+            entries: view.into_boxed_slice(),
+        },
+    )
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Column stages of [`write_and_round`] on this thread that ran a section
+    /// of width two or more.
+    pub(crate) static COLUMN_SECTIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 /// An exact channel with its three modules.
 #[cfg(test)]
@@ -338,23 +386,32 @@ impl GeneralFamily {
         // §4.6: the A_1 vertex sign (−1)^{j_a + j_b − j_c}, once per channel,
         // on the exact coordinates.
         let negate = a1 && (a.words[0] + b.words[0] - c.words[0]) / 2 % 2 != 0;
-        let exact =
-            super::cgc::exact_channel(&self.data, &ma, &mb, &mc, n, negate, exec.as_deref_mut())?;
+        let pending =
+            super::cgc::exact_columns(&self.data, &ma, &mb, &mc, n, negate, exec.as_deref_mut())?;
         // No exact vector outlives the descent; the norms are resolved before
         // any team section, and the gates read the view and the modules only.
         #[allow(unused_mut)]
-        let mut view = if exact.is_empty() {
-            CgcChannel {
-                mult: exact.mult(),
-                entries: Box::new([]),
-            }
+        let (exact, mut view) = if pending.is_empty() {
+            let mult = pending.mult();
+            (
+                pending.integralize(dims, None),
+                CgcChannel {
+                    mult,
+                    entries: Box::new([]),
+                },
+            )
         } else {
             let norms = [
                 self.norm_table_in(a, modules)?,
                 self.norm_table_in(b, modules)?,
                 self.norm_table_in(c, modules)?,
             ];
-            round_channel(&exact, norms.each_ref().map(|n| &**n), exec.as_deref_mut())
+            write_and_round(
+                pending,
+                dims,
+                norms.each_ref().map(|n| &**n),
+                exec.as_deref_mut(),
+            )
         };
         #[cfg(test)]
         if let Some(corrupt) = CORRUPT.with(std::cell::Cell::get) {

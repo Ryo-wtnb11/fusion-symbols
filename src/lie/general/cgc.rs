@@ -6,7 +6,7 @@
 //! is `√N_μ Φ_μ(b^c_{m_c})`, so a CGC entry is its rational coordinate `x`
 //! times `√(n^a n^b / (N_μ n^c))`: one signed square root.
 //!
-//! The descent emits exact columns only; [`exact::ExactCgc`] integralizes
+//! The descent emits exact columns only; [`exact::Pending`] integralizes
 //! them into the stored authority of the channel. The rounded channel
 //! ([`CgcChannel`]) is a view derived from it by [`crate::rounding::cgc`],
 //! which also runs the gates defined on rounded data (§7, gates 4 and 5).
@@ -17,7 +17,9 @@ use std::collections::BTreeMap;
 
 use threadteam::Exec;
 
-use self::exact::{Column, ExactCgc, HighestColumn};
+#[cfg(test)]
+use self::exact::ExactCgc;
+use self::exact::{Column, HighestColumn, Pending};
 use super::module::{q_heap, qs_bytes, IrrepModule, Q};
 use super::roots::CartanData;
 #[cfg(test)]
@@ -690,6 +692,7 @@ fn place(slot: &mut Column, column: Column) {
 
 /// The exact column `(μ, m_c)` of the state `v = √N_μ Φ_μ(b^c_{m_c})` over
 /// `space`: one entry per exactly nonzero coordinate, a-slow.
+/// Its scale is reduced here, in the item that emits it.
 fn exact_column(a: &Ladders, b: &Ladders, space: &ProductSpace, v: &[Q]) -> Column {
     let mut column = Vec::with_capacity(v.iter().filter(|x| !x.is_zero()).count());
     for (&(pa, pb), x) in space.pairs.iter().zip(v) {
@@ -697,7 +700,7 @@ fn exact_column(a: &Ladders, b: &Ladders, space: &ProductSpace, v: &[Q]) -> Colu
             column.push((a.public[pa], b.public[pb], x.clone()));
         }
     }
-    column
+    Column::new(column)
 }
 
 /// Per-participant row starts of [`descend_layers`]' phase A, bound to the
@@ -728,7 +731,7 @@ fn descend_layers(
 ) -> Result<(Vec<Column>, Vec<Q>), LieError> {
     use crate::stage::{run_stage, StageBuf, SystemClock};
     let dc = c.dim();
-    let mut columns: Vec<Column> = vec![Vec::new(); n * dc];
+    let mut columns: Vec<Column> = vec![Column::default(); n * dc];
     let mut scratch = RowScratch::new(a);
     let mut product = ProductScratch::new(a, b);
     let Some(Seeds {
@@ -991,17 +994,18 @@ fn track<'v>(v: impl IntoIterator<Item = &'v Vec<Q>>, live: bool) {
     });
 }
 
-/// The exact channel `a ⊗ b → c` of multiplicity `n` (§4.2–§4.4, §4.7):
-/// every exactly nonzero coordinate, emitted per column `(μ, m_c)` as its
-/// coupled state completes and integralized per `μ` once the descent ends,
-/// in stages over the columns on the same token, every `X` negated when
-/// `negate` (the `A_1` vertex sign, §4.6).
+/// The emitted columns of `a ⊗ b → c` of multiplicity `n` (§4.2–§4.4,
+/// §4.7), each with its scale, planned for integralization per `μ`: every
+/// exactly nonzero coordinate, emitted per column `(μ, m_c)` as its coupled
+/// state completes, every `X` to be negated when `negate` (the `A_1` vertex
+/// sign, §4.6). The integers are written by one per-column stage after the
+/// descent ([`Pending`]).
 ///
 /// This is the descent's split point: a token that carries a team of two or
 /// more descends layer by layer ([`descend_layers`]); any other token, and
 /// `None`, runs [`descend`] on the calling thread. Both emit the same
 /// columns.
-pub(super) fn exact_channel(
+pub(super) fn exact_columns(
     data: &CartanData,
     a: &Ladders,
     b: &Ladders,
@@ -1009,14 +1013,12 @@ pub(super) fn exact_channel(
     n: usize,
     negate: bool,
     exec: Option<&mut Exec<'_>>,
-) -> Result<ExactCgc, LieError> {
-    let dims = [a.dim(), b.dim(), c.dim()];
-    let mut exec = exec.filter(|exec| exec.carries_team() && !exec.is_serial());
-    let (columns, norms) = match exec.as_deref_mut() {
+) -> Result<Pending, LieError> {
+    let (columns, norms) = match exec.filter(|exec| exec.carries_team() && !exec.is_serial()) {
         Some(exec) => descend_layers(data, a, b, c, n, exec)?,
         None => {
             let dc = c.dim();
-            let mut columns: Vec<Column> = vec![Vec::new(); n * dc];
+            let mut columns: Vec<Column> = vec![Column::default(); n * dc];
             let mut norms = Vec::new();
             descend(data, a, b, c, n, &mut |seed_norms, m, space, per_mu| {
                 if norms.is_empty() {
@@ -1031,7 +1033,23 @@ pub(super) fn exact_channel(
             (columns, norms)
         }
     };
-    ExactCgc::from_columns(dims, columns, &norms, negate, exec)
+    Pending::new(columns, c.dim(), &norms, negate)
+}
+
+/// The exact channel of [`exact_columns`], every column integralized in one
+/// stage on the same token.
+#[cfg(test)]
+pub(super) fn exact_channel(
+    data: &CartanData,
+    a: &Ladders,
+    b: &Ladders,
+    c: &Ladders,
+    n: usize,
+    negate: bool,
+    mut exec: Option<&mut Exec<'_>>,
+) -> Result<ExactCgc, LieError> {
+    let pending = exact_columns(data, a, b, c, n, negate, exec.as_deref_mut())?;
+    Ok(pending.integralize([a.dim(), b.dim(), c.dim()], exec))
 }
 
 /// The highest-weight column of `a ⊗ b → c` (engine index 0 of `c`): the

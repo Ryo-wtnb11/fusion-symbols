@@ -15,13 +15,14 @@ use std::sync::{Mutex, PoisonError};
 
 use malachite_base::num::arithmetic::traits::{DivisibleBy, Gcd};
 use malachite_base::num::basic::traits::{One, Zero};
+use malachite_base::num::logic::traits::SignificantBits;
 use malachite_nz::natural::Natural;
 #[cfg(feature = "disk-cache")]
 use malachite_q::Rational;
 use threadteam::Exec;
 
 use super::Ladders;
-use crate::exact::radical::{compact, natural_bytes, put_u32, Radicand, SignedInts};
+use crate::exact::radical::{compact, natural_bytes, put_u32, write_natural, Radicand, SignedInts};
 #[cfg(feature = "disk-cache")]
 use crate::exact::radical::{decode_natural, encode_natural, natural_encoded_len, read_u32};
 use crate::exact::{div as wide_div, gcd as wide_gcd, rem as wide_rem};
@@ -30,8 +31,29 @@ use crate::lie::LieError;
 use crate::stage::{run_items, split_parts, take_part, StageBuf};
 
 /// One emitted column of a descent: `(public m_a, public m_b, x)` for every
-/// exactly nonzero coordinate, in the a-slow order of §4.1.
-pub(crate) type Column = Vec<(u32, u32, Q)>;
+/// exactly nonzero coordinate, in the a-slow order of §4.1, with its
+/// [`Scale`], reduced by the item that emits it.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Column {
+    entries: Vec<(u32, u32, Q)>,
+    scale: Scale,
+}
+
+impl Column {
+    /// The column of `entries` and its scale.
+    pub(crate) fn new(entries: Vec<(u32, u32, Q)>) -> Self {
+        let scale = Scale::of(entries.iter().map(|e| &e.2));
+        Self { entries, scale }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
 
 /// The integer coordinates of one `μ`: `X` per entry, all nonzero, and the
 /// vertex factor `ρ_μ`, reduced once.
@@ -87,73 +109,47 @@ struct Integral {
     content: Natural,
 }
 
-// The content: for reduced `p_i/q_i` and `D = lcm q_i`, `gcd_i(p_i·D/q_i)` is
-// `gcd_i p_i`. A prime dividing `D` divides some `q_i` to the full power of
-// `D`, and then neither `p_i` (coprime to `q_i`) nor `D/q_i` holds it; a
-// prime not dividing `D` divides each `p_i·D/q_i` exactly as often as `p_i`.
-// So the content is a reduction over the numerators alone, independent of
-// `D`, and both run in one pass; `X = (p_i/g)·(D/q_i)` never forms `X·g`.
+// For reduced `p_i/q_i` and `D = lcm q_i`:
+//
+// - the content `gcd_i(p_i·D/q_i)` is `gcd_i p_i`. A prime dividing `D`
+//   divides some `q_i` to the full power of `D`, and then neither `p_i`
+//   (coprime to `q_i`) nor `D/q_i` holds it; a prime not dividing `D` divides
+//   each `p_i·D/q_i` exactly as often as `p_i`. So the content is a reduction
+//   over the numerators alone, independent of `D`;
+// - `|X_i| = |x_i|·D/g` grows with `|x_i|`, so the widest `X` of a run is
+//   that of its largest `|x|`, and the canonical stride is known before any
+//   `X` is written.
 
-/// [`Integral`] of `xs` on the calling thread: in two words when the scale
-/// and every `X` fit them ([`Scale`]), in big integers otherwise; both give
-/// the same integers.
+/// [`Integral`] of `xs` on the calling thread.
 fn integral<'a>(
     xs: impl Iterator<Item = &'a Q> + Clone,
     negate: bool,
 ) -> Result<Integral, LieError> {
-    let Some(plan) = Scale::of(xs.clone()).and_then(Scale::plan) else {
-        return natural_integral(xs, negate);
-    };
+    integral_in(xs.clone(), negate, Scale::of(xs))
+}
+
+/// [`integral`] with the scale of `xs` given: in two words when the scale
+/// and the widest `X` fit them, in big integers otherwise; both give the
+/// same integers.
+fn integral_in<'a>(
+    xs: impl Iterator<Item = &'a Q> + Clone,
+    negate: bool,
+    scale: Scale,
+) -> Result<Integral, LieError> {
+    let top = scale.wide_top();
+    let ints = Integers::new(scale);
+    let wide = top.is_some_and(|t| ints.fits_wide(t));
     let len = xs.clone().count();
     let mut mag = vec![
         0u64;
-        len.checked_mul(plan.stride)
+        len.checked_mul(ints.stride)
             .ok_or(LieError::LabelOverflow)?
     ];
-    let (neg, bits) = plan.write(len, xs, negate, &mut mag);
-    let (stride, mag) = if plan.stride == 2 && bits <= 64 {
-        (1, mag.as_chunks::<2>().0.iter().map(|w| w[0]).collect())
-    } else {
-        (plan.stride, mag)
-    };
+    let neg = ints.write(len, xs, negate, wide, &mut mag);
     Ok(Integral {
-        x: SignedInts::from_raw(len, stride, neg, mag),
-        den: compact(Natural::from(plan.den)),
-        content: compact(Natural::from(plan.content)),
-    })
-}
-
-/// [`integral`] in big integers.
-fn natural_integral<'a>(
-    xs: impl Iterator<Item = &'a Q> + Clone,
-    negate: bool,
-) -> Result<Integral, LieError> {
-    let mut den = Natural::ONE;
-    let mut content = Natural::ZERO;
-    for x in xs.clone() {
-        let (p, q) = x.magnitudes();
-        // Divisibility first: the running lcm rarely changes.
-        if !(&den).divisible_by(&*q) {
-            let g = (&den).gcd(&*q);
-            den = den / g * &*q;
-        }
-        if content != Natural::ONE {
-            content = content.gcd(&*p);
-        }
-    }
-    if content == Natural::ZERO {
-        content = Natural::ONE;
-    }
-    let values: Vec<(bool, Natural)> = xs
-        .map(|x| {
-            let (p, q) = x.magnitudes();
-            (x.signum().is_lt() != negate, &*p / &content * (&den / &*q))
-        })
-        .collect();
-    Ok(Integral {
-        x: SignedInts::from_naturals(&values).ok_or(LieError::LabelOverflow)?,
-        den: compact(den),
-        content: compact(content),
+        x: SignedInts::from_raw(len, ints.stride, neg, mag),
+        den: ints.den,
+        content: ints.content,
     })
 }
 
@@ -170,41 +166,36 @@ fn wide_parts(x: &Q) -> Option<(bool, u128, u128)> {
     ))
 }
 
-/// The scale of a run of rationals in two words: the lcm `den` of the
-/// denominators, the gcd `content` of the numerators (0 while empty), and
-/// the largest numerator and smallest denominator, which bound every `X`.
-/// Associative and commutative, so the runs of a `μ` reduce in any grouping
-/// to the same scale.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Scale {
-    den: u128,
-    content: u128,
-    max_p: u128,
-    min_q: u128,
+/// `a·b` as `(high, low)` two-word halves.
+fn mul_wide(a: u128, b: u128) -> (u128, u128) {
+    const LOW: u128 = u64::MAX as u128;
+    if a >> 64 == 0 && b >> 64 == 0 {
+        return (0, a * b);
+    }
+    let (a1, a0, b1, b0) = (a >> 64, a & LOW, b >> 64, b & LOW);
+    let (p00, p01, p10, p11) = (a0 * b0, a0 * b1, a1 * b0, a1 * b1);
+    let mid = (p00 >> 64) + (p01 & LOW) + (p10 & LOW);
+    let low = (p00 & LOW) | ((mid & LOW) << 64);
+    let high = p11 + (p01 >> 64) + (p10 >> 64) + (mid >> 64);
+    (high, low)
 }
 
-impl Scale {
+/// A run's scale in two words: the lcm `den` of the denominators, the gcd
+/// `content` of the numerators (0 while empty) and the `(p, q)` of its
+/// largest `|x|`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct WideScale {
+    den: u128,
+    content: u128,
+    top: (u128, u128),
+}
+
+impl WideScale {
     const EMPTY: Self = Self {
         den: 1,
         content: 0,
-        max_p: 0,
-        min_q: u128::MAX,
+        top: (0, 1),
     };
-
-    /// The scale of `xs`, or `None` when a part or the lcm leaves two words.
-    fn of<'a>(xs: impl Iterator<Item = &'a Q>) -> Option<Self> {
-        let mut s = Self::EMPTY;
-        for x in xs {
-            let (_, p, q) = wide_parts(x)?;
-            s = s.merge(Self {
-                den: q,
-                content: p,
-                max_p: p,
-                min_q: q,
-            })?;
-        }
-        Some(s)
-    }
 
     /// The scale of two runs, or `None` when their lcm leaves two words.
     fn merge(self, o: Self) -> Option<Self> {
@@ -220,83 +211,229 @@ impl Scale {
         } else {
             wide_gcd(o.content, self.content)
         };
-        Some(Self {
-            den,
-            content,
-            max_p: self.max_p.max(o.max_p),
-            min_q: self.min_q.min(o.min_q),
-        })
-    }
-
-    /// The plan of this scale, or `None` when the bound
-    /// `(max p/g)·(D/min q)` on every `|X|` leaves two words.
-    fn plan(self) -> Option<Plan> {
-        let content = self.content.max(1);
-        let bound = if self.max_p == 0 {
-            0
+        let top = if mul_wide(o.top.0, self.top.1) > mul_wide(self.top.0, o.top.1) {
+            o.top
         } else {
-            wide_div(self.max_p, content).checked_mul(wide_div(self.den, self.min_q))?
+            self.top
         };
-        Some(Plan {
-            den: self.den,
-            content,
-            stride: match bound {
-                0 => 0,
-                b if b >> 64 == 0 => 1,
-                _ => 2,
-            },
-        })
+        Some(Self { den, content, top })
     }
 }
 
-/// How a run's `X` are written: `X = (p/g)·(D/q)` at `stride` words, the
-/// word count of the bound on `|X|`. A bound one word above the widest `X`
-/// is narrowed after the run is written.
-#[derive(Clone, Copy, Debug)]
-struct Plan {
-    den: u128,
-    content: u128,
-    stride: usize,
+/// [`WideScale`] in big integers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct BigScale {
+    den: Natural,
+    content: Natural,
+    top: (Natural, Natural),
 }
 
-impl Plan {
-    /// Writes `X` of each of the `len` inputs `xs` into `mag` at this
-    /// stride; returns their sign words (bit `i` for input `i`, set for a
-    /// nonzero `X` that is negative after `negate`) and the widest `|X|` in
-    /// bits. Allocates only the sign words.
+impl BigScale {
+    fn single(x: &Q) -> Self {
+        let (p, q) = x.magnitudes();
+        let (p, q) = (p.into_owned(), q.into_owned());
+        Self {
+            den: q.clone(),
+            content: p.clone(),
+            top: (p, q),
+        }
+    }
+
+    fn merge(self, o: Self) -> Self {
+        let den = if (&self.den).divisible_by(&o.den) {
+            self.den
+        } else {
+            let g = (&self.den).gcd(&o.den);
+            self.den / g * &o.den
+        };
+        let content = if self.content == Natural::ONE {
+            self.content
+        } else {
+            self.content.gcd(&o.content)
+        };
+        let top = if &o.top.0 * &self.top.1 > &self.top.0 * &o.top.1 {
+            o.top
+        } else {
+            self.top
+        };
+        Self { den, content, top }
+    }
+}
+
+impl From<WideScale> for BigScale {
+    fn from(s: WideScale) -> Self {
+        Self {
+            den: Natural::from(s.den),
+            content: Natural::from(s.content),
+            top: (Natural::from(s.top.0), Natural::from(s.top.1)),
+        }
+    }
+}
+
+/// The scale of a run of rationals, in two words while its parts and lcm
+/// fit them. Associative and commutative, so a `μ`'s columns reduce in any
+/// grouping to the same scale.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Scale {
+    Wide(WideScale),
+    Big(BigScale),
+}
+
+impl Default for Scale {
+    fn default() -> Self {
+        Self::Wide(WideScale::EMPTY)
+    }
+}
+
+impl Scale {
+    fn of<'a>(xs: impl Iterator<Item = &'a Q>) -> Self {
+        let mut s = Self::default();
+        for x in xs {
+            s = match s {
+                Self::Wide(w) => match wide_parts(x).and_then(|(_, p, q)| {
+                    w.merge(WideScale {
+                        den: q,
+                        content: p,
+                        top: (p, q),
+                    })
+                }) {
+                    Some(w) => Self::Wide(w),
+                    None => Self::Big(BigScale::from(w).merge(BigScale::single(x))),
+                },
+                Self::Big(b) => Self::Big(b.merge(BigScale::single(x))),
+            };
+        }
+        s
+    }
+
+    fn merge(self, o: Self) -> Self {
+        match (self, o) {
+            (Self::Wide(a), Self::Wide(b)) => match a.merge(b) {
+                Some(s) => Self::Wide(s),
+                None => Self::Big(BigScale::from(a).merge(BigScale::from(b))),
+            },
+            (a, b) => Self::Big(a.big().merge(b.big())),
+        }
+    }
+
+    fn big(self) -> BigScale {
+        match self {
+            Self::Wide(w) => BigScale::from(w),
+            Self::Big(b) => b,
+        }
+    }
+
+    /// The largest `|x|` when every part of the run fits two words.
+    fn wide_top(&self) -> Option<(u128, u128)> {
+        match self {
+            Self::Wide(w) => Some(w.top),
+            Self::Big(_) => None,
+        }
+    }
+}
+
+/// The integers of one run (a `μ`, or a norm table): `D` and `g`, also in
+/// two words when the run's scale was, the widest `|X|` in bits and its
+/// word count, the canonical stride.
+#[derive(Debug)]
+struct Integers {
+    den: Natural,
+    content: Natural,
+    wide: Option<(u128, u128)>,
+    stride: usize,
+    bits: u64,
+}
+
+impl Integers {
+    fn new(scale: Scale) -> Self {
+        let (den, content, wide, bits) = match scale {
+            Scale::Wide(s) => {
+                let g = s.content.max(1);
+                let (p, q) = (wide_div(s.top.0, g), wide_div(s.den, s.top.1));
+                let bits = match p.checked_mul(q) {
+                    Some(t) => u64::from(u128::BITS - t.leading_zeros()),
+                    None => (Natural::from(p) * Natural::from(q)).significant_bits(),
+                };
+                (
+                    Natural::from(s.den),
+                    Natural::from(g),
+                    Some((s.den, g)),
+                    bits,
+                )
+            }
+            Scale::Big(s) => {
+                let g = if s.content == Natural::ZERO {
+                    Natural::ONE
+                } else {
+                    s.content
+                };
+                let bits = (&s.top.0 / &g * (&s.den / &s.top.1)).significant_bits();
+                // A column whose own parts and widest `X` fit two words is
+                // still written in them.
+                let wide = u128::try_from(&s.den).ok().zip(u128::try_from(&g).ok());
+                (s.den, g, wide, bits)
+            }
+        };
+        Self {
+            den: compact(den),
+            content: compact(content),
+            wide,
+            // A word count of a width in bits.
+            stride: bits.div_ceil(64) as usize,
+            bits,
+        }
+    }
+
+    /// Whether every `X` of a run whose parts fit two words and whose
+    /// largest `|x|` is `top` fits two words under these integers.
+    fn fits_wide(&self, top: (u128, u128)) -> bool {
+        self.wide.is_some_and(|(den, g)| {
+            wide_div(top.0, g)
+                .checked_mul(wide_div(den, top.1))
+                .is_some()
+        })
+    }
+
+    /// Writes `X = (p/g)·(D/q)` of each of the `len` inputs `xs` into `mag`
+    /// at the canonical stride, in two words when `wide` (its run passed
+    /// [`Self::fits_wide`]) and in big integers otherwise; returns their sign
+    /// words (bit `j` for input `j`, set for a nonzero `X` that is negative
+    /// after `negate`). In two words it allocates only the sign words.
     fn write<'a>(
         &self,
         len: usize,
         xs: impl Iterator<Item = &'a Q>,
         negate: bool,
+        wide: bool,
         mag: &mut [u64],
-    ) -> (Vec<u64>, u64) {
+    ) -> Vec<u64> {
         let mut signs = vec![0u64; len.div_ceil(64)];
-        let mut bits = 0;
-        for (i, x) in xs.enumerate() {
-            let (neg, p, q) =
-                wide_parts(x).expect("the plan's scale read every input in two words");
-            let p = if self.content == 1 {
-                p
-            } else {
-                wide_div(p, self.content)
-            };
-            // At most the plan's bound, so it fits two words.
-            let v = p * wide_div(self.den, q);
-            if v != 0 && neg != negate {
-                signs[i / 64] |= 1 << (i % 64);
-            }
-            bits = bits.max(u128::BITS - v.leading_zeros());
-            match self.stride {
-                1 => mag[i] = v as u64,
-                2 => {
-                    mag[2 * i] = v as u64;
-                    mag[2 * i + 1] = (v >> 64) as u64;
+        let stride = self.stride;
+        for (j, x) in xs.enumerate() {
+            let words = &mut mag[j * stride..(j + 1) * stride];
+            let (neg, nonzero) = match self.wide.filter(|_| wide) {
+                Some((den, g)) => {
+                    let (neg, p, q) = wide_parts(x).expect("a two-word run reads in two words");
+                    let p = if g == 1 { p } else { wide_div(p, g) };
+                    // At most the run's widest `X`, which fits two words.
+                    let v = p * wide_div(den, q);
+                    for (w, part) in words.iter_mut().zip([v as u64, (v >> 64) as u64]) {
+                        *w = part;
+                    }
+                    (neg, v != 0)
                 }
-                _ => {}
+                None => {
+                    let (p, q) = x.magnitudes();
+                    let v = &*p / &self.content * (&self.den / &*q);
+                    write_natural(&v, words);
+                    (x.signum().is_lt(), v != Natural::ZERO)
+                }
+            };
+            if nonzero && neg != negate {
+                signs[j / 64] |= 1 << (j % 64);
             }
         }
-        (signs, u64::from(bits))
+        signs
     }
 }
 
@@ -313,6 +450,335 @@ fn or_bits(dst: &mut [u64], at: usize, bits: &[u64]) {
     }
 }
 
+/// One `μ` of a [`Pending`] channel: its integers and vertex.
+struct MuPlan {
+    ints: Integers,
+    vertex: Radicand,
+}
+
+/// What every column's writer reads.
+struct Meta {
+    width: usize,
+    negate: bool,
+    columns: Vec<Mutex<Column>>,
+    ends: Vec<usize>,
+    /// The entries of `μ` are `starts[μ]..starts[μ + 1]`.
+    starts: Vec<usize>,
+    plans: Vec<MuPlan>,
+    /// Per column: every `X` of it fits two words.
+    wide: Vec<bool>,
+}
+
+/// A channel's emitted columns with every `μ`'s integers, vertex and slab
+/// sized at its canonical stride: the state between the descent and the one
+/// per-column stage that writes the integers ([`Writer::column`]). Built in
+/// `O(columns)` from the scales the descent's items reduced.
+pub(crate) struct Pending {
+    meta: Meta,
+    m_ab: Vec<(u32, u32)>,
+    mags: Vec<Vec<u64>>,
+}
+
+impl Pending {
+    /// `columns` in `(μ, column)` order, `width` per `μ`, and `N_μ` per `μ`,
+    /// every `X` negated when `negate`.
+    pub(crate) fn new(
+        columns: Vec<Column>,
+        width: usize,
+        norms: &[Q],
+        negate: bool,
+    ) -> Result<Self, LieError> {
+        let mult = norms.len();
+        u32::try_from(mult).map_err(|_| LieError::LabelOverflow)?;
+        debug_assert_eq!(columns.len(), mult * width);
+        let mut columns = columns;
+        let mut ends = Vec::with_capacity(columns.len());
+        let mut count = 0usize;
+        for col in &columns {
+            count += col.len();
+            ends.push(count);
+        }
+        let mut tops = Vec::with_capacity(columns.len());
+        let mut plans = Vec::with_capacity(mult);
+        for (mu, norm) in norms.iter().enumerate() {
+            let mut scale = Scale::default();
+            for col in &mut columns[mu * width..(mu + 1) * width] {
+                let s = std::mem::take(&mut col.scale);
+                tops.push(s.wide_top());
+                scale = scale.merge(s);
+            }
+            let ints = Integers::new(scale);
+            plans.push(MuPlan {
+                vertex: vertex(norm, &ints.den, &ints.content),
+                ints,
+            });
+        }
+        let wide = tops
+            .iter()
+            .enumerate()
+            .map(|(k, top)| top.is_some_and(|t| plans[k / width].ints.fits_wide(t)))
+            .collect();
+        let starts: Vec<usize> = (0..=mult)
+            .map(|mu| if mu == 0 { 0 } else { ends[mu * width - 1] })
+            .collect();
+        let mut mags = Vec::with_capacity(mult);
+        for (mu, plan) in plans.iter().enumerate() {
+            let words = (starts[mu + 1] - starts[mu])
+                .checked_mul(plan.ints.stride)
+                .ok_or(LieError::LabelOverflow)?;
+            mags.push(vec![0u64; words]);
+        }
+        Ok(Self {
+            meta: Meta {
+                width,
+                negate,
+                columns: columns.into_iter().map(Mutex::new).collect(),
+                ends,
+                starts,
+                plans,
+                wide,
+            },
+            m_ab: vec![(0u32, 0u32); count],
+            mags,
+        })
+    }
+
+    pub(crate) fn mult(&self) -> usize {
+        self.meta.plans.len()
+    }
+
+    /// The number of entries.
+    pub(crate) fn len(&self) -> usize {
+        self.m_ab.len()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.m_ab.is_empty()
+    }
+
+    /// The entries of every column: a column stage's units.
+    pub(crate) fn units(&self) -> Vec<u64> {
+        crate::stage::part_units(&self.meta.ends)
+    }
+
+    /// The writer of every column, each into its own ranges of the pair list
+    /// and of its `μ`'s slab.
+    pub(crate) fn writer(&mut self) -> Writer<'_> {
+        let Self { meta, m_ab, mags } = self;
+        let pairs = split_parts(m_ab, meta.ends.iter().copied());
+        let mut slabs = Vec::with_capacity(meta.ends.len());
+        for (mu, mag) in mags.iter_mut().enumerate() {
+            let (at, stride) = (meta.starts[mu], meta.plans[mu].ints.stride);
+            slabs.extend(split_parts(
+                mag,
+                meta.ends[mu * meta.width..(mu + 1) * meta.width]
+                    .iter()
+                    .map(|&end| (end - at) * stride),
+            ));
+        }
+        Writer { meta, pairs, slabs }
+    }
+
+    /// Writes every column as one stage on `exec` (inline without a token)
+    /// and assembles the coordinates.
+    fn write_all(mut self, exec: Option<&mut Exec<'_>>) -> Coords {
+        let units = self.units();
+        let signs = {
+            let writer = self.writer();
+            let mut buf = StageBuf::default();
+            let _w = run_items(exec, &units, &mut buf, |k| writer.column(k).into_signs());
+            #[cfg(test)]
+            count_section(_w);
+            buf.drain().collect()
+        };
+        self.into_coords(signs)
+    }
+
+    /// The exact channel over `dims`, every column written on `exec`.
+    pub(crate) fn integralize(self, dims: [usize; 3], exec: Option<&mut Exec<'_>>) -> ExactCgc {
+        let mult = self.mult();
+        ExactCgc {
+            mult,
+            dims,
+            coords: self.write_all(exec),
+        }
+    }
+
+    /// The exact channel over `dims` once every column was written, with the
+    /// columns' sign words in column order ([`WrittenColumn::into_signs`]).
+    pub(crate) fn into_channel(self, dims: [usize; 3], signs: Vec<Vec<u64>>) -> ExactCgc {
+        let mult = self.mult();
+        ExactCgc {
+            mult,
+            dims,
+            coords: self.into_coords(signs),
+        }
+    }
+
+    /// The coordinates, with the columns' sign words merged per `μ` in
+    /// `O(entries / 64)`.
+    fn into_coords(self, signs: Vec<Vec<u64>>) -> Coords {
+        let Self { meta, m_ab, mags } = self;
+        let Meta {
+            width,
+            ends,
+            starts,
+            plans,
+            ..
+        } = meta;
+        let mut signs = signs.into_iter();
+        let per_mu = plans
+            .into_iter()
+            .zip(mags)
+            .enumerate()
+            .map(|(mu, (plan, mag))| {
+                let len = starts[mu + 1] - starts[mu];
+                let mut neg = vec![0u64; len.div_ceil(64)];
+                for k in mu * width..(mu + 1) * width {
+                    let at = (if k == 0 { 0 } else { ends[k - 1] }) - starts[mu];
+                    if let Some(s) = signs.next() {
+                        or_bits(&mut neg, at, &s);
+                    }
+                }
+                MuCoords {
+                    bits: plan.ints.bits,
+                    x: SignedInts::from_raw(len, plan.ints.stride, neg, mag),
+                    vertex: plan.vertex,
+                }
+            })
+            .collect();
+        Coords {
+            m_ab: m_ab.into_boxed_slice(),
+            ends: ends.into_boxed_slice(),
+            per_mu,
+        }
+    }
+}
+
+/// Writes the columns of a [`Pending`] channel; every column takes its
+/// ranges once, so the writer is shared by a stage's participants.
+pub(crate) struct Writer<'p> {
+    meta: &'p Meta,
+    pairs: Vec<Mutex<&'p mut [(u32, u32)]>>,
+    slabs: Vec<Mutex<&'p mut [u64]>>,
+}
+
+impl<'p> Writer<'p> {
+    /// The exclusive end of every column.
+    pub(crate) fn ends(&self) -> &[usize] {
+        &self.meta.ends
+    }
+
+    /// Writes column `k`'s pairs and integers and releases its rationals.
+    pub(crate) fn column(&self, k: usize) -> WrittenColumn<'p> {
+        let meta = self.meta;
+        let col = std::mem::take(
+            &mut *meta.columns[k]
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner),
+        );
+        let pairs = take_part(&self.pairs, k);
+        for (slot, e) in pairs.iter_mut().zip(&col.entries) {
+            *slot = (e.0, e.1);
+        }
+        let mu = k / meta.width;
+        let plan = &meta.plans[mu];
+        let mag = take_part(&self.slabs, k);
+        let signs = plan.ints.write(
+            col.len(),
+            col.entries.iter().map(|e| &e.2),
+            meta.negate,
+            meta.wide[k],
+            mag,
+        );
+        WrittenColumn {
+            mu,
+            mc: k % meta.width,
+            pairs,
+            mag,
+            stride: plan.ints.stride,
+            signs,
+            vertex: &plan.vertex,
+        }
+    }
+}
+
+/// A column just written by [`Writer::column`], with its sign words.
+pub(crate) struct WrittenColumn<'p> {
+    mu: usize,
+    mc: usize,
+    pairs: &'p [(u32, u32)],
+    mag: &'p [u64],
+    stride: usize,
+    signs: Vec<u64>,
+    vertex: &'p Radicand,
+}
+
+impl WrittenColumn<'_> {
+    /// Its coordinates, as the rounding layer reads them.
+    pub(crate) fn coords(&self) -> ColumnCoords<'_> {
+        ColumnCoords {
+            mu: self.mu,
+            mc: self.mc,
+            pairs: self.pairs,
+            mag: self.mag,
+            stride: self.stride,
+            neg: &self.signs,
+            neg_at: 0,
+            vertex: self.vertex,
+        }
+    }
+
+    /// Its sign words, for [`Pending::into_channel`].
+    pub(crate) fn into_signs(self) -> Vec<u64> {
+        self.signs
+    }
+}
+
+/// The exact coordinates of one column `(μ, m_c)`, read in place: entry `j`
+/// is `±(magnitude j)` at pair `pairs()[j]`, with the `μ`'s vertex.
+#[derive(Clone, Copy)]
+pub(crate) struct ColumnCoords<'a> {
+    mu: usize,
+    mc: usize,
+    pairs: &'a [(u32, u32)],
+    mag: &'a [u64],
+    stride: usize,
+    neg: &'a [u64],
+    neg_at: usize,
+    vertex: &'a Radicand,
+}
+
+impl<'a> ColumnCoords<'a> {
+    pub(crate) fn mu(&self) -> usize {
+        self.mu
+    }
+
+    /// The public `m_c` of the column.
+    pub(crate) fn mc(&self) -> usize {
+        self.mc
+    }
+
+    /// The public `(m_a, m_b)` of every entry.
+    pub(crate) fn pairs(&self) -> &'a [(u32, u32)] {
+        self.pairs
+    }
+
+    /// `|X|` of entry `j` as little-endian words; high zero words allowed.
+    pub(crate) fn magnitude(&self, j: usize) -> &'a [u64] {
+        &self.mag[j * self.stride..(j + 1) * self.stride]
+    }
+
+    pub(crate) fn is_negative(&self, j: usize) -> bool {
+        let b = self.neg_at + j;
+        (self.neg[b / 64] >> (b % 64)) & 1 == 1
+    }
+
+    pub(crate) fn vertex(&self) -> &'a Radicand {
+        self.vertex
+    }
+}
+
 /// The coordinates of a run of `μ` blocks of `width` columns each: the
 /// public pairs of every entry, the exclusive end of every column, and the
 /// integer coordinates of every `μ`.
@@ -325,210 +791,16 @@ struct Coords {
 
 impl Coords {
     /// `columns` in `(μ, column)` order, `width` per `μ`, and `N_μ` per `μ`,
-    /// integralized per `μ` in stages over the columns on `exec`
-    /// ([`run_items`]; inline without a token, with the same integers):
-    ///
-    /// 1. every column's [`Scale`], reduced per `μ` in `O(columns)`;
-    /// 2. every column's pairs and `X` written into its own ranges of the
-    ///    pair list and of its `μ`'s slab, its rationals released as soon as
-    ///    they are written;
-    /// 3. only for a `μ` whose bound overestimated the widest `X` by a word,
-    ///    every column narrowed into its range of the canonical slab.
-    ///
-    /// A `μ` beyond two words is integralized in big integers on the
-    /// calling thread before step 2.
+    /// integralized in one stage over the columns on `exec` (inline without
+    /// a token, with the same integers).
     fn new(
         columns: Vec<Column>,
         width: usize,
         norms: &[Q],
         negate: bool,
-        mut exec: Option<&mut Exec<'_>>,
+        exec: Option<&mut Exec<'_>>,
     ) -> Result<Self, LieError> {
-        let mult = norms.len();
-        u32::try_from(mult).map_err(|_| LieError::LabelOverflow)?;
-        debug_assert_eq!(columns.len(), mult * width);
-        let mut ends = Vec::with_capacity(columns.len());
-        let mut count = 0usize;
-        for col in &columns {
-            count += col.len();
-            ends.push(count);
-        }
-        let units: Vec<u64> = columns.iter().map(|col| col.len() as u64).collect();
-        let col_start = |k: usize| if k == 0 { 0 } else { ends[k - 1] };
-        // The entries of `μ` are `starts[μ]..starts[μ + 1]`.
-        let starts: Vec<usize> = (0..=mult).map(|mu| col_start(mu * width)).collect();
-
-        let mut scales = StageBuf::default();
-        let _w = run_items(exec.as_deref_mut(), &units, &mut scales, |k| {
-            Scale::of(columns[k].iter().map(|e| &e.2))
-        });
-        #[cfg(test)]
-        count_section(_w);
-        let by_column: Vec<Option<Scale>> = scales.drain().collect();
-        let plans: Vec<Option<Plan>> = by_column
-            .chunks(width.max(1))
-            .take(mult)
-            .map(|cols| {
-                cols.iter()
-                    .try_fold(Scale::EMPTY, |acc, s| acc.merge((*s)?))
-                    .and_then(Scale::plan)
-            })
-            .collect();
-
-        let mut per_mu: Vec<Option<MuCoords>> = (0..mult).map(|_| None).collect();
-        for (mu, plan) in plans.iter().enumerate() {
-            if plan.is_none() {
-                let cols = &columns[mu * width..(mu + 1) * width];
-                let Integral { x, den, content } =
-                    natural_integral(cols.iter().flatten().map(|e| &e.2), negate)?;
-                per_mu[mu] = Some(MuCoords {
-                    bits: x.max_bits(),
-                    x,
-                    vertex: vertex(&norms[mu], &den, &content),
-                });
-            }
-        }
-
-        let mut mags: Vec<Vec<u64>> = Vec::with_capacity(mult);
-        for (mu, plan) in plans.iter().enumerate() {
-            let words = match plan {
-                Some(p) => (starts[mu + 1] - starts[mu])
-                    .checked_mul(p.stride)
-                    .ok_or(LieError::LabelOverflow)?,
-                None => 0,
-            };
-            mags.push(vec![0u64; words]);
-        }
-        let mut m_ab = vec![(0u32, 0u32); count];
-        let written: Vec<Option<(Vec<u64>, u64)>> = {
-            let pairs = split_parts(&mut m_ab, ends.iter().copied());
-            let mut slabs = Vec::with_capacity(ends.len());
-            for (mu, mag) in mags.iter_mut().enumerate() {
-                let stride = plans[mu].map_or(0, |p| p.stride);
-                let at = starts[mu];
-                slabs.extend(split_parts(
-                    mag,
-                    ends[mu * width..(mu + 1) * width]
-                        .iter()
-                        .map(|&end| (end - at) * stride),
-                ));
-            }
-            let columns: Vec<Mutex<Column>> = columns.into_iter().map(Mutex::new).collect();
-            let mut out = StageBuf::default();
-            let _w = run_items(exec.as_deref_mut(), &units, &mut out, |k| {
-                let col =
-                    std::mem::take(&mut *columns[k].lock().unwrap_or_else(PoisonError::into_inner));
-                for (slot, e) in take_part(&pairs, k).iter_mut().zip(&col) {
-                    *slot = (e.0, e.1);
-                }
-                plans[k / width].map(|p| {
-                    p.write(
-                        col.len(),
-                        col.iter().map(|e| &e.2),
-                        negate,
-                        take_part(&slabs, k),
-                    )
-                })
-            });
-            #[cfg(test)]
-            count_section(_w);
-            out.drain().collect()
-        };
-
-        // Signs and widths per `μ`: `O(columns)` merges of the columns' words.
-        let mut negs: Vec<Vec<u64>> = Vec::with_capacity(mult);
-        let mut widest = vec![0u64; mult];
-        let mut cols = written.into_iter().enumerate();
-        for mu in 0..mult {
-            let mut neg = vec![0u64; (starts[mu + 1] - starts[mu]).div_ceil(64)];
-            for (k, w) in cols.by_ref().take(width) {
-                if let Some((signs, bits)) = w {
-                    widest[mu] = widest[mu].max(bits);
-                    or_bits(&mut neg, col_start(k) - starts[mu], &signs);
-                }
-            }
-            negs.push(neg);
-        }
-        let narrow: Vec<bool> = (0..mult)
-            .map(|mu| plans[mu].is_some_and(|p| p.stride == 2) && widest[mu] <= 64)
-            .collect();
-        if narrow.contains(&true) {
-            let mut narrowed: Vec<Vec<u64>> = (0..mult)
-                .map(|mu| {
-                    vec![
-                        0u64;
-                        if narrow[mu] {
-                            starts[mu + 1] - starts[mu]
-                        } else {
-                            0
-                        }
-                    ]
-                })
-                .collect();
-            {
-                let mut parts = Vec::with_capacity(ends.len());
-                for (mu, dst) in narrowed.iter_mut().enumerate() {
-                    let (at, on) = (starts[mu], usize::from(narrow[mu]));
-                    parts.extend(split_parts(
-                        dst,
-                        ends[mu * width..(mu + 1) * width]
-                            .iter()
-                            .map(|&end| (end - at) * on),
-                    ));
-                }
-                let units: Vec<u64> = (0..units.len())
-                    .map(|k| if narrow[k / width] { units[k] } else { 0 })
-                    .collect();
-                let mags = &mags;
-                let _w = run_items(exec, &units, &mut StageBuf::default(), |k| {
-                    let mu = k / width;
-                    if narrow[mu] {
-                        let from = 2 * (col_start(k) - starts[mu]);
-                        for (d, w) in take_part(&parts, k)
-                            .iter_mut()
-                            .zip(mags[mu][from..].as_chunks::<2>().0)
-                        {
-                            *d = w[0];
-                        }
-                    }
-                });
-                #[cfg(test)]
-                count_section(_w);
-            }
-            for (mu, n) in narrowed.into_iter().enumerate() {
-                if narrow[mu] {
-                    mags[mu] = n;
-                }
-            }
-        }
-
-        let mut parts = mags.into_iter().zip(negs);
-        let per_mu = per_mu
-            .into_iter()
-            .enumerate()
-            .map(|(mu, done)| {
-                let (mag, neg) = parts.next().expect("one slab per μ");
-                done.unwrap_or_else(|| {
-                    let plan = plans[mu].expect("a μ without big integers has a plan");
-                    let len = starts[mu + 1] - starts[mu];
-                    let stride = if narrow[mu] { 1 } else { plan.stride };
-                    MuCoords {
-                        bits: widest[mu],
-                        x: SignedInts::from_raw(len, stride, neg, mag),
-                        vertex: vertex(
-                            &norms[mu],
-                            &Natural::from(plan.den),
-                            &Natural::from(plan.content),
-                        ),
-                    }
-                })
-            })
-            .collect();
-        Ok(Self {
-            m_ab: m_ab.into_boxed_slice(),
-            ends: ends.into_boxed_slice(),
-            per_mu,
-        })
+        Ok(Pending::new(columns, width, norms, negate)?.write_all(exec))
     }
 
     fn empty() -> Self {
@@ -691,7 +963,8 @@ impl ExactCgc {
 
     /// The channel of the emitted `columns` (`μ·d_c + m_c` order) with
     /// `N_μ = norms[μ]`, every `X` negated when `negate`, integralized in
-    /// stages on `exec` ([`Coords::new`]).
+    /// one stage on `exec` ([`Coords::new`]).
+    #[cfg(test)]
     pub(crate) fn from_columns(
         dims: [usize; 3],
         columns: Vec<Column>,
@@ -710,10 +983,6 @@ impl ExactCgc {
         self.mult
     }
 
-    pub(crate) fn dims(&self) -> [usize; 3] {
-        self.dims
-    }
-
     /// The number of exactly nonzero entries.
     pub(crate) fn len(&self) -> usize {
         self.coords.m_ab.len()
@@ -723,25 +992,28 @@ impl ExactCgc {
         self.coords.m_ab.is_empty()
     }
 
-    /// The public `(m_a, m_b)` of every entry.
-    pub(crate) fn m_ab(&self) -> &[(u32, u32)] {
-        &self.coords.m_ab
-    }
-
     /// The exclusive end of every column `μ·d_c + m_c`.
     pub(crate) fn column_ends(&self) -> &[usize] {
         &self.coords.ends
     }
 
-    /// The entries of column `k = μ·d_c + m_c`.
-    pub(crate) fn column(&self, k: usize) -> Range<usize> {
-        self.coords.column(k)
-    }
-
-    /// The coordinates of `μ`; its entry `j` is entry
-    /// `self.mu_range(mu).start + j` of the channel.
-    pub(crate) fn coords(&self, mu: usize) -> &MuCoords {
-        &self.coords.per_mu[mu]
+    /// The coordinates of column `k = μ·d_c + m_c`, read in place.
+    pub(crate) fn column_coords(&self, k: usize) -> ColumnCoords<'_> {
+        let dc = self.dims[2];
+        let mu = k / dc;
+        let base = self.mu_range(mu).start;
+        let range = self.coords.column(k);
+        let MuCoords { x, vertex, .. } = &self.coords.per_mu[mu];
+        ColumnCoords {
+            mu,
+            mc: k % dc,
+            pairs: &self.coords.m_ab[range.clone()],
+            mag: x.words(range.start - base, range.len()),
+            stride: x.stride(),
+            neg: x.sign_words(),
+            neg_at: range.start - base,
+            vertex,
+        }
     }
 
     /// The entries of `μ`.
@@ -1070,8 +1342,8 @@ fn count_section(width: std::num::NonZeroUsize) {
 
 #[cfg(test)]
 thread_local! {
-    /// Integralization stages of [`Coords::new`] on this thread that ran a
-    /// section of width two or more.
+    /// Integralization-only column stages ([`Pending::integralize`]) on this
+    /// thread that ran a section of width two or more.
     pub(crate) static INTEGRAL_SECTIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 

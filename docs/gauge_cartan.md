@@ -920,14 +920,14 @@ column.
        per-item result cells (`Vec<OnceLock<ProductSpace>>`). The emitted
        coordinates (pair indices and a rational each) are written per column
        `(μ, m_c)` as they are formed and integralized per `μ` once the
-       descent ends, `O(nnz + N d_c)` with no sort: per column its scale
-       (common denominator and content, reduced per `μ`), then its integers
-       written into its own ranges of the pair list and of its `μ`'s slab,
-       its rationals released as soon as they are written. The rounded view
-       is then formed from the exact channel, one conversion per entry, each
-       column into its own range of the view; on a team token these column
-       stages run in sections, so the exact channel and the view are briefly
-       live together;
+       descent ends, `O(nnz + N d_c)` with no sort: each column's scale
+       (common denominator, content and largest coordinate) is reduced by
+       the descent item that emits it and merged per `μ` in `O(N d_c)`;
+       then one stage over the columns writes each column's integers into
+       its own ranges of the pair list and of its `μ`'s slab, releases its
+       rationals, and rounds it into its own range of the view, one
+       conversion per entry. On a team token that stage runs in sections, so
+       the exact channel and the view are briefly live together;
      - *verification*, after the rational channel is released: the rounded
        entries, read in place through one `(start, end)` run per column
        `(m_c, μ)` (`N d_c` pairs; a column split into two runs is a support

@@ -1340,8 +1340,8 @@ fn cgc_load<const N: usize, E>(
 
 /// [`cgc_load`] for the lookups that only a view miss or an exact consumer
 /// makes (exact channel, seeds): out of line, with a projection of its own,
-/// so the view's warm hit in [`cgc_channel`] stays the only caller of its
-/// `get_with` instantiation and is inlined there. Why not share
+/// so the view's warm hit in [`cgc_channel`] keeps a `get_with`
+/// instantiation of its own and is inlined there. Why not share
 /// [`cgc_load`]: with a second caller that instantiation was emitted out of
 /// line, a call and a clone thunk on every warm view hit (about 38
 /// instructions, 8 ns, measured).
@@ -1379,10 +1379,23 @@ pub(crate) fn cgc_channel<E>(
     parts: [Label<'_>; 3],
     compute: impl FnOnce() -> Result<Arc<CgcChannel>, E>,
 ) -> Result<Arc<CgcChannel>, E> {
-    match cgc_load(CHANNEL, root, parts, || compute().map(CgcValue::Channel))? {
-        CgcValue::Channel(c) => Ok(c),
-        _ => unreachable!("a channel key stores a channel"),
-    }
+    // The hit projects the view's `Arc` straight out of the entry: one tag
+    // test and one count increment, where cloning the whole value went
+    // through a match over every variant before the same tag test.
+    let key = LabelRef {
+        kind: CHANNEL,
+        root,
+        parts,
+    };
+    CACHE_CGC.get_or_try_sweep(
+        &key,
+        |v: &CgcValue| match v {
+            CgcValue::Channel(c) => c.clone(),
+            _ => unreachable!("a channel key stores a channel"),
+        },
+        || key.to_key(),
+        |_| compute().map(CgcValue::Channel),
+    )
 }
 
 /// The exact channel of the ordered triple. Loaded inside a view miss, it

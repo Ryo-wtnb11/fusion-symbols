@@ -165,6 +165,19 @@ pub(crate) fn split_parts<T>(
     parts
 }
 
+/// The length of every part of [`split_parts`] for the same `ends`: the
+/// units of a stage whose items are those parts.
+pub(crate) fn part_units(ends: &[usize]) -> Vec<u64> {
+    let mut start = 0;
+    ends.iter()
+        .map(|&end| {
+            let n = (end - start) as u64;
+            start = end;
+            n
+        })
+        .collect()
+}
+
 /// Item `i`'s part of [`split_parts`]; empty once taken.
 pub(crate) fn take_part<'a, T>(parts: &[Mutex<&'a mut [T]>], i: usize) -> &'a mut [T] {
     std::mem::take(&mut *parts[i].lock().unwrap_or_else(PoisonError::into_inner))

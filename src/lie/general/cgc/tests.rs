@@ -23,24 +23,38 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Instant;
 
-/// The rounded view of a fresh exact channel through the production layers:
-/// exact emission, the three norm tables and `round_channel`, with no vertex
-/// sign and no gate.
-pub(crate) fn rounded_entries(
+/// The exact channel and the rounded view of a fresh channel through the
+/// production layers: the descent, the three norm tables and the one
+/// column stage that writes and rounds, with no vertex sign and no gate.
+pub(crate) fn fresh_channel(
     data: &CartanData,
     a: &Ladders,
     b: &Ladders,
     c: &Ladders,
     n: usize,
     mut exec: Option<&mut threadteam::Exec<'_>>,
-) -> Result<Vec<MEntry>, LieError> {
-    let exact = exact_channel(data, a, b, c, n, false, exec.as_deref_mut())?;
+) -> Result<(exact::ExactCgc, Vec<MEntry>), LieError> {
+    let pending = exact_columns(data, a, b, c, n, false, exec.as_deref_mut())?;
     let norms = [NormTable::new(a)?, NormTable::new(b)?, NormTable::new(c)?];
-    Ok(
-        round_channel(&exact, [&norms[0], &norms[1], &norms[2]], exec)
-            .entries
-            .into_vec(),
-    )
+    let (exact, view) = crate::lie::general::family::write_and_round(
+        pending,
+        [a.dim(), b.dim(), c.dim()],
+        [&norms[0], &norms[1], &norms[2]],
+        exec,
+    );
+    Ok((exact, view.entries.into_vec()))
+}
+
+/// The rounded view of [`fresh_channel`].
+pub(crate) fn rounded_entries(
+    data: &CartanData,
+    a: &Ladders,
+    b: &Ladders,
+    c: &Ladders,
+    n: usize,
+    exec: Option<&mut threadteam::Exec<'_>>,
+) -> Result<Vec<MEntry>, LieError> {
+    Ok(fresh_channel(data, a, b, c, n, exec)?.1)
 }
 
 const G7: [i64; 2] = [1, 0];
@@ -2430,12 +2444,13 @@ fn bits(entries: &[MEntry]) -> Vec<(u32, u32, u32, u32, u64)> {
         .collect()
 }
 
-/// The layer descent emits the serial exact channel, and its view the serial
-/// entries bit for bit and in order,
+/// The layer descent and its one column stage give the serial exact channel
+/// and the serial view entries bit for bit and in order,
 /// through real sections of widths 2–5, widths above a stage's items, and a
 /// narrow child token of a team section; each forced stage really opened a
-/// section, under the shares' no-cache guard, the integralization's and the
-/// rounding's column stages among them. At a forced width every layer
+/// section, under the shares' no-cache guard, the column stage that writes
+/// and rounds, the integralization-only stage and the rounding of a resident
+/// exact channel among them. At a forced width every layer
 /// of two or more weights builds its product spaces in a section of its
 /// own, so phase A reads each `tos[w]` from that section; calibrated, every
 /// layer whose first weight leaves two or more to share does.
@@ -2462,6 +2477,11 @@ fn layer_descent_matches_the_serial_bits_at_every_width() {
         let serial = bits(&rounded_entries(&data, &a, &b, &c, n, None).unwrap());
         assert!(!serial.is_empty());
         let serial_exact = exact_channel(&data, &a, &b, &c, n, false, None).unwrap();
+        let (inline, _) = fresh_channel(&data, &a, &b, &c, n, None).unwrap();
+        assert!(
+            inline == serial_exact,
+            "{root:?}: write-and-round equals integralize"
+        );
         let _ = built();
         // Neither the serial nor a plain-pool token builds in a section.
         let pool = threadteam::Pool::builder()
@@ -2485,14 +2505,33 @@ fn layer_descent_matches_the_serial_bits_at_every_width() {
             crate::stage::SECTIONS.with(|s| s.borrow_mut().clear());
             let integral = || exact::INTEGRAL_SECTIONS.with(|s| s.replace(0));
             let round = || crate::rounding::cgc::ROUND_SECTIONS.with(|s| s.replace(0));
-            let _ = (integral(), round());
-            let got = rounded_entries(&data, &a, &b, &c, n, Some(&mut team.exec(5))).unwrap();
+            let columns = || crate::lie::general::family::COLUMN_SECTIONS.with(|s| s.replace(0));
+            let _ = (integral(), round(), columns());
+            let (fresh, got) =
+                fresh_channel(&data, &a, &b, &c, n, Some(&mut team.exec(5))).unwrap();
             assert_eq!(bits(&got), serial, "{root:?} width {width}");
-            assert!(integral() >= 2, "{root:?} width {width}: scale and write");
+            assert!(fresh == serial_exact, "{root:?} width {width}");
+            assert_eq!(
+                (columns(), integral(), round()),
+                (1, 0, 0),
+                "{root:?} width {width}: one column stage"
+            );
+            let norms = [
+                NormTable::new(&a).unwrap(),
+                NormTable::new(&b).unwrap(),
+                NormTable::new(&c).unwrap(),
+            ];
+            let resident = round_channel(
+                &fresh,
+                [&norms[0], &norms[1], &norms[2]],
+                Some(&mut team.exec(5)),
+            );
+            assert_eq!(bits(&resident.entries), serial, "{root:?} width {width}");
             assert_eq!(round(), 1, "{root:?} width {width}");
             assert_eq!(built(), shared(2), "{root:?} width {width}");
             let exact = exact_channel(&data, &a, &b, &c, n, false, Some(&mut team.exec(5)));
             assert!(exact.unwrap() == serial_exact, "{root:?} width {width}");
+            assert_eq!(integral(), 1, "{root:?} width {width}");
             let _ = built();
             let sections = crate::stage::SECTIONS.with(|s| s.take());
             assert!(!sections.is_empty(), "{root:?} width {width}");
@@ -2801,7 +2840,7 @@ fn view_keeps_rounded_zeros_and_omits_exact_zeros() {
     let tiny = malachite_nz::natural::Natural::from(1u32) << 1100u32;
     // `2 ⊗ 2 → 1`, one column: `(0,0)` is `−2^-1100`, `(0,1)` and `(1,0)` are
     // exactly zero, `(1,1)` is `1`.
-    let column = vec![(0, 0, r(-1, tiny)), (1, 1, Q::from(1))];
+    let column = exact::Column::new(vec![(0, 0, r(-1, tiny)), (1, 1, Q::from(1))]);
     let exact =
         exact::ExactCgc::from_columns([2, 2, 1], vec![column], &[Q::from(1)], false, None).unwrap();
     let unit = |dim: usize| NormTable {

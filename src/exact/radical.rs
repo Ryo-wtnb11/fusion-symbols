@@ -127,16 +127,7 @@ impl SignedInts {
             if *n && *x != Natural::ZERO {
                 neg[i / 64] |= 1 << (i % 64);
             }
-            let words = &mut mag[i * stride..(i + 1) * stride];
-            for (j, w) in x.limbs().enumerate() {
-                let bit = j * Limb::BITS as usize;
-                // A Malachite limb is 64 bits wide, or 32 under its
-                // `32_bit_limbs` feature, where this conversion is not the
-                // identity.
-                #[allow(clippy::useless_conversion)]
-                let w = u64::from(w);
-                words[bit / 64] |= w << (bit % 64);
-            }
+            write_natural(x, &mut mag[i * stride..(i + 1) * stride]);
         }
         Some(Self {
             len,
@@ -170,9 +161,19 @@ impl SignedInts {
     }
 
     /// Words per entry.
-    #[cfg(test)]
     pub(crate) fn stride(&self) -> usize {
         self.stride
+    }
+
+    /// The magnitude words of entries `i..i + n`, at the slab's stride (high
+    /// zero words included).
+    pub(crate) fn words(&self, i: usize, n: usize) -> &[u64] {
+        &self.mag[i * self.stride..(i + n) * self.stride]
+    }
+
+    /// The sign words: bit `i` is set for a negative entry `i`.
+    pub(crate) fn sign_words(&self) -> &[u64] {
+        &self.neg
     }
 
     pub(crate) fn is_negative(&self, i: usize) -> bool {
@@ -294,6 +295,20 @@ pub(crate) fn natural_words(x: &Natural) -> Vec<u64> {
         words[bit / 64] |= w << (bit % 64);
     }
     words
+}
+
+/// ORs the little-endian 64-bit words of `x` into `words`, which hold at
+/// least its significant words. Reads Malachite's limbs in place, at either
+/// limb width.
+pub(crate) fn write_natural(x: &Natural, words: &mut [u64]) {
+    for (j, w) in x.limbs().enumerate() {
+        let bit = j * Limb::BITS as usize;
+        // A Malachite limb is 64 bits wide, or 32 under its `32_bit_limbs`
+        // feature, where this conversion is not the identity.
+        #[allow(clippy::useless_conversion)]
+        let w = u64::from(w);
+        words[bit / 64] |= w << (bit % 64);
+    }
 }
 
 /// The value of little-endian 64-bit words.
