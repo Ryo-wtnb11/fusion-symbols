@@ -9,11 +9,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with: { components: clippy }
-      - run: cargo build --release --locked --features exact-fr-probe --example exact_fr_probe 2>&1 | tail -60
+      - run: cargo build --release --features exact-fr-probe --example exact_fr_probe 2>&1 | tail -150; exit ${PIPESTATUS[0]}
       - name: small sweep
         run: |
           lscpu | grep "Model name"
           target/release/examples/exact_fr_probe --max-seconds 120 --only su3 --skip 6,6 | tee su3.csv
           target/release/examples/exact_fr_probe --max-seconds 120 --only g2 --skip 2,2 | tee g2.csv || true
-      - run: cargo clippy --locked --all-targets --all-features -- -D warnings 2>&1 | tail -40
+      - run: cargo clippy --all-targets --all-features -- -D warnings 2>&1 | tail -80
         if: always()
