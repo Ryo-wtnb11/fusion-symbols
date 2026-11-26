@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        only: ['F:su3', 'su4', 'f4:0,0,1,0', 'e7:0,0,0,0,0,1,0', 'su3:6,6', 'g2:2,0', 'e8', 'su3xsu2']
+        only: ['F:su3', 'su3:6,6', 'su4', 'f4:0,0,1,0', 'e7:0,0,0,0,0,1,0', 'g2:2,0', 'e8', 'e6', 'sp4', 'spin5', 'su3xsu2']
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
