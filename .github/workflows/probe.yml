@@ -3,17 +3,18 @@ on:
   push:
     branches: ['probe/**']
 jobs:
-  build:
+  sweep:
     runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        only: ['sp4', 'so5', 'su4', 'f4:0,0,0,1', 'f4:0,0,1,0', 'e6', 'e7:0,0,0,0,0,0,1', 'e7:1,0,0,0,0,0,0', 'e7:0,0,0,0,0,1,0', 'e8', 'su3:6,6', 'g2:2,2', 'su3xsu2']
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-        with: { components: clippy }
-      - run: cargo build --release --features exact-fr-probe --example exact_fr_probe 2>&1 | tail -150; exit ${PIPESTATUS[0]}
-      - name: small sweep
+      - run: cargo build --release --features exact-fr-probe --example exact_fr_probe 2>&1 | tail -5; exit ${PIPESTATUS[0]}
+      - name: sweep
         run: |
-          lscpu | grep "Model name"
-          target/release/examples/exact_fr_probe --max-seconds 120 --only su3 --skip 6,6 | tee su3.csv
-          target/release/examples/exact_fr_probe --max-seconds 120 --only g2 --skip 2,2 | tee g2.csv || true
-      - run: cargo clippy --all-targets --all-features -- -D warnings 2>&1 | tail -80
-        if: always()
+          lscpu | grep "Model name"; free -g | head -2
+          target/release/examples/exact_fr_probe --max-seconds 3000 --only '${{ matrix.only }}' | tee out.csv
