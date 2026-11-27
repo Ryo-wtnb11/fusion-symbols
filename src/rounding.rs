@@ -77,19 +77,24 @@ pub(crate) fn round_dim(d: Factor<'_>, value: DimValue) -> f64 {
         },
     };
     if let Some(x) = small.filter(|&x| x < 1 << 53) {
-        let x = x as f64;
-        match value {
-            DimValue::Dim => return x,
-            DimValue::Sqrt => return x.sqrt(),
-            DimValue::Inv => return x.recip(),
-            DimValue::InvSqrt => return inv_sqrt_small(x),
-        }
+        return round_small(x as f64, value);
     }
     match value {
         DimValue::Dim => round_radical(1, &[d, d], &[]),
         DimValue::Sqrt => round_radical(1, &[d], &[]),
         DimValue::InvSqrt => round_radical(1, &[], &[d]),
         DimValue::Inv => round_radical(1, &[], &[d, d]),
+    }
+}
+
+/// [`round_dim`] of an integer `1 ≤ x < 2^53`, held exactly.
+#[inline]
+fn round_small(x: f64, value: DimValue) -> f64 {
+    match value {
+        DimValue::Dim => x,
+        DimValue::Sqrt => x.sqrt(),
+        DimValue::Inv => x.recip(),
+        DimValue::InvSqrt => inv_sqrt_small(x),
     }
 }
 
@@ -158,20 +163,6 @@ pub(crate) enum DimProduct {
 }
 
 impl DimProduct {
-    pub(crate) const ONE: Self = Self::Word(1);
-
-    /// `self *= w`, inline while the product stays one word.
-    #[inline]
-    pub(crate) fn mul_word(&mut self, w: u64) {
-        if let Self::Word(x) = self {
-            if let Some(y) = x.checked_mul(w) {
-                *x = y;
-                return;
-            }
-        }
-        self.mul(Factor::Words(&[w]));
-    }
-
     /// `self *= d`.
     pub(crate) fn mul(&mut self, d: Factor<'_>) {
         if let Self::Word(x) = self {
@@ -213,6 +204,46 @@ impl DimProduct {
             Self::Word(x) => round_dim(Factor::Words(&[*x]), value),
             Self::Stack(x) => round_dim(Factor::Words(x.used()), value),
             Self::Big(x) => round_dim(Factor::Natural(x), value),
+        }
+    }
+}
+
+use crate::category::sealed::WideDim;
+
+impl crate::category::sealed::DimAcc {
+    pub(crate) const ONE: Self = Self {
+        word: 1,
+        wide: None,
+    };
+
+    /// `self *= w`: one multiply while the product fits a word.
+    #[inline(always)]
+    pub(crate) fn mul_word(&mut self, w: u64) {
+        if self.wide.is_none() {
+            if let Some(y) = self.word.checked_mul(w) {
+                self.word = y;
+                return;
+            }
+        }
+        self.mul(Factor::Words(&[w]));
+    }
+
+    /// `self *= d`, past one word.
+    #[inline(never)]
+    pub(crate) fn mul(&mut self, d: Factor<'_>) {
+        self.wide
+            .get_or_insert(WideDim(DimProduct::Word(self.word)))
+            .0
+            .mul(d);
+    }
+
+    /// [`round_dim`] of the product; IEEE single operations below `2^53`.
+    #[inline(always)]
+    pub(crate) fn round(&self, value: DimValue) -> f64 {
+        match &self.wide {
+            None if self.word < 1 << 53 => round_small(self.word as f64, value),
+            None => round_dim(Factor::Words(&[self.word]), value),
+            Some(x) => x.0.round(value),
         }
     }
 }

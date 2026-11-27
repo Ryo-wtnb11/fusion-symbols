@@ -1172,6 +1172,7 @@ impl FusionCategory for LieGroup {
         self.exact_leaf(op)
     }
     #[doc(hidden)]
+    #[inline(always)]
     fn __fusion_symbols_exact_dim(
         &self,
         a: &LieIrrep,
@@ -1180,19 +1181,13 @@ impl FusionCategory for LieGroup {
     ) -> bool {
         self.label(a);
         match &a.payload {
-            LiePayload::RankOne(dj) => d.0.mul_word(u64::from(*dj) + 1),
+            LiePayload::RankOne(dj) => d.mul_word(u64::from(*dj) + 1),
             LiePayload::Torus(_) => {}
             LiePayload::Simple(x) => match u64::try_from(x.dim()) {
-                Ok(w) => d.0.mul_word(w),
-                Err(_) => d.0.mul(Factor::Natural(x.dim())),
+                Ok(w) => d.mul_word(w),
+                Err(_) => d.mul(Factor::Natural(x.dim())),
             },
-            LiePayload::Composite(factors) => {
-                let product = self
-                    .composite
-                    .as_ref()
-                    .expect("composite object has a product");
-                return product.__fusion_symbols_exact_dim(factors, d, t);
-            }
+            LiePayload::Composite(factors) => return self.composite_dim(factors, d, t),
         }
         true
     }
@@ -1390,6 +1385,21 @@ impl LieGroup {
             .matrix(rows, cols)
             .filter(|m| m.dims() == [n, n])
             .ok_or(LieError::LabelOverflow)
+    }
+
+    /// The exact dimension of a composite object, out of line so that a
+    /// simple or rank-one factor's hook stays small enough to inline.
+    #[inline(never)]
+    fn composite_dim(
+        &self,
+        factors: &Vec<LieIrrep>,
+        d: &mut crate::category::sealed::DimAcc,
+        t: Validated,
+    ) -> bool {
+        self.composite
+            .as_ref()
+            .expect("composite object has a product")
+            .__fusion_symbols_exact_dim(factors, d, t)
     }
 
     /// One load for a simple irrep (rounded when it is made), IEEE single

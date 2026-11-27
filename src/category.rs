@@ -1,6 +1,6 @@
 //! Common mathematical contract for validated fusion-category objects.
 
-use crate::rounding::{DimProduct, DimValue};
+use crate::rounding::DimValue;
 use num_complex::Complex64;
 use std::{
     fmt::Debug,
@@ -144,7 +144,14 @@ pub(crate) mod sealed {
     }
 
     /// The exact integer dimension of a `__fusion_symbols_exact_dim` query.
-    pub struct DimAcc(pub(crate) crate::rounding::DimProduct);
+    pub struct DimAcc {
+        /// The product while it fits one word and `wide` is `None`.
+        pub(crate) word: u64,
+        pub(crate) wide: Option<WideDim>,
+    }
+
+    /// An integer dimension past one word.
+    pub struct WideDim(pub(crate) crate::rounding::DimProduct);
 
     impl<'q, 'b, O> ExactOp<'q, 'b, O> {
         /// The same operation on a composite's product objects.
@@ -1282,16 +1289,18 @@ pub(crate) fn unit_symbol<C: FusionCategory>(
 
 /// The object's `value` correctly rounded once from its exact dimension,
 /// `None` when the category's dimensions are numeric.
+#[inline]
 pub(crate) fn exact_dim<C: FusionCategory>(cat: &C, a: &C::Object, value: DimValue) -> Option<f64> {
-    let mut d = sealed::DimAcc(DimProduct::ONE);
+    let mut d = sealed::DimAcc::ONE;
     cat.__fusion_symbols_exact_dim(a, &mut d, sealed::Validated(()))
-        .then(|| d.0.round(value))
+        .then(|| d.round(value))
 }
 
 /// The exact-dimension hook of a category whose `dim` is a small integer
 /// held exactly (an abelian group, fermion parity, CU(1)).
+#[inline]
 pub(crate) fn small_dim<C: FusionCategory>(cat: &C, a: &C::Object, d: &mut sealed::DimAcc) -> bool {
-    d.0.mul_word(cat.dim(a) as u64);
+    d.mul_word(cat.dim(a) as u64);
     true
 }
 
