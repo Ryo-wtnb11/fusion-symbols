@@ -768,7 +768,7 @@ fn coefficient_checks_use_dimension_free_multiplicities() {
     assert_eq!(roots.multiplicity(&a, &a, &one).unwrap(), 1);
     assert_eq!(roots.multiplicity(&a, &a, &one).unwrap(), 1);
     EVALUATIONS.with(|n| assert_eq!(n.get(), (0, 0)));
-    let family = super::super::cgc::GeneralFamily::new(RootSystem::G2);
+    let family = super::super::GeneralFamily::new(RootSystem::G2);
     let [v, one] = [&[1, 0], &[0, 0]].map(|x| Label::new(x));
     crate::cache::reset();
     LABEL_PROJECTIONS.set(0);

@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use super::roots::CartanData;
 use crate::lie::{GenerationError, LieError};
 
-pub(super) use super::rational::Q;
+pub(crate) use super::rational::Q;
 
 /// Estimated bytes of a `Vec<i64>` with its header.
 pub(super) fn labels_bytes(v: &[i64]) -> usize {
@@ -40,22 +40,22 @@ pub(super) fn qrows_bytes(m: &Vec<Vec<Q>>) -> usize {
 }
 
 /// `L(λ)` in the §3.2 basis.
-pub(super) struct IrrepModule {
+pub(crate) struct IrrepModule {
     /// Weight spaces in the §3.2.1 order.
-    pub(super) weights: Vec<WeightSpace>,
+    pub(crate) weights: Vec<WeightSpace>,
     index: HashMap<Vec<i64>, usize>,
     pub(super) dim: usize,
 }
 
-pub(super) struct WeightSpace {
+pub(crate) struct WeightSpace {
     /// The weight `μ` in Dynkin coordinates.
-    pub(super) mu: Vec<i64>,
+    pub(crate) mu: Vec<i64>,
     /// `λ − μ = Σ_i k_i α_i` (§3.2.1).
     pub(super) k: Vec<i64>,
     /// Magnetic index of `b_0`; this space holds `offset .. offset + norms.len()`.
-    pub(super) offset: usize,
+    pub(crate) offset: usize,
     /// `n_k = ⟨b_k, b_k⟩ > 0`.
-    pub(super) norms: Vec<Q>,
+    pub(crate) norms: Vec<Q>,
     /// The kept candidates `c_t = f_j b_q^{μ+α_j}` as `(j, q)`, in §3.2.3 order.
     pub(super) kept: Vec<(usize, usize)>,
     /// The lowering recipe `b_k = Σ_t recipe[k][t] c_t` over the kept
@@ -234,7 +234,7 @@ impl IrrepModule {
         }
     }
 
-    pub(super) fn weight_index(&self, mu: &[i64]) -> Option<usize> {
+    pub(crate) fn weight_index(&self, mu: &[i64]) -> Option<usize> {
         self.index.get(mu).copied()
     }
 

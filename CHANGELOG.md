@@ -7,6 +7,29 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Changed
+
+- Every Cartan-engine CGC channel keeps its exact value as the stored
+  authority: per multiplicity index, integer coordinates on one common
+  denominator with the content divided out, and one vertex radicand. The
+  rounded channel that `cgc` serves is a view derived from it, entry by
+  entry, by the one conversion that already rounded every CGC. No
+  coefficient value changes. The CGC tier also retains highest-weight seeds
+  and irrep norm tables, and a view evicted while its exact channel is
+  resident is rounded again without a descent.
+- The disk cache stores exact CGC rows only (storage schema 2): exact
+  channels, seeds and norm tables, checked by structural decoders before any
+  arithmetic. A loaded channel is rounded into its view as after a
+  generation, building no irrep module when its norm tables are stored:
+  the first view of a loaded channel costs one conversion per entry
+  (in team sections under `prefill` with a team, on the calling thread
+  otherwise). Files written by 0.12 are recreated on enable.
+- Cost of keeping the exact channels, measured on a Xeon Platinum 9242
+  against 0.12.2 over 16 channels: warm lookups are unchanged; a cold
+  generation takes 1.05-1.16 times as long at one thread and 0.94-1.18 times
+  at four to eight; a channel is charged 1.06-1.87 times the cache bytes; a
+  disk row of a large channel is 0.67-0.88 times the size.
+
 ### Performance
 
 - Hashing a `GroupId`, and therefore a `LieIrrep` or `LieGroup`, writes

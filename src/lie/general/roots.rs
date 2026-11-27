@@ -197,7 +197,7 @@ impl CartanData {
         }
     }
 
-    pub(super) fn c(&self, i: usize, j: usize) -> i64 {
+    pub(crate) fn c(&self, i: usize, j: usize) -> i64 {
         self.cartan[i * self.rank + j]
     }
 

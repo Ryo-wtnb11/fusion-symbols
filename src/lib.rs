@@ -258,6 +258,9 @@ pub mod lie;
 
 mod exact;
 mod primefactor;
+// The one conversion from exact values to `f64`, and the gates on rounded
+// CGC channels.
+mod rounding;
 
 // Width planner and stage runner of `lie::prefill`'s parallel sections.
 mod stage;

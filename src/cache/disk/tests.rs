@@ -3,6 +3,7 @@
 //! hand-built rows whose shape is stated next to them.
 
 use super::*;
+use crate::exact::radical::SignedInts;
 use std::cell::Cell;
 use std::sync::atomic::AtomicUsize;
 
@@ -49,6 +50,16 @@ impl TempDb {
 
     pub(crate) fn path(&self) -> &Path {
         &self.0
+    }
+
+    /// Removes every stored row of `kind`, through a separate connection.
+    pub(crate) fn delete_kind(&self, kind: u8) {
+        let conn = Connection::open(&self.0).unwrap();
+        conn.execute(
+            "DELETE FROM entries WHERE substr(key, 7, 1) = ?1",
+            (&[kind][..],),
+        )
+        .unwrap();
     }
 
     /// Stored rows of `kind`, read through a separate connection.
@@ -125,39 +136,119 @@ fn payload<V: Persist>(value: &V) -> Vec<u8> {
     out
 }
 
-fn entry(m1: u32, m2: u32, m3: u32, mu: u32, value: f64) -> MEntry {
-    MEntry {
-        m1,
-        m2,
-        m3,
-        mu,
-        value,
+/// A radicand part as stored: `u32` word count, then the words.
+fn part(words: &[u64]) -> Vec<u8> {
+    let mut out = (words.len() as u32).to_le_bytes().to_vec();
+    for w in words {
+        out.extend_from_slice(&w.to_le_bytes());
     }
+    out
 }
 
-/// `2 ⊗ 2 → 1` with `N = 2`: two columns `(μ, m_c) = (0, 0), (1, 0)`.
-fn two_column_channel() -> (Arc<CgcChannel>, Shape) {
-    let channel = Arc::new(CgcChannel {
-        mult: 2,
-        entries: Box::new([
-            entry(0, 1, 0, 0, std::f64::consts::FRAC_1_SQRT_2),
-            entry(1, 0, 0, 0, -0.0),
-            entry(0, 1, 0, 1, f64::from_bits(1)),
-            entry(1, 0, 0, 1, -std::f64::consts::FRAC_1_SQRT_2),
-        ]),
-    });
+/// The radicand `num/den` of one-word parts, as stored.
+fn radicand(num: u64, den: u64) -> Vec<u8> {
+    let word = |x: u64| if x == 0 { part(&[]) } else { part(&[x]) };
+    [word(num), word(den)].concat()
+}
+
+/// One μ of a stored channel: its slab of `(negative, |X|)` and its radicand.
+fn mu(x: &[(bool, u64)], rho: Vec<u8>) -> (SignedInts, Vec<u8>) {
+    (SignedInts::from_words(x).unwrap(), rho)
+}
+
+/// The channel layout, written out field by field: `u32 mult`, `3 × u32`
+/// dims, `u32 count`, the pairs, the column ends, then per μ the slab and
+/// the radicand.
+fn exact_row(
+    mult: u32,
+    dims: [u32; 3],
+    pairs: &[(u32, u32)],
+    ends: &[u32],
+    mus: &[(SignedInts, Vec<u8>)],
+) -> Vec<u8> {
+    let mut out = Vec::new();
+    for x in [mult, dims[0], dims[1], dims[2], pairs.len() as u32] {
+        out.extend_from_slice(&x.to_le_bytes());
+    }
+    for &(a, b) in pairs {
+        out.extend_from_slice(&a.to_le_bytes());
+        out.extend_from_slice(&b.to_le_bytes());
+    }
+    for e in ends {
+        out.extend_from_slice(&e.to_le_bytes());
+    }
+    for (x, r) in mus {
+        x.encode(&mut out);
+        out.extend_from_slice(r);
+    }
+    out
+}
+
+/// The seeds layout: a channel row without its dims, one column per μ.
+fn seeds_row(
+    mult: u32,
+    pairs: &[(u32, u32)],
+    ends: &[u32],
+    mus: &[(SignedInts, Vec<u8>)],
+) -> Vec<u8> {
+    let row = exact_row(mult, [0; 3], pairs, ends, mus);
+    [&row[..4], &row[16..]].concat()
+}
+
+const PAIRS: [(u32, u32); 4] = [(0, 1), (1, 0), (0, 1), (1, 0)];
+
+/// `2 ⊗ 2 → 1` with `N = 2`: columns `(μ, m_c) = (0, 0), (1, 0)` of two
+/// entries each, `X = (1, −1)` with `ρ_0 = 1/2` and `X = (2, 3)` with
+/// `ρ_1 = 1/13`.
+fn good_mus() -> Vec<(SignedInts, Vec<u8>)> {
+    vec![
+        mu(&[(false, 1), (true, 1)], radicand(1, 2)),
+        mu(&[(false, 2), (false, 3)], radicand(1, 13)),
+    ]
+}
+
+fn two_column_row() -> Vec<u8> {
+    exact_row(2, [2, 2, 1], &PAIRS, &[2, 4], &good_mus())
+}
+
+fn two_column_channel() -> (Arc<ExactCgc>, Shape) {
     let shape = Shape::Channel {
         dims: [2, 2, 1],
         mult: 2,
     };
-    (channel, shape)
+    let channel = ExactCgc::decode(&two_column_row(), [2, 2, 1], 2).unwrap();
+    (Arc::new(channel), shape)
 }
 
-fn channel_bits(c: &CgcChannel) -> Vec<(u32, u32, u32, u32, u64)> {
-    c.entries
-        .iter()
-        .map(|e| (e.m1, e.m2, e.m3, e.mu, e.value.to_bits()))
-        .collect()
+/// The norm-table layout, written out field by field.
+fn norm_row(
+    dim: u32,
+    norms: &[(u64, u64)],
+    nu: &SignedInts,
+    den_content: (u64, u64),
+    rank: &[u32],
+    slots: u32,
+    top: u32,
+) -> Vec<u8> {
+    let mut out = dim.to_le_bytes().to_vec();
+    for &(n, d) in norms {
+        out.extend(radicand(n, d));
+    }
+    nu.encode(&mut out);
+    out.extend(radicand(den_content.0, den_content.1));
+    for r in rank {
+        out.extend_from_slice(&r.to_le_bytes());
+    }
+    out.extend_from_slice(&slots.to_le_bytes());
+    out.extend_from_slice(&top.to_le_bytes());
+    out
+}
+
+/// A three-dimensional table: norms `1, 1/2, 3/2` on `Δ = 2`, `g = 1`, so
+/// `ν = (2, 1, 3)`; the last two share a weight space.
+fn good_norms() -> Vec<u8> {
+    let nu = SignedInts::from_words(&[(false, 2), (false, 1), (false, 3)]).unwrap();
+    norm_row(3, &[(1, 1), (1, 2), (3, 2)], &nu, (2, 1), &[0, 0, 1], 2, 0)
 }
 
 fn block_bits(x: &[f64]) -> Vec<u64> {
@@ -167,9 +258,21 @@ fn block_bits(x: &[f64]) -> Vec<u64> {
 #[test]
 fn each_kind_round_trips_bit_identically() {
     let (channel, shape) = two_column_channel();
-    let back = Arc::<CgcChannel>::decode(&payload(&channel), &shape).unwrap();
-    assert_eq!(back.mult, 2);
-    assert_eq!(channel_bits(&back), channel_bits(&channel));
+    assert_eq!(payload(&channel), two_column_row(), "the stated layout");
+    let back = Arc::<ExactCgc>::decode(&payload(&channel), &shape).unwrap();
+    assert_eq!(back.mult(), 2);
+    assert!(*back == *channel);
+
+    let seeds = seeds_row(2, &PAIRS, &[2, 4], &good_mus());
+    let seed_shape = Shape::Seeds {
+        dims: [2, 2],
+        mult: 2,
+    };
+    let s = Arc::<HighestColumn>::decode(&seeds, &seed_shape).unwrap();
+    assert_eq!(payload(&s), seeds);
+
+    let norms = Arc::<NormTable>::decode(&good_norms(), &Shape::Norms { dim: 3 }).unwrap();
+    assert_eq!(payload(&norms), good_norms());
 
     for k in [1i8, -1] {
         assert_eq!(i8::decode(&payload(&k), &Shape::Phase), Some(k));
@@ -189,38 +292,31 @@ fn each_kind_round_trips_bit_identically() {
 }
 
 #[test]
-fn signed_zero_entry_round_trips() {
-    let (channel, shape) = two_column_channel();
-    let back = Arc::<CgcChannel>::decode(&payload(&channel), &shape).unwrap();
-    assert_eq!(back.entries[1].value.to_bits(), (-0.0f64).to_bits());
-}
-
-#[test]
 fn transplanted_row_is_rejected() {
     let (channel, shape) = two_column_channel();
     let a = su3_key(super::super::DISK_CHANNEL, [[1, 0], [1, 0], [0, 1]]);
     let b = su3_key(super::super::DISK_CHANNEL, [[0, 1], [0, 1], [1, 0]]);
     let stored = row(&a, &payload(&channel));
-    assert!(decode_row::<Arc<CgcChannel>>(&a, &stored, &shape).is_some());
-    assert!(decode_row::<Arc<CgcChannel>>(&b, &stored, &shape).is_none());
+    assert!(decode_row::<Arc<ExactCgc>>(&a, &stored, &shape).is_some());
+    assert!(decode_row::<Arc<ExactCgc>>(&b, &stored, &shape).is_none());
 }
 
-/// The key has 15 + 48 bytes and the payload 8 + 24·4, so the message ends in
-/// a 7-byte tail: bytes 1..8 of the last coefficient.
+/// The key has 15 + 48 bytes and the payload 172, so the message ends in a
+/// 3-byte tail: the top bytes of the last radicand's denominator word.
 #[test]
 fn tail_bit_flip_is_caught_only_by_checksum() {
     let (channel, shape) = two_column_channel();
     let key = su3_key(super::super::DISK_CHANNEL, [[1, 0], [1, 0], [0, 1]]);
     let mut stored = row(&key, &payload(&channel));
-    assert_eq!((key.len() + stored.len() - 8) % 8, 7);
-    let last_value = stored.len() - 8 - 8;
-    stored[last_value + 1] ^= 0x10;
+    assert_eq!((key.len() + stored.len() - 8) % 8, 3);
+    let last = stored.len() - 8 - 1;
+    stored[last] ^= 0x10;
     let (body, _) = stored.split_at(stored.len() - 8);
     assert!(
-        Arc::<CgcChannel>::decode(body, &shape).is_some(),
+        Arc::<ExactCgc>::decode(body, &shape).is_some(),
         "structurally valid"
     );
-    assert!(decode_row::<Arc<CgcChannel>>(&key, &stored, &shape).is_none());
+    assert!(decode_row::<Arc<ExactCgc>>(&key, &stored, &shape).is_none());
 }
 
 #[test]
@@ -229,77 +325,199 @@ fn truncated_and_overlong_values_are_rejected() {
     let key = su3_key(super::super::DISK_CHANNEL, [[1, 0], [1, 0], [0, 1]]);
     let stored = row(&key, &payload(&channel));
     for len in 0..stored.len() {
-        assert!(decode_row::<Arc<CgcChannel>>(&key, &stored[..len], &shape).is_none());
+        assert!(decode_row::<Arc<ExactCgc>>(&key, &stored[..len], &shape).is_none());
     }
     let mut long = payload(&channel);
     long.push(0);
-    assert!(decode_row::<Arc<CgcChannel>>(&key, &row(&key, &long), &shape).is_none());
+    assert!(decode_row::<Arc<ExactCgc>>(&key, &row(&key, &long), &shape).is_none());
+    let norms = Shape::Norms { dim: 3 };
+    let good = good_norms();
+    for len in 0..good.len() {
+        assert!(
+            Arc::<NormTable>::decode(&good[..len], &norms).is_none(),
+            "a truncated table, {len} bytes"
+        );
+    }
 }
 
-/// Every row below has a valid checksum; only the structure is wrong.
+/// Every row below has a valid checksum and changes one field of the good
+/// channel, seeds or norm table, so each structural check is reached.
 #[test]
 fn structurally_wrong_rows_with_valid_checksum_are_rejected() {
-    let (good, shape) = two_column_channel();
+    let (_, shape) = two_column_channel();
     let key = su3_key(super::super::DISK_CHANNEL, [[1, 0], [1, 0], [0, 1]]);
-    let channel = |mult, entries: Vec<MEntry>| {
-        payload(&Arc::new(CgcChannel {
-            mult,
-            entries: entries.into_boxed_slice(),
-        }))
+    let good = good_mus;
+    let one_mu = |x: &[(bool, u64)]| {
+        let mut m = good_mus();
+        m[1] = mu(x, radicand(1, 13));
+        m
     };
-    let e = good.entries.to_vec();
-    let swapped = vec![e[1], e[0], e[2], e[3]];
-    let duplicate = vec![e[0], e[0], e[2], e[3]];
-    let mut far = e.clone();
-    far[3].m3 = 1;
-    let mut high_mu = e.clone();
-    high_mu[3].mu = 2;
-    let mut nan = e.clone();
-    nan[2].value = f64::NAN;
-    let mut wide = e.clone();
-    wide[1].m1 = 2;
-    let cases: [(&str, Vec<u8>); 8] = [
-        ("unsorted", channel(2, swapped)),
-        ("duplicate", channel(2, duplicate)),
-        ("m3 out of range", channel(2, far)),
-        ("mu out of range", channel(2, high_mu)),
-        ("nan", channel(2, nan)),
-        ("m1 out of range", channel(2, wide)),
-        ("empty with N = 2", channel(2, vec![])),
-        ("missing column", channel(2, e[..2].to_vec())),
+    let row2 = |pairs: &[(u32, u32)], ends: &[u32], mus: &[(SignedInts, Vec<u8>)]| {
+        exact_row(2, [2, 2, 1], pairs, ends, mus)
+    };
+    let swapped = [(1, 0), (0, 1), (0, 1), (1, 0)];
+    let duplicate = [(0, 1), (0, 1), (0, 1), (1, 0)];
+    let wide_a = [(0, 1), (2, 0), (0, 1), (1, 0)];
+    let wide_b = [(0, 1), (1, 2), (0, 1), (1, 0)];
+    let cases = [
+        (
+            "stored N",
+            exact_row(3, [2, 2, 1], &PAIRS, &[2, 4], &good()),
+        ),
+        ("dims", exact_row(2, [2, 3, 1], &PAIRS, &[2, 4], &good())),
+        ("m_a out of range", row2(&wide_a, &[2, 4], &good())),
+        ("m_b out of range", row2(&wide_b, &[2, 4], &good())),
+        ("unsorted", row2(&swapped, &[2, 4], &good())),
+        ("duplicate", row2(&duplicate, &[2, 4], &good())),
+        // The existing negative control: a column with no entry.
+        ("missing column", row2(&PAIRS, &[4, 4], &good())),
+        ("decreasing ends", row2(&PAIRS, &[3, 2], &good())),
+        ("last end short", row2(&PAIRS, &[1, 3], &good())),
+        ("end past count", row2(&PAIRS, &[2, 5], &good())),
+        ("empty with N = 2", row2(&[], &[], &[])),
+        (
+            "slab too short",
+            row2(&PAIRS, &[2, 4], &one_mu(&[(false, 2)])),
+        ),
+        (
+            "slab too long",
+            row2(
+                &PAIRS,
+                &[2, 4],
+                &one_mu(&[(false, 2), (false, 3), (false, 1)]),
+            ),
+        ),
+        (
+            "zero coordinate",
+            row2(&PAIRS, &[2, 4], &one_mu(&[(false, 2), (false, 0)])),
+        ),
+        (
+            "zero radicand",
+            row2(
+                &PAIRS,
+                &[2, 4],
+                &[
+                    good().remove(0),
+                    mu(&[(false, 2), (false, 3)], radicand(0, 13)),
+                ],
+            ),
+        ),
+        ("a missing μ", row2(&PAIRS, &[2, 4], &good()[..1])),
     ];
     for (name, bytes) in cases {
         let stored = row(&key, &bytes);
         assert!(
-            decode_row::<Arc<CgcChannel>>(&key, &stored, &shape).is_none(),
+            decode_row::<Arc<ExactCgc>>(&key, &stored, &shape).is_none(),
             "{name}"
         );
     }
-    let stored = row(&key, &payload(&good));
+    let stored = row(&key, &two_column_row());
     let n1 = Shape::Channel {
         dims: [2, 2, 1],
         mult: 1,
     };
     assert!(
-        decode_row::<Arc<CgcChannel>>(&key, &stored, &n1).is_none(),
+        decode_row::<Arc<ExactCgc>>(&key, &stored, &n1).is_none(),
         "N mismatch"
-    );
-    let mut header = payload(&good);
-    header[0] = 3;
-    let header_row = row(&key, &header);
-    assert!(
-        decode_row::<Arc<CgcChannel>>(&key, &header_row, &shape).is_none(),
-        "stored N"
     );
     let zero = Shape::Channel {
         dims: [2, 2, 1],
         mult: 0,
     };
-    let row_in_zero = row(&key, &channel(0, vec![e[0]]));
     assert!(
-        decode_row::<Arc<CgcChannel>>(&key, &row_in_zero, &zero).is_none(),
+        decode_row::<Arc<ExactCgc>>(
+            &key,
+            &row(&key, &exact_row(0, [2, 2, 1], &[], &[], &[])),
+            &zero
+        )
+        .is_some(),
+        "the empty channel"
+    );
+    let row_in_zero = row(&key, &exact_row(0, [2, 2, 1], &PAIRS[..1], &[], &[]));
+    assert!(
+        decode_row::<Arc<ExactCgc>>(&key, &row_in_zero, &zero).is_none(),
         "zero channel"
     );
+
+    let seed_shape = Shape::Seeds {
+        dims: [2, 2],
+        mult: 2,
+    };
+    let seeds = |mult, pairs: &[(u32, u32)], ends: &[u32]| {
+        row(&key, &seeds_row(mult, pairs, ends, &good()))
+    };
+    assert!(
+        decode_row::<Arc<HighestColumn>>(&key, &seeds(2, &PAIRS, &[2, 4]), &seed_shape).is_some()
+    );
+    for (name, stored) in [
+        ("seeds N", seeds(1, &PAIRS, &[2, 4])),
+        ("seeds m_a", seeds(2, &wide_a, &[2, 4])),
+        ("empty seed", seeds(2, &PAIRS, &[0, 4])),
+    ] {
+        assert!(
+            decode_row::<Arc<HighestColumn>>(&key, &stored, &seed_shape).is_none(),
+            "{name}"
+        );
+    }
+
+    let norms = Shape::Norms { dim: 3 };
+    let nu = |x: &[(bool, u64)]| SignedInts::from_words(x).unwrap();
+    let good_nu = nu(&[(false, 2), (false, 1), (false, 3)]);
+    let table = |norms: &[(u64, u64)], nu: &SignedInts, rank: &[u32], slots, top| {
+        row(&key, &norm_row(3, norms, nu, (2, 1), rank, slots, top))
+    };
+    let n = [(1, 1), (1, 2), (3, 2)];
+    assert!(
+        decode_row::<Arc<NormTable>>(&key, &table(&n, &good_nu, &[0, 0, 1], 2, 0), &norms)
+            .is_some()
+    );
+    assert!(
+        decode_row::<Arc<NormTable>>(&key, &row(&key, &good_norms()), &Shape::Norms { dim: 4 })
+            .is_none(),
+        "dim"
+    );
+    for (name, stored) in [
+        (
+            "zero norm",
+            table(&[(1, 1), (0, 2), (3, 2)], &good_nu, &[0, 0, 1], 2, 0),
+        ),
+        (
+            "zero ν",
+            table(
+                &n,
+                &nu(&[(false, 2), (false, 0), (false, 3)]),
+                &[0, 0, 1],
+                2,
+                0,
+            ),
+        ),
+        (
+            "negative ν",
+            table(
+                &n,
+                &nu(&[(false, 2), (true, 1), (false, 3)]),
+                &[0, 0, 1],
+                2,
+                0,
+            ),
+        ),
+        (
+            "short ν",
+            table(&n, &nu(&[(false, 2), (false, 1)]), &[0, 0, 1], 2, 0),
+        ),
+        ("rank past slots", table(&n, &good_nu, &[0, 0, 2], 2, 0)),
+        ("no slots", table(&n, &good_nu, &[0, 0, 0], 0, 0)),
+        ("top past dim", table(&n, &good_nu, &[0, 0, 1], 2, 3)),
+        (
+            "zero Δ",
+            row(&key, &norm_row(3, &n, &good_nu, (0, 1), &[0, 0, 1], 2, 0)),
+        ),
+    ] {
+        assert!(
+            decode_row::<Arc<NormTable>>(&key, &stored, &norms).is_none(),
+            "{name}"
+        );
+    }
 
     let f = FBlock::from_vec([1, 1, 1, 2], vec![0.5, 0.5]);
     let f_row = row(&key, &payload(&f));

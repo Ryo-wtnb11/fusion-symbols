@@ -5,8 +5,9 @@
 //! one tier per data kind: exact Wigner 3j and 6j symbols keyed by canonical
 //! Regge classes; F symbols (SU(2) closed-form scalars and Cartan-engine
 //! blocks); R blocks; exact simple-Lie tensor products; and the Cartan engine's
-//! CGC construction data (irrep modules, completed channels and computed
-//! Frobenius–Schur phases). Each tier keys on the presented root system and the
+//! CGC construction data (irrep modules, exact channels with their rounded
+//! views, highest-weight seeds, norm tables and computed Frobenius–Schur
+//! phases). Each tier keys on the presented root system and the
 //! ordered labels, has one process-wide limit shared by every group, and is a
 //! byte-weighted CLOCK cache whose hits take no lock. Generated duals are owned
 //! by their label payloads.
@@ -68,12 +69,16 @@
 //! The tiers themselves are process-local. With the `disk-cache` feature, an
 //! application may additionally enable one SQLite file
 //! (`enable_disk_cache`) that serves the *generated* values on a miss:
-//! Cartan-engine CGC channels, computed Frobenius–Schur phases, and Cartan F
-//! and R blocks. Loading those costs far less than generating them. The exact
-//! SU(2) 3j/6j symbols and the SU(2) F scalar are never persisted, because
-//! computing them is cheaper than loading them (about 1 µs against about
-//! 10 µs). Irrep modules and products are construction data and stay in
-//! memory. A persisted value is identified by the storage schema and this
+//! Cartan-engine exact CGC channels, their highest-weight seeds and the
+//! irreps' norm tables, computed Frobenius–Schur phases, and Cartan F and R
+//! blocks. Only exact CGC data is persisted: a rounded channel is derived
+//! from its exact row after a load as after a generation, and is never
+//! stored. F and R rows hold their rounded blocks, which are their only
+//! authority until exact F and R. Loading those costs far less than
+//! generating them. The exact SU(2) 3j/6j symbols and the SU(2) F scalar are
+//! never persisted, because computing them is cheaper than loading them
+//! (about 1 µs against about 10 µs). Irrep modules and products are
+//! construction data and stay in memory. A persisted value is identified by the storage schema and this
 //! crate's major.minor version: any change that can move a coefficient ships
 //! as a breaking release (`docs/gauge.md`, "Status"), so a released version
 //! names exactly one value per key. Unreleased builds give no such guarantee
@@ -106,6 +111,7 @@ use std::sync::{Arc, LazyLock, OnceLock};
 
 use crate::category::{FBlock, RBlock, SymbolBlock};
 use crate::exact::SignedSqrtRational;
+use crate::lie::general::cgc::exact::{ExactCgc, HighestColumn, NormTable};
 use crate::lie::general::cgc::{CgcChannel, Ladders};
 use crate::lie::general::roots::{Multiplicities, Product, ProductValue};
 use crate::lie::su2::{FKey, Regge3j, Regge6j};
@@ -144,8 +150,8 @@ const R_MAX_ENTRIES: usize = 1 << 16;
 
 /// Entry cap of the CGC tier; the retained-charge cap is the real backstop.
 const CGC_MAX_ENTRIES: usize = 1 << 16;
-/// Retained-charge cap of the CGC tier (256 MiB): irrep modules and completed
-/// channels are far larger than a symbol. It holds the whole working set of a
+/// Retained-charge cap of the CGC tier (256 MiB): irrep modules, exact
+/// channels and their rounded views are far larger than a symbol. It holds the whole working set of a
 /// pentagon through the G2 `N = 2` vertex `27 ⊗ 27 → 27` (about 150 MiB
 /// estimated).
 const CGC_MAX_BYTES: usize = 256 << 20;
@@ -977,11 +983,15 @@ fn generation<T>(epoch: u64, compute: impl FnOnce() -> T) -> T {
     value
 }
 
-/// Persisted kinds of the disk cache: part of its stored keys.
+/// Persisted kinds of the disk cache: part of its stored keys. A channel row
+/// holds the exact channel.
 pub(crate) const DISK_CHANNEL: u8 = 1;
 pub(crate) const DISK_PHASE: u8 = 2;
 pub(crate) const DISK_F: u8 = 3;
 pub(crate) const DISK_R: u8 = 4;
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) const DISK_SEEDS: u8 = 5;
+pub(crate) const DISK_NORMS: u8 = 6;
 
 /// The shape a persisted value must have, derived from its labels, so a stored
 /// row that decodes cleanly but does not belong to its key is rejected.
@@ -989,6 +999,11 @@ pub(crate) const DISK_R: u8 = 4;
 pub(crate) enum Shape {
     /// Weyl dimensions of the three labels and `N^c_{ab}`.
     Channel { dims: [usize; 3], mult: usize },
+    /// Weyl dimensions of the two factors and `N^c_{ab}`.
+    #[cfg_attr(not(test), allow(dead_code))]
+    Seeds { dims: [usize; 2], mult: usize },
+    /// The Weyl dimension of the irrep.
+    Norms { dim: usize },
     /// A phase is `±1`.
     Phase,
     /// `[N(a,b,e), N(e,c,d), N(b,c,f), N(a,f,d)]`.
@@ -1267,15 +1282,22 @@ pub(crate) fn r_block<E>(
     CACHE_R.get_or_try_compute(&key, || key.to_key(), compute)
 }
 
-/// One retained Cartan-engine value. Modules, completed channels and phases
-/// share one tier and one limit: they are the construction data of one
-/// operation, and a module is useful exactly while channels of its label are
-/// being built.
+/// One retained Cartan-engine value. Modules, exact channels with their
+/// rounded views, seeds, norm tables and phases share one tier and one
+/// limit: they are the construction data of one operation, and a module is
+/// useful exactly while channels of its label are being built. A view and its
+/// exact channel are separate entries, evicted independently.
 #[derive(Clone)]
 enum CgcValue {
     Module(Arc<Ladders>),
+    /// A rounded view, derived from its exact channel.
     Channel(Arc<CgcChannel>),
     Phase(i8),
+    ExactChannel(Arc<ExactCgc>),
+    // Read by exact F and R; until then only tests.
+    #[cfg_attr(not(test), allow(dead_code))]
+    Seeds(Arc<HighestColumn>),
+    Norms(Arc<NormTable>),
 }
 
 impl CacheCharge for CgcValue {
@@ -1288,6 +1310,9 @@ impl CacheCharge for CgcValue {
                 .saturating_add(std::mem::size_of::<CgcChannel>())
                 .saturating_add(std::mem::size_of_val(c.entries.as_ref())),
             Self::Phase(_) => 0,
+            Self::ExactChannel(c) => ARC_COUNTS_BYTES.saturating_add(c.bytes()),
+            Self::Seeds(s) => ARC_COUNTS_BYTES.saturating_add(s.bytes()),
+            Self::Norms(n) => ARC_COUNTS_BYTES.saturating_add(n.bytes()),
         })
     }
 }
@@ -1295,6 +1320,10 @@ impl CacheCharge for CgcValue {
 const MODULE: u8 = 0;
 const CHANNEL: u8 = 1;
 const PHASE: u8 = 2;
+const EXACT_CHANNEL: u8 = 3;
+#[cfg_attr(not(test), allow(dead_code))]
+const SEEDS: u8 = 4;
+const NORMS: u8 = 5;
 
 static CACHE_CGC: LazyLock<CoefficientCache<LabelKey, CgcValue, FoldBuild>> =
     LazyLock::new(|| CoefficientCache::shared(CGC_MAX_ENTRIES, effective_budgets().cgc_bytes));
@@ -1309,6 +1338,29 @@ fn cgc_load<const N: usize, E>(
     CACHE_CGC.get_or_try_compute(&key, || key.to_key(), compute)
 }
 
+/// [`cgc_load`] for the lookups that only a view miss or an exact consumer
+/// makes (exact channel, seeds): out of line, with a projection of its own,
+/// so the view's warm hit in [`cgc_channel`] keeps a `get_with`
+/// instantiation of its own and is inlined there. Why not share
+/// [`cgc_load`]: with a second caller that instantiation was emitted out of
+/// line, a call and a clone thunk on every warm view hit (about 38
+/// instructions, 8 ns, measured).
+#[inline(never)]
+fn cgc_load_cold<E>(
+    kind: u8,
+    root: RootSystem,
+    parts: [Label<'_>; 3],
+    compute: impl FnOnce() -> Result<CgcValue, E>,
+) -> Result<CgcValue, E> {
+    let key = LabelRef { kind, root, parts };
+    CACHE_CGC.get_or_try_sweep(
+        &key,
+        |v: &CgcValue| v.clone(),
+        || key.to_key(),
+        |_| compute(),
+    )
+}
+
 /// The irrep module of `label`.
 pub(crate) fn cgc_module<E>(
     root: RootSystem,
@@ -1321,15 +1373,69 @@ pub(crate) fn cgc_module<E>(
     }
 }
 
-/// The completed, gated channel of the ordered triple.
+/// The rounded, gated view of the ordered triple's channel.
 pub(crate) fn cgc_channel<E>(
     root: RootSystem,
     parts: [Label<'_>; 3],
     compute: impl FnOnce() -> Result<Arc<CgcChannel>, E>,
 ) -> Result<Arc<CgcChannel>, E> {
-    match cgc_load(CHANNEL, root, parts, || compute().map(CgcValue::Channel))? {
-        CgcValue::Channel(c) => Ok(c),
-        _ => unreachable!("a channel key stores a channel"),
+    // The hit projects the view's `Arc` straight out of the entry: one tag
+    // test and one count increment, where cloning the whole value went
+    // through a match over every variant before the same tag test.
+    let key = LabelRef {
+        kind: CHANNEL,
+        root,
+        parts,
+    };
+    CACHE_CGC.get_or_try_sweep(
+        &key,
+        |v: &CgcValue| match v {
+            CgcValue::Channel(c) => c.clone(),
+            _ => unreachable!("a channel key stores a channel"),
+        },
+        || key.to_key(),
+        |_| compute().map(CgcValue::Channel),
+    )
+}
+
+/// The exact channel of the ordered triple. Loaded inside a view miss, it
+/// inherits that generation's reset epoch, so a reset between the two
+/// publications retains neither.
+pub(crate) fn cgc_exact_channel<E>(
+    root: RootSystem,
+    parts: [Label<'_>; 3],
+    compute: impl FnOnce() -> Result<Arc<ExactCgc>, E>,
+) -> Result<Arc<ExactCgc>, E> {
+    match cgc_load_cold(EXACT_CHANNEL, root, parts, || {
+        compute().map(CgcValue::ExactChannel)
+    })? {
+        CgcValue::ExactChannel(c) => Ok(c),
+        _ => unreachable!("an exact channel key stores an exact channel"),
+    }
+}
+
+/// The highest-weight column of the ordered triple.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn cgc_seeds<E>(
+    root: RootSystem,
+    parts: [Label<'_>; 3],
+    compute: impl FnOnce() -> Result<Arc<HighestColumn>, E>,
+) -> Result<Arc<HighestColumn>, E> {
+    match cgc_load_cold(SEEDS, root, parts, || compute().map(CgcValue::Seeds))? {
+        CgcValue::Seeds(s) => Ok(s),
+        _ => unreachable!("a seeds key stores seeds"),
+    }
+}
+
+/// The norm table of `label`.
+pub(crate) fn cgc_norms<E>(
+    root: RootSystem,
+    label: Label<'_>,
+    compute: impl FnOnce() -> Result<Arc<NormTable>, E>,
+) -> Result<Arc<NormTable>, E> {
+    match cgc_load(NORMS, root, [label], || compute().map(CgcValue::Norms))? {
+        CgcValue::Norms(n) => Ok(n),
+        _ => unreachable!("a norms key stores a norm table"),
     }
 }
 
@@ -1608,6 +1714,20 @@ pub(crate) fn cgc_channel_is_resident(root: RootSystem, parts: [&[i64]; 3]) -> b
         .inner
         .peek(&LabelRef {
             kind: CHANNEL,
+            root,
+            parts: parts.map(Label::new),
+        })
+        .is_some()
+}
+
+/// Whether the exact channel of the ordered triple is retained.
+#[cfg(test)]
+pub(crate) fn cgc_exact_channel_is_resident(root: RootSystem, parts: [&[i64]; 3]) -> bool {
+    assert_cache_access_allowed();
+    CACHE_CGC
+        .inner
+        .peek(&LabelRef {
+            kind: EXACT_CHANNEL,
             root,
             parts: parts.map(Label::new),
         })

@@ -4,9 +4,13 @@
 
 use super::*;
 use crate::cache::disk::tests::{isolated, pending_rows, AFTER_READ, CHUNK, FAULT_WRITE};
-use crate::cache::{disk_cache_stats, reset, DISK_CHANNEL, DISK_F, DISK_PHASE};
-use crate::category::SymbolBlock;
+use crate::cache::{
+    disk_cache_stats, reset, Label, DISK_CHANNEL, DISK_F, DISK_NORMS, DISK_PHASE, DISK_SEEDS,
+};
+use crate::category::{FBlock, RBlock, SymbolBlock};
+use crate::lie::general::{GeneralFamily, RequestModules};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 const OCTET: [i64; 2] = [1, 1];
 
@@ -41,25 +45,74 @@ fn block_bits(x: &[f64]) -> Vec<u64> {
 }
 
 fn reset_builds() {
-    BUILDS.with(|b| b.set([0; 2]));
+    BUILDS.with(|b| b.set([0; 4]));
 }
 
 fn panic_if_contracted(_: f64) -> f64 {
     panic!("a disk hit reached the contraction")
 }
 
+/// A disk-warm view miss loads the exact channel and the octet's norm table
+/// (one label, one table) and rounds the view from them: it builds no
+/// module, runs no generation and gives the cold bits. Only exact rows are
+/// stored: one channel row and one norm row.
 #[test]
 fn valid_hit_rebuilds_nothing() {
-    isolated(module_path!(), "valid_hit_rebuilds_nothing", |_| {
+    isolated(module_path!(), "valid_hit_rebuilds_nothing", |db| {
         let fam = su3();
         let cold = octet_channel(&fam);
+        assert_eq!(
+            (db.rows_of_kind(DISK_CHANNEL), db.rows_of_kind(DISK_NORMS)),
+            (1, 1)
+        );
         reset();
         reset_builds();
         let hits = disk_cache_stats().hits;
         let warm = octet_channel(&fam);
-        assert_eq!(BUILDS.with(std::cell::Cell::get), [0, 0]);
-        assert_eq!(disk_cache_stats().hits, hits + 1);
+        assert_eq!(BUILDS.with(std::cell::Cell::get), [0; 4]);
+        assert_eq!(disk_cache_stats().hits, hits + 2);
         assert_eq!(bits(&warm), bits(&cold));
+    });
+}
+
+/// A channel row whose norm rows were removed (the store trims rows
+/// independently) still loads: the missing norm table is rebuilt from its
+/// module, and nothing else is generated.
+#[test]
+fn channel_hit_without_norm_rows_rebuilds_only_the_norms() {
+    isolated(
+        module_path!(),
+        "channel_hit_without_norm_rows_rebuilds_only_the_norms",
+        |db| {
+            let fam = su3();
+            let cold = octet_channel(&fam);
+            db.delete_kind(DISK_NORMS);
+            reset();
+            reset_builds();
+            let warm = octet_channel(&fam);
+            assert_eq!(BUILDS.with(std::cell::Cell::get), [1, 0, 0, 1]);
+            assert_eq!(bits(&warm), bits(&cold));
+            assert_eq!(db.rows_of_kind(DISK_NORMS), 1, "the rebuilt table persists");
+        },
+    );
+}
+
+/// Seeds round-trip through their own rows and load with no module.
+#[test]
+fn seeds_round_trip_through_disk() {
+    isolated(module_path!(), "seeds_round_trip_through_disk", |db| {
+        let fam = su3();
+        let o = Label::new(&OCTET);
+        let seeds = || {
+            fam.cgc_seeds_in(o, o, o, &mut RequestModules::default())
+                .unwrap()
+        };
+        let cold = seeds();
+        assert_eq!(db.rows_of_kind(DISK_SEEDS), 1);
+        reset();
+        reset_builds();
+        assert!(*seeds() == *cold);
+        assert_eq!(BUILDS.with(std::cell::Cell::get), [0; 4]);
     });
 }
 
@@ -108,7 +161,7 @@ fn phase_round_trips_through_disk() {
         reset();
         reset_builds();
         assert_eq!(phase(), cold);
-        assert_eq!(BUILDS.with(std::cell::Cell::get), [0, 0], "no module built");
+        assert_eq!(BUILDS.with(std::cell::Cell::get), [0; 4], "no module built");
     });
 }
 
@@ -214,10 +267,11 @@ fn one_leader_reads_disk_with_a_parked_waiter() {
             RELEASE.store(true, Ordering::SeqCst);
             let (a, b) = (leader.join().unwrap(), waiter.join().unwrap());
             assert!(parked, "the waiter never reached the placeholder");
+            // One read of the exact channel and one of the octet's norms.
             let after = disk_cache_stats();
             assert_eq!(
                 (after.hits, after.misses, after.rejected),
-                (before.hits + 1, before.misses, before.rejected)
+                (before.hits + 2, before.misses, before.rejected)
             );
             assert_eq!(bits(&a), bits(&cold));
             assert_eq!(bits(&b), bits(&cold));
@@ -233,14 +287,17 @@ fn failed_flush_leaves_cache_usable() {
         FAULT_WRITE.with(|f| f.set(true));
         let cold = octet_channel(&fam);
         FAULT_WRITE.with(|f| f.set(false));
-        assert_eq!(disk_cache_stats().failures, failures + 1);
+        // Failures count rows: the channel row and the octet's norm row of
+        // the one failed commit.
+        assert_eq!(disk_cache_stats().failures, failures + 2);
         assert_eq!(db.rows_of_kind(DISK_CHANNEL), 0);
+        assert_eq!(db.rows_of_kind(DISK_NORMS), 0);
         reset();
         assert_eq!(bits(&octet_channel(&fam)), bits(&cold));
         assert_eq!(db.rows_of_kind(DISK_CHANNEL), 1, "a fresh miss persists");
         reset();
         let hits = disk_cache_stats().hits;
         assert_eq!(bits(&octet_channel(&fam)), bits(&cold));
-        assert_eq!(disk_cache_stats().hits, hits + 1, "and reloads");
+        assert_eq!(disk_cache_stats().hits, hits + 2, "and reloads");
     });
 }

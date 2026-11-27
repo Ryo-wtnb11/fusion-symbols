@@ -14,7 +14,7 @@ least-recently-used replacement. Default retained-entry charge caps are:
 | `Wigner3j` (`"wigner_3j"`) | exact SU(2) 3j symbols by Regge class | 64 MiB |
 | `Wigner6j` (`"wigner_6j"`) | exact SU(2) 6j symbols by Regge class | 64 MiB |
 | `FSymbol` (`"f_symbol"`) | rounded SU(2) F scalars and Cartan-engine F blocks | 64 MiB |
-| `Cgc` (`"cgc"`) | Cartan-engine irrep modules, completed CGC channels and computed Frobenius–Schur phases, every simple factor including A(1) | 256 MiB |
+| `Cgc` (`"cgc"`) | Cartan-engine irrep modules, exact CGC channels with their rounded views, highest-weight seeds, norm tables and computed Frobenius–Schur phases, every simple factor including A(1) | 256 MiB |
 | `RSymbol` (`"r_symbol"`) | Cartan-engine R blocks (SU(2) R is a closed-form sign) | 64 MiB |
 | `Product` (`"product"`) | exact simple-Lie tensor products | 64 MiB |
 
@@ -24,9 +24,13 @@ adds Product and R, which only higher-rank groups fill. Every build
 compiles every tier.
 
 The CGC tier holds the construction data of one operation under one limit. A
-completed channel is its multiplicity plus a shared sparse entry list, so a
-resident channel is served without a Product lookup; modules are needed again
-only while channels of their label are built. Each value is charged when it
+channel is kept twice, as separate entries: its exact channel (integer
+coordinates on one denominator per multiplicity index, the stored authority)
+and its rounded view (its multiplicity plus a shared sparse entry list, which
+`cgc` serves). A resident view is served without a Product lookup; a view
+evicted while its exact channel is resident is rounded again from it, with
+the irreps' norm tables and no descent. Modules are needed again only while
+channels of their label are built. Each value is charged when it
 is published, including its labels, rational limbs, vector capacities and
 `Arc` headers. A query holds the modules and channels it uses independently
 of retention, so its working set may exceed the cap transiently, and an
@@ -38,7 +42,9 @@ once per query, and a module is released after the last channel of the query
 that may need it, so an R query holds no more modules than one of its
 channels and an F query with six distinct labels at most five; none are held
 during the contraction. A resident channel loads no module. A completed
-channel is retained independently of its modules.
+channel is retained independently of its modules. A generated exact channel
+is retained only after its rounded view passed the generation gates; the
+norm tables it published first stay valid if they fail.
 
 All materialized simple-Lie tensor products use the Product tier. Its
 borrowed key is the root-system presentation, an unordered pair of exact
@@ -190,7 +196,9 @@ passes `Exec::serial()`. On a token that carries a team
 (`Exec::carries_team`), each Cartan channel's exact descent runs one depth
 layer at a time in team sections: the leader times the layer's first items
 and opens a section only when the measured work pays for the team's dispatch
-cost. Values are bit-identical at every width, and the live exact working
+cost. After the descent, one stage over the channel's columns writes each
+column's integers and rounds it into the view, the same way. Values are bit-identical
+at every width, and the live exact working
 set grows from one weight's lowered candidates to one depth layer's (see
 `docs/gauge_cartan.md` §9). The channel's isometry gate checks its weight
 blocks in team sections the same way; their scratch beyond the serial
@@ -209,9 +217,21 @@ later processes load them instead of generating them again:
 fusion_symbols::cache::enable_disk_cache("/local/scratch/fs-0.12.sqlite", 1 << 30)?;
 ```
 
-- **What is stored.** Cartan-engine CGC channels (every simple factor,
-  including SU(2)), computed Frobenius–Schur phases, and Cartan F and R
-  blocks. These cost far more to generate than to load. Exact SU(2) 3j/6j
+- **What is stored.** Cartan-engine exact CGC channels (every simple
+  factor, including SU(2)), their highest-weight seeds and the irreps' norm
+  tables, computed Frobenius–Schur phases, and Cartan F and R blocks. A
+  rounded CGC channel is never stored: after a load it is rounded from the
+  exact row with the stored norm tables, building no irrep module (a norm
+  table whose row was removed is rebuilt from its module). F and R rows hold
+  rounded blocks. These cost far more to generate than to load.
+- **What a load costs.** The first view of a channel loaded from disk is one
+  correctly rounded conversion per stored entry, a few hundred nanoseconds
+  each (a channel of 1.6 million entries takes about half a second on one
+  thread), on top of the read and the checks; it is the price of storing the
+  exact channel only. `prefill` with a token that carries a team rounds the
+  loaded channel in team sections, as it does a generated one; `cgc` and any
+  other call without a token round on the calling thread. Later views are
+  memory hits. Exact SU(2) 3j/6j
   symbols and the SU(2) F scalar are never stored: computing them is cheaper
   than loading them. Irrep modules and products stay in memory.
 - **How it is used.** A miss of a stored kind reads its row before generating;
@@ -232,10 +252,13 @@ fusion_symbols::cache::enable_disk_cache("/local/scratch/fs-0.12.sqlite", 1 << 3
 - **Integrity.** A row is used only if its checksum (over key and payload)
   matches and its payload has exactly the shape its labels determine: Weyl
   dimensions and multiplicities, every CGC index in range and in order,
-  every multiplicity column present, finite values, and the F and R
-  generation gates. Otherwise the value is generated and the row
-  overwritten. The CGC isometry certificate is not re-run: rows are trusted
-  to be what a gated generation of this crate wrote. The checksum detects
+  every multiplicity column present, canonical integer slabs with nonzero
+  coordinates, positive radicands, complete norm tables, no trailing bytes,
+  finite F and R values, and the F and R generation gates. These checks run
+  before any arithmetic on the row. Otherwise the value is generated and the
+  row overwritten. The CGC isometry and ladder gates are not re-run: no
+  channel row is written before its view passed them, so rows are trusted to
+  be what a gated generation of this crate wrote. The checksum detects
   later accidental damage (bit rot, truncation), not a faulty writer or an
   adversary.
 - **Bound.** `max_bytes` bounds the stored key and value bytes; oldest rows

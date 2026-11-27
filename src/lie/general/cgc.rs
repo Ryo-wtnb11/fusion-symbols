@@ -1,36 +1,33 @@
 //! Exact Clebsch–Gordan coefficients of `a ⊗ b → c`
-//! (`docs/gauge_cartan.md` §4), the F and R contractions of §6 and the
-//! Frobenius–Schur phase `κ_a` of §5.3, for every simple root system.
+//! (`docs/gauge_cartan.md` §4): the exact layer of the Cartan CGC.
 //!
 //! Everything is computed in the rational coordinates `b^a_{m_a} ⊗ b^b_{m_b}`
 //! of §3.3, whose metric is `diag(n^a_{m_a} n^b_{m_b})`. Each lowered vector
 //! is `√N_μ Φ_μ(b^c_{m_c})`, so a CGC entry is its rational coordinate `x`
-//! times `√(n^a n^b / (N_μ n^c))`: one signed square root, rounded once.
+//! times `√(n^a n^b / (N_μ n^c))`: one signed square root.
 //!
-//! Before a rounded channel is retained or returned it passes two
-//! verification gates (§7, gates 4 and 5), which never change a value: an
-//! isometry check over every expected column within each output weight block,
-//! and a first-descent ladder check for every applicable simple generator.
-//! Completed F and R blocks pass gates 7 and 6 before they are retained or
-//! returned.
-//!
-//! Every retained module, channel and phase lives in the process-wide CGC
-//! tier of [`crate::cache`]; [`GeneralFamily`] is a query context over one
-//! root system and owns no state of its own.
+//! The descent emits exact columns only; [`exact::Pending`] integralizes
+//! them into the stored authority of the channel. The rounded channel
+//! ([`CgcChannel`]) is a view derived from it by [`crate::rounding::cgc`],
+//! which also runs the gates defined on rounded data (§7, gates 4 and 5).
+//! Nothing here touches a float. The query context that loads and publishes
+//! both is [`super::family::GeneralFamily`].
 
-use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
+use std::collections::BTreeMap;
 
 use threadteam::Exec;
 
+#[cfg(test)]
+use self::exact::ExactCgc;
+use self::exact::{Column, HighestColumn, Pending};
 use super::module::{q_heap, qs_bytes, IrrepModule, Q};
 use super::roots::CartanData;
-use crate::cache::Label;
-use crate::category::{FBlock, RBlock};
 #[cfg(test)]
 use crate::exact::SignedSqrtRational;
-use crate::frcore::{check_f_block, check_r_block, f_block_raw, r_block_raw, GateError, MEntry};
+use crate::frcore::{GateError, MEntry};
 use crate::lie::{GenerationError, LieError, RootSystem};
+
+pub(crate) mod exact;
 
 /// A sparse operator in the rational basis: `op[m]` lists `(m', x)` with
 /// `X b_m = Σ x b_{m'}`.
@@ -49,6 +46,14 @@ pub(super) enum CgcError {
     },
     /// `⟨low| L^h |high⟩ = 0`, which §5.3 proves impossible (§7, gate 3).
     ZeroPrincipalLadder { lambda: Vec<i64> },
+    /// `N_μ = ⟨B_μ, B_μ⟩ ≤ 0`, which a positive definite metric excludes
+    /// (§4.3).
+    NonPositiveNorm {
+        a: Vec<i64>,
+        b: Vec<i64>,
+        c: Vec<i64>,
+        mu: usize,
+    },
 }
 
 impl std::fmt::Display for CgcError {
@@ -67,6 +72,9 @@ impl std::fmt::Display for CgcError {
             ),
             Self::ZeroPrincipalLadder { lambda } => {
                 write!(f, "{lambda:?}: principal lowering of v_λ vanishes")
+            }
+            Self::NonPositiveNorm { a, b, c, mu } => {
+                write!(f, "{a:?} ⊗ {b:?} → {c:?}: N_{mu} is not positive")
             }
         }
     }
@@ -91,13 +99,13 @@ impl From<GateError> for LieError {
 /// weight and the last weight space is the lowest. `public` maps them to
 /// magnetic indices.
 pub(crate) struct Ladders {
-    pub(super) module: IrrepModule,
+    pub(crate) module: IrrepModule,
     /// `n_m = ⟨b_m, b_m⟩` per magnetic index.
-    pub(super) norm: Vec<Q>,
+    pub(crate) norm: Vec<Q>,
     /// Weight space of each magnetic index.
     pub(super) space: Vec<usize>,
     /// `f_j` per `j`.
-    pub(super) lower: Vec<Op>,
+    pub(crate) lower: Vec<Op>,
     /// `e_j` per `j`, the contravariant transpose `E[b][a] = F[a][b] n_a / n_b`.
     pub(super) raise: Vec<Op>,
     /// The public magnetic index of each engine index, a permutation; the
@@ -181,7 +189,7 @@ impl Ladders {
         }
     }
 
-    pub(super) fn dim(&self) -> usize {
+    pub(crate) fn dim(&self) -> usize {
         self.module.dim
     }
 
@@ -209,12 +217,12 @@ impl Ladders {
     }
 
     /// The weight of engine index `m`.
-    fn weight(&self, m: usize) -> &[i64] {
+    pub(crate) fn weight(&self, m: usize) -> &[i64] {
         &self.module.weights[self.space[m]].mu
     }
 
     /// The engine index of each public magnetic index.
-    fn engine(&self) -> Vec<usize> {
+    pub(crate) fn engine(&self) -> Vec<usize> {
         let mut out = vec![0; self.dim()];
         for (m, &p) in self.public.iter().enumerate() {
             out[p as usize] = m;
@@ -222,14 +230,9 @@ impl Ladders {
         out
     }
 
-    /// `⟨u_m, f_j u_src⟩` rounded once, for an `(m, x)` entry of `lower[j][src]`.
-    fn rounded_lower(&self, src: usize, m: usize, x: &Q) -> f64 {
-        super::rational::rounded_radical(x, &self.norm[m], &Q::from(1), &self.norm[src])
-    }
-
     /// `sign ⟨low| L^h |high⟩` with `L = Σ_i f_i` (§5.3). Positive rescalings
     /// keep the sign, so the rational basis `b` gives it exactly.
-    fn principal_sign(&self, lambda: &[i64]) -> Result<i8, LieError> {
+    pub(super) fn principal_sign(&self, lambda: &[i64]) -> Result<i8, LieError> {
         let mut v = vec![Q::from(0); self.dim()];
         v[0] = Q::from(1);
         // The lowest weight is the last weight space, at depth h = ⟨λ, 2ρ∨⟩.
@@ -269,7 +272,7 @@ pub(super) struct ProductSpace {
 impl ProductSpace {
     /// The fibre of `nu`, with one allocation when it is non-empty and none
     /// otherwise: the scan's key and matches live in `scratch`.
-    fn new(a: &Ladders, b: &Ladders, nu: &[i64], scratch: &mut ProductScratch) -> Self {
+    pub(super) fn new(a: &Ladders, b: &Ladders, nu: &[i64], scratch: &mut ProductScratch) -> Self {
         // Scan the smaller weight set; each of its weights meets at most one
         // weight of the other factor.
         let swapped = a.module.weights.len() < b.module.weights.len();
@@ -312,7 +315,7 @@ impl ProductSpace {
         Self { pairs }
     }
 
-    fn len(&self) -> usize {
+    pub(super) fn len(&self) -> usize {
         self.pairs.len()
     }
 }
@@ -484,7 +487,18 @@ fn highest(
                 x.sub_mul(&scale, y);
             }
         }
-        norms.push(dot(&v, &v));
+        let norm = dot(&v, &v);
+        // Checked here, before a later Gram–Schmidt step divides by it.
+        if !norm.signum().is_gt() {
+            return Err(CgcError::NonPositiveNorm {
+                a: a.module.weights[0].mu.clone(),
+                b: b.module.weights[0].mu.clone(),
+                c: top.clone(),
+                mu: norms.len(),
+            }
+            .into());
+        }
+        norms.push(norm);
         seeds.push(v);
     }
     Ok((pivots, Some(Seeds { p, seeds, norms })))
@@ -665,8 +679,8 @@ fn descend(
 }
 
 /// Stores a completed column in its slot, which each column fills once: the
-/// rounded payload is moved, never copied.
-fn place(slot: &mut Vec<MEntry>, column: Vec<MEntry>) {
+/// exact payload is moved, never copied.
+fn place(slot: &mut Column, column: Column) {
     debug_assert!(slot.is_empty(), "a column is written once");
     #[cfg(test)]
     COLUMNS.with(|c| {
@@ -676,33 +690,17 @@ fn place(slot: &mut Vec<MEntry>, column: Vec<MEntry>) {
     *slot = column;
 }
 
-/// The rounded column `(μ, m_c)` of the state `v = √N_μ Φ_μ(b^c_{m_c})` over
-/// `space`, with `scale = N_μ n^c_{m_c}`: one entry per exactly nonzero
-/// coordinate, a-slow.
-fn round_column(
-    a: &Ladders,
-    b: &Ladders,
-    mc: u32,
-    mu: usize,
-    scale: &Q,
-    space: &ProductSpace,
-    v: &[Q],
-) -> Result<Vec<MEntry>, LieError> {
+/// The exact column `(μ, m_c)` of the state `v = √N_μ Φ_μ(b^c_{m_c})` over
+/// `space`: one entry per exactly nonzero coordinate, a-slow.
+/// Its scale is reduced here, in the item that emits it.
+fn exact_column(a: &Ladders, b: &Ladders, space: &ProductSpace, v: &[Q]) -> Column {
     let mut column = Vec::with_capacity(v.iter().filter(|x| !x.is_zero()).count());
-    let mu = magnetic_index(mu)?;
     for (&(pa, pb), x) in space.pairs.iter().zip(v) {
-        if x.is_zero() {
-            continue;
+        if !x.is_zero() {
+            column.push((a.public[pa], b.public[pb], x.clone()));
         }
-        column.push(MEntry {
-            m1: a.public[pa],
-            m2: b.public[pb],
-            m3: mc,
-            mu,
-            value: super::rational::rounded_radical(x, &a.norm[pa], &b.norm[pb], scale),
-        });
     }
-    Ok(column)
+    Column::new(column)
 }
 
 /// Per-participant row starts of [`descend_layers`]' phase A, bound to the
@@ -712,15 +710,15 @@ struct BoundRows {
     bound: Option<usize>,
 }
 
-/// The rounded columns of [`descend`], one depth layer at a time, on a team
-/// token (`docs/gauge_cartan.md` §9).
+/// The exact columns of [`descend`] and the seed norms `N_μ`, one depth
+/// layer at a time, on a team token (`docs/gauge_cartan.md` §9).
 ///
 /// A layer runs as three stages of [`crate::stage::run_stage`]: the first
 /// builds the product space of every weight of the layer, each participant
 /// on its own [`ProductScratch`]; phase A lowers every kept candidate × `μ`
-/// of the layer; phase B combines every recipe row × `μ` and rounds its
+/// of the layer; phase B combines every recipe row × `μ` and emits its
 /// column. Every item computes exactly the operations
-/// [`descend`] does for it, so the entries are bit-identical at every width.
+/// [`descend`] does for it, so the columns are identical at every width.
 /// The live exact set is at most two layers plus one layer's candidates; the
 /// leader frees a parent after phase A, when all its readers have run.
 fn descend_layers(
@@ -730,10 +728,10 @@ fn descend_layers(
     c: &Ladders,
     n: usize,
     exec: &mut Exec<'_>,
-) -> Result<Vec<Vec<MEntry>>, LieError> {
+) -> Result<(Vec<Column>, Vec<Q>), LieError> {
     use crate::stage::{run_stage, StageBuf, SystemClock};
     let dc = c.dim();
-    let mut columns: Vec<Vec<MEntry>> = vec![Vec::new(); n * dc];
+    let mut columns: Vec<Column> = vec![Column::default(); n * dc];
     let mut scratch = RowScratch::new(a);
     let mut product = ProductScratch::new(a, b);
     let Some(Seeds {
@@ -742,7 +740,7 @@ fn descend_layers(
         norms: seed_norms,
     }) = highest(data, a, b, c, n, &mut scratch, &mut product)?.1
     else {
-        return Ok(columns);
+        return Ok((columns, Vec::new()));
     };
     // The leader's phase-A rows reuse the raising rows' scratch.
     let mut leader = Some(BoundRows {
@@ -753,13 +751,12 @@ fn descend_layers(
     let (mut readers, mut space_readers) = readers(c);
     let mut phi: Vec<Vec<Vec<Q>>> = vec![Vec::new(); c.dim()];
     let mut spaces: Vec<Option<ProductSpace>> = (0..weights.len()).map(|_| None).collect();
-    let scale = |mu: usize, m: usize| &seed_norms[mu] * &c.norm[m];
 
     track(&seeds, true);
     for (mu, v) in seeds.iter().enumerate() {
         place(
             &mut columns[mu * dc + c.public[0] as usize],
-            round_column(a, b, c.public[0], mu, &scale(mu, 0), &p, v)?,
+            exact_column(a, b, &p, v),
         );
     }
     if readers[0] > 0 {
@@ -924,18 +921,10 @@ fn descend_layers(
                         (Some(v), &[][..])
                     }
                 };
-                let column = round_column(
-                    a,
-                    b,
-                    c.public[m],
-                    mu,
-                    &scale(mu, m),
-                    &tos[w],
-                    v.as_deref().unwrap_or(kept),
-                )?;
+                let column = exact_column(a, b, &tos[w], v.as_deref().unwrap_or(kept));
                 // A state no candidate reads dies with its share.
                 let transient = v.as_ref().filter(|_| readers[m] == 0).map_or(0, Vec::len);
-                Ok::<_, LieError>((column, v.filter(|_| readers[m] > 0), transient))
+                (column, v.filter(|_| readers[m] > 0), transient)
             },
         );
         #[cfg(test)]
@@ -945,7 +934,7 @@ fn descend_layers(
             let m = layer[w].offset + k;
             let mut states = Vec::with_capacity(if readers[m] > 0 { n } else { 0 });
             for mu in 0..n {
-                let (column, state, _t) = done.next().expect("one result per item")?;
+                let (column, state, _t) = done.next().expect("one result per item");
                 #[cfg(test)]
                 transient.push(_t);
                 place(&mut columns[mu * dc + c.public[m] as usize], column);
@@ -990,7 +979,7 @@ fn descend_layers(
         }
         lo = hi;
     }
-    Ok(columns)
+    Ok((columns, seed_norms))
 }
 
 /// Test accounting of the live exact slots of [`descend`] (current, maximum).
@@ -1005,51 +994,83 @@ fn track<'v>(v: impl IntoIterator<Item = &'v Vec<Q>>, live: bool) {
     });
 }
 
-/// The entries of `a ⊗ b → c` with multiplicity `n`, rounded once as each
-/// coupled state completes, before any gate: per column `(μ, m_c)`, then
-/// concatenated in §4.7 order, `μ`, then public `m_c`, then `(m_a, m_b)`
-/// a-slow (§4.1). The entry `x·√(n^a n^b/(N_μ n^c))` of an exactly nonzero
-/// coordinate `x` is kept even when it rounds to zero.
+/// The emitted columns of `a ⊗ b → c` of multiplicity `n` (§4.2–§4.4,
+/// §4.7), each with its scale, planned for integralization per `μ`: every
+/// exactly nonzero coordinate, emitted per column `(μ, m_c)` as its coupled
+/// state completes, every `X` to be negated when `negate` (the `A_1` vertex
+/// sign, §4.6). The integers are written by one per-column stage after the
+/// descent ([`Pending`]).
 ///
 /// This is the descent's split point: a token that carries a team of two or
 /// more descends layer by layer ([`descend_layers`]); any other token, and
-/// `None`, runs [`descend`] on the calling thread.
-pub(super) fn rounded_entries(
+/// `None`, runs [`descend`] on the calling thread. Both emit the same
+/// columns.
+pub(super) fn exact_columns(
     data: &CartanData,
     a: &Ladders,
     b: &Ladders,
     c: &Ladders,
     n: usize,
+    negate: bool,
     exec: Option<&mut Exec<'_>>,
-) -> Result<Vec<MEntry>, LieError> {
-    let columns = match exec {
-        Some(exec) if exec.carries_team() && !exec.is_serial() => {
-            descend_layers(data, a, b, c, n, exec)?
-        }
-        _ => {
+) -> Result<Pending, LieError> {
+    let (columns, norms) = match exec.filter(|exec| exec.carries_team() && !exec.is_serial()) {
+        Some(exec) => descend_layers(data, a, b, c, n, exec)?,
+        None => {
             let dc = c.dim();
-            let mut columns: Vec<Vec<MEntry>> = vec![Vec::new(); n * dc];
+            let mut columns: Vec<Column> = vec![Column::default(); n * dc];
+            let mut norms = Vec::new();
             descend(data, a, b, c, n, &mut |seed_norms, m, space, per_mu| {
-                let mc = c.public[m];
+                if norms.is_empty() {
+                    norms.extend_from_slice(seed_norms);
+                }
+                let mc = c.public[m] as usize;
                 for (mu, v) in per_mu.iter().enumerate() {
-                    let scale = &seed_norms[mu] * &c.norm[m];
-                    place(
-                        &mut columns[mu * dc + mc as usize],
-                        round_column(a, b, mc, mu, &scale, space, v)?,
-                    );
+                    place(&mut columns[mu * dc + mc], exact_column(a, b, space, v));
                 }
                 Ok(())
             })?;
-            columns
+            (columns, norms)
         }
     };
-    // The flattening copy briefly doubles the rounded payload (24 B per
-    // entry, counted in §9); reordering in place would avoid it.
-    let mut entries = Vec::with_capacity(columns.iter().map(Vec::len).sum());
-    for column in columns {
-        entries.extend(column);
-    }
-    Ok(entries)
+    Pending::new(columns, c.dim(), &norms, negate)
+}
+
+/// The exact channel of [`exact_columns`], every column integralized in one
+/// stage on the same token.
+#[cfg(test)]
+pub(super) fn exact_channel(
+    data: &CartanData,
+    a: &Ladders,
+    b: &Ladders,
+    c: &Ladders,
+    n: usize,
+    negate: bool,
+    mut exec: Option<&mut Exec<'_>>,
+) -> Result<ExactCgc, LieError> {
+    let pending = exact_columns(data, a, b, c, n, negate, exec.as_deref_mut())?;
+    Ok(pending.integralize([a.dim(), b.dim(), c.dim()], exec))
+}
+
+/// The highest-weight column of `a ⊗ b → c` (engine index 0 of `c`): the
+/// exact certificates and seeds of §4.2–§4.3, integralized per `μ`, with no
+/// descent.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(super) fn highest_column(
+    data: &CartanData,
+    a: &Ladders,
+    b: &Ladders,
+    c: &Ladders,
+    n: usize,
+) -> Result<HighestColumn, LieError> {
+    let mut scratch = RowScratch::new(a);
+    let mut product = ProductScratch::new(a, b);
+    let Some(Seeds { p, seeds, norms }) = highest(data, a, b, c, n, &mut scratch, &mut product)?.1
+    else {
+        return Ok(HighestColumn::empty());
+    };
+    let columns = seeds.iter().map(|v| exact_column(a, b, &p, v)).collect();
+    HighestColumn::from_columns(columns, &norms)
 }
 
 /// The exact channel of [`descend`] retained whole, for the exact oracles.
@@ -1102,7 +1123,7 @@ impl ExactChannel {
     }
 
     /// The exactly nonzero entries `(m_a, m_b, m_c, μ, C)` at public magnetic
-    /// indices, in the §4.7 order of [`rounded_entries`], with the exact
+    /// indices, in the §4.7 order of [`exact_channel`], with the exact
     /// `C = x·√(n^a n^b/(N_μ n^c))`.
     pub(super) fn exact_entries(
         &self,
@@ -1131,497 +1152,6 @@ impl ExactChannel {
         }
         out
     }
-}
-
-/// A rounded entry in one output weight block: `((m_a, m_b), column, value)`.
-type BlockEntry = ((u32, u32), usize, f64);
-
-/// Verification tolerance of the isometry and ladder gates (not value-fixing).
-const TOL_ROUNDED: f64 = 1e-9;
-
-/// The largest `|x|` over `residuals`, with a nonfinite residual a failure of
-/// `gate` (a float `max` would hide NaN).
-fn worst(gate: &'static str, residuals: impl Iterator<Item = f64>) -> Result<(), GateError> {
-    let mut worst = 0.0f64;
-    for r in residuals {
-        if !r.is_finite() {
-            return Err(GateError::NonFinite { gate });
-        }
-        worst = worst.max(r.abs());
-    }
-    if worst > TOL_ROUNDED {
-        return Err(GateError::Residual {
-            gate,
-            residual: worst,
-        });
-    }
-    Ok(())
-}
-
-/// Element counts the isometry gate requests for its three buffers of one
-/// weight block: the gathered block, its column order and its Gram matrix.
-type GateCounts = [usize; 3];
-
-/// Element sizes of the [`GateCounts`] buffers.
-const GATE_SIZES: [usize; 3] = [
-    std::mem::size_of::<BlockEntry>(),
-    std::mem::size_of::<(usize, usize, usize)>(),
-    std::mem::size_of::<f64>(),
-];
-
-/// Requested bytes of buffers with element counts `c`. Allocator slack is
-/// outside the account, as in the cache resource contract.
-fn gate_bytes(c: GateCounts) -> usize {
-    c.iter()
-        .zip(GATE_SIZES)
-        .fold(0usize, |t, (&n, s)| t.saturating_add(n.saturating_mul(s)))
-}
-
-/// The buffers a block needing `need` replaces when `held` are requested and
-/// the participant's charge is `high`, already raised to `gate_bytes(need)`.
-///
-/// While the componentwise maxima fit the charge, only a buffer that must
-/// grow is replaced. Otherwise every buffer of another size is replaced
-/// exactly, so the held counts become `need`. Either way the held bytes stay
-/// within `high`, also mid-replacement, since every replaced buffer is
-/// dropped before any is allocated.
-fn gate_replaced(held: GateCounts, need: GateCounts, high: usize) -> [bool; 3] {
-    let kept = std::array::from_fn(|c| held[c].max(need[c]));
-    let fits = gate_bytes(kept) <= high;
-    std::array::from_fn(|c| need[c] > held[c] || (!fits && held[c] != need[c]))
-}
-
-/// One participant's isometry-gate buffers, with their requested element
-/// counts and its high-water charge: the largest `gate_bytes` of a block it
-/// has run. Its live scratch never exceeds that charge, so participants with
-/// disjoint blocks hold at most the sum of their largest blocks.
-#[derive(Default)]
-struct GateScratch {
-    block: Vec<BlockEntry>,
-    order: Vec<(usize, usize, usize)>,
-    gram: Vec<f64>,
-    held: GateCounts,
-    high: usize,
-}
-
-impl GateScratch {
-    /// Makes room for a block needing `need`. Accounting uses the counts
-    /// requested here, never `capacity()`; every fill stays within them, so
-    /// no fill requests memory.
-    fn reserve(&mut self, need: GateCounts) {
-        self.high = self.high.max(gate_bytes(need));
-        let replace = gate_replaced(self.held, need, self.high);
-        // Release first: an assignment would hold the old and new buffer.
-        if replace[0] {
-            self.block = Vec::new();
-        }
-        if replace[1] {
-            self.order = Vec::new();
-        }
-        if replace[2] {
-            self.gram = Vec::new();
-        }
-        if replace[0] {
-            self.block = Vec::with_capacity(need[0]);
-        }
-        if replace[1] {
-            self.order = Vec::with_capacity(need[1]);
-        }
-        if replace[2] {
-            self.gram = Vec::with_capacity(need[2]);
-        }
-        for c in 0..3 {
-            if replace[c] {
-                self.held[c] = need[c];
-            }
-        }
-    }
-}
-
-/// The isometry block of one output weight: `k` columns from column run
-/// `offset`, holding `e` entries.
-#[derive(Clone, Copy)]
-struct GateBlock {
-    offset: usize,
-    k: usize,
-    e: usize,
-}
-
-impl GateBlock {
-    fn need(self) -> GateCounts {
-        [self.e, self.k, self.k * self.k]
-    }
-}
-
-/// `max |MᵀM − I| ≤ 1e-9` over one weight block whose column runs are
-/// `cols`, with its buffers in `s`.
-fn isometry_block(
-    s: &mut GateScratch,
-    entries: &[MEntry],
-    cols: &[(usize, usize)],
-    w: GateBlock,
-) -> Result<(), GateError> {
-    let k = w.k;
-    s.reserve(w.need());
-    let GateScratch {
-        block, order, gram, ..
-    } = s;
-    // Columns are gathered in their order in `entries`, so the unstable
-    // sort below sees the same sequence as a scan of the whole list: a
-    // duplicated (row, column) key then sums in the same order.
-    order.clear();
-    order.extend(
-        cols.iter()
-            .enumerate()
-            .filter(|(_, &(s, t))| t > s)
-            .map(|(col, &(s, t))| (s, t, col)),
-    );
-    order.sort_unstable();
-    block.clear();
-    for &(s, t, col) in order.iter() {
-        block.extend(entries[s..t].iter().map(|e| ((e.m1, e.m2), col, e.value)));
-    }
-    gram.clear();
-    gram.resize(k * k, 0.0);
-    // Index a slice, not the scratch's `Vec`: indexing through `&mut Vec`
-    // made the accumulation below measurably slower.
-    let gram = &mut gram[..];
-    block.sort_unstable_by_key(|&(row, col, _)| (row, col));
-    for run in block.chunk_by(|x, y| x.0 == y.0) {
-        for (i, &(_, ci, vi)) in run.iter().enumerate() {
-            for &(_, cj, vj) in &run[i..] {
-                gram[ci * k + cj] += vi * vj;
-            }
-        }
-    }
-    let gram = &*gram;
-    worst(
-        "isometry",
-        (0..k).flat_map(|i| (i..k).map(move |j| gram[i * k + j] - f64::from(u8::from(i == j)))),
-    )
-}
-
-/// The isometry gate over every weight block, in weight order. On a team
-/// token the blocks are one stage of [`crate::stage::run_bounded_stage`]:
-/// live scratch stays within the serial peak plus the CGC tier's budget, the
-/// allowance [`crate::cache::CoefficientCacheBudgets`] documents for scratch
-/// beyond the serial peak, and the first failing block in weight order is
-/// the result at every width.
-fn isometry_gate(
-    c: &Ladders,
-    n: usize,
-    entries: &[MEntry],
-    runs: &[(usize, usize)],
-    exec: Option<&mut Exec<'_>>,
-) -> Result<(), GateError> {
-    let blocks = c.module.weights.iter().map(|space| {
-        let k = space.norms.len() * n;
-        let cols = &runs[space.offset * n..space.offset * n + k];
-        let e = cols.iter().map(|&(s, t)| t - s).sum();
-        GateBlock {
-            offset: space.offset * n,
-            k,
-            e,
-        }
-    });
-    let cols = |w: GateBlock| &runs[w.offset..w.offset + w.k];
-    let exec = match exec {
-        Some(exec) if exec.carries_team() && !exec.is_serial() => exec,
-        _ => {
-            let mut s = GateScratch::default();
-            for w in blocks {
-                isometry_block(&mut s, entries, cols(w), w)?;
-            }
-            return Ok(());
-        }
-    };
-    use crate::stage::{memory_width, run_bounded_stage, StageBuf, SystemClock};
-    let blocks: Vec<GateBlock> = blocks.collect();
-    let sigma: Vec<usize> = blocks.iter().map(|&w| gate_bytes(w.need())).collect();
-    // Work per block: the gather and its sort, then the Gram matrix.
-    let units: Vec<u64> = blocks
-        .iter()
-        .map(|w| (w.e as u64).saturating_add((w.k as u64).saturating_mul(w.k as u64)))
-        .collect();
-    let allowance = gate_allowance();
-    let ceiling = sigma
-        .iter()
-        .copied()
-        .max()
-        .unwrap_or(0)
-        .saturating_add(allowance);
-    let memory = |rest: &[usize]| memory_width(&sigma, rest, ceiling);
-    let mut buf = StageBuf::default();
-    run_bounded_stage(
-        exec,
-        &units,
-        &SystemClock,
-        &memory,
-        &mut None,
-        &mut buf,
-        GateScratch::default,
-        |s, w| isometry_block(s, entries, cols(blocks[w]), blocks[w]),
-    );
-    buf.drain().collect()
-}
-
-/// Entries per item of the support stage on a team token: large enough to
-/// amortize a stage item's scheduling and keep the stage's slots and queue
-/// at `O(nnz / 2^16)`, while the planner prices dispatch. It is a fixed
-/// grain, not a crossover threshold.
-const SUPPORT_CHUNK: usize = 1 << 16;
-
-/// The support predicate of one entry of `a ⊗ b → c` at multiplicity `n`, in
-/// the gates' order: every index in range, before any engine lookup; a finite
-/// value; the entry on its weight. Returns its column `p_c·n + μ` at engine
-/// `p_c`.
-///
-/// Always inlined: the serial loop otherwise calls it per entry, reloading
-/// the module dimensions and engine maps and returning through memory,
-/// where the former inline loop hoisted them.
-#[inline(always)]
-fn entry_column(
-    [a, b, c]: [&Ladders; 3],
-    n: usize,
-    [ea, eb, ec]: &[Vec<usize>; 3],
-    e: &MEntry,
-) -> Result<usize, GateError> {
-    let (m1, m2, m3, mu) = (e.m1 as usize, e.m2 as usize, e.m3 as usize, e.mu as usize);
-    if m1 >= a.dim() || m2 >= b.dim() || m3 >= c.dim() || mu >= n {
-        return Err(GateError::Support);
-    }
-    if !e.value.is_finite() {
-        return Err(GateError::NonFinite { gate: "isometry" });
-    }
-    let (pa, pb, pc) = (ea[m1], eb[m2], ec[m3]);
-    let on_weight = a
-        .weight(pa)
-        .iter()
-        .zip(b.weight(pb))
-        .zip(c.weight(pc))
-        .all(|((x, y), z)| x.checked_add(*y) == Some(*z));
-    if !on_weight {
-        return Err(GateError::Support);
-    }
-    Ok(pc * n + mu)
-}
-
-/// Extends column `col`'s run in `runs` by entry `i`, where `prev` is the
-/// previous entry's column; a column that reappears after another is split,
-/// a support failure.
-fn extend_run(
-    runs: &mut [(usize, usize)],
-    prev: &mut usize,
-    i: usize,
-    col: usize,
-) -> Result<(), GateError> {
-    if col != *prev {
-        if runs[col].1 != 0 {
-            return Err(GateError::Support);
-        }
-        runs[col].0 = i;
-        *prev = col;
-    }
-    runs[col].1 = i + 1;
-    Ok(())
-}
-
-/// The support check of [`check_rounded`] and its column runs:
-/// `runs[m_c·n + μ]` (engine `m_c`) is the column's `entries[start..end]`,
-/// and `end == 0` marks an absent column.
-///
-/// Serially every entry passes [`entry_column`] and then extends its run, so
-/// the first failing entry decides. On a team token the predicate runs as one
-/// stage of [`crate::stage::run_stage`] over chunks of [`SUPPORT_CHUNK`]
-/// entries, each returning its first failure; the leader then extends the
-/// runs over the entries before the earliest failure `f` only. A split
-/// column there precedes `f`; otherwise the failure at `f` is the serial one,
-/// since the serial loop tests the predicate of an entry before its run. The
-/// stage's slots, queue and units end here, before the isometry gate.
-fn support_runs(
-    modules: [&Ladders; 3],
-    n: usize,
-    engines: &[Vec<usize>; 3],
-    entries: &[MEntry],
-    exec: Option<&mut Exec<'_>>,
-) -> Result<Vec<(usize, usize)>, GateError> {
-    let exec = match exec {
-        Some(exec) if exec.carries_team() && !exec.is_serial() => exec,
-        _ => return serial_support_runs(modules[0], modules[1], modules[2], n, engines, entries),
-    };
-    let mut runs = vec![(0usize, 0usize); modules[2].dim() * n];
-    let mut prev = usize::MAX;
-    use crate::stage::{run_stage, StageBuf, SystemClock};
-    let chunk = support_chunk();
-    let units: Vec<u64> = entries.chunks(chunk).map(|x| x.len() as u64).collect();
-    let mut buf = StageBuf::default();
-    let _ran = run_stage(
-        exec,
-        &units,
-        &SystemClock,
-        &mut None,
-        &mut buf,
-        || (),
-        |(), j| {
-            let start = j * chunk;
-            entries[start..(start + chunk).min(entries.len())]
-                .iter()
-                .enumerate()
-                .find_map(|(i, e)| {
-                    entry_column(modules, n, engines, e)
-                        .err()
-                        .map(|err| (start + i, err))
-                })
-        },
-    );
-    #[cfg(test)]
-    if _ran.width.get() > 1 {
-        SUPPORT_SECTIONS.with(|s| s.set(s.get() + 1));
-    }
-    let failure = buf.drain().flatten().next();
-    let valid = failure.as_ref().map_or(entries.len(), |&(f, _)| f);
-    let ec = &engines[2];
-    for (i, e) in entries[..valid].iter().enumerate() {
-        extend_run(
-            &mut runs,
-            &mut prev,
-            i,
-            ec[e.m3 as usize] * n + e.mu as usize,
-        )?;
-    }
-    match failure {
-        Some((_, err)) => Err(err),
-        None => Ok(runs),
-    }
-}
-
-/// The serial support check of [`support_runs`]: every entry passes
-/// [`entry_column`] and then extends its run, so the first failing entry
-/// decides.
-///
-/// Never inlined, and with each module a parameter of its own: inside
-/// [`check_rounded`] the loop shares registers with the team path and the
-/// later gates and spills its loop invariants to the stack, and modules
-/// passed in one array are not known to be unaliased, so their weight tables
-/// are reloaded on every entry. As here, the loop keeps them in registers,
-/// as the former inline loop did.
-#[inline(never)]
-fn serial_support_runs(
-    a: &Ladders,
-    b: &Ladders,
-    c: &Ladders,
-    n: usize,
-    engines: &[Vec<usize>; 3],
-    entries: &[MEntry],
-) -> Result<Vec<(usize, usize)>, GateError> {
-    let mut runs = vec![(0usize, 0usize); c.dim() * n];
-    let mut prev = usize::MAX;
-    for (i, e) in entries.iter().enumerate() {
-        let col = entry_column([a, b, c], n, engines, e)?;
-        extend_run(&mut runs, &mut prev, i, col)?;
-    }
-    Ok(runs)
-}
-
-/// [`SUPPORT_CHUNK`], or this thread's test override.
-fn support_chunk() -> usize {
-    #[cfg(test)]
-    if let Some(chunk) = SUPPORT_CHUNK_OVERRIDE.with(std::cell::Cell::get) {
-        return chunk;
-    }
-    SUPPORT_CHUNK
-}
-
-/// The allowance for isometry-gate scratch beyond the serial peak.
-fn gate_allowance() -> usize {
-    #[cfg(test)]
-    if let Some(a) = GATE_ALLOWANCE.with(std::cell::Cell::get) {
-        return a;
-    }
-    crate::cache::cache_budgets().limit(crate::cache::CoefficientCacheTier::Cgc)
-}
-
-/// The rounded gates on one channel `a ⊗ b → c` of multiplicity `n`, with
-/// `entries` at public magnetic indices:
-///
-/// - every entry in range, finite and on its weight, `wt(m_a) + wt(m_b) = wt(m_c)`;
-/// - isometry, `max |MᵀM − I| ≤ 1e-9` with `M[(m_a, m_b), (m_c, μ)]` over every
-///   expected column `(m_c, μ)`, including absent ones. Validated support makes
-///   columns of different output weights disjoint, so the weight blocks are
-///   the whole condition;
-/// - ladder consistency at the highest weight: for each `μ` and each `j` with
-///   `λ_c − α_j` a weight, `Δ(f_j) C[·, ·, top, μ] = Σ_m ⟨u_m, f_j u_top⟩
-///   C[·, ·, m, μ]` within `1e-9`, with correctly rounded ladder entries.
-///
-/// Each column `(m_c, μ)` must be one contiguous run of `entries`, as the
-/// §4.7 order makes it; a split column is a support failure. The gates then
-/// read the entries in place through those runs: one weight block of
-/// `BlockEntry` at a time, so no copy of the whole channel is made.
-pub(super) fn check_rounded(
-    data: &CartanData,
-    a: &Ladders,
-    b: &Ladders,
-    c: &Ladders,
-    n: usize,
-    entries: &[MEntry],
-    mut exec: Option<&mut Exec<'_>>,
-) -> Result<(), GateError> {
-    let engines = [a.engine(), b.engine(), c.engine()];
-    let runs = support_runs([a, b, c], n, &engines, entries, exec.as_deref_mut())?;
-    let [ea, eb, _] = &engines;
-    let column = |m: usize, mu: usize| {
-        let (s, t) = runs[m * n + mu];
-        &entries[s..t]
-    };
-
-    isometry_gate(c, n, entries, &runs, exec)?;
-
-    // First descent: f_j u_top lies in the weight space λ_c − α_j, which
-    // exists exactly when (λ_c)_j > 0 (an unbroken α_j-string).
-    let top = &c.module.weights[0].mu;
-    let mut descents: Vec<(usize, Vec<(usize, f64)>)> = Vec::new();
-    for j in 0..top.len() {
-        if top[j] <= 0 {
-            continue;
-        }
-        let nu = (0..top.len())
-            .map(|i| top[i].checked_sub(data.c(j, i)))
-            .collect::<Option<Vec<i64>>>();
-        let Some(w) = nu.and_then(|nu| c.module.weight_index(&nu)) else {
-            return Err(GateError::Support);
-        };
-        let space = &c.module.weights[w];
-        let ladder = (space.offset..space.offset + space.norms.len())
-            .map(|m| {
-                let x = c.lower[j][0].iter().find(|(t, _)| *t == m);
-                (m, x.map_or(0.0, |(_, x)| c.rounded_lower(0, m, x)))
-            })
-            .collect();
-        descents.push((j, ladder));
-    }
-    for (j, ladder) in &descents {
-        for mu in 0..n {
-            let mut diff: HashMap<(usize, usize), f64> = HashMap::new();
-            for e in column(0, mu) {
-                let (pa, pb, v) = (ea[e.m1 as usize], eb[e.m2 as usize], e.value);
-                for (pa2, x) in &a.lower[*j][pa] {
-                    *diff.entry((*pa2, pb)).or_default() += a.rounded_lower(pa, *pa2, x) * v;
-                }
-                for (pb2, x) in &b.lower[*j][pb] {
-                    *diff.entry((pa, *pb2)).or_default() += b.rounded_lower(pb, *pb2, x) * v;
-                }
-            }
-            for &(m, l) in ladder {
-                for e in column(m, mu) {
-                    *diff
-                        .entry((ea[e.m1 as usize], eb[e.m2 as usize]))
-                        .or_default() -= l * e.value;
-                }
-            }
-            worst("ladder", diff.into_values())?;
-        }
-    }
-    Ok(())
 }
 
 /// Stacked raising coproducts on `P`, retaining only nonzero coordinates.
@@ -1730,23 +1260,17 @@ type Fault<T> = std::cell::Cell<Option<T>>;
 
 #[cfg(test)]
 thread_local! {
-    /// Modules and channels this thread generated (not loaded from the cache).
-    pub(crate) static BUILDS: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
-    /// Columns placed by [`rounded_entries`] on this thread: `[writes, entries]`.
+    /// Generations on this thread (not loaded from the cache):
+    /// `[modules, exact channels, seeds, norm tables]`.
+    pub(crate) static BUILDS: std::cell::Cell<[usize; 4]> = const { std::cell::Cell::new([0; 4]) };
+    /// Exact columns emitted by the descents of this thread: `[writes, entries]`.
     pub(super) static COLUMNS: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
     /// Construction stages of [`descend_layers`] on this thread that ran a
     /// section of width two or more.
     pub(super) static CONSTRUCTION_SECTIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// Live exact slots of [`descend`] on this thread: `[current, maximum]`.
     pub(super) static LIVE_EXACT: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
-    /// Support stages of [`check_rounded`] on this thread that ran a section
-    /// of width two or more.
-    pub(super) static SUPPORT_SECTIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    /// Replaces [`SUPPORT_CHUNK`] on this thread.
-    pub(super) static SUPPORT_CHUNK_OVERRIDE: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
-    /// Replaces the isometry gate's allowance beyond the serial peak.
-    pub(super) static GATE_ALLOWANCE: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
-    /// Modules held by the live [`RequestModules`] of this thread:
+    /// Modules held by the live [`super::RequestModules`] of this thread:
     /// `[current, maximum]`.
     pub(crate) static REQUEST_MODULES: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
     /// Modules held by this thread when an F or R contraction last began.
@@ -1757,8 +1281,11 @@ thread_local! {
     pub(super) static ROW_WRITES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// Product spaces whose emitted order needed [`ProductSpace::new`]'s sort.
     pub(super) static FIBRE_SORTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Run once by the next view miss of this thread, after its exact
+    /// channel was published and before the view is.
+    pub(super) static AFTER_EXACT: Fault<fn()> = const { std::cell::Cell::new(None) };
     /// Fault injection between rounding and the gates.
-    pub(super) static CORRUPT: Fault<fn(&mut Vec<MEntry>)> = const { std::cell::Cell::new(None) };
+    pub(super) static CORRUPT: Fault<fn(&mut [MEntry])> = const { std::cell::Cell::new(None) };
     /// Called on entry to every module and channel load, before its cache lookup.
     pub(crate) static BEFORE_LOAD: Fault<fn()> = const { std::cell::Cell::new(None) };
     /// Fault injection on every completed F and R entry before its gate.
@@ -1780,403 +1307,6 @@ impl std::ops::Deref for CgcChannel {
     fn deref(&self) -> &[MEntry] {
         &self.entries
     }
-}
-
-/// An exact channel with its three modules.
-#[cfg(test)]
-type BuiltChannel = (ExactChannel, Arc<Ladders>, Arc<Ladders>, Arc<Ladders>);
-
-#[cfg(test)]
-fn count_build(kind: usize) {
-    BUILDS.with(|b| {
-        let mut v = b.get();
-        v[kind] += 1;
-        b.set(v);
-    });
-}
-
-/// The modules held across the channel loads of one F or R request, by label
-/// (at most six, so a short vector with equality lookup). A module the CGC
-/// tier does not retain is then built once per request rather than once per
-/// missed channel; a single channel request is the same with one channel.
-/// Holding is strong: a weak handle would not keep a rejected module alive.
-#[derive(Default)]
-pub(crate) struct RequestModules<'l> {
-    held: Vec<(Label<'l>, Arc<Ladders>)>,
-}
-
-impl<'l> RequestModules<'l> {
-    /// The module of `label`, from this request or else loaded and held.
-    fn load(&mut self, fam: &GeneralFamily, label: Label<'l>) -> Result<Arc<Ladders>, LieError> {
-        if let Some((_, m)) = self.held.iter().find(|(l, _)| l.words == label.words) {
-            return Ok(m.clone());
-        }
-        let m = fam.module(label)?;
-        self.held.push((label, m.clone()));
-        #[cfg(test)]
-        self.count();
-        Ok(m)
-    }
-
-    /// Releases every module whose label is not in `later`, the labels of
-    /// the channels this request may still load.
-    pub(crate) fn retain(&mut self, later: &[Label<'_>]) {
-        self.held
-            .retain(|(l, _)| later.iter().any(|x| x.words == l.words));
-        #[cfg(test)]
-        self.count();
-    }
-
-    /// Records the held labels before F's fourth channel.
-    #[cfg(test)]
-    pub(crate) fn observe_before_fourth(&self) {
-        BEFORE_FOURTH
-            .with(|b| *b.borrow_mut() = self.held.iter().map(|(l, _)| l.words.to_vec()).collect());
-    }
-
-    #[cfg(test)]
-    fn count(&self) {
-        REQUEST_MODULES.with(|c| {
-            let [_, max] = c.get();
-            c.set([self.held.len(), max.max(self.held.len())]);
-        });
-    }
-}
-
-/// Records the modules held as an F or R contraction begins.
-#[cfg(test)]
-pub(crate) fn observe_contraction() {
-    AT_CONTRACTION.with(|c| c.set(Some(REQUEST_MODULES.with(std::cell::Cell::get)[0])));
-}
-
-#[cfg(test)]
-impl Drop for RequestModules<'_> {
-    fn drop(&mut self) {
-        REQUEST_MODULES.with(|c| c.set([0, c.get()[1]]));
-    }
-}
-
-/// The Cartan engine over one root system: exact CGC (§4), `κ_a` (§5.3) and
-/// the F and R contractions of §6, each loaded from and published to the CGC,
-/// F and R tiers of [`crate::cache`] only after its gates pass.
-#[derive(Clone)]
-pub(crate) struct GeneralFamily {
-    data: Arc<CartanData>,
-}
-
-impl GeneralFamily {
-    #[cfg(test)]
-    pub(crate) fn new(root: RootSystem) -> Self {
-        Self::with_data(CartanData::new(root))
-    }
-    pub(crate) fn with_data(data: Arc<CartanData>) -> Self {
-        Self { data }
-    }
-
-    pub(crate) fn data(&self) -> &Arc<CartanData> {
-        &self.data
-    }
-
-    fn root(&self) -> RootSystem {
-        self.data.root
-    }
-
-    /// The module of `lambda`, shared through the CGC tier.
-    pub(crate) fn module(&self, lambda: Label<'_>) -> Result<Arc<Ladders>, LieError> {
-        #[cfg(test)]
-        if let Some(hook) = BEFORE_LOAD.with(std::cell::Cell::get) {
-            hook();
-        }
-        crate::cache::cgc_module(self.root(), lambda, || {
-            #[cfg(test)]
-            count_build(0);
-            Ladders::new(&self.data, lambda.words).map(Arc::new)
-        })
-    }
-
-    /// `a ⊗ b` by Brauer–Klimyk, label → `N^c_{ab}`.
-    #[cfg(test)]
-    pub(crate) fn product(&self, a: &[i64], b: &[i64]) -> Result<super::roots::Product, LieError> {
-        self.data.shared_product(a, b)
-    }
-
-    /// `N^c_{ab}`: the triangle rule for `A_1`, Brauer–Klimyk otherwise.
-    pub(crate) fn mult(&self, a: Label<'_>, b: Label<'_>, c: Label<'_>) -> Result<usize, LieError> {
-        if self.root() == RootSystem::A(1) {
-            let dj = |x: Label<'_>| u32::try_from(x.words[0]).map_err(|_| LieError::LabelOverflow);
-            return Ok(usize::from(crate::lie::su2::triangle_ok(
-                dj(a)?,
-                dj(b)?,
-                dj(c)?,
-            )));
-        }
-        Ok(self.data.label_multiplicity(a, b, c.words, None)? as usize)
-    }
-
-    /// The rational channel with its three modules, gated by the exact
-    /// nullity check, uncached.
-    #[cfg(test)]
-    pub(super) fn channel(
-        &self,
-        a: &[i64],
-        b: &[i64],
-        c: &[i64],
-    ) -> Result<BuiltChannel, LieError> {
-        let [a, b, c] = [a, b, c].map(Label::new);
-        let mut modules = RequestModules::default();
-        let ma = modules.load(self, a)?;
-        let mb = modules.load(self, b)?;
-        let mc = modules.load(self, c)?;
-        let ch = ExactChannel::new(&self.data, &ma, &mb, &mc, self.mult(a, b, c)?)?;
-        Ok((ch, ma, mb, mc))
-    }
-
-    /// The completed channel `a ⊗ b → c`: its multiplicity and its rounded,
-    /// gated entries in §4.7 order, shared through the CGC tier, so a hit
-    /// needs no multiplicity lookup. On a miss the block `d_a d_b d_c N` must
-    /// be addressable before anything is built. A channel with `N = 0` is
-    /// empty, after an exact certificate: no coupling pair has the highest
-    /// weight of `c`, or the highest-weight nullity is zero (§7 gate 2).
-    pub(crate) fn cgc_entries(
-        &self,
-        a: Label<'_>,
-        b: Label<'_>,
-        c: Label<'_>,
-        exec: Option<&mut Exec<'_>>,
-    ) -> Result<Arc<CgcChannel>, LieError> {
-        self.cgc_entries_in(a, b, c, &mut RequestModules::default(), exec)
-    }
-
-    /// [`Self::cgc_entries`] as one channel of a request: a miss takes its
-    /// modules from, and adds them to, `modules`; a hit leaves it untouched.
-    /// Only a miss uses `exec`, for the descent and the isometry gate;
-    /// `None` is the serial token, so a hit never builds one.
-    pub(crate) fn cgc_entries_in<'l>(
-        &self,
-        a: Label<'l>,
-        b: Label<'l>,
-        c: Label<'l>,
-        modules: &mut RequestModules<'l>,
-        exec: Option<&mut Exec<'_>>,
-    ) -> Result<Arc<CgcChannel>, LieError> {
-        #[cfg(test)]
-        if let Some(hook) = BEFORE_LOAD.with(std::cell::Cell::get) {
-            hook();
-        }
-        crate::cache::cgc_channel(self.root(), [a, b, c], || {
-            let n = self.mult(a, b, c)?;
-            let dimension = |l: Label<'_>| -> Result<usize, LieError> {
-                usize::try_from(&self.data.weyl_dimension(l.words)?)
-                    .map_err(|_| LieError::LabelOverflow)
-            };
-            let dims = [dimension(a)?, dimension(b)?, dimension(c)?];
-            crate::lie::checked_size([dims[0], dims[1], dims[2], n])?;
-            crate::cache::through(
-                crate::cache::DISK_CHANNEL,
-                self.root(),
-                [a, b, c],
-                || Ok(crate::cache::Shape::Channel { dims, mult: n }),
-                || self.generate_channel(a, b, c, n, modules, exec),
-            )
-        })
-    }
-
-    /// The miss body of [`Self::cgc_entries_in`] once `N` and the block size
-    /// are known: an exact empty certificate, or the descent and its gates.
-    fn generate_channel<'l>(
-        &self,
-        a: Label<'l>,
-        b: Label<'l>,
-        c: Label<'l>,
-        n: usize,
-        modules: &mut RequestModules<'l>,
-        mut exec: Option<&mut Exec<'_>>,
-    ) -> Result<Arc<CgcChannel>, LieError> {
-        #[cfg(test)]
-        count_build(1);
-        {
-            let empty = || {
-                Ok(Arc::new(CgcChannel {
-                    mult: 0,
-                    entries: Box::new([]),
-                }))
-            };
-            // No coupling pair has the weight `λ_c`, so `P` is empty and a
-            // zero multiplicity needs no nullspace. For `A_1` the weight `c`
-            // occurs in `a ⊗ b` exactly when `c ≤ a + b` with `a + b − c`
-            // even; other types read the weights off the two modules, which
-            // the channel then reuses.
-            let a1 = self.root() == RootSystem::A(1);
-            if n == 0 && a1 && {
-                let s = a.words[0] + b.words[0] - c.words[0];
-                s < 0 || s % 2 != 0
-            } {
-                return empty();
-            }
-            let ma = modules.load(self, a)?;
-            let mb = modules.load(self, b)?;
-            if n == 0
-                && !a1
-                && ProductSpace::new(&ma, &mb, c.words, &mut ProductScratch::new(&ma, &mb)).len()
-                    == 0
-            {
-                return empty();
-            }
-            let mc = modules.load(self, c)?;
-            // No exact vector outlives the descent; the gates read the
-            // rounded entries and the modules only.
-            #[allow(unused_mut)]
-            let mut entries = rounded_entries(&self.data, &ma, &mb, &mc, n, exec.as_deref_mut())?;
-            if self.root() == RootSystem::A(1)
-                && (a.words[0] + b.words[0] - c.words[0]) / 2 % 2 != 0
-            {
-                // §4.6: the A_1 vertex sign (−1)^{j_a + j_b − j_c}, once per
-                // channel. Rounding is odd, so negating the rounded value is
-                // negating the exact one.
-                for e in &mut entries {
-                    e.value = -e.value;
-                }
-            }
-            #[cfg(test)]
-            if let Some(corrupt) = CORRUPT.with(std::cell::Cell::get) {
-                corrupt(&mut entries);
-            }
-            check_rounded(&self.data, &ma, &mb, &mc, n, &entries, exec)?;
-            Ok(Arc::new(CgcChannel {
-                mult: n,
-                entries: entries.into_boxed_slice(),
-            }))
-        }
-    }
-
-    /// `κ_a` (§5.3) of `a` with dual label `dual`: `(−1)^{⟨λ, 2ρ∨⟩}` for a
-    /// self-dual irrep and for every `A_r` irrep, otherwise
-    /// `(−1)^{⟨λ, 2ρ∨⟩} σ_a σ_ā`, computed once per dual pair and shared
-    /// through the CGC tier.
-    pub(crate) fn frobenius_schur_phase(
-        &self,
-        a: Label<'_>,
-        dual: Label<'_>,
-    ) -> Result<i8, LieError> {
-        let closed = self.data.two_rho_vee_sign(a.words)?;
-        if dual.words == a.words || matches!(self.root(), RootSystem::A(_)) {
-            return Ok(closed);
-        }
-        #[cfg(test)]
-        if let Some(fail) = FAIL_PHASE.with(std::cell::Cell::get) {
-            return Err(fail());
-        }
-        // κ_ā = κ_a (§5.3), so one generation answers both labels.
-        let key = if a.words <= dual.words { a } else { dual };
-        crate::cache::cgc_phase(self.root(), key, || {
-            crate::cache::through(
-                crate::cache::DISK_PHASE,
-                self.root(),
-                [key],
-                || Ok(crate::cache::Shape::Phase),
-                || {
-                    let sigma_a = self.module(a)?.principal_sign(a.words)?;
-                    let sigma_dual = self.module(dual)?.principal_sign(dual.words)?;
-                    Ok(closed * sigma_a * sigma_dual)
-                },
-            )
-        })
-    }
-
-    /// `F^{abc}_d[e, f]` (§6), gated by gate 7 before it is retained.
-    pub(crate) fn f_symbol(
-        &self,
-        labels: [Label<'_>; 6],
-        exec: Option<&mut Exec<'_>>,
-    ) -> Result<FBlock<f64>, LieError> {
-        crate::cache::f_block(self.root(), labels, || {
-            let [a, b, c, d, e, f] = labels;
-            crate::cache::through(
-                crate::cache::DISK_F,
-                self.root(),
-                labels,
-                || {
-                    Ok(crate::cache::Shape::F([
-                        self.mult(a, b, e)?,
-                        self.mult(e, c, d)?,
-                        self.mult(b, c, f)?,
-                        self.mult(a, f, d)?,
-                    ]))
-                },
-                || self.generate_f(labels, exec),
-            )
-        })
-    }
-
-    /// The gated contraction behind [`Self::f_symbol`].
-    fn generate_f(
-        &self,
-        labels: [Label<'_>; 6],
-        exec: Option<&mut Exec<'_>>,
-    ) -> Result<FBlock<f64>, LieError> {
-        {
-            let block = f_block_raw(self, labels, exec)?;
-            #[cfg(test)]
-            let block = match CORRUPT_BLOCK.with(std::cell::Cell::get) {
-                Some(fault) => {
-                    use crate::category::SymbolBlock;
-                    FBlock::from_vec(
-                        block.dims(),
-                        block.as_slice().iter().map(|&x| fault(x)).collect(),
-                    )
-                }
-                None => block,
-            };
-            check_f_block(&block)?;
-            Ok(block)
-        }
-    }
-
-    /// `R^{ab}_c` (§6), gated by gate 6 before it is retained.
-    pub(crate) fn r_symbol(
-        &self,
-        labels: [Label<'_>; 3],
-        exec: Option<&mut Exec<'_>>,
-    ) -> Result<RBlock<f64>, LieError> {
-        crate::cache::r_block(self.root(), labels, || {
-            let [a, b, c] = labels;
-            crate::cache::through(
-                crate::cache::DISK_R,
-                self.root(),
-                labels,
-                || Ok(crate::cache::Shape::R(self.mult(a, b, c)?)),
-                || self.generate_r(labels, exec),
-            )
-        })
-    }
-
-    /// The gated contraction behind [`Self::r_symbol`].
-    fn generate_r(
-        &self,
-        labels: [Label<'_>; 3],
-        exec: Option<&mut Exec<'_>>,
-    ) -> Result<RBlock<f64>, LieError> {
-        {
-            let block = r_block_raw(self, labels, exec)?;
-            #[cfg(test)]
-            let block = match CORRUPT_BLOCK.with(std::cell::Cell::get) {
-                Some(fault) => {
-                    use crate::category::SymbolBlock;
-                    RBlock::from_vec(
-                        block.dims()[0],
-                        block.as_slice().iter().map(|&x| fault(x)).collect(),
-                    )
-                }
-                None => block,
-            };
-            check_r_block(&block)?;
-            Ok(block)
-        }
-    }
-}
-
-fn magnetic_index(value: usize) -> Result<u32, LieError> {
-    u32::try_from(value).map_err(|_| LieError::LabelOverflow)
 }
 
 #[cfg(test)]

@@ -629,3 +629,46 @@ fn bounded_sections_own_their_scratch() {
     assert!(leader.is_none());
     assert_eq!(LIVE.load(Ordering::SeqCst), 0, "shares dropped theirs");
 }
+
+/// Over random partitions of a buffer into item parts, including empty
+/// parts, every slot is written exactly once and by the item whose range
+/// holds it, inline and through real sections of widths 2–4; a part is
+/// taken once, and a second take is empty.
+#[test]
+fn split_parts_write_every_slot_once() {
+    use rand::{RngExt, SeedableRng};
+    let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(0x5917);
+    let team = new_team(4);
+    for trial in 0..60 {
+        let len = (rng.random::<u64>() % 300) as usize;
+        let items = 1 + (rng.random::<u64>() % 40) as usize;
+        let mut ends: Vec<usize> = (0..items - 1)
+            .map(|_| (rng.random::<u64>() % (len as u64 + 1)) as usize)
+            .chain([len])
+            .collect();
+        ends.sort_unstable();
+        let units: Vec<u64> = (0..items)
+            .map(|i| (ends[i] - if i == 0 { 0 } else { ends[i - 1] }) as u64)
+            .collect();
+        let owner = |j: usize| ends.partition_point(|&end| end <= j);
+        for width in [1, 2, 3, 4] {
+            let mut slots = vec![0usize; len];
+            {
+                let parts = split_parts(&mut slots, ends.iter().copied());
+                let _force = force_width(width);
+                let mut exec = team.exec(4);
+                let exec = (width > 1).then_some(&mut exec);
+                let mut buf = StageBuf::default();
+                run_items(exec, &units, &mut buf, |i| {
+                    for s in take_part(&parts, i).iter_mut() {
+                        *s += i + 1;
+                    }
+                    take_part(&parts, i).len()
+                });
+                assert!(buf.drain().all(|again| again == 0), "trial {trial}");
+            }
+            let want: Vec<usize> = (0..len).map(|j| owner(j) + 1).collect();
+            assert_eq!(slots, want, "trial {trial} width {width}");
+        }
+    }
+}
