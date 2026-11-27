@@ -384,3 +384,34 @@ fn warm_composite_factor_queries_allocate_nothing() {
         [0, 0, 0, 0]
     );
 }
+
+// Purpose: a warm product CGC allocates nothing: two or more Radical leaves
+// are one Product-tier hit and an `Arc` clone, one leaf is that leaf's own
+// shared block, and a unit or absent product is a scalar.
+#[test]
+fn warm_product_cgc_allocates_nothing() {
+    use fusion_symbols::category::GroupRepresentations;
+    use fusion_symbols::finite::{ZNIrrep, ZN};
+    use fusion_symbols::product::Product;
+    let _serial = counting_alloc::serial();
+    let g = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+    let x = |j| g.irrep(&[j]).unwrap();
+    let z = ZN::new(3).unwrap();
+    let q = |c| ZNIrrep::new(c, 3).unwrap();
+    let two = Product::new((g.clone(), g.clone()));
+    let [a, b, c] = [(x(1), x(2)), (x(1), x(1)), (x(2), x(1))];
+    let three = Product::new(vec![g.clone(); 3]);
+    let [va, vb, vc] = [[1, 2, 1], [1, 1, 2], [2, 1, 1]].map(|l| l.map(x).to_vec());
+    let one = Product::new((g.clone(), z));
+    let [oa, ob, oc] = [(x(1), q(1)), (x(1), q(1)), (x(2), q(2))];
+    let absent = (x(2), q(0));
+    assert_eq!(
+        [
+            warm(|| two.cgc(&a, &b, &c).unwrap()).0,
+            warm(|| three.cgc(&va, &vb, &vc).unwrap()).0,
+            warm(|| one.cgc(&oa, &ob, &oc).unwrap()).0,
+            warm(|| one.cgc(&oa, &ob, &absent).unwrap()).0,
+        ],
+        [0; 4]
+    );
+}

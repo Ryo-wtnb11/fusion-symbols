@@ -92,8 +92,10 @@ scalar promotion/multiplication and derived dimensions fold left to right; TKS
 derives square roots/inverses from the rounded product dimension, which may
 differ by rounding. Fermionic R/twist multiply factorwise without a
 cross-factor sign or imposed parity/charge relation. Products of
-`GroupRepresentations` provide lazy tuple or vector CGCs through `CgcBlock`,
-with the last factor fastest on all four axes; they add no coefficient cache.
+`GroupRepresentations` return one sparse `LieCgc`, with the last factor
+fastest on all four axes; its entries are the exact products of the
+factors' exact entries rounded once, and two or more Lie factors share one
+composite channel in the Product tier.
 Initialized fusion iterators reset by cloning;
 the higher-ranked iterator bound admits owned providers only. An outcome's
 multiplicity is the product of its factor multiplicities, checked against

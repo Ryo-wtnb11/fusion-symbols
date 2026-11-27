@@ -241,6 +241,15 @@ impl GroupRepresentations for U1 {
     fn cgc(&self, a: &U1Irrep, b: &U1Irrep, c: &U1Irrep) -> Result<f64, U1Error> {
         Ok(f64::from(conserves(a, b, c)))
     }
+    #[doc(hidden)]
+    fn __fusion_symbols_exact_cgc<'q>(
+        &self,
+        [a, b, c]: [&'q Self::Object; 3],
+        op: crate::category::sealed::CgcOp<'q, '_>,
+        _: crate::category::sealed::Validated,
+    ) -> Result<bool, Self::Error> {
+        Ok(crate::category::unit_cgc(conserves(a, b, c), op))
+    }
 }
 
 #[cfg(test)]

@@ -57,7 +57,9 @@ fn labels_zero_channels_and_warm_generation() {
     let [cgc_warm, product_warm] = tiers.map(cache::tier_stats);
     assert_eq!(cgc_warm.misses, cgc_stats.misses);
     assert_eq!(product_warm.misses, product_stats.misses);
-    assert!(cgc_warm.hits > cgc_stats.hits);
+    // A warm composite is one Product-tier hit; no leaf channel is read.
+    assert!(product_warm.hits > product_stats.hits);
+    assert_eq!(cgc_warm.hits, cgc_stats.hits);
     let r = cat.r_symbol(&eight, &eight, &eight).unwrap();
     let tiers = [Tier::Cgc, Tier::Product];
     let misses = tiers.map(|tier| cache::tier_stats(tier).misses);

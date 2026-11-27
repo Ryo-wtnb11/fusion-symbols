@@ -269,26 +269,152 @@ impl ChannelEstimates {
 /// The exact value of entry `j` of `column`: [`round_radical`] over the
 /// full factor lists, the definition every fast value equals.
 fn exact_entry(column: &ColumnCoords<'_>, [na, nb, nc]: [&NormTable; 3], j: usize) -> f64 {
-    let vertex = column.vertex();
-    let (pc, qc) = nc.norm[column.mc()].magnitudes();
     let (ma, mb) = column.pairs()[j];
-    let x = column.magnitude(j);
-    let sign = if column.is_negative(j) { -1 } else { 1 };
     let a = NormParts::of(&na.norm[ma as usize]);
     let b = NormParts::of(&nb.norm[mb as usize]);
-    let ([pa, qa], [pb, qb]) = (a.factors(), b.factors());
-    round_radical(
-        sign,
-        &[
+    let c = NormParts::of(&nc.norm[column.mc()]);
+    let (num, den) = radical_factors(column, j, [&a, &b, &c]);
+    round_radical(if column.is_negative(j) { -1 } else { 1 }, &num, &den)
+}
+
+/// The radicand of entry `j` of `column`, `X² ρ_μ n^a n^b / n^c`, as factor
+/// lists, with the norms at the entry's public indices.
+fn radical_factors<'a>(
+    column: &ColumnCoords<'a>,
+    j: usize,
+    [a, b, c]: [&'a NormParts<'a>; 3],
+) -> ([Factor<'a>; 6], [Factor<'a>; 4]) {
+    let vertex = column.vertex();
+    let x = column.magnitude(j);
+    let ([pa, qa], [pb, qb], [pc, qc]) = (a.factors(), b.factors(), c.factors());
+    (
+        [
             Factor::Words(x),
             Factor::Words(x),
             Factor::Natural(vertex.num()),
             pa,
             pb,
-            Factor::Natural(&qc),
+            qc,
         ],
-        &[Factor::Natural(vertex.den()), qa, qb, Factor::Natural(&pc)],
+        [Factor::Natural(vertex.den()), qa, qb, pc],
     )
+}
+
+/// A product leaf's exact channel and the norm tables its entries read
+/// (`None` for an empty channel).
+pub(crate) struct ExactLeaf {
+    pub(crate) exact: std::sync::Arc<ExactCgc>,
+    pub(crate) norms: Option<[std::sync::Arc<NormTable>; 3]>,
+}
+
+/// The composite channel of a product's Radical leaves, `None` when a
+/// composite axis of a nonempty channel exceeds `u32`.
+///
+/// Every combination of one exact entry per leaf is one product entry, the
+/// single radical `Π sign · √(Π X² ρ_μ n^a n^b / n^c)` over the
+/// concatenated factor lists, rounded once by [`round_radical`]: no rounded
+/// leaf value is multiplied. Indices combine last leaf fastest on every axis,
+/// `μ` included, and the entries are sorted into §4.7 order. The cost is one
+/// conversion per product entry, `Π nnz_i` of them.
+pub(crate) fn compose_channel(leaves: &[ExactLeaf]) -> Option<CgcChannel> {
+    let shape = |l: &ExactLeaf| {
+        let [a, b, c] = l.exact.dims();
+        [a, b, c, l.exact.mult()]
+    };
+    // An empty leaf (`N = 0`) makes the channel empty whatever the other
+    // axes, so it is decided before any axis is multiplied.
+    if leaves.iter().any(|l| l.exact.is_empty()) {
+        return Some(CgcChannel {
+            mult: 0,
+            entries: Box::new([]),
+        });
+    }
+    let mut dims = [1usize; 4];
+    for l in leaves {
+        for (d, x) in dims.iter_mut().zip(shape(l)) {
+            *d = d.checked_mul(x)?;
+        }
+    }
+    if dims.iter().any(|&d| d > u32::MAX as usize) {
+        return None;
+    }
+    struct Entry<'a> {
+        at: [u32; 4],
+        negative: bool,
+        num: [Factor<'a>; 6],
+        den: [Factor<'a>; 4],
+    }
+    let parts: Vec<[Vec<NormParts<'_>>; 3]> = leaves
+        .iter()
+        .map(|l| {
+            let norms = l.norms.as_ref().expect("a nonempty channel has norms");
+            norms
+                .each_ref()
+                .map(|t| t.norm.iter().map(NormParts::of).collect())
+        })
+        .collect();
+    let lists: Vec<Vec<Entry<'_>>> = leaves
+        .iter()
+        .zip(&parts)
+        .map(|(l, [na, nb, nc])| {
+            let mut out = Vec::with_capacity(l.exact.len());
+            for k in 0..l.exact.column_ends().len() {
+                let column = l.exact.column_coords(k);
+                let (mu, mc) = (column.mu() as u32, column.mc());
+                for (j, &(ma, mb)) in column.pairs().iter().enumerate() {
+                    let norms = [&na[ma as usize], &nb[mb as usize], &nc[mc]];
+                    let (num, den) = radical_factors(&column, j, norms);
+                    out.push(Entry {
+                        at: [ma, mb, mc as u32, mu],
+                        negative: column.is_negative(j),
+                        num,
+                        den,
+                    });
+                }
+            }
+            out
+        })
+        .collect();
+    let shapes: Vec<[usize; 4]> = leaves.iter().map(shape).collect();
+    let mut entries = Vec::with_capacity(lists.iter().map(Vec::len).product());
+    let (mut num, mut den) = (Vec::new(), Vec::new());
+    let mut pick = vec![0usize; lists.len()];
+    'odometer: loop {
+        let (mut at, mut negative) = ([0usize; 4], false);
+        num.clear();
+        den.clear();
+        for ((list, &i), d) in lists.iter().zip(&pick).zip(&shapes) {
+            let e = &list[i];
+            for axis in 0..4 {
+                at[axis] = at[axis] * d[axis] + e.at[axis] as usize;
+            }
+            negative ^= e.negative;
+            num.extend_from_slice(&e.num);
+            den.extend_from_slice(&e.den);
+        }
+        // Every composite index is below its axis, which fits `u32`.
+        let [m1, m2, m3, mu] = at.map(|x| x as u32);
+        entries.push(MEntry {
+            m1,
+            m2,
+            m3,
+            mu,
+            value: round_radical(if negative { -1 } else { 1 }, &num, &den),
+        });
+        for (i, list) in pick.iter_mut().zip(&lists).rev() {
+            *i += 1;
+            if *i < list.len() {
+                continue 'odometer;
+            }
+            *i = 0;
+        }
+        break;
+    }
+    entries.sort_unstable_by_key(|e| (e.mu, e.m3, e.m1, e.m2));
+    Some(CgcChannel {
+        mult: dims[3],
+        entries: entries.into_boxed_slice(),
+    })
 }
 
 /// Per entry of `exact`, in order: the bits [`ChannelEstimates`] certifies,

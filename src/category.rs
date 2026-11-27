@@ -78,6 +78,8 @@ pub(crate) mod sealed {
         A,
         /// `B^{ab}_c`.
         B,
+        /// The Clebsch–Gordan block of `a ⊗ b → c` (a composite CGC's key).
+        Cgc,
     }
 
     impl SymbolKind {
@@ -330,6 +332,10 @@ pub(crate) mod sealed {
             self.len += 1;
         }
 
+        pub(crate) fn len(&self) -> usize {
+            self.len
+        }
+
         pub(crate) fn iter(&self) -> impl Iterator<Item = &T> {
             self.inline.iter().flatten().chain(&self.spill)
         }
@@ -372,6 +378,59 @@ pub(crate) mod sealed {
 
     /// The Radical leaves of one product query, depth-first.
     pub struct LeafBuf<'q>(pub(crate) InlineVec<LeafRef<'q>, 4>);
+
+    /// An operation of the exact product CGC protocol: a product's CGC is
+    /// the exact composition of its Radical leaves' exact channels, rounded
+    /// once, when every factor answers.
+    pub enum CgcOp<'q, 'b> {
+        /// Append the query's Radical leaves and multiply their magnetic
+        /// dimensions into `dims`; an absent unit channel sets `absent`.
+        Describe(&'b mut CgcLeaves<'q>),
+        /// Append each Radical leaf's exact channel, in leaf order.
+        Fetch(&'b mut CgcExact),
+        /// The one Radical leaf's rounded block (a query with one leaf).
+        View(&'b mut Option<crate::lie::LieCgc>),
+    }
+
+    impl<'q> CgcOp<'q, '_> {
+        /// The same operation, for one factor of a product.
+        pub(crate) fn reborrow(&mut self) -> CgcOp<'q, '_> {
+            match self {
+                Self::Describe(x) => CgcOp::Describe(x),
+                Self::Fetch(x) => CgcOp::Fetch(x),
+                Self::View(x) => CgcOp::View(x),
+            }
+        }
+    }
+
+    /// The described leaves of a product CGC query.
+    pub struct CgcLeaves<'q> {
+        pub(crate) leaves: LeafBuf<'q>,
+        /// `[d_a, d_b, d_c]`, `None` once an axis overflows `usize`.
+        pub(crate) dims: Option<[usize; 3]>,
+        pub(crate) absent: bool,
+    }
+
+    impl CgcLeaves<'_> {
+        pub(crate) fn new() -> Self {
+            Self {
+                leaves: LeafBuf(InlineVec::with_capacity(0)),
+                dims: Some([1; 3]),
+                absent: false,
+            }
+        }
+
+        /// Multiply one leaf's magnetic dimensions into the axes.
+        pub(crate) fn times(&mut self, d: [usize; 3]) {
+            self.dims = self.dims.and_then(|x| {
+                let [a, b, c] = [0, 1, 2].map(|i| x[i].checked_mul(d[i]));
+                Some([a?, b?, c?])
+            });
+        }
+    }
+
+    /// The exact channels of a query's Radical leaves, in leaf order.
+    pub struct CgcExact(pub(crate) Vec<crate::rounding::cgc::ExactLeaf>);
 }
 
 /// Closed scalar set (`f64`, `Complex64`) with arithmetic preserving the type.
@@ -1248,10 +1307,9 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         let _ = op;
         Ok(sealed::ExactAnswer::Unavailable)
     }
-    // Multiplies the object's exact dimension, an integer, into `d` and
-    // returns `true`; `false` (leaving `d` unspecified) for a numeric
-    // dimension. Not an `ExactOp`: a product's dimension queries are per-call
-    // hot paths, so each factor is one direct call, not a protocol step.
+    // The object's exact dimension, an integer, or `Numeric`. Not an
+    // `ExactOp`: a product's dimension queries are per-call hot paths, so
+    // each factor is one direct call returning a value, not a protocol step.
     #[doc(hidden)]
     fn __fusion_symbols_exact_dim(
         &self,
@@ -1294,6 +1352,15 @@ pub(crate) fn exact_dim<C: FusionCategory>(cat: &C, a: &C::Object, value: DimVal
     let mut d = sealed::DimAcc::ONE;
     cat.__fusion_symbols_exact_dim(a, &mut d, sealed::Validated(()))
         .then(|| d.round(value))
+}
+
+/// The exact CGC hook of a category whose every CGC is the scalar `N(a, b,
+/// c)`, `1` or absent: no Radical leaf.
+pub(crate) fn unit_cgc(n: u32, op: sealed::CgcOp<'_, '_>) -> bool {
+    if let sealed::CgcOp::Describe(leaves) = op {
+        leaves.absent |= n == 0;
+    }
+    true
 }
 
 /// The exact-dimension hook of a category whose `dim` is a small integer
@@ -1341,9 +1408,8 @@ pub(crate) fn rank2_block<S: Scalar>(
 /// Clebsch–Gordan block with axes `[dim(a), dim(b), dim(c), N(a,b,c)]`;
 /// an absent channel has multiplicity axis 0.
 ///
-/// Tuples of 2..=12 blocks and vectors of any length represent lazy Kronecker
-/// products: the last factor varies fastest on every axis. Their `dims` may panic
-/// if a combined axis overflows `usize`; blocks returned by `Product::cgc` are checked.
+/// A product's block ([`crate::lie::LieCgc`]) varies the last factor fastest
+/// on every axis.
 pub trait CgcBlock {
     /// Axis lengths, with multiplicity last.
     fn dims(&self) -> [usize; 4];
@@ -1443,6 +1509,18 @@ pub trait GroupRepresentations: FusionCategory {
         b: &Self::Object,
         c: &Self::Object,
     ) -> Result<Self::Cgc, Self::Error>;
+    // The exact product CGC protocol; the default is unavailable, which
+    // keeps a product containing this category on the float path.
+    #[doc(hidden)]
+    fn __fusion_symbols_exact_cgc<'q>(
+        &self,
+        q: [&'q Self::Object; 3],
+        op: sealed::CgcOp<'q, '_>,
+        _: sealed::Validated,
+    ) -> Result<bool, Self::Error> {
+        let _ = (q, op);
+        Ok(false)
+    }
 }
 
 mod enumeration;

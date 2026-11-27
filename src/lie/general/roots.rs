@@ -1285,6 +1285,8 @@ pub(crate) enum ProductValue {
     Labels(Product),
     /// A product query's composite view (`cache::composed`).
     Composite(crate::category::sealed::View),
+    /// A product's composite CGC channel (`cache::composed_cgc`).
+    CompositeCgc(Arc<crate::lie::general::cgc::CgcChannel>),
 }
 impl crate::cache::CacheCharge for ProductValue {
     fn value_bytes(&self) -> usize {
@@ -1293,6 +1295,7 @@ impl crate::cache::CacheCharge for ProductValue {
                 Self::Multiplicities(x) => x.value_bytes(),
                 Self::Labels(x) => x.value_bytes(),
                 Self::Composite(x) => x.value_bytes(),
+                Self::CompositeCgc(x) => crate::cache::channel_bytes(x),
             }
     }
 }

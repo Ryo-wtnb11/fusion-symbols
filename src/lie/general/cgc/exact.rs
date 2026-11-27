@@ -979,6 +979,11 @@ impl ExactCgc {
         self.mult
     }
 
+    /// The Weyl dimensions `d_a, d_b, d_c`.
+    pub(crate) fn dims(&self) -> [usize; 3] {
+        self.dims
+    }
+
     /// The number of exactly nonzero entries.
     pub(crate) fn len(&self) -> usize {
         self.coords.m_ab.len()

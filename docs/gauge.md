@@ -115,7 +115,9 @@ multiplicity axis has the last factor fastest. Product F, R, A and B are the
 exact products of the factors' exact values, rounded once to `f64`, whenever
 every factor supplies exact values (every Lie, torus, U(1), CU(1), Z_N and
 parity factor); otherwise factor coefficients multiply left to right in
-floating point. CGCs multiply left to right. These conventions introduce no
+floating point. Product CGCs follow the same rule: the exact products of
+the factors' exact entries rounded once, or, with a factor defined outside
+the crate, the left-to-right `f64` products. These conventions introduce no
 change to simple-factor values.
 A character lattice `Q ⊆ X ⊆ P` only restricts admitted objects; all fusion
 outcomes remain admitted because `ν−λ−μ ∈ Q`. It neither changes coefficients

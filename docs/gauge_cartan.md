@@ -59,7 +59,11 @@ The gauge of a simple factor is chosen by its **presented root system**
   [`gauge.md` §2](gauge.md#2-semisimple-products-and-central-quotients). A
   simple factor contributes the exact values defined here; a product's F, R,
   A and B are the exact Kronecker products of its factors' exact blocks,
-  rounded once (the §6.2 rounding of the composed block, gated as in §7). Torus factors
+  rounded once (the §6.2 rounding of the composed block, gated as in §7).
+  A product's CGC is likewise the exact Kronecker product of its factors'
+  exact channels (§4.7, last factor fastest on every axis): each entry
+  `Π sign(X_i) · √(Π X_i² ρ_i n^a n^b/n^c)` is one radical, rounded once by
+  the §6.2 conversion. Torus factors
   (U(1)) have no Cartan matrix and are outside this document.
 - **Build features.** `A_1` coefficients are available in every build;
   higher-rank simple types require the `lie-generated` feature. Feature

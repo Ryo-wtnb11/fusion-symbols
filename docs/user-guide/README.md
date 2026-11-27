@@ -359,6 +359,9 @@ let x = (su2.irrep_spin(HalfInt::new(1, 2)?)?, U1Irrep::new(1)?);
 let y = (su2.irrep_spin(HalfInt::new(1, 1)?)?, U1Irrep::new(2)?);
 let c = spin_charge.cgc(&x, &x, &y)?;
 assert_eq!(c.dims(), [2, 2, 3, 1]);
+// A product CGC is one sparse `LieCgc`; each entry is rounded once from the
+// exact product of the factors' entries.
+assert_eq!(c.get([1, 1, 2, 0]), 1.0);
 
 let chain = Product::new(vec![U1; 4]);
 assert_eq!(chain.unit(), vec![U1.unit(); 4]);

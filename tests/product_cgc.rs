@@ -335,7 +335,9 @@ fn to_dense_capacity_and_empty_shapes() {
     // the empty vector product is the trivial one-entry CGC.
     assert_eq!(CgcBlock::to_dense(&1.0f64), [1.0]);
     assert!(CgcBlock::to_dense(&0.0f64).is_empty());
-    assert_eq!(Vec::<f64>::new().to_dense(), [1.0]);
+    let empty = Product::new(Vec::<ZN>::new());
+    let unit = empty.unit();
+    assert_eq!(empty.cgc(&unit, &unit, &unit).unwrap().to_dense(), [1.0]);
 }
 
 #[test]
@@ -371,8 +373,13 @@ fn to_dense_products_expand_factors_last_fastest() {
         (half.clone(), half.clone()),
         (one.clone(), half.clone()),
     );
-    let tuple = cat.cgc(&a, &b, &c).unwrap();
-    assert_eq!(tuple.to_dense(), expected);
+    let tuple = cat.cgc(&a, &b, &c).unwrap().to_dense();
+    // Each entry is the once-rounded exact product, within an ulp of the
+    // product of the rounded factors (bits: `su2_su2_block_is_…`).
+    assert_eq!(tuple.len(), expected.len());
+    for (x, y) in tuple.iter().zip(&expected) {
+        assert!((x - y).abs() <= f64::EPSILON * y.abs(), "{x} {y}");
+    }
     let vector = Product::new(vec![spin.clone(); 2])
         .cgc(
             &vec![half.clone(), one.clone()],
@@ -380,15 +387,313 @@ fn to_dense_products_expand_factors_last_fastest() {
             &vec![one.clone(), half.clone()],
         )
         .unwrap();
-    assert_eq!(vector.to_dense(), expected);
+    assert_eq!(vector.to_dense(), tuple);
     // A trivial ZN factor nested on the right changes no value.
     let z = ZN::new(3).unwrap();
     let nested = Product::new((cat, z));
     let q = ZNIrrep::new(0, 3).unwrap();
     let block = nested.cgc(&(a, q), &(b, q), &(c, q)).unwrap();
     let mut first = block.to_dense();
-    assert_eq!(first, expected);
+    assert_eq!(first, tuple);
     // Each call returns independent owned storage.
     first[0] = 7.0;
-    assert_eq!(block.to_dense(), expected);
+    assert_eq!(block.to_dense(), tuple);
+}
+
+/// `⟨j₁ m₁; j₂ m₂ | J M⟩²` by Racah's formula, every argument doubled.
+fn racah_squared(j1: i64, m1: i64, j2: i64, m2: i64, j: i64, m: i64) -> malachite_q::Rational {
+    use malachite_nz::natural::Natural;
+    use malachite_q::Rational;
+    let half = |x: i64| (x >= 0 && x % 2 == 0).then_some(x / 2);
+    let fact = |n: i64| (1..=n as u64).map(Natural::from).product::<Natural>();
+    let parts = [
+        j + j1 - j2,
+        j - j1 + j2,
+        j1 + j2 - j,
+        j1 + j2 + j,
+        j + m,
+        j - m,
+        j1 - m1,
+        j1 + m1,
+        j2 - m2,
+        j2 + m2,
+    ]
+    .map(half);
+    let (true, Some([a, b, c, s, jp, jm, am, ap, bm, bp])) = (
+        m1 + m2 == m,
+        parts
+            .into_iter()
+            .collect::<Option<Vec<_>>>()
+            .map(|v| <[i64; 10]>::try_from(v).unwrap()),
+    ) else {
+        return Rational::from(0);
+    };
+    let pre = Rational::from(j + 1)
+        * Rational::from_naturals(fact(a) * fact(b) * fact(c), fact(s + 1))
+        * Rational::from(fact(jp) * fact(jm) * fact(am) * fact(ap) * fact(bm) * fact(bp));
+    let mut sum = Rational::from(0);
+    for k in 0..=c {
+        let terms = [
+            k,
+            c - k,
+            am - k,
+            bp - k,
+            (j - j2 + m1) / 2 + k,
+            (j - j1 - m2) / 2 + k,
+        ];
+        if terms.iter().any(|&t| t < 0) {
+            continue;
+        }
+        let den = terms.iter().map(|&t| fact(t)).product::<Natural>();
+        let term = Rational::from_naturals(Natural::from(1u32), den);
+        if k % 2 == 0 {
+            sum += term;
+        } else {
+            sum -= term;
+        }
+    }
+    pre * &sum * &sum
+}
+
+/// The `f64` nearest to `√r` for a positive rational, by exact midpoint
+/// comparisons (no tie occurs for an irrational root or an exact one).
+fn nearest_sqrt(r: &malachite_q::Rational) -> f64 {
+    use malachite_base::num::conversion::traits::{ExactFrom, RoundingFrom};
+    use malachite_base::rounding_modes::RoundingMode;
+    use malachite_q::Rational;
+    let next = |y: f64| f64::from_bits(y.to_bits() + 1);
+    let prev = |y: f64| f64::from_bits(y.to_bits() - 1);
+    let mid_squared = |a: f64, b: f64| {
+        let m = (Rational::exact_from(a) + Rational::exact_from(b)) / Rational::from(2);
+        &m * &m
+    };
+    let mut y = f64::rounding_from(r, RoundingMode::Nearest).0.sqrt();
+    loop {
+        let (up, down) = (mid_squared(y, next(y)), mid_squared(prev(y), y));
+        assert!(*r != up && *r != down);
+        if *r > up {
+            y = next(y);
+        } else if *r < down {
+            y = prev(y);
+        } else {
+            return y;
+        }
+    }
+}
+
+// Purpose: every entry of a product of two SU(2) CGCs is the exact product
+// of the two Racah coefficients, rounded once; the oracle composes the
+// Racah squares rationally (signs from the factors' own blocks). An exactly
+// zero entry is +0.
+#[test]
+fn su2_su2_block_is_the_rounded_exact_product() {
+    let g = su2();
+    let cat = Product::new((g.clone(), g.clone()));
+    let pair = |x, y| (g.irrep(&[x]).unwrap(), g.irrep(&[y]).unwrap());
+    for [ja0, ja1, jb0, jb1, jc0, jc1] in
+        [[1, 2, 1, 1, 2, 1], [3, 2, 2, 2, 3, 2], [4, 3, 2, 3, 2, 4]]
+    {
+        let [a, b, c] = [(ja0, ja1), (jb0, jb1), (jc0, jc1)].map(|(x, y)| pair(x, y));
+        let block = cat.cgc(&a, &b, &c).unwrap();
+        let l0 = g.cgc(&a.0, &b.0, &c.0).unwrap();
+        let l1 = g.cgc(&a.1, &b.1, &c.1).unwrap();
+        let [da1, db1, dc1] = [ja1, jb1, jc1].map(|j| j as usize + 1);
+        let [da, db, dc, n] = block.dims();
+        assert_eq!(n, 1);
+        let m = |i: usize, tj: i64| 2 * i as i64 - tj;
+        for i in 0..da {
+            for j in 0..db {
+                for k in 0..dc {
+                    let [x0, x1] = [
+                        [i / da1, j / db1, k / dc1, 0],
+                        [i % da1, j % db1, k % dc1, 0],
+                    ];
+                    let r =
+                        racah_squared(ja0, m(x0[0], ja0), jb0, m(x0[1], jb0), jc0, m(x0[2], jc0))
+                            * racah_squared(
+                                ja1,
+                                m(x1[0], ja1),
+                                jb1,
+                                m(x1[1], jb1),
+                                jc1,
+                                m(x1[2], jc1),
+                            );
+                    let sign = l0.get(x0).signum() * l1.get(x1).signum();
+                    let want = if r == 0 { 0.0 } else { sign * nearest_sqrt(&r) };
+                    assert_eq!(block.get([i, j, k, 0]).to_bits(), want.to_bits());
+                }
+            }
+        }
+    }
+    // Witness: -√(1/3) = ⟨½ -½; ½ ½ | 1 0⟩ · ⟨1 -1; ½ ½ | ½ -½⟩ rounds to
+    // ...331c once, while the product of the rounded factors is ...331d.
+    let [a, b, c] = [pair(1, 2), pair(1, 1), pair(2, 1)];
+    let exact = cat.cgc(&a, &b, &c).unwrap().get([0, 3, 2, 0]);
+    let float = g.cgc(&a.0, &b.0, &c.0).unwrap().get([0, 1, 1, 0])
+        * g.cgc(&a.1, &b.1, &c.1).unwrap().get([0, 1, 0, 0]);
+    assert_eq!(exact.to_bits(), 0xbfe2_79a7_4590_331c);
+    assert_eq!(float.to_bits(), 0xbfe2_79a7_4590_331d);
+}
+
+// Purpose: a product's CGC depends only on its ordered Radical leaves: a flat
+// tuple, nested tuples with a unit factor, a vector and a composite Lie factor
+// give the same bits.
+#[test]
+fn flat_nested_vec_and_composite_products_agree_bitwise() {
+    let g = su2();
+    let z = ZN::new(3).unwrap();
+    let q = ZNIrrep::new(0, 3).unwrap();
+    let spin4 = LieGroup::new(GroupId::spin(4).unwrap()).unwrap();
+    let x = |j| g.irrep(&[j]).unwrap();
+    let labels = [[1, 2, 1], [1, 1, 2], [2, 1, 1]];
+    let bits = |block: fusion_symbols::lie::LieCgc| {
+        block
+            .to_dense()
+            .iter()
+            .map(|v| v.to_bits())
+            .collect::<Vec<_>>()
+    };
+    let [a, b, c] = labels.map(|[p, r, s]| (x(p), x(r), x(s)));
+    let flat = Product::new((g.clone(), g.clone(), g.clone()));
+    let want = bits(flat.cgc(&a, &b, &c).unwrap());
+    assert!(want.iter().any(|&v| v != 0));
+    let nested = Product::new((g.clone(), Product::new((g.clone(), z, g.clone()))));
+    let [a, b, c] = labels.map(|[p, r, s]| (x(p), (x(r), q, x(s))));
+    assert_eq!(bits(nested.cgc(&a, &b, &c).unwrap()), want);
+    let vector = Product::new(vec![g.clone(); 3]);
+    let [a, b, c] = labels.map(|l| l.map(x).to_vec());
+    assert_eq!(bits(vector.cgc(&a, &b, &c).unwrap()), want);
+    let composite = Product::new((g.clone(), spin4.clone()));
+    let [a, b, c] = labels.map(|[p, r, s]| (x(p), spin4.irrep(&[r, s]).unwrap()));
+    assert_eq!(bits(composite.cgc(&a, &b, &c).unwrap()), want);
+}
+
+/// A downstream group forwarding its CGCs, outside the exact protocol.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct Forward(LieGroup);
+impl FusionCategory for Forward {
+    type Object = fusion_symbols::lie::LieIrrep;
+    type Scalar = f64;
+    type FSymbol = <LieGroup as FusionCategory>::FSymbol;
+    type RSymbol = <LieGroup as FusionCategory>::RSymbol;
+    type Error = fusion_symbols::lie::LieError;
+    type Fusion<'a> = <LieGroup as FusionCategory>::Fusion<'a>;
+    fn fusion_style(&self) -> fusion_symbols::category::FusionStyle {
+        self.0.fusion_style()
+    }
+    fn braiding_style(&self) -> fusion_symbols::category::BraidingStyle {
+        self.0.braiding_style()
+    }
+    fn unit(&self) -> Self::Object {
+        self.0.unit()
+    }
+    fn contains(&self, a: &Self::Object) -> bool {
+        self.0.contains(a)
+    }
+    fn dual(&self, a: &Self::Object) -> Self::Object {
+        self.0.dual(a)
+    }
+    fn dim(&self, a: &Self::Object) -> f64 {
+        self.0.dim(a)
+    }
+    fn frobenius_schur_phase(&self, a: &Self::Object) -> Result<f64, Self::Error> {
+        self.0.frobenius_schur_phase(a)
+    }
+    fn frobenius_schur_indicator(&self, a: &Self::Object) -> f64 {
+        self.0.frobenius_schur_indicator(a)
+    }
+    fn twist(&self, a: &Self::Object) -> Result<f64, Self::Error> {
+        self.0.twist(a)
+    }
+    fn fusion<'a>(
+        &'a self,
+        a: &Self::Object,
+        b: &Self::Object,
+    ) -> Result<Self::Fusion<'a>, Self::Error> {
+        self.0.fusion(a, b)
+    }
+    fn nsymbol(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+    ) -> Result<u32, Self::Error> {
+        self.0.nsymbol(a, b, c)
+    }
+    fn f_symbol(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+        d: &Self::Object,
+        e: &Self::Object,
+        f: &Self::Object,
+    ) -> Result<Self::FSymbol, Self::Error> {
+        self.0.f_symbol(a, b, c, d, e, f)
+    }
+    fn r_symbol(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+    ) -> Result<Self::RSymbol, Self::Error> {
+        self.0.r_symbol(a, b, c)
+    }
+    fn object_count(&self) -> Result<Option<u64>, fusion_symbols::category::EnumerationError> {
+        self.0.object_count()
+    }
+    fn object_at(
+        &self,
+        index: u64,
+    ) -> Result<Self::Object, fusion_symbols::category::EnumerationError> {
+        self.0.object_at(index)
+    }
+    fn object_index(
+        &self,
+        a: &Self::Object,
+    ) -> Result<u64, fusion_symbols::category::EnumerationError> {
+        self.0.object_index(a)
+    }
+}
+impl GroupRepresentations for Forward {
+    type Cgc = fusion_symbols::lie::LieCgc;
+    fn cgc(
+        &self,
+        a: &Self::Object,
+        b: &Self::Object,
+        c: &Self::Object,
+    ) -> Result<Self::Cgc, Self::Error> {
+        self.0.cgc(a, b, c)
+    }
+}
+
+// Purpose: a product with a factor outside the exact protocol keeps the one
+// float path: each entry is the product of the factors' rounded entries, so
+// the witness of `su2_su2_block_is_the_rounded_exact_product` keeps its
+// float bits there.
+#[test]
+fn a_downstream_factor_keeps_the_float_product() {
+    let g = su2();
+    let x = |j| g.irrep(&[j]).unwrap();
+    let cat = Product::new((Forward(g.clone()), g.clone()));
+    let [a, b, c] = [(x(1), x(2)), (x(1), x(1)), (x(2), x(1))];
+    let block = cat.cgc(&a, &b, &c).unwrap();
+    assert_eq!(block.dims(), [6, 4, 6, 1]);
+    assert_eq!(block.get([0, 3, 2, 0]).to_bits(), 0xbfe2_79a7_4590_331d);
+    let (l0, l1) = (
+        g.cgc(&a.0, &b.0, &c.0).unwrap(),
+        g.cgc(&a.1, &b.1, &c.1).unwrap(),
+    );
+    let dense = block.to_dense();
+    let mut flat = 0;
+    for i in 0..6 {
+        for j in 0..4 {
+            for k in 0..6 {
+                let want = l0.get([i / 3, j / 2, k / 2, 0]) * l1.get([i % 3, j % 2, k % 2, 0]);
+                // An exactly zero entry has no stored value and reads +0.
+                assert_eq!(dense[flat].to_bits(), (want + 0.0).to_bits());
+                flat += 1;
+            }
+        }
+    }
 }

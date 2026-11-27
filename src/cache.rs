@@ -1463,9 +1463,7 @@ impl CacheCharge for CgcValue {
             Self::Module(m) => ARC_COUNTS_BYTES
                 .saturating_add(std::mem::size_of::<Ladders>())
                 .saturating_add(m.bytes()),
-            Self::Channel(c) => ARC_COUNTS_BYTES
-                .saturating_add(std::mem::size_of::<CgcChannel>())
-                .saturating_add(std::mem::size_of_val(c.entries.as_ref())),
+            Self::Channel(c) => channel_bytes(c),
             Self::Phase(_) => 0,
             Self::ExactChannel(c) => ARC_COUNTS_BYTES.saturating_add(c.bytes()),
             Self::Seeds(s) => ARC_COUNTS_BYTES.saturating_add(s.bytes()),
@@ -1749,6 +1747,36 @@ pub(crate) fn composed<E>(
         || ProductTierKey::Composed(key.to_key()),
         |_| compute().map(ProductValue::Composite),
     )
+}
+
+/// The composite CGC channel of a product query's Radical leaves (two or
+/// more), in the Product tier, charged by its entries. Its authority is the
+/// leaves' exact channels and the deterministic composition: no composite
+/// exact entry is stored.
+pub(crate) fn composed_cgc<E>(
+    leaves: &LeafBuf<'_>,
+    compute: impl FnOnce() -> Result<Arc<CgcChannel>, E>,
+) -> Result<Arc<CgcChannel>, E> {
+    let key = ComposedRef {
+        symbol: SymbolKind::Cgc,
+        leaves,
+    };
+    CACHE_PRODUCT.get_or_try_sweep(
+        &key,
+        |value| match value {
+            ProductValue::CompositeCgc(channel) => channel.clone(),
+            _ => unreachable!("a composite CGC key stores a channel"),
+        },
+        || ProductTierKey::Composed(key.to_key()),
+        |_| compute().map(ProductValue::CompositeCgc),
+    )
+}
+
+/// The retained bytes of a shared rounded channel.
+pub(crate) fn channel_bytes(c: &CgcChannel) -> usize {
+    ARC_COUNTS_BYTES
+        .saturating_add(std::mem::size_of::<CgcChannel>())
+        .saturating_add(std::mem::size_of_val(c.entries.as_ref()))
 }
 
 impl CacheCharge for View {

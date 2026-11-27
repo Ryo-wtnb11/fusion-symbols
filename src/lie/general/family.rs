@@ -302,6 +302,30 @@ impl GeneralFamily {
         })
     }
 
+    /// The exact channel `a ⊗ b → c` with the norm tables its entries read
+    /// (none for an empty channel), for a product's composite CGC. A
+    /// generation gates the leaf's view as [`Self::cgc_entries`] does; the
+    /// view is not retained here, so a later leaf query rounds it again.
+    pub(crate) fn cgc_exact(
+        &self,
+        a: Label<'_>,
+        b: Label<'_>,
+        c: Label<'_>,
+    ) -> Result<crate::rounding::cgc::ExactLeaf, LieError> {
+        let mut modules = RequestModules::default();
+        let exact = self.exact_channel_in(a, b, c, &mut modules, None, &mut None)?;
+        let norms = if exact.is_empty() {
+            None
+        } else {
+            Some([
+                self.norm_table_in(a, &mut modules)?,
+                self.norm_table_in(b, &mut modules)?,
+                self.norm_table_in(c, &mut modules)?,
+            ])
+        };
+        Ok(crate::rounding::cgc::ExactLeaf { exact, norms })
+    }
+
     /// The exact channel `a ⊗ b → c`, shared through the CGC tier and the
     /// disk tier. A generation also rounds and gates its view, and is
     /// retained only once that view passed.
