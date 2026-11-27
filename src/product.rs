@@ -199,6 +199,12 @@ pub enum ProductError<
         /// Zero-based immediate factor index.
         factor: usize,
     },
+    /// The rounding of an exactly composed block failed the named check
+    /// (`"F"`: a finite entry; `"R"`: unitarity).
+    Gate {
+        /// The symbol whose check failed.
+        gate: &'static str,
+    },
 }
 impl<
         E0: std::error::Error,
@@ -234,6 +240,7 @@ impl<
                 "product factor {factor}: malformed symbol data (expected axes {expected:?}, actual axes {actual:?}, storage length {storage_len})"),
             Self::Overflow => f.write_str("product shape or multiplicity overflow"),
             Self::NoBraiding { factor } => write!(f, "product factor {factor} has no braiding"),
+            Self::Gate { gate } => write!(f, "composed product {gate} symbol failed its rounding gate"),
         }
     }
 }
