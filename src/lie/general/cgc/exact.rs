@@ -1132,6 +1132,24 @@ impl HighestColumn {
         std::mem::size_of::<Self>().saturating_add(self.coords.bytes())
     }
 
+    /// The seed column of multiplicity `mu` (engine index 0 of `c`), read in
+    /// place: its public `(m_a, m_b)` pairs, `|X|` words, signs and vertex
+    /// `ρ_μ`. Its `mc()` is 0, the column's index within the seed set.
+    pub(crate) fn column_coords(&self, mu: usize) -> ColumnCoords<'_> {
+        let range = self.coords.column(mu);
+        let MuCoords { x, vertex, .. } = &self.coords.per_mu[mu];
+        ColumnCoords {
+            mu,
+            mc: 0,
+            pairs: &self.coords.m_ab[range.clone()],
+            mag: x.words(0, range.len()),
+            stride: x.stride(),
+            neg: x.sign_words(),
+            neg_at: 0,
+            vertex,
+        }
+    }
+
     /// `(m_a, m_b, μ, sign(X)·X²·ρ_μ)` per entry, in order.
     #[cfg(test)]
     pub(crate) fn signed_squares(&self) -> Vec<(u32, u32, u32, malachite_q::Rational)> {

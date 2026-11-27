@@ -114,7 +114,6 @@ impl SignedInts {
     ///
     /// The stride is found first, so the limbs are written straight into one
     /// slab allocation with no per-entry buffer.
-    #[cfg(test)]
     pub(crate) fn from_naturals(values: &[(bool, Natural)]) -> Option<Self> {
         let len = values.len();
         let stride = values
@@ -188,7 +187,8 @@ impl SignedInts {
     }
 
     /// Significant bits of `|entry i|`.
-    #[cfg(any(test, feature = "disk-cache"))]
+    // Read by the exact F and R bounds; until then only tests and the disk tier.
+    #[cfg_attr(not(any(test, feature = "disk-cache")), allow(dead_code))]
     pub(crate) fn bits(&self, i: usize) -> u64 {
         let w = self.magnitude(i);
         w.last().map_or(0, |&top| {
@@ -197,7 +197,8 @@ impl SignedInts {
     }
 
     /// The largest [`Self::bits`] over all entries.
-    #[cfg(any(test, feature = "disk-cache"))]
+    // Read by the exact F and R bounds; until then only tests and the disk tier.
+    #[cfg_attr(not(any(test, feature = "disk-cache")), allow(dead_code))]
     pub(crate) fn max_bits(&self) -> u64 {
         (0..self.len).map(|i| self.bits(i)).max().unwrap_or(0)
     }

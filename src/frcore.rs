@@ -16,6 +16,8 @@
 //! would be mostly zeros and pay a densify+GEMM+scatter tax the join avoids).
 //! The join order is normative (§6.2): it fixes every rounded product and sum.
 
+mod accum;
+
 use std::collections::HashMap;
 
 use threadteam::Exec;

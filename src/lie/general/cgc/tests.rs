@@ -2704,6 +2704,25 @@ fn seeds_are_the_highest_weight_column() {
             .unwrap();
         assert_eq!(seeds.mult(), 2, "{root:?}");
         assert!(seeds.signed_squares() == want, "{root:?}");
+        // The seed column read in place gives the same signed squares.
+        let mut read = Vec::new();
+        for mu in 0..seeds.mult() {
+            let col = seeds.column_coords(mu);
+            assert_eq!((col.mu(), col.mc()), (mu, 0));
+            let rho = malachite_q::Rational::from_naturals(
+                col.vertex().num().clone(),
+                col.vertex().den().clone(),
+            );
+            for (j, &(ma, mb)) in col.pairs().iter().enumerate() {
+                let x = malachite_q::Rational::from(crate::exact::radical::words_natural(
+                    col.magnitude(j),
+                ));
+                let sq = &x * &x * &rho;
+                let sq = if col.is_negative(j) { -sq } else { sq };
+                read.push((ma, mb, mu as u32, sq));
+            }
+        }
+        assert!(read == want, "{root:?}: column_coords");
     }
     let one = Label::new(&[1]);
     assert!(matches!(
