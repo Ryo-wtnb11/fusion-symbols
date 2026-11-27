@@ -34,6 +34,7 @@ identities use `tests/category_conformance.rs::conformance`.
 | `dim`, scalars | `dim` (l. 107); `fusionscalartype` / `braidingscalartype` `Float64` (l. 110-111) |
 | `Nsymbol`, `Fsymbol`, `Rsymbol`, FS phase | `Nsymbol` (l. 115), `Fsymbol` (l. 125), `Rsymbol` (l. 215), `frobenius_schur_phase` (l. 254); `BraidingStyle(::AbstractIrrep) = Bosonic()` (`irreps.jl` l. 17) |
 | Twist | no override; generic `src/sectors.jl:twist_from_Rsymbol` (l. 647), which is `1` for every label |
+| `Asymbol`, `Bsymbol` | the generic `src/sectors.jl:Asymbol_from_Fsymbol` / `Bsymbol_from_Fsymbol` formulas, evaluated exactly: `√(d_a d_b/d_c)` under one root times the exact F (`lie::cu1::exact_f`), rounded once, so a unit value is exactly `±1` where the reference's rounded product can be `1 + 2^−52` |
 | TKS values | `tests/cu1_values.rs`: every F and R over `0±`, `2j ≤ 5` equals the dense recoupling of the `fusiontensor` Clebsch–Gordan tensors written in the test, plus literals checked against TKS 0.3.9. Deliberate deviation: TKS `Rsymbol` gives `-0.0` on inadmissible `R^{ab}_{0-}` with charged `a` (`-convert(Float64, N)`, `N = 0`), this crate `+0.0` (the crate-wide exact-zero contract) |
 | Label range | Labels span the full `u32`, so fusions summing to exactly `u32::MAX` succeed, and `N` is exact everywhere. Only `CU1::fusion`, which must produce the labels, reports an overflow, above `u32::MAX`. A consumer with a narrower label encoding validates its own bound |
 

@@ -1,7 +1,10 @@
 //! Closed-form CU(1) coefficients.
 
 use super::HalfInt;
-use crate::category::{BraidingStyle, EnumerationError, FusionCategory, FusionStyle};
+use crate::category::{BraidingStyle, EnumerationError, FusionCategory, FusionStyle, RBlock};
+use crate::exact::SignedSqrtRational;
+use malachite_base::num::basic::traits::One;
+use malachite_q::Rational;
 
 /// An irrep of `CU(1)`, TensorKitSectors' `CU1Irrep(j, s)`, stored as
 /// `twice_charge = 2j` and `s`.
@@ -186,6 +189,153 @@ fn n(a: &CU1Irrep, b: &CU1Irrep, c: &CU1Irrep) -> u32 {
     u32::from(admissible)
 }
 
+/// A CU(1) F value: `0`, `±1`, `±1/2` or `±√2/2` (`±√(1/2)`).
+#[derive(Clone, Copy)]
+enum Exact {
+    Zero,
+    One(bool),
+    Half(bool),
+    Root(bool),
+}
+
+impl Exact {
+    fn value(self) -> SignedSqrtRational {
+        let (negative, radicand) = match self {
+            Self::Zero => return SignedSqrtRational::zero(),
+            Self::One(n) => (n, Rational::ONE),
+            Self::Half(n) => (n, Rational::from_signeds(1, 4)),
+            Self::Root(n) => (n, Rational::from_signeds(1, 2)),
+        };
+        let s = if negative {
+            -Rational::ONE
+        } else {
+            Rational::ONE
+        };
+        SignedSqrtRational::from_prefactor_radical(s, radicand)
+    }
+}
+
+/// The exact F-symbol `F^{abc}_d[e, f]`, the one authority of the CU(1) F,
+/// A and B values; exact `0` when a vertex is inadmissible.
+///
+/// `cu1irrep.jl:Fsymbol`, branch for branch: `1` when `a`, `b` or `c` is
+/// `0+` or two of them are `0-`; `±1` when one is `0-`; then entries `±1`,
+/// `±1/2`, `±√2/2` or `0` for charged `a`, `b`, `c`.
+pub(crate) fn exact_f(
+    a: &CU1Irrep,
+    b: &CU1Irrep,
+    c: &CU1Irrep,
+    d: &CU1Irrep,
+    e: &CU1Irrep,
+    f: &CU1Irrep,
+) -> SignedSqrtRational {
+    if [(a, b, e), (e, c, d), (b, c, f), (a, f, d)]
+        .iter()
+        .any(|&(a, b, c)| n(a, b, c) == 0)
+    {
+        return Exact::Zero.value();
+    }
+    let (a, b, c, d, e, f) = (*a, *b, *c, *d, *e, *f);
+    let (op, om) = (CU1Irrep::VACUUM, CU1Irrep::PSEUDOSCALAR);
+    let q = |x: CU1Irrep| i64::from(x.twice_charge);
+    if a == op || b == op || c == op {
+        return Exact::One(false).value();
+    }
+    // `(a == b == om) || (a == c == om) || (b == c == om)`.
+    if [a, b, c].iter().filter(|&&x| x == om).count() >= 2 {
+        return Exact::One(false).value();
+    }
+    let sign = Exact::One;
+    if a == om {
+        return Exact::value(sign(q(d) != 0 && q(d) == q(c) - q(b)));
+    }
+    if b == om {
+        return Exact::value(sign(q(d) == (q(a) - q(c)).abs()));
+    }
+    if c == om {
+        return Exact::value(sign(q(d) == q(a) - q(b)));
+    }
+    // From here on a, b, c are charged. `T(sqrt(2) / 2)` in TensorKitSectors.
+    let s = Exact::Root(false);
+    let m = Exact::Root(true);
+    if a == b && b == c {
+        return Exact::value(if d == a {
+            if q(e) == 0 {
+                if q(f) == 0 {
+                    if f.s == 1 {
+                        Exact::Half(true)
+                    } else {
+                        Exact::Half(false)
+                    }
+                } else if e.s == 1 {
+                    m
+                } else {
+                    s
+                }
+            } else if q(f) == 0 {
+                s
+            } else {
+                Exact::Zero
+            }
+        } else {
+            Exact::One(false)
+        });
+    }
+    if a == b {
+        return Exact::value(if d == c {
+            if q(f) == q(b) + q(c) && e.s == 1 {
+                m
+            } else {
+                s
+            }
+        } else {
+            Exact::One(false)
+        });
+    }
+    if b == c {
+        return Exact::value(if d == a {
+            if q(e) != q(a) + q(b) && f.s == 1 {
+                m
+            } else {
+                s
+            }
+        } else {
+            Exact::One(false)
+        });
+    }
+    if a == c {
+        return Exact::value(if d == b {
+            if q(e) == q(f) {
+                Exact::Zero
+            } else {
+                Exact::One(false)
+            }
+        } else {
+            sign(d.s == 1)
+        });
+    }
+    sign(d == om && q(b) == q(a) + q(c)).value()
+}
+
+/// `A^{ab}_c` (`is_b = false`) or `B^{ab}_c`: `√(d_a d_b/d_c)` times the F of
+/// the unit-leg sextet, under one root, rounded once; `0 × 0` when absent.
+fn ab_symbol(is_b: bool, a: &CU1Irrep, b: &CU1Irrep, c: &CU1Irrep) -> RBlock<f64> {
+    if n(a, b, c) == 0 {
+        return RBlock::zeros(0);
+    }
+    let one = CU1Irrep::VACUUM;
+    let f = if is_b {
+        exact_f(a, b, b, a, c, &one)
+    } else {
+        exact_f(a, a, b, b, &one, c)
+    };
+    let d = |x: &CU1Irrep| if x.twice_charge == 0 { 1 } else { 2 };
+    let ratio = Rational::from_signeds(d(a) * d(b), d(c));
+    let value =
+        SignedSqrtRational::from_prefactor_radical(Rational::from(f.sign()), f.radicand() * ratio);
+    RBlock::one(value.to_f64())
+}
+
 impl FusionCategory for CU1 {
     type Object = CU1Irrep;
     type Scalar = f64;
@@ -297,91 +447,19 @@ impl FusionCategory for CU1 {
         e: &CU1Irrep,
         f: &CU1Irrep,
     ) -> Result<f64, CU1Error> {
-        if [(a, b, e), (e, c, d), (b, c, f), (a, f, d)]
-            .iter()
-            .any(|&(a, b, c)| n(a, b, c) == 0)
-        {
-            return Ok(0.0);
-        }
-        let (a, b, c, d, e, f) = (*a, *b, *c, *d, *e, *f);
-        let (op, om) = (CU1Irrep::VACUUM, CU1Irrep::PSEUDOSCALAR);
-        let q = |x: CU1Irrep| i64::from(x.twice_charge);
-        if a == op || b == op || c == op {
-            return Ok(1.0);
-        }
-        // `(a == b == om) || (a == c == om) || (b == c == om)`.
-        if [a, b, c].iter().filter(|&&x| x == om).count() >= 2 {
-            return Ok(1.0);
-        }
-        let sign = |negative: bool| if negative { -1.0 } else { 1.0 };
-        if a == om {
-            return Ok(sign(q(d) != 0 && q(d) == q(c) - q(b)));
-        }
-        if b == om {
-            return Ok(sign(q(d) == (q(a) - q(c)).abs()));
-        }
-        if c == om {
-            return Ok(sign(q(d) == q(a) - q(b)));
-        }
-        // From here on a, b, c are charged. `T(sqrt(2) / 2)` in TensorKitSectors.
-        let s = 2.0_f64.sqrt() / 2.0;
-        if a == b && b == c {
-            return Ok(if d == a {
-                if q(e) == 0 {
-                    if q(f) == 0 {
-                        if f.s == 1 {
-                            -0.5
-                        } else {
-                            0.5
-                        }
-                    } else if e.s == 1 {
-                        -s
-                    } else {
-                        s
-                    }
-                } else if q(f) == 0 {
-                    s
-                } else {
-                    0.0
-                }
-            } else {
-                1.0
-            });
-        }
-        if a == b {
-            return Ok(if d == c {
-                if q(f) == q(b) + q(c) && e.s == 1 {
-                    -s
-                } else {
-                    s
-                }
-            } else {
-                1.0
-            });
-        }
-        if b == c {
-            return Ok(if d == a {
-                if q(e) != q(a) + q(b) && f.s == 1 {
-                    -s
-                } else {
-                    s
-                }
-            } else {
-                1.0
-            });
-        }
-        if a == c {
-            return Ok(if d == b {
-                if q(e) == q(f) {
-                    0.0
-                } else {
-                    1.0
-                }
-            } else {
-                sign(d.s == 1)
-            });
-        }
-        Ok(sign(d == om && q(b) == q(a) + q(c)))
+        Ok(exact_f(a, b, c, d, e, f).to_f64())
+    }
+
+    /// `A^{ab}_c = √(d_a d_b/d_c)·F^{a a b}_b[0+, c]` (every irrep is
+    /// self-dual with `κ = 1`), formed exactly and rounded once.
+    fn a_symbol(&self, a: &CU1Irrep, b: &CU1Irrep, c: &CU1Irrep) -> Result<RBlock<f64>, CU1Error> {
+        Ok(ab_symbol(false, a, b, c))
+    }
+
+    /// `B^{ab}_c = √(d_a d_b/d_c)·F^{a b b}_a[c, 0+]`, formed exactly and
+    /// rounded once.
+    fn b_symbol(&self, a: &CU1Irrep, b: &CU1Irrep, c: &CU1Irrep) -> Result<RBlock<f64>, CU1Error> {
+        Ok(ab_symbol(true, a, b, c))
     }
 
     /// R-symbol `R^{ab}_c`: `-1.0` when admissible with `c = 0-` and `a`
@@ -573,5 +651,24 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The charged pair `a = b = (½, 2)` (dimension 2) into `0+`: A and B
+    /// both read `F^{aaa}_a[0+, 0+]`, exactly `+1/2`, so
+    /// `A = B = √(2·2/1)·½ = 1` exactly, where multiplying the rounded
+    /// factors gives `1 + 2^−52`.
+    #[test]
+    fn charged_a_and_b_are_exactly_one() {
+        use crate::category::SymbolBlock;
+        let a = CU1Irrep::new(HalfInt::from_doubled(1), 2).unwrap();
+        let one = CU1Irrep::VACUUM;
+        let quarter = malachite_q::Rational::from_signeds(1, 4);
+        assert_eq!(exact_f(&a, &a, &a, &a, &one, &one).signed_square(), quarter);
+        let cat = CU1;
+        for block in [cat.a_symbol(&a, &a, &one), cat.b_symbol(&a, &a, &one)] {
+            assert_eq!(block.unwrap().as_slice()[0].to_bits(), 0x3ff0000000000000);
+        }
+        let control = (2f64.sqrt() * 2f64.sqrt()) * 0.5;
+        assert_ne!(control.to_bits(), 0x3ff0000000000000);
     }
 }

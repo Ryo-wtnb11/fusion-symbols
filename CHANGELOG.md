@@ -9,6 +9,8 @@ value/gauge rule noted below.
 
 ### Changed
 
+- **Breaking (values):** CU(1) A and B are formed exactly from its exact F
+  and rounded once, so unit values are exactly `±1`; F and R are unchanged.
 - **Breaking (values):** F, R, A and B of every simple Lie type, and A and B
   of SU(2) and its presentations, are the exact values rounded once
   (`docs/gauge_cartan.md` §6.2), no longer binary64 contractions whose
