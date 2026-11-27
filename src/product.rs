@@ -1644,24 +1644,20 @@ where
         self.factors.iter().all(FusionCategory::has_canonical_unit)
     }
     fn dim(&self, a: &Self::Object) -> f64 {
-        assert_eq!(a.len(), self.factors.len(), "foreign product object");
         exact_dim(self, a, DimValue::Dim)
             .unwrap_or_else(|| scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.dim(a))))
     }
     fn sqrt_dim(&self, a: &Self::Object) -> f64 {
-        assert_eq!(a.len(), self.factors.len(), "foreign product object");
         exact_dim(self, a, DimValue::Sqrt).unwrap_or_else(|| {
             scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.sqrt_dim(a)))
         })
     }
     fn inv_sqrt_dim(&self, a: &Self::Object) -> f64 {
-        assert_eq!(a.len(), self.factors.len(), "foreign product object");
         exact_dim(self, a, DimValue::InvSqrt).unwrap_or_else(|| {
             scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.inv_sqrt_dim(a)))
         })
     }
     fn inv_dim(&self, a: &Self::Object) -> f64 {
-        assert_eq!(a.len(), self.factors.len(), "foreign product object");
         exact_dim(self, a, DimValue::Inv).unwrap_or_else(|| {
             scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.inv_dim(a)))
         })
@@ -1904,7 +1900,10 @@ where
         }
         Ok(fold.finish(&op))
     }
+    // Dimension queries reach this hook without `validate`, also from an
+    // enclosing product, so the length check lives here rather than in `dim`.
     fn __fusion_symbols_exact_dim(&self, a: &Self::Object, d: &mut DimAcc, t: Validated) -> bool {
+        assert_eq!(a.len(), self.factors.len(), "foreign product object");
         self.factors
             .iter()
             .zip(a)

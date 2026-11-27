@@ -4,7 +4,7 @@ use fusion_symbols::{
         CgcBlock, EnumerationError, FusionCategory, FusionStyle, GroupRepresentations, SymbolBlock,
     },
     finite::{ZNIrrep, ZN},
-    lie::{GroupId, LieError, LieGroup},
+    lie::{GroupId, LieError, LieGroup, U1},
     product::{Product, ProductError},
 };
 
@@ -389,4 +389,22 @@ fn fusion_indices_and_factor_errors() {
     assert!(!cat.contains(&foreign));
     assert!(std::panic::catch_unwind(|| cat.f_symbol(&a, &a, &a, &a, &a, &foreign)).is_err());
     assert!(std::panic::catch_unwind(|| cat.dim(&foreign)).is_err());
+}
+
+#[test]
+fn nested_vector_dims_reject_foreign_lengths() {
+    let p = Product::new((Product::new(vec![U1; 2]), U1));
+    for bad in [(vec![], U1.unit()), (vec![U1.unit(); 3], U1.unit())] {
+        for query in [
+            FusionCategory::dim,
+            FusionCategory::sqrt_dim,
+            FusionCategory::inv_dim,
+            FusionCategory::inv_sqrt_dim,
+        ] {
+            let message = std::panic::catch_unwind(|| query(&p, &bad))
+                .err()
+                .and_then(|e| e.downcast_ref::<String>().cloned());
+            assert!(message.is_some_and(|m| m.contains("foreign product object")));
+        }
+    }
 }
