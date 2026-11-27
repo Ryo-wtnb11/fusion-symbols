@@ -311,7 +311,42 @@ pub(crate) mod sealed {
         pub(crate) fn iter(&self) -> impl Iterator<Item = &T> {
             self.inline.iter().flatten().chain(&self.spill)
         }
+
+        pub(crate) fn get(&self, i: usize) -> Option<&T> {
+            match self.inline.get(i) {
+                Some(slot) => slot.as_ref(),
+                None => self.spill.get(i - N),
+            }
+        }
     }
+
+    /// Every leaf's leg N of one float-route query, depth-first, read back
+    /// in the same order for the block checks.
+    pub struct LegRows {
+        rows: InlineVec<[u32; 4], 4>,
+        next: usize,
+    }
+    impl Default for LegRows {
+        fn default() -> Self {
+            Self {
+                rows: InlineVec::with_capacity(0),
+                next: 0,
+            }
+        }
+    }
+    impl LegRows {
+        pub(crate) fn push(&mut self, row: [u32; 4]) {
+            self.rows.push(row);
+        }
+        pub(crate) fn next(&mut self) -> [u32; 4] {
+            let row = self.rows.get(self.next).copied().unwrap_or_default();
+            self.next += 1;
+            row
+        }
+    }
+
+    /// The float-route fold of one query's leaf blocks.
+    pub struct FloatSink(pub(crate) crate::product::FloatState);
 
     /// The Radical leaves of one product query, depth-first.
     pub struct LeafBuf<'q>(pub(crate) InlineVec<LeafRef<'q>, 4>);
@@ -1145,6 +1180,29 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         _: sealed::Validated,
     ) -> Result<u32, Self::Error> {
         self.nsymbol(a, b, c)
+    }
+    // The float route of a product query: a leaf's leg N, which a product
+    // overrides to visit its factors depth-first and fold their legs, so
+    // that each leaf is asked once whatever the nesting.
+    #[doc(hidden)]
+    fn __fusion_symbols_float_legs(
+        &self,
+        q: sealed::Query<'_, Self::Object>,
+        rows: &mut sealed::LegRows,
+        t: sealed::Validated,
+    ) -> [Result<u32, Self::Error>; 4] {
+        crate::product::leaf_legs(self, q, rows, t)
+    }
+    // Then each leaf's public block, in the same order.
+    #[doc(hidden)]
+    fn __fusion_symbols_float_blocks(
+        &self,
+        q: sealed::Query<'_, Self::Object>,
+        rows: &mut sealed::LegRows,
+        sink: &mut sealed::FloatSink,
+        _: sealed::Validated,
+    ) -> Result<(), Self::Error> {
+        crate::product::leaf_block(self, q, rows, sink)
     }
     // The exact product protocol: a product's F/R/A/B are the rounding of
     // the exact composition of its leaves' exact values when every factor

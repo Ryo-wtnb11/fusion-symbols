@@ -12,14 +12,14 @@
 //! view in the Product tier, keyed by the ordered leaves, so tuple, `Vec` and
 //! nested products of the same leaves agree bit for bit. A product with one
 //! non-unit leaf returns that leaf's own value. Otherwise (a table category
-//! or a category defined outside the crate) scalar promotion and
-//! multiplication fold left to right, and reassociation agrees up to
-//! floating-point tolerance where intermediate queries are representable. No
+//! or a category defined outside the crate) F/R/A/B fold the leaves' public
+//! values left to right through any nesting, with scalar promotion, so nested
+//! products of the same leaves agree bit for bit there too. No
 //! cross-factor fermionic sign is added. Products of group representations
 //! provide lazy Clebsch–Gordan blocks, with the last factor fastest on every
 //! axis.
 //!
-//! Nonzero F/R/A/B queries check each factor's storage axes against checked N
+//! Nonzero F/R/A/B queries check each leaf's storage axes against checked N
 //! symbols and its exact row-major storage length before composition. Invalid
 //! blocks return [`ProductError::MalformedSymbolData`]; nested errors retain
 //! their factor path. Zero-channel queries skip factor symbols.
@@ -50,7 +50,8 @@
 //! for a `FusionStyle::Generic` factor defined outside the crate, building a
 //! nonempty product iterates that factor's channels once more to find it.
 use crate::category::sealed::{
-    ExactAnswer, ExactBuf, ExactOp, InlineVec, LeafBuf, Query, SymbolKind, Unit, View,
+    ExactAnswer, ExactBuf, ExactOp, FloatSink, InlineVec, LeafBuf, LegRows, Query, SymbolKind,
+    Unit, View,
 };
 use crate::category::{
     rank_checked, sealed::ExactCount, sealed::Ranked, sealed::Validated, unrank, BraidingStyle,
@@ -60,8 +61,9 @@ use crate::category::{
 use crate::exact::radical::RadicalBlock;
 use crate::rounding::blocks::{check_f_block, check_r_block, round_block};
 use malachite_nz::integer::Integer;
+use num_complex::Complex64;
 use std::{
-    any::Any,
+    any::{Any, TypeId},
     convert::Infallible,
     fmt,
     hash::{Hash, Hasher},
@@ -279,28 +281,22 @@ impl<
 impl<E0, E1, E2, E3, E4, E5, E6, E7, E8, E9, E10, E11>
     ProductError<E0, E1, E2, E3, E4, E5, E6, E7, E8, E9, E10, E11>
 {
-    fn checked_block<B: SymbolBlock<R>, const R: usize>(
-        factor: usize,
-        block: B,
-        n: [u32; R],
-    ) -> Result<B, Self> {
-        let expected = shape::<B::Scalar, R>(n).ok_or(Self::Overflow)?;
-        let count = if expected.contains(&0) {
-            0
-        } else {
-            expected.iter().product()
-        };
-        let actual = block.dims();
-        let storage_len = block.as_slice().len();
-        if actual != expected || storage_len != count {
-            return Err(Self::MalformedSymbolData {
-                factor,
-                expected: expected.to_vec(),
-                actual: actual.to_vec(),
+    // A leaf block of the float route that disagreed with its leg N, as the
+    // error of the immediate factor that holds it.
+    fn malformed(sink: &mut FloatSink, factor: usize) -> Result<(), Self> {
+        match sink.0.malformed.take() {
+            None => Ok(()),
+            Some(Malformed {
+                expected,
+                actual,
                 storage_len,
-            });
+            }) => Err(Self::MalformedSymbolData {
+                factor,
+                expected,
+                actual,
+                storage_len,
+            }),
         }
-        Ok(block)
     }
 }
 
@@ -650,28 +646,6 @@ fn b_legs<C: FusionCategory>(
         cat.__fusion_symbols_validated_nsymbol(c, &dual, a, t),
     ]
 }
-fn f_of<C: FusionCategory>(
-    cat: &C,
-    [a, b, c, d, e, f]: [&C::Object; 6],
-) -> Result<C::FSymbol, C::Error> {
-    cat.f_symbol(a, b, c, d, e, f)
-}
-fn r_of<C: FusionCategory>(cat: &C, [a, b, c]: [&C::Object; 3]) -> Result<C::RSymbol, C::Error> {
-    cat.r_symbol(a, b, c)
-}
-fn a_of<C: FusionCategory>(
-    cat: &C,
-    [a, b, c]: [&C::Object; 3],
-) -> Result<RBlock<C::Scalar>, C::Error> {
-    cat.a_symbol(a, b, c)
-}
-fn b_of<C: FusionCategory>(
-    cat: &C,
-    [a, b, c]: [&C::Object; 3],
-) -> Result<RBlock<C::Scalar>, C::Error> {
-    cat.b_symbol(a, b, c)
-}
-
 // A block shape from its legs' N: the first failing leg's error, then overflow.
 fn leg_shape<S, E, const R: usize>(
     legs: [Result<u32, E>; R],
@@ -684,27 +658,189 @@ fn leg_shape<S, E, const R: usize>(
     shape::<S, R>(n).ok_or_else(overflow)
 }
 
-// The float route reads every factor's leg N once, before any factor block.
-// The product legs fold them as `nsymbol` does (a zero factor N beats a factor
-// failure and overflow); `keep` receives each factor's row, against which its
-// block is checked.
-fn float_shape<S, E, const R: usize>(
-    rows: impl IntoIterator<Item = [Result<u32, E>; R]>,
-    mut keep: impl FnMut([u32; R]),
-    overflow: impl Fn() -> E,
-) -> Result<[usize; R], E> {
-    let mut legs: [Multiplicity<E>; R] = std::array::from_fn(|_| Multiplicity::new());
-    for row in rows {
-        let mut kept = [0; R];
-        for ((leg, n), slot) in legs.iter_mut().zip(row).zip(&mut kept) {
-            if let Ok(n) = &n {
-                *slot = *n;
-            }
-            leg.push(n);
-        }
-        keep(kept);
+// The leg N of any query, padded with ones to four legs.
+fn query_legs<C: FusionCategory>(
+    cat: &C,
+    q: Query<'_, C::Object>,
+    t: Validated,
+) -> [Result<u32, C::Error>; 4] {
+    let pad = |[x, y]: [Result<u32, C::Error>; 2]| [x, y, Ok(1), Ok(1)];
+    match q {
+        Query::F(x) => f_legs(cat, x, t),
+        Query::R(x) => pad(r_legs(cat, x, t)),
+        Query::A(x) => pad(a_legs(cat, x, t)),
+        Query::B(x) => pad(b_legs(cat, x, t)),
     }
-    leg_shape::<S, E, R>(legs.map(|leg| leg.finish(&overflow)), &overflow)
+}
+
+// The float route of a leaf (any category but a product): its leg N, recorded
+// depth-first for its block check.
+pub(crate) fn leaf_legs<C: FusionCategory>(
+    cat: &C,
+    q: Query<'_, C::Object>,
+    rows: &mut LegRows,
+    t: Validated,
+) -> [Result<u32, C::Error>; 4] {
+    let legs = query_legs(cat, q, t);
+    rows.push(legs.each_ref().map(|n| *n.as_ref().unwrap_or(&0)));
+    legs
+}
+
+// The leaf's public block, checked against its recorded row and folded.
+pub(crate) fn leaf_block<C: FusionCategory>(
+    cat: &C,
+    q: Query<'_, C::Object>,
+    rows: &mut LegRows,
+    sink: &mut FloatSink,
+) -> Result<(), C::Error> {
+    let [n0, n1, n2, n3] = rows.next();
+    let state = &mut sink.0;
+    match q {
+        Query::F([a, b, c, d, e, f]) => {
+            state.push_f(&cat.f_symbol(a, b, c, d, e, f)?, [n0, n1, n2, n3])
+        }
+        Query::R([a, b, c]) => state.push_r(&cat.r_symbol(a, b, c)?, [n0, n1]),
+        Query::A([a, b, c]) => state.push_r(&cat.a_symbol(a, b, c)?, [n0, n1]),
+        Query::B([a, b, c]) => state.push_r(&cat.b_symbol(a, b, c)?, [n0, n1]),
+    }
+    Ok(())
+}
+
+fn fold_legs<E, F>(
+    legs: &mut [Multiplicity<E>; 4],
+    row: [Result<u32, F>; 4],
+    wrap: impl Fn(F) -> E,
+) {
+    for (leg, n) in legs.iter_mut().zip(row) {
+        leg.push(n.map_err(&wrap));
+    }
+}
+
+pub(crate) struct Malformed {
+    expected: Vec<usize>,
+    actual: Vec<usize>,
+    storage_len: usize,
+}
+
+// `Scalar` is sealed to `f64` and `Complex64`, so these tests fold at compile
+// time.
+fn is_real<S: Scalar>() -> bool {
+    TypeId::of::<S>() == TypeId::of::<f64>()
+}
+fn real<S: Scalar>(x: S) -> f64 {
+    cast(x).expect("a real block")
+}
+// `Promote::right` and `Promote::left` of a real into the complex scalar.
+fn widen<S: Scalar>(x: S) -> Complex64 {
+    cast::<f64, S>(x).map_or_else(|x| cast(x).expect("Scalar is sealed"), Complex64::from)
+}
+
+// The left-to-right Kronecker product of every leaf block of one query, with
+// the scalar promoted to complex at the first complex leaf, as `Promote` does.
+enum FloatFold<const R: usize> {
+    Empty,
+    Real(Partial<f64, R>),
+    Complex(Partial<Complex64, R>),
+}
+
+impl<const R: usize> FloatFold<R> {
+    fn push<B: SymbolBlock<R>>(self, block: &B, len: usize) -> Self {
+        match self {
+            Self::Empty => match cast(Partial::new(block, len)) {
+                Ok(real) => Self::Real(real),
+                Err(p) => {
+                    Self::Complex(cast(p).unwrap_or_else(|_| unreachable!("Scalar is sealed")))
+                }
+            },
+            Self::Real(p) if is_real::<B::Scalar>() => {
+                Self::Real(p.times(block, len, |l| l, |l, r| l * real(r)))
+            }
+            Self::Real(p) => {
+                Self::Complex(p.times(block, len, Complex64::from, |l, r| l * widen(r)))
+            }
+            Self::Complex(p) => Self::Complex(p.times(block, len, |l| l, |l, r| l * widen(r))),
+        }
+    }
+
+    // Leaf scalars promote to the product's scalar, so `T` is the fold's.
+    fn finish<T: Scalar>(self) -> ([usize; R], Storage<T>) {
+        let (dims, data) = match self {
+            Self::Empty => return ([1; R], Storage::One(T::one())),
+            Self::Real(p) => cast(p.finish()).map_err(|_| ()),
+            Self::Complex(p) => cast(p.finish()).map_err(|_| ()),
+        }
+        .expect("the fold has the product's scalar");
+        (dims, data)
+    }
+}
+
+pub(crate) struct FloatState {
+    len: usize,
+    f: FloatFold<4>,
+    r: FloatFold<2>,
+    malformed: Option<Malformed>,
+}
+
+impl FloatState {
+    fn push_f<B: SymbolBlock<4>>(&mut self, block: &B, n: [u32; 4]) {
+        if self.check(block, n) {
+            self.f = std::mem::replace(&mut self.f, FloatFold::Empty).push(block, self.len);
+        }
+    }
+    fn push_r<B: SymbolBlock<2>>(&mut self, block: &B, n: [u32; 2]) {
+        if self.check(block, n) {
+            self.r = std::mem::replace(&mut self.r, FloatFold::Empty).push(block, self.len);
+        }
+    }
+    // Every leaf N is positive here, and the leaf block length divides the
+    // product's, so the expected shape is representable.
+    fn check<B: SymbolBlock<R>, const R: usize>(&mut self, block: &B, n: [u32; R]) -> bool {
+        let expected = n.map(|n| n as usize);
+        let (actual, storage_len) = (block.dims(), block.as_slice().len());
+        if actual == expected && storage_len == expected.iter().product::<usize>() {
+            return true;
+        }
+        self.malformed = Some(Malformed {
+            expected: expected.to_vec(),
+            actual: actual.to_vec(),
+            storage_len,
+        });
+        false
+    }
+}
+
+// The float route, taken when a factor has no exact value: every leaf of the
+// query, depth-first through nested products, gives its leg N once (the
+// product legs fold them as `nsymbol` does, so a zero beats a failure and
+// overflow), then its public block once, checked against its N and folded
+// into one buffer of the final length. Each leaf is asked once per query,
+// whatever the nesting; the value is the flat product's.
+fn float_route<P: FusionCategory, O, const R: usize>(
+    p: &P,
+    q: Query<'_, P::Object>,
+    t: Validated,
+    overflow: impl Fn() -> P::Error,
+    fold: impl FnOnce(FloatState) -> FloatFold<R>,
+    make: impl FnOnce([usize; R], Storage<P::Scalar>) -> O,
+) -> Result<O, P::Error> {
+    let mut rows = LegRows::default();
+    let legs = p.__fusion_symbols_float_legs(q, &mut rows, t);
+    let dims = leg_shape::<P::Scalar, _, 4>(legs, overflow)?;
+    let dims: [usize; R] = std::array::from_fn(|i| dims[i]);
+    if dims.contains(&0) {
+        return Ok(make(dims, Storage::Empty));
+    }
+    let len = dims.iter().product();
+    let state = FloatState {
+        len,
+        f: FloatFold::Empty,
+        r: FloatFold::Empty,
+        malformed: None,
+    };
+    let mut sink = FloatSink(state);
+    p.__fusion_symbols_float_blocks(q, &mut rows, &mut sink, t)?;
+    let (dims, data) = fold(sink.0).finish();
+    Ok(make(dims, data))
 }
 
 // One product level's exact hook, folded factor by factor: the class of a
@@ -991,7 +1127,7 @@ macro_rules! product_queries {
                 if let Some((u, view)) = exact_route($this, Query::F([a, b, c, d, e, f]), t, || dims().map(zero), || ProductError::Overflow, |gate| ProductError::Gate { gate })? {
                     return Ok(f_out(u, view));
                 }
-                $this.float_f([a, b, c, d, e, f], t)
+                float_route($this, Query::F([a, b, c, d, e, f]), t, || ProductError::Overflow, |s| s.f, FBlock::from_storage)
             }
             fn r_symbol(&$this, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<Self::RSymbol, Self::Error> {
                 validate($this, &[a, b, c]);
@@ -1004,7 +1140,7 @@ macro_rules! product_queries {
                 if let Some((u, view)) = exact_route($this, Query::R([a, b, c]), t, || dims().map(zero), || ProductError::Overflow, |gate| ProductError::Gate { gate })? {
                     return Ok(r_out(u, view));
                 }
-                $this.float_r([a, b, c], t)
+                float_route($this, Query::R([a, b, c]), t, || ProductError::Overflow, |s| s.r, rblock)
             }
             // Tuple and vector products use factor Kronecker products as for F/R
             // (TensorKitSectors `product.jl::Asymbol`); braiding is not needed.
@@ -1016,7 +1152,7 @@ macro_rules! product_queries {
                 if let Some((u, view)) = exact_route($this, Query::A([a, b, c]), t, || dims().map(zero), || ProductError::Overflow, |gate| ProductError::Gate { gate })? {
                     return Ok(r_out(u, view));
                 }
-                $this.float_a([a, b, c], t)
+                float_route($this, Query::A([a, b, c]), t, || ProductError::Overflow, |s| s.r, rblock)
             }
             // Same composition as `product.jl::Bsymbol`, for tuple and vector factors.
             fn b_symbol(&$this, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<RBlock<Self::Scalar>, Self::Error> {
@@ -1027,30 +1163,8 @@ macro_rules! product_queries {
                 if let Some((u, view)) = exact_route($this, Query::B([a, b, c]), t, || dims().map(zero), || ProductError::Overflow, |gate| ProductError::Gate { gate })? {
                     return Ok(r_out(u, view));
                 }
-                $this.float_b([a, b, c], t)
+                float_route($this, Query::B([a, b, c]), t, || ProductError::Overflow, |s| s.r, rblock)
             }
-    };
-}
-
-// The float route of a tuple product, for an unavailable exact answer: each
-// factor's public block, checked against its leg N, then folded left to right
-// into a buffer of the final length.
-macro_rules! tuple_float {
-    ($name:ident, $K:literal, $R:literal, $legs:ident, $of:ident, $B:ty, $make:expr; $(($C:ident, $i:tt, $Err:ident, $Prev:ty)),+) => {
-        fn $name(&self, x: [&<Self as FusionCategory>::Object; $K], t: Validated) -> Result<$B, <Self as FusionCategory>::Error> {
-            let rows = [$legs(&self.factors.0, x.map(|x| &x.0), t).map(|n| n.map_err(ProductError::Factor0)),
-                $($legs(&self.factors.$i, x.map(|x| &x.$i), t).map(|n| n.map_err(ProductError::$Err)),)+];
-            let (mut ns, mut j) = (rows.each_ref().map(|_| [0; $R]), 0);
-            let dims = float_shape::<<Self as FusionCategory>::Scalar, _, $R>(rows, |n| { ns[j] = n; j += 1; }, || ProductError::Overflow)?;
-            if dims.contains(&0) {
-                return Ok($make(dims, Storage::Empty));
-            }
-            let len = dims.iter().product();
-            let partial = Partial::new(&ProductError::checked_block(0, $of(&self.factors.0, x.map(|x| &x.0)).map_err(ProductError::Factor0)?, ns[0])?, len);
-            $(let partial = partial.times(&ProductError::checked_block($i, $of(&self.factors.$i, x.map(|x| &x.$i)).map_err(ProductError::$Err)?, ns[$i])?, len, <$Prev as Promote<$C::Scalar>>::left, |l, r| l * <$Prev as Promote<$C::Scalar>>::right(r));)+
-            let (dims, data) = partial.finish();
-            Ok($make(dims, data))
-        }
     };
 }
 
@@ -1174,24 +1288,25 @@ macro_rules! impl_product {
                 $(n.push(self.factors.$i.__fusion_symbols_validated_nsymbol(&a.$i, &b.$i, &c.$i, t).map_err(ProductError::$Err));)+
                 n.finish(|| ProductError::Overflow)
             }
+            fn __fusion_symbols_float_legs(&self, q: Query<'_, Self::Object>, rows: &mut LegRows, t: Validated) -> [Result<u32, Self::Error>; 4] {
+                let mut legs = std::array::from_fn(|_| Multiplicity::new());
+                fold_legs(&mut legs, self.factors.0.__fusion_symbols_float_legs(q.map(|x| &x.0), rows, t), ProductError::Factor0);
+                $(fold_legs(&mut legs, self.factors.$i.__fusion_symbols_float_legs(q.map(|x| &x.$i), rows, t), ProductError::$Err);)+
+                legs.map(|leg| leg.finish(|| ProductError::Overflow))
+            }
+            fn __fusion_symbols_float_blocks(&self, q: Query<'_, Self::Object>, rows: &mut LegRows, sink: &mut FloatSink, t: Validated) -> Result<(), Self::Error> {
+                self.factors.0.__fusion_symbols_float_blocks(q.map(|x| &x.0), rows, sink, t).map_err(ProductError::Factor0)?;
+                Self::Error::malformed(sink, 0)?;
+                $(self.factors.$i.__fusion_symbols_float_blocks(q.map(|x| &x.$i), rows, sink, t).map_err(ProductError::$Err)?;
+                Self::Error::malformed(sink, $i)?;)+
+                Ok(())
+            }
             fn __fusion_symbols_exact_symbol(&self, mut op: ExactOp<'_, '_, Self::Object>, t: Validated) -> Result<ExactAnswer, Self::Error> {
                 let mut fold = Fold::new();
                 fold.step(&mut op, &self.factors.0, |x| &x.0, t, ProductError::Factor0)?;
                 $(fold.step(&mut op, &self.factors.$i, |x| &x.$i, t, ProductError::$Err)?;)+
                 Ok(fold.finish(&op))
             }
-        }
-        impl<$C0, $($C, $S),+> Product<($C0, $($C,)+)>
-        where
-            $C0: FusionCategory,
-            for<'a> $C0::Fusion<'a>: Clone,
-            $( $C: FusionCategory, for<'a> $C::Fusion<'a>: Clone,
-               $Prev: Promote<$C::Scalar, Output = $S>, $S: Scalar, )+
-        {
-            tuple_float!(float_f, 6, 4, f_legs, f_of, FBlock<$Last>, FBlock::from_storage; $(($C, $i, $Err, $Prev)),+);
-            tuple_float!(float_r, 3, 2, r_legs, r_of, RBlock<$Last>, rblock; $(($C, $i, $Err, $Prev)),+);
-            tuple_float!(float_a, 3, 2, a_legs, a_of, RBlock<$Last>, rblock; $(($C, $i, $Err, $Prev)),+);
-            tuple_float!(float_b, 3, 2, b_legs, b_of, RBlock<$Last>, rblock; $(($C, $i, $Err, $Prev)),+);
         }
         impl<$C0, $($C, $S),+> GroupRepresentations for Product<($C0, $($C,)+)>
         where
@@ -1506,6 +1621,45 @@ where
     ) -> Option<u32> {
         Some(fusion.max)
     }
+    fn __fusion_symbols_float_legs(
+        &self,
+        q: Query<'_, Self::Object>,
+        rows: &mut LegRows,
+        t: Validated,
+    ) -> [Result<u32, Self::Error>; 4] {
+        let mut legs = std::array::from_fn(|_| Multiplicity::new());
+        for (index, factor) in self.factors.iter().enumerate() {
+            let row = factor.__fusion_symbols_float_legs(q.map(|x| &x[index]), rows, t);
+            fold_legs(&mut legs, row, |source| ProductError::Factor {
+                index,
+                source,
+            });
+        }
+        legs.map(|leg| leg.finish(|| ProductError::Overflow))
+    }
+    // An empty product contributes its unit block, in its own scalar.
+    fn __fusion_symbols_float_blocks(
+        &self,
+        q: Query<'_, Self::Object>,
+        rows: &mut LegRows,
+        sink: &mut FloatSink,
+        t: Validated,
+    ) -> Result<(), Self::Error> {
+        if self.factors.is_empty() {
+            let one = C::Scalar::one();
+            match q {
+                Query::F(_) => sink.0.push_f(&FBlock::one(one), [1; 4]),
+                _ => sink.0.push_r(&RBlock::one(one), [1; 2]),
+            }
+        }
+        for (index, factor) in self.factors.iter().enumerate() {
+            factor
+                .__fusion_symbols_float_blocks(q.map(|x| &x[index]), rows, sink, t)
+                .map_err(|source| ProductError::Factor { index, source })?;
+            ProductError::malformed(sink, index)?;
+        }
+        Ok(())
+    }
     fn __fusion_symbols_exact_symbol(
         &self,
         mut op: ExactOp<'_, '_, Self::Object>,
@@ -1527,71 +1681,6 @@ where
 
 fn rblock<S: Scalar>([n, _]: [usize; 2], data: Storage<S>) -> RBlock<S> {
     RBlock::from_storage(n, data)
-}
-
-impl<C: FusionCategory> Product<Vec<C>> {
-    // As `tuple_float!`, for the vector product.
-    fn float<const K: usize, B: SymbolBlock<R, Scalar = C::Scalar>, O, const R: usize>(
-        &self,
-        x: [&Vec<C::Object>; K],
-        t: Validated,
-        legs: impl Fn(&C, [&C::Object; K], Validated) -> [Result<u32, C::Error>; R],
-        query: impl Fn(&C, [&C::Object; K]) -> Result<B, C::Error>,
-        block: impl FnOnce([usize; R], Storage<C::Scalar>) -> O,
-    ) -> Result<O, ProductError<C::Error>> {
-        let at = |index: usize| x.map(|x| &x[index]);
-        let rows = self.factors.iter().enumerate().map(|(index, factor)| {
-            legs(factor, at(index), t)
-                .map(|n| n.map_err(|source| ProductError::Factor { index, source }))
-        });
-        let mut ns = InlineVec::<[u32; R], 4>::with_capacity(self.factors.len());
-        let dims = float_shape::<C::Scalar, _, R>(rows, |n| ns.push(n), || ProductError::Overflow)?;
-        if dims.contains(&0) {
-            return Ok(block(dims, Storage::Empty));
-        }
-        let len = dims.iter().product();
-        let mut partial: Option<Partial<C::Scalar, R>> = None;
-        for (index, (factor, &n)) in self.factors.iter().zip(ns.iter()).enumerate() {
-            let b = query(factor, at(index))
-                .map_err(|source| ProductError::Factor { index, source })?;
-            let b = ProductError::checked_block(index, b, n)?;
-            partial = Some(match partial {
-                None => Partial::new(&b, len),
-                Some(p) => p.times(&b, len, |l| l, |l, r| l * r),
-            });
-        }
-        let (dims, data) =
-            partial.map_or(([1; R], Storage::One(C::Scalar::one())), Partial::finish);
-        Ok(block(dims, data))
-    }
-    fn float_f(
-        &self,
-        x: [&Vec<C::Object>; 6],
-        t: Validated,
-    ) -> Result<FBlock<C::Scalar>, ProductError<C::Error>> {
-        self.float(x, t, f_legs, f_of, FBlock::from_storage)
-    }
-    fn float_r(
-        &self,
-        x: [&Vec<C::Object>; 3],
-        t: Validated,
-    ) -> Result<RBlock<C::Scalar>, ProductError<C::Error>> {
-        self.float(x, t, r_legs, r_of, rblock)
-    }
-    fn float_a(
-        &self,
-        x: [&Vec<C::Object>; 3],
-        t: Validated,
-    ) -> Result<RBlock<C::Scalar>, ProductError<C::Error>> {
-        self.float(x, t, a_legs, a_of, rblock)
-    }
-    fn float_b(
-        &self,
-        x: [&Vec<C::Object>; 3],
-        t: Validated,
-    ) -> Result<RBlock<C::Scalar>, ProductError<C::Error>> {
-        self.float(x, t, b_legs, b_of, rblock)
-    }
 }
 
 impl<C: GroupRepresentations> GroupRepresentations for Product<Vec<C>>
