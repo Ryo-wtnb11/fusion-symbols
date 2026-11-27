@@ -11,14 +11,13 @@ least-recently-used replacement. Default retained-entry charge caps are:
 
 | Tier (`CoefficientCacheTier`, Display) | Holds | Cap |
 |---|---|---|
-| `Wigner3j` (`"wigner_3j"`) | exact SU(2) 3j symbols by Regge class | 64 MiB |
 | `Wigner6j` (`"wigner_6j"`) | exact SU(2) 6j symbols by Regge class | 64 MiB |
 | `FSymbol` (`"f_symbol"`) | rounded SU(2) F scalars and Cartan-engine F blocks | 64 MiB |
 | `Cgc` (`"cgc"`) | Cartan-engine irrep modules, exact CGC channels with their rounded views, highest-weight seeds, norm tables and computed Frobenius–Schur phases, every simple factor including A(1) | 256 MiB |
 | `RSymbol` (`"r_symbol"`) | Cartan-engine R blocks (SU(2) R is a closed-form sign) | 64 MiB |
 | `Product` (`"product"`) | exact simple-Lie tensor products and the rounded composite F/R/A/B views of products of exact leaves | 64 MiB |
 
-The default caps sum to 576 MiB, the ceiling on cache-owned entry charge. Every
+The default caps sum to 512 MiB, the ceiling on cache-owned entry charge. Every
 build compiles every tier.
 
 The CGC tier holds the construction data of one operation under one limit. A
@@ -136,8 +135,8 @@ itself.
 Each entry's real charge is one owned key (including label backing), its value,
 and its table node and ring position (the node holds the key, the value, the
 key hash and the reference bit, so the key and value shells are counted
-twice). On 64-bit targets the node and ring position add 64 bytes per 3j
-entry, 56 per 6j, 128 per F, 104 per R, 88 per CGC and 112 per Product entry;
+twice). On 64-bit targets the node and ring position add 56 bytes per 6j
+entry, 128 per F, 104 per R, 88 per CGC and 112 per Product entry;
 an SU(2) F scalar charges 224 bytes. For a tier with
 byte cap `B` and positive entry cap `E`, an entry's admission weight is
 `max(real_charge, ceil(B / E))`, and the tier admits an entry iff its weight
@@ -228,7 +227,7 @@ fusion_symbols::cache::enable_disk_cache("/local/scratch/fs-0.12.sqlite", 1 << 3
   exact channel only. `prefill` with a token that carries a team rounds the
   loaded channel in team sections, as it does a generated one; `cgc` and any
   other call without a token round on the calling thread. Later views are
-  memory hits. Exact SU(2) 3j/6j
+  memory hits. Exact SU(2) 6j
   symbols and the SU(2) F scalar are never stored: computing them is cheaper
   than loading them. Irrep modules and products stay in memory.
 - **How it is used.** A miss of a stored kind reads its row before generating;

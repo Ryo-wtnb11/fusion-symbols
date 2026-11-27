@@ -1,4 +1,5 @@
-//! SU(2) 3j, Clebsch–Gordan and 6j symbols against readable references.
+//! The SU(2) 6j kernel and the 3j and Clebsch–Gordan closed-form oracles
+//! against readable references.
 //!
 //! Contracts:
 //!
@@ -11,7 +12,8 @@
 //! - 6j symbols obey the `{a b c; 0 c b}` closed form and Racah's sum rule
 //!   (Edmonds 6.2.8), which is sign sensitive on generic arguments.
 //!
-//! Exact orthogonality and Regge symmetry are in `tests/properties.rs`.
+//! Exact orthogonality is in `properties.rs`, Regge symmetry in the parent
+//! module's tests.
 //! Every spin is doubled (`dj = 2j`).
 
 use malachite_nz::integer::Integer;
@@ -19,7 +21,8 @@ use malachite_q::Rational;
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
-use fusion_symbols::lie::su2::{clebsch_gordan, wigner_3j, wigner_6j, SignedSqrtRational};
+use super::{clebsch_gordan, wigner_3j, wigner_6j};
+use crate::exact::SignedSqrtRational;
 
 fn tri(a: u32, b: u32, c: u32) -> bool {
     (a + b + c).is_multiple_of(2) && c >= a.abs_diff(b) && c <= a + b

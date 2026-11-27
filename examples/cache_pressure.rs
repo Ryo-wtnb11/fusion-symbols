@@ -22,7 +22,6 @@ use std::time::Instant;
 
 use fusion_symbols::cache::{self, CoefficientCacheBudgets, CoefficientCacheTier, TierStats};
 use fusion_symbols::category::{FusionCategory, GroupRepresentations};
-use fusion_symbols::lie::su2::{wigner_3j, wigner_6j};
 use fusion_symbols::lie::{GroupId, LieGroup};
 
 static LIVE: AtomicUsize = AtomicUsize::new(0);
@@ -121,9 +120,18 @@ fn emit(label: &str, s: &Sample) {
     );
 }
 
+/// Cold SU(2) F at doubled spin `dj` everywhere, which also fills the 6j tier.
+fn su2_f(dj: i64) {
+    let g = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+    let x = g.irrep(&[dj]).unwrap();
+    black_box(g.f_symbol(&x, &x, &x, &x, &x, &x).unwrap());
+}
+
 fn su2() {
-    black_box(wigner_3j(20, 20, 20, 0, 0, 0));
-    black_box(wigner_6j(60, 60, 60, 60, 60, 60));
+    let g = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+    let x = g.irrep(&[20]).unwrap();
+    black_box(g.cgc(&x, &x, &x).unwrap());
+    su2_f(60);
 }
 
 fn sun(n: usize, reset_each: bool) {
@@ -168,11 +176,8 @@ fn audit() {
 }
 
 fn mixed_workload() {
-    for labels in [[20; 6], [60; 6], [120; 6]] {
-        black_box(wigner_6j(
-            labels[0], labels[1], labels[2], labels[3], labels[4], labels[5],
-        ));
-        black_box(wigner_3j(labels[0], labels[1], labels[2], 0, 0, 0));
+    for dj in [20, 60, 120] {
+        su2_f(dj);
     }
     for (id, label) in [
         (GroupId::su(3).unwrap(), vec![1, 0]),
@@ -190,7 +195,6 @@ fn mixed_workload() {
 
 fn budget() {
     let constrained = CoefficientCacheBudgets::default()
-        .with_limit(CoefficientCacheTier::Wigner3j, 400)
         .with_limit(CoefficientCacheTier::Wigner6j, 400)
         .with_limit(CoefficientCacheTier::Product, 2048);
     let mode = std::env::args().nth(2).unwrap_or_else(|| "default".into());
@@ -208,7 +212,6 @@ fn budget() {
 fn trim() {
     let mode = std::env::args().nth(2).unwrap_or_else(|| "partial".into());
     let tiers = [
-        CoefficientCacheTier::Wigner3j,
         CoefficientCacheTier::Wigner6j,
         CoefficientCacheTier::Product,
     ];

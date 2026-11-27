@@ -3,20 +3,20 @@
 
 mod common;
 
+use crate::common::a1::exact_f;
 use fusion_symbols::cache::{
     cache_budgets, configure_cache_budgets, reset, tier_stats, CacheBudgetError,
     CoefficientCacheBudgets, CoefficientCacheTier,
 };
-use fusion_symbols::lie::su2::wigner_6j;
 
 #[test]
 fn zero_budget_is_retryable_then_compute_without_retention() {
     let invalid =
-        CoefficientCacheBudgets::default().with_limit(CoefficientCacheTier::Wigner3j, usize::MAX);
+        CoefficientCacheBudgets::default().with_limit(CoefficientCacheTier::Wigner6j, usize::MAX);
     assert!(matches!(
         configure_cache_budgets(invalid),
         Err(CacheBudgetError::ExceedsMaximum {
-            tier: CoefficientCacheTier::Wigner3j,
+            tier: CoefficientCacheTier::Wigner6j,
             ..
         })
     ));
@@ -24,8 +24,9 @@ fn zero_budget_is_retryable_then_compute_without_retention() {
     let budgets = CoefficientCacheBudgets::disabled();
     configure_cache_budgets(budgets).unwrap();
     assert_eq!(cache_budgets(), budgets);
-    let value = wigner_6j(2, 2, 2, 2, 2, 2);
-    assert!((value.to_f64() - 1.0 / 6.0).abs() < 1e-14);
+    // F^{111}_1[1, 1] = 1/2 (TensorKitSectors 0.3.9 `SU2Irrep`).
+    let value = exact_f(2, 2, 2, 2, 2, 2);
+    assert!((value - 0.5).abs() <= 2.0 * f64::EPSILON);
     let stats = tier_stats(CoefficientCacheTier::Wigner6j);
     assert_eq!(stats.entries, 0);
     assert_eq!(stats.bytes, 0);

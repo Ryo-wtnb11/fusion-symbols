@@ -163,13 +163,10 @@ e = 0     1 · (-1/2)      √3 · (1/2)        [ -1/2   √3/2 ]
 e = 1     √3 · (1/2)      3 · (1/6)    =    [ √3/2   1/2  ]
 ```
 
-This is an orthogonal matrix, as F must be. The exact evaluator
-`lie::su2::wigner_6j` takes doubled spins:
+This is an orthogonal matrix, as F must be:
 
 ```rust
-use fusion_symbols::{category::{FusionCategory, SymbolBlock}, lie::{su2::wigner_6j, GroupId, HalfInt, LieGroup}};
-
-assert!((wigner_6j(1, 1, 2, 1, 1, 2).to_f64() - 1.0 / 6.0).abs() < 1e-15);
+use fusion_symbols::{category::{FusionCategory, SymbolBlock}, lie::{GroupId, HalfInt, LieGroup}};
 
 let su2 = LieGroup::new(GroupId::su(2)?)?;
 let h = su2.irrep_spin(HalfInt::new(1, 2)?)?;

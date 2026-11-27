@@ -34,7 +34,6 @@ another type is named.
 | A and B symbols | `a_symbol`, `b_symbol` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#method.a_symbol) |
 | Read a symbol block | `SymbolBlock::{dims, get, as_slice}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.SymbolBlock.html) |
 | Clebsch–Gordan coefficients | `GroupRepresentations::cgc`, read with `CgcBlock::{dims, get, to_dense}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.GroupRepresentations.html#tymethod.cgc) |
-| Exact SU(2) 3j, 6j, CG | `lie::su2::{wigner_3j, wigner_6j, clebsch_gordan}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/su2/index.html) |
 | U(1), Z_N, fermion parity, CU(1) | `U1` + `U1Irrep::new`, `ZN::new` + `ZNIrrep::new`, `FermionParity`, `CU1` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.U1.html) |
 | Fibonacci, Ising or another anyon table | `TableCategory::{fibonacci, ising, by_uuid, object}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/table/struct.TableCategory.html) |
 | Several symmetries at once | `Product::new((a, b))`, `Product::new(vec![…])` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/product/struct.Product.html#method.new) |
@@ -53,7 +52,6 @@ Categories that are representation categories of groups also implement
 | You need | Use | Objects |
 |---|---|---|
 | A compact connected Lie group: SU(N), SO(N), Spin(N), Sp(2r), G₂, F₄, E₆, E₇, E₈, U(N), tori, products, quotients | `lie::LieGroup` built from a `lie::GroupId` | `LieIrrep` |
-| Exact SU(2) 3j, 6j or CG values as rationals under a square root | `lie::su2::{wigner_3j, wigner_6j, clebsch_gordan}` | doubled spins `u32` |
 | U(1) with `Copy` labels and scalar symbols | `lie::U1` | `U1Irrep` |
 | CU(1) = O(2) | `lie::CU1` | `CU1Irrep` |
 | Z_N | `finite::ZN` | `ZNIrrep` |
@@ -264,18 +262,18 @@ B, C, D and the exceptional types follow the depth order of
 highest weight first. `U1` and
 `ZN` return a scalar CGC: `1.0` for a present channel, `0.0` for an absent one.
 
-The exact SU(2) evaluators under `lie::su2` take doubled spins and doubled
-projections, in the argument order `(dj1, dm1, dj2, dm2, dj3, dm3)` for
-`clebsch_gordan`. They return `SignedSqrtRational` (`sign * sqrt(p/q)`);
-compare exactly with `signed_square()` or convert with `to_f64()`. A
-forbidden label set gives exact zero, never an error or a panic.
+SU(2) CGC are exact values rounded once to `f64`. The magnetic index is
+`m + j`, so `get([m1 + j1, m2 + j2, m3 + j3, 0])` is the Condon–Shortley
+coefficient `⟨j1 m1; j2 m2 | j3 m3⟩`:
 
 ```rust
-use fusion_symbols::lie::su2::clebsch_gordan;
+use fusion_symbols::{category::{CgcBlock, FusionCategory, GroupRepresentations}, lie::{GroupId, LieGroup}};
 
+let su2 = LieGroup::new(GroupId::su(2)?)?;
+let half = su2.irrep(&[1])?;
+let c = su2.cgc(&half, &half, &su2.unit())?;
 // <1/2 +1/2, 1/2 -1/2 | 0 0> = 1/sqrt(2)
-let cg = clebsch_gordan(1, 1, 1, -1, 0, 0);
-assert!((cg.to_f64() - 0.5f64.sqrt()).abs() < 1e-15);
+assert!((c.get([1, 0, 0, 0]) - 0.5f64.sqrt()).abs() < 1e-15);
 ```
 
 ## Abelian and finite categories
@@ -402,13 +400,15 @@ The full validation order is in [validation and errors](../overview.md#validatio
 
 Generated coefficients and exact SU(2) values are cached in process-global,
 byte-bounded tiers, one per data kind and shared by every group. The defaults
-are bounded (576 MiB for all tiers together), so most programs do
+are bounded (512 MiB for all tiers together), so most programs do
 nothing.
 
 ```rust
-use fusion_symbols::cache::{tier_stats, CoefficientCacheTier};
+use fusion_symbols::{cache::{tier_stats, CoefficientCacheTier}, category::FusionCategory, lie::{GroupId, LieGroup}};
 
-let _ = fusion_symbols::lie::su2::wigner_6j(2, 2, 2, 2, 2, 2);
+let su2 = LieGroup::new(GroupId::su(2)?)?;
+let one = su2.irrep(&[2])?;
+let _ = su2.f_symbol(&one, &one, &one, &one, &one, &one)?;
 let six_j = tier_stats(CoefficientCacheTier::Wigner6j);
 println!("{} entries, {} bytes, {} hits", six_j.entries, six_j.bytes, six_j.hits);
 // A sum over tiers combines independent snapshots; use it for reporting only.

@@ -23,8 +23,7 @@ pub fn serial() -> std::sync::MutexGuard<'static, ()> {
 
 /// Every tier, whose summed caps bound the cache charge.
 #[allow(dead_code)]
-pub const BASE_TIERS: [Tier; 6] = [
-    Tier::Wigner3j,
+pub const BASE_TIERS: [Tier; 5] = [
     Tier::Wigner6j,
     Tier::FSymbol,
     Tier::RSymbol,

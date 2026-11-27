@@ -30,7 +30,7 @@ pub(crate) mod radical;
 /// Clones share the immutable rational payload; arithmetic uses copy-on-write.
 /// Zero has no allocation.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SignedSqrtRational {
+pub(crate) struct SignedSqrtRational {
     sign: i8,
     radicand: Option<Arc<Rational>>,
 }
@@ -93,6 +93,7 @@ impl SignedSqrtRational {
     /// The signed square `sign * radicand`. This is the natural exact
     /// comparison key: it equals the reference crate's `signed_sq`, so two
     /// coefficients agree exactly iff their signed squares are equal.
+    #[cfg(test)]
     pub fn signed_square(&self) -> Rational {
         match self.sign {
             0 => Rational::ZERO,

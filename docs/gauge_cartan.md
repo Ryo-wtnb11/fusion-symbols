@@ -65,8 +65,8 @@ The gauge of a simple factor is chosen by its **presented root system**
   higher-rank simple types require the `lie-generated` feature. Feature
   selection admits or rejects a group; it never changes a value.
 - **Not covered here:** the closed-form SU(2) F, R and Frobenius–Schur
-  conventions and the free functions `lie::su2::{clebsch_gordan, wigner_3j,
-  wigner_6j}` ([`gauge.md` §1](gauge.md#1-su2-closed-forms)).
+  conventions and the internal closed forms `lie/su2.rs::{clebsch_gordan,
+  wigner_3j, wigner_6j}` ([`gauge.md` §1](gauge.md#1-su2-closed-forms)).
 
 ## 2. Inputs and conventions
 
@@ -838,9 +838,8 @@ column.
 
   Work is per channel and per weight space of `c`; the full product dimension
   `d_a d_b` never appears as a dense dimension.
-- **SU(2).** The closed form remains the evaluator for a single coefficient
-  (`su2::clebsch_gordan`) and for F and R (an `O(j)` Racah sum against
-  `Ω(j²)` for any four-CGC contraction).
+- **SU(2).** The closed form remains the evaluator for F and R (an `O(j)`
+  Racah sum against `Ω(j²)` for any four-CGC contraction).
 - **Retention.** Modules, exact channels, their rounded views,
   highest-weight seeds (the engine-0 column of a channel, from the
   elimination alone), norm tables (per irrep at public indices: the reduced

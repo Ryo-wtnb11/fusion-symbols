@@ -1,7 +1,7 @@
 //! Self-consistency and robustness gates that do not depend on the oracle:
 //! exact orthogonality identities, the zero convention, and bounded values with
 //! exact zeros outside the selection rules over arbitrary inputs. Regge orbit invariance is a unit test of the
-//! crate-private key in `src/lie/su2.rs`.
+//! 6j key in the parent module.
 
 use malachite_base::num::{
     arithmetic::traits::{Abs, FloorSqrt},
@@ -13,7 +13,8 @@ use malachite_q::Rational;
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
-use fusion_symbols::lie::su2::{clebsch_gordan, wigner_3j, wigner_6j, SignedSqrtRational};
+use super::{clebsch_gordan, wigner_3j, wigner_6j};
+use crate::exact::SignedSqrtRational;
 
 fn tri(a: u32, b: u32, c: u32) -> bool {
     let (a, b, c) = (a as i64, b as i64, c as i64);

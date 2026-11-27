@@ -2,7 +2,7 @@
 //! bounds them.
 //!
 //! Coefficient generation is the expensive step, so `fusion-symbols` caches,
-//! one tier per data kind: exact Wigner 3j and 6j symbols keyed by canonical
+//! one tier per data kind: exact SU(2) Wigner 6j symbols keyed by canonical
 //! Regge classes; F symbols (SU(2) closed-form scalars and Cartan-engine
 //! blocks); R blocks; exact simple-Lie tensor products; and the Cartan engine's
 //! CGC construction data (irrep modules, exact channels with their rounded
@@ -30,9 +30,13 @@
 //! ```
 //! use fusion_symbols::cache::{cache_budgets, tier_stats, CoefficientCacheTier};
 //!
-//! let _ = fusion_symbols::lie::su2::wigner_6j(2, 2, 2, 2, 2, 2);
+//! use fusion_symbols::category::FusionCategory;
+//! use fusion_symbols::lie::{GroupId, LieGroup};
+//!
+//! let su2 = LieGroup::new(GroupId::su(2)?)?;
+//! let one = su2.irrep(&[2])?;
+//! let _ = su2.f_symbol(&one, &one, &one, &one, &one, &one)?;
 //! let base = [
-//!     CoefficientCacheTier::Wigner3j,
 //!     CoefficientCacheTier::Wigner6j,
 //!     CoefficientCacheTier::FSymbol,
 //!     CoefficientCacheTier::Cgc,
@@ -43,6 +47,7 @@
 //!     .map(|&tier| cache_budgets().limit(tier))
 //!     .sum();
 //! assert!(bytes <= ceiling);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! The task-oriented version is in the [User Guide].
@@ -54,7 +59,7 @@
 //! In the tensor-network consumption pattern the same small labels recur many
 //! thousands of times, so a warm hit should cost a hash lookup rather than a
 //! fresh big-rational Racah sum or Cartan-engine channel. WignerSymbols.jl
-//! v2.0.0 caches transparently inside `wigner3j`/`wigner6j` (per-kind `LRU`
+//! v2.0.0 caches transparently inside `wigner6j` (per-kind `LRU`
 //! dicts keyed by canonical Regge labels); this crate follows that model but
 //! bounds the cache by policy — Julia's caches are effectively unbounded in
 //! entries.
@@ -79,7 +84,7 @@
 //! from its exact row after a load as after a generation, and is never
 //! stored. F and R rows hold their exact blocks, the authority of their
 //! rounded views. Loading those costs far less than
-//! generating them. The exact SU(2) 3j/6j symbols and the SU(2) F scalar are
+//! generating them. The exact SU(2) 6j symbols and the SU(2) F scalar are
 //! never persisted, because computing them is cheaper than loading them
 //! (about 1 µs against about 10 µs). Irrep modules and products are
 //! construction data and stay in memory. A persisted value is identified by the storage schema and this
@@ -120,7 +125,7 @@ use crate::exact::SignedSqrtRational;
 use crate::lie::general::cgc::exact::{ExactCgc, HighestColumn, NormTable};
 use crate::lie::general::cgc::{CgcChannel, Ladders};
 use crate::lie::general::roots::{Multiplicities, Product, ProductValue};
-use crate::lie::su2::{FKey, Regge3j, Regge6j};
+use crate::lie::su2::{FKey, Regge6j};
 use crate::lie::RootSystem;
 
 mod clock;
@@ -179,8 +184,6 @@ pub(crate) const ARC_COUNTS_BYTES: usize = 2 * std::mem::size_of::<usize>();
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CoefficientCacheBudgets {
-    /// Exact Wigner 3j retained-charge cap.
-    wigner_3j_bytes: usize,
     /// Exact Wigner 6j retained-charge cap.
     wigner_6j_bytes: usize,
     /// F-symbol retained-charge cap.
@@ -207,8 +210,6 @@ pub enum CoefficientCacheTier {
     FSymbol,
     /// Cartan-engine R blocks. SU(2) R is a closed-form sign and is not cached.
     RSymbol,
-    /// Exact Wigner 3j symbols.
-    Wigner3j,
     /// Exact Wigner 6j symbols.
     Wigner6j,
 }
@@ -221,7 +222,6 @@ impl CoefficientCacheTier {
         Self::Cgc,
         Self::FSymbol,
         Self::RSymbol,
-        Self::Wigner3j,
         Self::Wigner6j,
     ];
 }
@@ -233,7 +233,6 @@ impl std::fmt::Display for CoefficientCacheTier {
             Self::Cgc => "cgc",
             Self::FSymbol => "f_symbol",
             Self::RSymbol => "r_symbol",
-            Self::Wigner3j => "wigner_3j",
             Self::Wigner6j => "wigner_6j",
         })
     }
@@ -292,7 +291,6 @@ impl CoefficientCacheBudgets {
             CoefficientCacheTier::Cgc => &mut self.cgc_bytes,
             CoefficientCacheTier::FSymbol => &mut self.f_symbol_bytes,
             CoefficientCacheTier::RSymbol => &mut self.r_symbol_bytes,
-            CoefficientCacheTier::Wigner3j => &mut self.wigner_3j_bytes,
             CoefficientCacheTier::Wigner6j => &mut self.wigner_6j_bytes,
         }
     }
@@ -301,7 +299,6 @@ impl CoefficientCacheBudgets {
 impl Default for CoefficientCacheBudgets {
     fn default() -> Self {
         Self {
-            wigner_3j_bytes: DEFAULT_MAX_BYTES,
             wigner_6j_bytes: DEFAULT_MAX_BYTES,
             f_symbol_bytes: DEFAULT_MAX_BYTES,
             r_symbol_bytes: DEFAULT_MAX_BYTES,
@@ -489,7 +486,7 @@ macro_rules! fixed_key_charge {
     };
 }
 
-fixed_key_charge!(u32, Regge3j, Regge6j, FKey);
+fixed_key_charge!(u32, Regge6j, FKey);
 
 impl CacheCharge for SignedSqrtRational {
     fn value_bytes(&self) -> usize {
@@ -1199,21 +1196,9 @@ impl CacheCharge for RBlock<f64> {
     }
 }
 
-static CACHE_3J: LazyLock<CoefficientCache<Regge3j, SignedSqrtRational>> = LazyLock::new(|| {
-    CoefficientCache::shared(DEFAULT_MAX_ENTRIES, effective_budgets().wigner_3j_bytes)
-});
 static CACHE_6J: LazyLock<CoefficientCache<Regge6j, SignedSqrtRational>> = LazyLock::new(|| {
     CoefficientCache::shared(DEFAULT_MAX_ENTRIES, effective_budgets().wigner_6j_bytes)
 });
-
-/// Exact 3j value of the canonical class `key`.
-#[inline]
-pub(crate) fn wigner_3j(
-    key: Regge3j,
-    compute: impl FnOnce() -> SignedSqrtRational,
-) -> SignedSqrtRational {
-    CACHE_3J.get_or_compute(key, compute)
-}
 
 /// Exact 6j value of the canonical class `key`.
 #[inline]
@@ -1781,7 +1766,6 @@ fn control(tier: CoefficientCacheTier) -> &'static dyn TierControl {
         CoefficientCacheTier::Cgc => &*CACHE_CGC,
         CoefficientCacheTier::FSymbol => &*CACHE_F,
         CoefficientCacheTier::RSymbol => &*CACHE_R,
-        CoefficientCacheTier::Wigner3j => &*CACHE_3J,
         CoefficientCacheTier::Wigner6j => &*CACHE_6J,
     }
 }
@@ -1805,11 +1789,17 @@ fn control(tier: CoefficientCacheTier) -> &'static dyn TierControl {
 /// ```
 /// use fusion_symbols::cache::{reset, tier_stats, CoefficientCacheTier, TierStats};
 ///
-/// let _ = fusion_symbols::lie::su2::wigner_6j(2, 2, 2, 2, 2, 2);
+/// use fusion_symbols::category::FusionCategory;
+/// use fusion_symbols::lie::{GroupId, LieGroup};
+///
+/// let su2 = LieGroup::new(GroupId::su(2)?)?;
+/// let one = su2.irrep(&[2])?;
+/// let _ = su2.f_symbol(&one, &one, &one, &one, &one, &one)?;
 /// reset(); // application-owned: libraries must not call it
 /// for &tier in CoefficientCacheTier::ALL {
 ///     assert_eq!(tier_stats(tier), TierStats::default());
 /// }
+/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn reset() {
     #[cfg(test)]
@@ -1827,7 +1817,7 @@ pub fn reset() {
     }
     // Submit every tier's graveyard together: one explicit attempt, plus at
     // most one automatic seize attempt per retiring tier section (at most two
-    // barriers ordinarily, at most seven if seize retries for all six).
+    // barriers ordinarily, at most six if seize retries for all five).
     clock::release();
     RESETS.fetch_add(1, Ordering::SeqCst);
 }
@@ -1878,10 +1868,16 @@ fn reset_pause(tier: CoefficientCacheTier) {
 /// ```
 /// use fusion_symbols::cache::{tier_stats, trim_to, CoefficientCacheTier};
 ///
-/// let _ = fusion_symbols::lie::su2::wigner_6j(2, 2, 2, 2, 2, 2);
+/// use fusion_symbols::category::FusionCategory;
+/// use fusion_symbols::lie::{GroupId, LieGroup};
+///
+/// let su2 = LieGroup::new(GroupId::su(2)?)?;
+/// let one = su2.irrep(&[2])?;
+/// let _ = su2.f_symbol(&one, &one, &one, &one, &one, &one)?;
 /// let report = trim_to(CoefficientCacheTier::Wigner6j, 0); // application-owned
 /// assert_eq!(report.remaining_entries, 0);
 /// assert_eq!(tier_stats(CoefficientCacheTier::Wigner6j).entries, 0);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn trim_to(tier: CoefficientCacheTier, target_charged_bytes: usize) -> CacheTrimReport {
     #[cfg(test)]
@@ -1905,12 +1901,18 @@ pub fn trim_to(tier: CoefficientCacheTier, target_charged_bytes: usize) -> Cache
 /// ```
 /// use fusion_symbols::cache::{tier_stats, CoefficientCacheTier};
 ///
-/// let before = tier_stats(CoefficientCacheTier::Wigner6j);
-/// let _ = fusion_symbols::lie::su2::wigner_6j(2, 2, 2, 2, 2, 2);
-/// let _ = fusion_symbols::lie::su2::wigner_6j(2, 2, 2, 2, 2, 2);
-/// let after = tier_stats(CoefficientCacheTier::Wigner6j);
+/// use fusion_symbols::category::FusionCategory;
+/// use fusion_symbols::lie::{GroupId, LieGroup};
+///
+/// let su2 = LieGroup::new(GroupId::su(2)?)?;
+/// let one = su2.irrep(&[2])?;
+/// let before = tier_stats(CoefficientCacheTier::FSymbol);
+/// let _ = su2.f_symbol(&one, &one, &one, &one, &one, &one)?;
+/// let _ = su2.f_symbol(&one, &one, &one, &one, &one, &one)?;
+/// let after = tier_stats(CoefficientCacheTier::FSymbol);
 /// assert!(after.hits > before.hits); // the second call is served from the cache
-/// assert!(after.bytes <= fusion_symbols::cache::cache_budgets().limit(CoefficientCacheTier::Wigner6j));
+/// assert!(after.bytes <= fusion_symbols::cache::cache_budgets().limit(CoefficientCacheTier::FSymbol));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub fn tier_stats(tier: CoefficientCacheTier) -> TierStats {
     #[cfg(test)]
@@ -2036,7 +2038,6 @@ pub(crate) fn cgc_module_is_resident(root: RootSystem, label: &[i64]) -> bool {
 pub(crate) fn with_publication_locks<T>(f: impl FnOnce() -> T) -> T {
     assert_cache_access_allowed();
     let _guards = (
-        CACHE_3J.inner.lock(),
         CACHE_6J.inner.lock(),
         CACHE_F.inner.lock(),
         CACHE_R.inner.lock(),

@@ -51,14 +51,13 @@ fn labels_zero_channels_and_warm_generation() {
     let product = fusion_symbols::product::Product::new((cat.clone(), a1.clone()));
     let channel = (eight.clone(), a1.irrep(&[2]).unwrap());
     let first = product.cgc(&channel, &channel, &channel).unwrap();
-    let tiers = [Tier::Cgc, Tier::Product, Tier::Wigner3j];
-    let [cgc_stats, product_stats, three_j] = tiers.map(cache::tier_stats);
+    let tiers = [Tier::Cgc, Tier::Product];
+    let [cgc_stats, product_stats] = tiers.map(cache::tier_stats);
     assert_eq!(product.cgc(&channel, &channel, &channel).unwrap(), first);
-    let [cgc_warm, product_warm, three_j_warm] = tiers.map(cache::tier_stats);
+    let [cgc_warm, product_warm] = tiers.map(cache::tier_stats);
     assert_eq!(cgc_warm.misses, cgc_stats.misses);
     assert_eq!(product_warm.misses, product_stats.misses);
     assert!(cgc_warm.hits > cgc_stats.hits);
-    assert_eq!(three_j_warm.misses, three_j.misses);
     let r = cat.r_symbol(&eight, &eight, &eight).unwrap();
     let tiers = [Tier::Cgc, Tier::Product];
     let misses = tiers.map(|tier| cache::tier_stats(tier).misses);

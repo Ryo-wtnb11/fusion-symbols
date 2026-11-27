@@ -3,7 +3,7 @@ use crate::common::counting_alloc;
 use fusion_symbols::{
     cache::{self, CoefficientCacheTier as Tier},
     category::FusionCategory,
-    lie::{su2, GroupId, LieGroup},
+    lie::{GroupId, LieGroup},
 };
 
 fn check<T>(tier: Tier, query: impl Fn() -> T) {
@@ -20,9 +20,6 @@ fn check<T>(tier: Tier, query: impl Fn() -> T) {
 #[test]
 fn every_coefficient_tier_has_zero_allocation_warm_hits() {
     let _serial = counting_alloc::serial();
-    // Large radicands exercise shared big integers, not just inline limbs.
-    check(Tier::Wigner3j, || su2::wigner_3j(60, 60, 60, 0, 0, 0));
-    check(Tier::Wigner6j, || su2::wigner_6j(60, 60, 60, 60, 60, 60));
     let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
     let half = su2.irrep(&[1]).unwrap();
     let unit = su2.unit();
@@ -110,12 +107,17 @@ fn every_coefficient_tier_has_zero_allocation_warm_hits() {
 #[test]
 fn warm_hit_on_a_new_thread_allocates_only_on_its_first_query() {
     let _serial = counting_alloc::serial();
-    std::hint::black_box(su2::wigner_6j(40, 40, 40, 40, 40, 40));
-    std::thread::spawn(|| {
+    let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+    let twenty = su2.irrep(&[40]).unwrap();
+    let f = move || {
+        su2.f_symbol(&twenty, &twenty, &twenty, &twenty, &twenty, &twenty)
+            .unwrap()
+    };
+    std::hint::black_box(f());
+    std::thread::spawn(move || {
         // First query on this thread may register its reader-stripe and counter indices.
-        std::hint::black_box(su2::wigner_6j(40, 40, 40, 40, 40, 40));
-        let (calls, bytes, _, value) =
-            counting_alloc::measure(|| su2::wigner_6j(40, 40, 40, 40, 40, 40));
+        std::hint::black_box(f());
+        let (calls, bytes, _, value) = counting_alloc::measure(&f);
         std::hint::black_box(value);
         assert_eq!((calls, bytes), (0, 0), "warm hit after thread setup");
     })

@@ -1,9 +1,9 @@
-//! Isolated process: exact warm 3j miss counts exclude unrelated cache traffic.
+//! Isolated process: exact warm CGC miss counts exclude unrelated cache traffic.
 mod common;
 
 use fusion_symbols::{
     category::{CgcBlock, FusionCategory, GroupRepresentations, SymbolBlock},
-    lie::{su2::clebsch_gordan, GroupId, LieError, LieGroup},
+    lie::{GroupId, LieError, LieGroup},
 };
 
 #[test]
@@ -75,49 +75,8 @@ fn foreign_object_precedes_zero_channel() {
 }
 
 #[test]
-fn dense_cgc_matches_exact_in_ascending_magnetic_order() {
+fn warm_cgc_is_a_hit_and_oversized_or_empty_blocks_are_typed() {
     let cat = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
-    // Every block for doubled spins a, b ≤ 8 and every admissible c (plus one
-    // inadmissible c each), bitwise against the exact closed form, so the
-    // signs of zeros are compared too.
-    for a in 0..=8u32 {
-        for b in 0..=8u32 {
-            for c in 0..=a + b + 1 {
-                let [ia, ib, ic] = [a, b, c].map(|dj| cat.irrep(&[i64::from(dj)]).unwrap());
-                let tensor = cat.cgc(&ia, &ib, &ic).unwrap();
-                let n = cat.nsymbol(&ia, &ib, &ic).unwrap() as usize;
-                assert_eq!(
-                    tensor.dims(),
-                    [a as usize + 1, b as usize + 1, c as usize + 1, n]
-                );
-                if n == 0 {
-                    continue;
-                }
-                for x in 0..=a {
-                    for y in 0..=b {
-                        for z in 0..=c {
-                            let exact = clebsch_gordan(
-                                a,
-                                2 * x as i32 - a as i32,
-                                b,
-                                2 * y as i32 - b as i32,
-                                c,
-                                2 * z as i32 - c as i32,
-                            )
-                            .to_f64();
-                            assert_eq!(
-                                tensor
-                                    .get([x as usize, y as usize, z as usize, 0])
-                                    .to_bits(),
-                                exact.to_bits(),
-                                "{a} {b} {c} [{x},{y},{z}]"
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    }
     // A warm block is a CGC-tier hit, not a regeneration.
     let half = cat.irrep(&[1]).unwrap();
     cat.cgc(&half, &half, &cat.unit()).unwrap();

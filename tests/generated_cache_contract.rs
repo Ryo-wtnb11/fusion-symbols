@@ -51,8 +51,8 @@ fn generated_cache_resource_contract() {
         .sum();
     assert_eq!(
         all,
-        (64 * 5 + 256) << 20,
-        "576 MiB = Wigner 3j + 6j + F + R + Product + CGC"
+        (64 * 4 + 256) << 20,
+        "512 MiB = Wigner 6j + F + R + Product + CGC"
     );
 
     // ---- per-tier hit/miss accounting on deterministic accesses ----

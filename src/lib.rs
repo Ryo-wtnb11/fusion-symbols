@@ -4,7 +4,7 @@
 //!
 //! Families: compact connected Lie groups through [`lie::LieGroup`] — SU(N),
 //! SO(N), Spin(N), Sp(2r), G₂, F₄, E₆, E₇, E₈, U(N), tori, their products and
-//! central quotients — plus exact SU(2) evaluators in [`lie::su2`];
+//! central quotients;
 //! closed-form [`lie::U1`] and CU(1) = O(2) ([`lie::CU1`]); cyclic groups
 //! [`finite::ZN`]; fermion parity
 //! [`fermion::FermionParity`]; tabulated unitary multiplicity-free categories
@@ -45,15 +45,6 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
-//! Exact SU(2) recoupling values, with doubled spins (`2` means spin 1):
-//!
-//! ```
-//! use fusion_symbols::lie::su2::wigner_6j;
-//!
-//! let sixj = wigner_6j(2, 2, 2, 2, 2, 2);
-//! assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
-//! ```
-//!
 //! Products combine categories factorwise:
 //!
 //! ```
@@ -71,7 +62,6 @@
 //! | The shared category contract, symbol blocks, CGC and identity residuals | [`category`] |
 //! | Classifying a group and its global form | [`lie::GroupId`] |
 //! | Any supported Lie group as a category | [`lie::LieGroup`], objects [`lie::LieIrrep`] |
-//! | Exact SU(2) 3j, 6j and CG values | [`lie::su2`] |
 //! | U(1) with `Copy` labels; CU(1) = O(2) | [`lie::U1`], [`lie::CU1`] |
 //! | Z_N; fermion parity | [`finite::ZN`]; [`fermion::FermionParity`] |
 //! | Fibonacci, Ising and other AnyonWiki categories | [`table::TableCategory`] |

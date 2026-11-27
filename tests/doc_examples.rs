@@ -29,11 +29,16 @@ fn readme_1() -> Result<(), Box<dyn std::error::Error>> {
 
 /// `README.md`, Rust block 2.
 #[test]
-fn readme_2() {
-    use fusion_symbols::lie::su2::wigner_6j;
+fn readme_2() -> Result<(), Box<dyn std::error::Error>> {
+    use fusion_symbols::category::{FusionCategory, SymbolBlock};
+    use fusion_symbols::lie::{GroupId, LieGroup};
 
-    let sixj = wigner_6j(2, 2, 2, 2, 2, 2);
-    assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
+    let su2 = LieGroup::new(GroupId::su(2)?)?;
+    let one = su2.irrep(&[2])?;
+    // F^{111}_1[1, 1] = 3 · {1 1 1; 1 1 1} = 3/6
+    let f = su2.f_symbol(&one, &one, &one, &one, &one, &one)?;
+    assert!((f.get([0, 0, 0, 0]) - 0.5).abs() < 1e-15);
+    Ok(())
 }
 
 /// `docs/user-guide/README.md#building-lie-groups`.
@@ -179,12 +184,18 @@ fn guide_clebsch_gordan_coefficients_1() -> Result<(), Box<dyn std::error::Error
 
 /// `docs/user-guide/README.md#clebschgordan-coefficients`.
 #[test]
-fn guide_clebsch_gordan_coefficients_2() {
-    use fusion_symbols::lie::su2::clebsch_gordan;
+fn guide_clebsch_gordan_coefficients_2() -> Result<(), Box<dyn std::error::Error>> {
+    use fusion_symbols::{
+        category::{CgcBlock, FusionCategory, GroupRepresentations},
+        lie::{GroupId, LieGroup},
+    };
 
+    let su2 = LieGroup::new(GroupId::su(2)?)?;
+    let half = su2.irrep(&[1])?;
+    let c = su2.cgc(&half, &half, &su2.unit())?;
     // <1/2 +1/2, 1/2 -1/2 | 0 0> = 1/sqrt(2)
-    let cg = clebsch_gordan(1, 1, 1, -1, 0, 0);
-    assert!((cg.to_f64() - 0.5f64.sqrt()).abs() < 1e-15);
+    assert!((c.get([1, 0, 0, 0]) - 0.5f64.sqrt()).abs() < 1e-15);
+    Ok(())
 }
 
 /// `docs/user-guide/README.md#abelian-and-finite-categories`.
@@ -274,10 +285,16 @@ fn guide_products_1() -> Result<(), Box<dyn std::error::Error>> {
 
 /// `docs/user-guide/README.md#caches`.
 #[test]
-fn guide_caches_1() {
-    use fusion_symbols::cache::{tier_stats, CoefficientCacheTier};
+fn guide_caches_1() -> Result<(), Box<dyn std::error::Error>> {
+    use fusion_symbols::{
+        cache::{tier_stats, CoefficientCacheTier},
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
 
-    let _ = fusion_symbols::lie::su2::wigner_6j(2, 2, 2, 2, 2, 2);
+    let su2 = LieGroup::new(GroupId::su(2)?)?;
+    let one = su2.irrep(&[2])?;
+    let _ = su2.f_symbol(&one, &one, &one, &one, &one, &one)?;
     let six_j = tier_stats(CoefficientCacheTier::Wigner6j);
     println!(
         "{} entries, {} bytes, {} hits",
@@ -289,6 +306,7 @@ fn guide_caches_1() {
         .map(|&t| tier_stats(t).bytes)
         .sum();
     println!("{total} bytes retained across all tiers");
+    Ok(())
 }
 
 /// `docs/user-guide/getting-started.md#groups-and-irreps`.
@@ -388,10 +406,8 @@ fn getting_started_checking_f_against_the_wigner_6j_symbol_1(
 ) -> Result<(), Box<dyn std::error::Error>> {
     use fusion_symbols::{
         category::{FusionCategory, SymbolBlock},
-        lie::{su2::wigner_6j, GroupId, HalfInt, LieGroup},
+        lie::{GroupId, HalfInt, LieGroup},
     };
-
-    assert!((wigner_6j(1, 1, 2, 1, 1, 2).to_f64() - 1.0 / 6.0).abs() < 1e-15);
 
     let su2 = LieGroup::new(GroupId::su(2)?)?;
     let h = su2.irrep_spin(HalfInt::new(1, 2)?)?;
@@ -695,17 +711,6 @@ fn contract_labels_su3_fundamental() {
 }
 
 #[test]
-fn contract_cgc_su2_forbidden_6j_is_exact_zero() {
-    use fusion_symbols::lie::su2::wigner_6j;
-
-    // Admissible, and genuinely nonzero: {1 1 1; 1 1 1} = 1/6.
-    assert!((wigner_6j(2, 2, 2, 2, 2, 2).to_f64() - 1.0 / 6.0).abs() < 1e-14);
-
-    // Triangle violation: a forbidden label set is exact zero, not an error.
-    assert_eq!(wigner_6j(2, 2, 20, 2, 2, 2).to_f64(), 0.0);
-}
-
-#[test]
 fn contract_fusion_su2_spin_one() {
     use fusion_symbols::{
         category::FusionCategory,
@@ -829,9 +834,8 @@ fn contract_symbols_1() {
 fn contract_symbols_2() {
     use fusion_symbols::{
         category::{FusionCategory, SymbolBlock},
-        lie::{su2::wigner_6j, GroupId, HalfInt, LieGroup},
+        lie::{GroupId, HalfInt, LieGroup},
     };
-    assert!((wigner_6j(2, 2, 2, 2, 2, 2).to_f64() - 1.0 / 6.0).abs() < 1e-14);
     let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
     let half = group.irrep_spin(HalfInt::new(1, 2).unwrap()).unwrap();
     let unit = group.unit();
