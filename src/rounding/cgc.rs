@@ -39,7 +39,7 @@ pub(crate) fn round_channel(
     use crate::stage::{part_units, run_items, split_parts, take_part, StageBuf};
     let ends = exact.column_ends();
     let units = part_units(ends);
-    let estimates = ChannelEstimates::new(exact.vertices(), norms);
+    let estimates = ChannelEstimates::for_channel(exact.vertices(), norms, &units);
     let mut entries = view_slots(exact.len());
     {
         let parts = split_parts(&mut entries, ends.iter().copied());
@@ -47,7 +47,7 @@ pub(crate) fn round_channel(
             round_column(
                 &exact.column_coords(k),
                 norms,
-                &estimates,
+                estimates.as_ref(),
                 take_part(&parts, k),
             );
         });
@@ -117,9 +117,45 @@ fn norm_root(n: &Q, inverse: bool) -> Option<Est> {
     }
 }
 
+/// Nanoseconds the estimate saves per entry against [`exact_entry`],
+/// conservatively. Measured on lg (Xeon Platinum 9242, release, one
+/// thread): the exact conversion 194–305 ns per entry and the fast path
+/// 32–45 ns on channels of at least 300 entries; on channels of 30–277
+/// entries 263–471 ns against 92–112 ns. The smallest difference, about
+/// 150 ns, is taken.
+const SAVING_NS: u64 = 150;
+
+/// Nanoseconds one exact root costs, conservatively. Measured on the same
+/// host: 319–529 ns per root on serial tables of at least 53 roots, 385–433
+/// ns per root inside the stage, and 800–1383 ns per root on tables of 15–32
+/// roots; the largest, rounded up, is taken. With [`SAVING_NS`] a root pays
+/// for itself from 10 entries (`1400/150 ≈ 9.3`).
+const ROOT_NS: u64 = 1400;
+
+/// Whether forming `roots` exact roots costs no more than the estimate saves
+/// on the `entries` they serve.
+fn pays(entries: u64, roots: u64) -> bool {
+    entries.saturating_mul(SAVING_NS) >= roots.saturating_mul(ROOT_NS)
+}
+
 /// The roots one label's norms contribute: `√n_m` as a left or right
 /// factor, `1/√n_m` as the coupled one.
 type Roots = (Option<Est>, Option<Est>);
+
+/// Which norm tables are the same allocation, as the CGC tier shares them:
+/// whether `b` repeats `a`, and the factor table (`0` for `a`, `1` for a
+/// distinct `b`) a repeated `c` reuses.
+fn shared_labels([na, nb, nc]: [&NormTable; 3]) -> (bool, Option<usize>) {
+    let b_is_a = std::ptr::eq(na, nb);
+    let c = if std::ptr::eq(nc, na) {
+        Some(0)
+    } else if std::ptr::eq(nc, nb) {
+        Some(1)
+    } else {
+        None
+    };
+    (b_is_a, c)
+}
 
 /// The factor estimates of one channel call, built serially before its
 /// stage and never retained: per index of every distinct label among `a`,
@@ -132,19 +168,51 @@ pub(crate) struct ChannelEstimates {
     of: [usize; 2],
     c: Option<usize>,
     vertices: Box<[Option<Est>]>,
+    /// Whether a column's own coupled root is formed only when it [`pays`].
+    gate_columns: bool,
 }
 
 impl ChannelEstimates {
+    /// The estimates of a channel whose columns hold `columns` entries each,
+    /// or `None` when its roots cost more than they save, when every entry
+    /// takes [`exact_entry`].
+    ///
+    /// One comparison, [`pays`], at the two places roots are formed: a
+    /// column of a distinct `c` label adds one root, so it uses the estimate
+    /// when it pays alone; the channel's serial roots (the factor tables, the
+    /// repeated `c`'s reciprocal roots and one per `μ`) are formed when they
+    /// pay on the entries of the columns that use the estimate.
+    pub(crate) fn for_channel<'a>(
+        vertices: impl ExactSizeIterator<Item = &'a Radicand>,
+        norms: [&NormTable; 3],
+        columns: &[u64],
+    ) -> Option<Self> {
+        let (b_is_a, c) = shared_labels(norms);
+        let [da, db] = [norms[0].norm.len(), norms[1].norm.len()].map(|d| d as u64);
+        let tables = da + if b_is_a { 0 } else { db };
+        let inverse = match c {
+            Some(0) => da,
+            Some(_) => db,
+            None => 0,
+        };
+        let roots = tables + inverse + vertices.len() as u64;
+        let served: u64 = columns.iter().filter(|&&n| c.is_some() || pays(n, 1)).sum();
+        pays(served, roots).then(|| Self::new(vertices, norms, true))
+    }
+
     /// The estimates for a channel with vertices `vertices` (in `μ` order)
-    /// over the norm tables `[a, b, c]`; equal tables are the same
-    /// allocation, as the CGC tier shares them.
-    pub(crate) fn new<'a>(
+    /// over the norm tables `[a, b, c]`, every root formed; with
+    /// `gate_columns`, a distinct `c` label's column forms its root only
+    /// when it [`pays`].
+    fn new<'a>(
         vertices: impl Iterator<Item = &'a Radicand>,
-        [na, nb, nc]: [&NormTable; 3],
+        norms: [&NormTable; 3],
+        gate_columns: bool,
     ) -> Self {
-        let shared = |t: &NormTable| std::ptr::eq(t, nc);
+        let (b_is_a, c) = shared_labels(norms);
+        let [na, nb, nc] = norms;
         let table = |t: &NormTable| -> Box<[Roots]> {
-            let inverse = shared(t);
+            let inverse = std::ptr::eq(t, nc);
             t.norm
                 .iter()
                 .map(|n| {
@@ -154,34 +222,30 @@ impl ChannelEstimates {
                 .collect()
         };
         let mut tables = vec![table(na)];
-        let b = if std::ptr::eq(na, nb) {
+        let b = if b_is_a {
             0
         } else {
             tables.push(table(nb));
             1
         };
-        let c = if shared(na) {
-            Some(0)
-        } else if shared(nb) {
-            Some(b)
-        } else {
-            None
-        };
+        let c = c.map(|t| if t == 0 { 0 } else { b });
         let vertices = vertices.map(|r| estimate::root(r.num(), r.den())).collect();
         Self {
             tables,
             of: [0, b],
             c,
             vertices,
+            gate_columns,
         }
     }
 
     /// `√ρ_μ/√n^c_{m_c}` of the column, or `None` when a factor has no
-    /// estimate.
+    /// estimate or the column's own root does not pay.
     fn column(&self, column: &ColumnCoords<'_>, nc: &NormTable) -> Option<Est> {
         let mc = column.mc();
         let tc = match self.c {
             Some(t) => self.tables[t][mc].1?,
+            None if self.gate_columns && !pays(column.pairs().len() as u64, 1) => return None,
             None => norm_root(&nc.norm[mc], true)?,
         };
         estimate::mul(self.vertices[column.mu()]?, tc)
@@ -224,10 +288,11 @@ fn exact_entry(column: &ColumnCoords<'_>, [na, nb, nc]: [&NormTable; 3], j: usiz
 }
 
 /// Per entry of `exact`, in order: the bits [`ChannelEstimates`] certifies,
-/// or `None`, and the bits of [`exact_entry`].
+/// or `None`, and the bits of [`exact_entry`]; every root is formed, whatever
+/// [`pays`] would decide, so every entry is tried on the estimate.
 #[cfg(test)]
 pub(crate) fn fast_and_exact(exact: &ExactCgc, norms: [&NormTable; 3]) -> Vec<(Option<u64>, u64)> {
-    let estimates = ChannelEstimates::new(exact.vertices(), norms);
+    let estimates = ChannelEstimates::new(exact.vertices(), norms, false);
     let mut out = Vec::new();
     for k in 0..exact.column_ends().len() {
         let column = exact.column_coords(k);
@@ -243,19 +308,19 @@ pub(crate) fn fast_and_exact(exact: &ExactCgc, norms: [&NormTable; 3]) -> Vec<(O
 }
 
 /// Rounds the column `column` into `out`, its entries: the certified
-/// estimate of [`ChannelEstimates`] where it decides, [`exact_entry`] where it
-/// does not, with the same bits.
+/// estimate of [`ChannelEstimates`] where the channel has one and it decides,
+/// [`exact_entry`] otherwise, with the same bits.
 pub(crate) fn round_column(
     column: &ColumnCoords<'_>,
     norms: [&NormTable; 3],
-    estimates: &ChannelEstimates,
+    estimates: Option<&ChannelEstimates>,
     out: &mut [MEntry],
 ) {
     let (mu, mc) = (column.mu(), column.mc());
-    let k = estimates.column(column, norms[2]);
+    let k = estimates.and_then(|e| e.column(column, norms[2]));
     for (j, (slot, &(ma, mb))) in out.iter_mut().zip(column.pairs()).enumerate() {
         let value = estimates
-            .entry(k, column, j)
+            .and_then(|e| e.entry(k, column, j))
             .unwrap_or_else(|| exact_entry(column, norms, j));
         // The multiplicity and every dimension fit `u32` (§7 gate 1).
         *slot = MEntry {

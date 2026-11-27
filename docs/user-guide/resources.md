@@ -225,9 +225,10 @@ fusion_symbols::cache::enable_disk_cache("/local/scratch/fs-0.12.sqlite", 1 << 3
   table whose row was removed is rebuilt from its module). F and R rows hold
   rounded blocks. These cost far more to generate than to load.
 - **What a load costs.** The first view of a channel loaded from disk is one
-  correctly rounded conversion per stored entry, almost always through a
-  certified 128-bit estimate and otherwise through the exact conversion
-  (a few hundred nanoseconds), on top of the read and the checks; it is the price of storing the
+  correctly rounded conversion per stored entry, through a certified 128-bit
+  estimate (tens of nanoseconds) where the channel is large enough to repay
+  its setup and otherwise through the exact conversion (a few hundred
+  nanoseconds), on top of the read and the checks; it is the price of storing the
   exact channel only. `prefill` with a token that carries a team rounds the
   loaded channel in team sections, as it does a generated one; `cgc` and any
   other call without a token round on the calling thread. Later views are

@@ -44,7 +44,7 @@ pub(crate) fn write_and_round(
 ) -> (ExactCgc, CgcChannel) {
     use crate::stage::{run_items, split_parts, take_part, StageBuf};
     let units = pending.units();
-    let estimates = ChannelEstimates::new(pending.vertices(), norms);
+    let estimates = ChannelEstimates::for_channel(pending.vertices(), norms, &units);
     let mut view = view_slots(pending.len());
     let signs = {
         let writer = pending.writer();
@@ -52,7 +52,12 @@ pub(crate) fn write_and_round(
         let mut buf = StageBuf::default();
         let _width = run_items(exec, &units, &mut buf, |k| {
             let column = writer.column(k);
-            round_column(&column.coords(), norms, &estimates, take_part(&parts, k));
+            round_column(
+                &column.coords(),
+                norms,
+                estimates.as_ref(),
+                take_part(&parts, k),
+            );
             column.into_signs()
         });
         #[cfg(test)]
