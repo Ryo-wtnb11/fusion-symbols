@@ -13,6 +13,7 @@
 use fusion_symbols::category::SymbolBlock;
 use fusion_symbols::{
     category::{BraidingStyle, FusionCategory, RBlock, Scalar},
+    fermion::{FermionParity, FermionParityIrrep},
     finite::{ZNIrrep, ZN},
     lie::{CU1Irrep, GroupId, HalfInt, LieGroup, U1Irrep, CU1, U1},
     product::Product,
@@ -131,11 +132,24 @@ fn cu1_charged_sectors_match_tensorkitsectors() {
 
 #[test]
 fn abelian_groups_return_n() {
-    // TensorKitSectors `irreps.jl` (AbelianIrrep): A = B = N.
+    // TensorKitSectors `irreps.jl` (AbelianIrrep): A = B = N, also for fermion parity.
     let q = |c| U1Irrep::new(c).unwrap();
     assert_eq!(entry(U1.a_symbol(&q(2), &q(-3), &q(-1)).unwrap()), 1.0);
     assert_eq!(entry(U1.b_symbol(&q(2), &q(-3), &q(-1)).unwrap()), 1.0);
     assert_eq!(U1.a_symbol(&q(2), &q(-3), &q(1)).unwrap().dims()[0], 0);
+    let (even, odd) = (FermionParityIrrep::EVEN, FermionParityIrrep::ODD);
+    assert_eq!(
+        entry(FermionParity.a_symbol(&odd, &odd, &even).unwrap()),
+        1.0
+    );
+    assert_eq!(
+        entry(FermionParity.b_symbol(&odd, &even, &odd).unwrap()),
+        1.0
+    );
+    assert_eq!(
+        FermionParity.b_symbol(&odd, &odd, &odd).unwrap().dims()[0],
+        0
+    );
     let z3 = ZN::new(3).unwrap();
     let objects: Vec<_> = (0..3).map(|k| ZNIrrep::new(k, 3).unwrap()).collect();
     assert_unitary(&z3, &objects);
@@ -245,6 +259,19 @@ fn absent_channels_and_foreign_objects() {
     assert!(std::panic::catch_unwind(|| fib.a_symbol(&foreign, &tau, &tau)).is_err());
     assert!(std::panic::catch_unwind(|| fib.b_symbol(&tau, &tau, &foreign)).is_err());
     let z4 = ZNIrrep::new(1, 4).unwrap();
+    let (even, odd) = (FermionParityIrrep::EVEN, FermionParityIrrep::ODD);
+    assert_eq!(
+        entry(FermionParity.a_symbol(&odd, &odd, &even).unwrap()),
+        1.0
+    );
+    assert_eq!(
+        entry(FermionParity.b_symbol(&odd, &even, &odd).unwrap()),
+        1.0
+    );
+    assert_eq!(
+        FermionParity.b_symbol(&odd, &odd, &odd).unwrap().dims()[0],
+        0
+    );
     let z3 = ZN::new(3).unwrap();
     let u = z3.unit();
     assert!(std::panic::catch_unwind(|| z3.a_symbol(&z4, &u, &u)).is_err());

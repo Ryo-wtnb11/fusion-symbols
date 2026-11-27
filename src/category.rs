@@ -1193,6 +1193,16 @@ fn vertex_scale<C: FusionCategory>(
     C::Scalar::from_f64(cat.sqrt_dim(a) * cat.sqrt_dim(b) / cat.sqrt_dim(c))
 }
 
+// The A or B block of an Abelian category, whose admissible F and dimensions
+// are all one: `N(a, b, c)` as a `1 × 1` or empty block.
+pub(crate) fn abelian_vertex(n: u32) -> RBlock<f64> {
+    if n == 0 {
+        RBlock::zeros(0)
+    } else {
+        RBlock::one(1.0)
+    }
+}
+
 // The square `n × n` A or B block from row-major data (`N(a,b,c)` equals
 // `N(ā,c,b)` and `N(c,b̄,a)` by Frobenius reciprocity).
 pub(crate) fn rank2_block<S: Scalar>(

@@ -199,18 +199,10 @@ impl FusionCategory for ZN {
     // TensorKitSectors `irreps.jl` (AbelianIrrep): A and B are N, since every
     // admissible F and every dimension is one.
     fn a_symbol(&self, a: &ZNIrrep, b: &ZNIrrep, c: &ZNIrrep) -> Result<RBlock<f64>, Self::Error> {
-        Ok(if self.n(a, b, c) == 0 {
-            RBlock::zeros(0)
-        } else {
-            RBlock::one(1.0)
-        })
+        Ok(crate::category::abelian_vertex(self.n(a, b, c)))
     }
     fn b_symbol(&self, a: &ZNIrrep, b: &ZNIrrep, c: &ZNIrrep) -> Result<RBlock<f64>, Self::Error> {
-        Ok(if self.n(a, b, c) == 0 {
-            RBlock::zeros(0)
-        } else {
-            RBlock::one(1.0)
-        })
+        Ok(crate::category::abelian_vertex(self.n(a, b, c)))
     }
     // F is the product of the four vertex N, so exactly `1` when admissible;
     // the unit is the self-dual identity charge.

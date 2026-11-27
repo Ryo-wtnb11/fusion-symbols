@@ -193,18 +193,10 @@ impl FusionCategory for U1 {
     // TensorKitSectors `irreps.jl` (AbelianIrrep): A and B are N, since every
     // admissible F and every dimension is one.
     fn a_symbol(&self, a: &U1Irrep, b: &U1Irrep, c: &U1Irrep) -> Result<RBlock<f64>, Self::Error> {
-        Ok(if conserves(a, b, c) == 0 {
-            RBlock::zeros(0)
-        } else {
-            RBlock::one(1.0)
-        })
+        Ok(crate::category::abelian_vertex(conserves(a, b, c)))
     }
     fn b_symbol(&self, a: &U1Irrep, b: &U1Irrep, c: &U1Irrep) -> Result<RBlock<f64>, Self::Error> {
-        Ok(if conserves(a, b, c) == 0 {
-            RBlock::zeros(0)
-        } else {
-            RBlock::one(1.0)
-        })
+        Ok(crate::category::abelian_vertex(conserves(a, b, c)))
     }
     // F is the product of the four vertex N, so exactly `1` when admissible;
     // the unit is the self-dual identity charge.

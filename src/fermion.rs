@@ -1,6 +1,7 @@
 //! Fermion parity with unique fusion and the odd–odd braiding sign.
 
-use crate::category::{BraidingStyle, EnumerationError, FusionCategory, FusionStyle};
+use crate::category::abelian_vertex;
+use crate::category::{BraidingStyle, EnumerationError, FusionCategory, FusionStyle, RBlock};
 use std::convert::Infallible;
 
 /// Fermion-parity category; all validated parity labels belong to it.
@@ -120,6 +121,24 @@ impl FusionCategory for FermionParity {
     ) -> Result<f64, Self::Error> {
         let n = f64::from(n(a, b, c));
         Ok(if a.odd && b.odd && n != 0.0 { -n } else { n })
+    }
+    // TensorKitSectors `irreps.jl` (AbelianIrrep): A and B are N, since every
+    // admissible F and every dimension is one.
+    fn a_symbol(
+        &self,
+        a: &FermionParityIrrep,
+        b: &FermionParityIrrep,
+        c: &FermionParityIrrep,
+    ) -> Result<RBlock<f64>, Self::Error> {
+        Ok(abelian_vertex(n(a, b, c)))
+    }
+    fn b_symbol(
+        &self,
+        a: &FermionParityIrrep,
+        b: &FermionParityIrrep,
+        c: &FermionParityIrrep,
+    ) -> Result<RBlock<f64>, Self::Error> {
+        Ok(abelian_vertex(n(a, b, c)))
     }
     // F is the product of the four vertex N, so exactly `1` when admissible;
     // the unit is the self-dual identity charge.
