@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::exact::radical::SignedInts;
+use malachite_nz::natural::Natural;
 use std::cell::Cell;
 use std::sync::atomic::AtomicUsize;
 
@@ -221,21 +222,11 @@ fn two_column_channel() -> (Arc<ExactCgc>, Shape) {
 }
 
 /// The norm-table layout, written out field by field.
-fn norm_row(
-    dim: u32,
-    norms: &[(u64, u64)],
-    nu: &SignedInts,
-    den_content: (u64, u64),
-    rank: &[u32],
-    slots: u32,
-    top: u32,
-) -> Vec<u8> {
+fn norm_row(dim: u32, norms: &[(u64, u64)], rank: &[u32], slots: u32, top: u32) -> Vec<u8> {
     let mut out = dim.to_le_bytes().to_vec();
     for &(n, d) in norms {
         out.extend(radicand(n, d));
     }
-    nu.encode(&mut out);
-    out.extend(radicand(den_content.0, den_content.1));
     for r in rank {
         out.extend_from_slice(&r.to_le_bytes());
     }
@@ -244,11 +235,10 @@ fn norm_row(
     out
 }
 
-/// A three-dimensional table: norms `1, 1/2, 3/2` on `Δ = 2`, `g = 1`, so
-/// `ν = (2, 1, 3)`; the last two share a weight space.
+/// A three-dimensional table: norms `1, 1/2, 3/2`; the last two share a
+/// weight space.
 fn good_norms() -> Vec<u8> {
-    let nu = SignedInts::from_words(&[(false, 2), (false, 1), (false, 3)]).unwrap();
-    norm_row(3, &[(1, 1), (1, 2), (3, 2)], &nu, (2, 1), &[0, 0, 1], 2, 0)
+    norm_row(3, &[(1, 1), (1, 2), (3, 2)], &[0, 0, 1], 2, 0)
 }
 
 fn block_bits(x: &[f64]) -> Vec<u64> {
@@ -461,15 +451,17 @@ fn structurally_wrong_rows_with_valid_checksum_are_rejected() {
     }
 
     let norms = Shape::Norms { dim: 3 };
-    let nu = |x: &[(bool, u64)]| SignedInts::from_words(x).unwrap();
-    let good_nu = nu(&[(false, 2), (false, 1), (false, 3)]);
-    let table = |norms: &[(u64, u64)], nu: &SignedInts, rank: &[u32], slots, top| {
-        row(&key, &norm_row(3, norms, nu, (2, 1), rank, slots, top))
+    let table = |norms: &[(u64, u64)], rank: &[u32], slots, top| {
+        row(&key, &norm_row(3, norms, rank, slots, top))
     };
     let n = [(1, 1), (1, 2), (3, 2)];
-    assert!(
-        decode_row::<Arc<NormTable>>(&key, &table(&n, &good_nu, &[0, 0, 1], 2, 0), &norms)
-            .is_some()
+    // The derived fields are those of the norms: `Δ = 2`, `g = 1`, so
+    // `ν = (2, 1, 3)`.
+    let decoded = decode_row::<Arc<NormTable>>(&key, &table(&n, &[0, 0, 1], 2, 0), &norms).unwrap();
+    let want = SignedInts::from_words(&[(false, 2), (false, 1), (false, 3)]).unwrap();
+    assert_eq!(
+        (decoded.nu(), decoded.den(), decoded.content()),
+        (&want, &Natural::from(2u32), &Natural::from(1u32))
     );
     assert!(
         decode_row::<Arc<NormTable>>(&key, &row(&key, &good_norms()), &Shape::Norms { dim: 4 })
@@ -479,39 +471,11 @@ fn structurally_wrong_rows_with_valid_checksum_are_rejected() {
     for (name, stored) in [
         (
             "zero norm",
-            table(&[(1, 1), (0, 2), (3, 2)], &good_nu, &[0, 0, 1], 2, 0),
+            table(&[(1, 1), (0, 2), (3, 2)], &[0, 0, 1], 2, 0),
         ),
-        (
-            "zero ν",
-            table(
-                &n,
-                &nu(&[(false, 2), (false, 0), (false, 3)]),
-                &[0, 0, 1],
-                2,
-                0,
-            ),
-        ),
-        (
-            "negative ν",
-            table(
-                &n,
-                &nu(&[(false, 2), (true, 1), (false, 3)]),
-                &[0, 0, 1],
-                2,
-                0,
-            ),
-        ),
-        (
-            "short ν",
-            table(&n, &nu(&[(false, 2), (false, 1)]), &[0, 0, 1], 2, 0),
-        ),
-        ("rank past slots", table(&n, &good_nu, &[0, 0, 2], 2, 0)),
-        ("no slots", table(&n, &good_nu, &[0, 0, 0], 0, 0)),
-        ("top past dim", table(&n, &good_nu, &[0, 0, 1], 2, 3)),
-        (
-            "zero Δ",
-            row(&key, &norm_row(3, &n, &good_nu, (0, 1), &[0, 0, 1], 2, 0)),
-        ),
+        ("rank past slots", table(&n, &[0, 0, 2], 2, 0)),
+        ("no slots", table(&n, &[0, 0, 0], 0, 0)),
+        ("top past dim", table(&n, &[0, 0, 1], 2, 3)),
     ] {
         assert!(
             decode_row::<Arc<NormTable>>(&key, &stored, &norms).is_none(),

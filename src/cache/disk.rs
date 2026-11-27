@@ -60,8 +60,9 @@ use crate::lie::RootSystem;
 use crate::rounding::blocks::{check_f_block, check_r_block};
 
 /// Storage format version: the key and value encodings and the table layout.
-/// Schema 2 stores exact CGC channels, seeds and norm tables.
-const SCHEMA: u16 = 2;
+/// Schema 3 stores exact CGC channels, seeds and norm tables without their
+/// derived fields.
+const SCHEMA: u16 = 3;
 
 const fn parse_u16(s: &str) -> u16 {
     let bytes = s.as_bytes();

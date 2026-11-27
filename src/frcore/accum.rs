@@ -298,9 +298,9 @@ impl SumAcc {
     }
 
     /// The sums as a canonical slab (§f.3a): each entry's banks are settled
-    /// into `2·limbs + 1` words, subtracted, and written at that stride; the
-    /// widest actual magnitude then fixes the stride, and the entries are
-    /// moved forward to it in place. A sum that cancels to zero carries no
+    /// into `2·limbs + 1` words, subtracted, and written at that stride, then
+    /// compacted in place to the widest actual magnitude
+    /// ([`SignedInts::compacted`]). A sum that cancels to zero carries no
     /// sign.
     pub(crate) fn finish(self) -> SignedInts {
         match self {
@@ -311,7 +311,6 @@ impl SumAcc {
                 let mut mag = vec![0u64; len * cap];
                 let mut neg = vec![0u64; len.div_ceil(64)];
                 let mut q = vec![0u64; cap];
-                let mut widest = 0;
                 for (i, (entry, out)) in cols
                     .chunks_mut(2 * bank)
                     .zip(mag.chunks_mut(cap))
@@ -320,20 +319,11 @@ impl SumAcc {
                     let (pos, negative) = entry.split_at_mut(bank);
                     settle(pos, out);
                     settle(negative, &mut q);
-                    let below = sub_banks(out, &q);
-                    let used = trimmed_words(out).len();
-                    if below && used > 0 {
+                    if sub_banks(out, &q) {
                         neg[i / 64] |= 1 << (i % 64);
                     }
-                    widest = widest.max(used);
                 }
-                // Entry `i` moves from `i·cap` to `i·widest ≤ i·cap`: in
-                // ascending order no unread word is overwritten.
-                for i in 0..len {
-                    mag.copy_within(i * cap..i * cap + widest, i * widest);
-                }
-                mag.truncate(len * widest);
-                SignedInts::from_raw(len, widest, neg, mag)
+                SignedInts::compacted(len, cap, neg, mag)
             }
             Self::Big(sums) => {
                 let values: Vec<(bool, Natural)> = sums

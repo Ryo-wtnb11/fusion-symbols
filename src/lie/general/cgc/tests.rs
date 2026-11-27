@@ -2752,20 +2752,46 @@ fn norm_tables_follow_the_public_index() {
         let data = CartanData::new(root);
         let m = Ladders::new(&data, &l).unwrap();
         let t = NormTable::new(&m).unwrap();
-        let scale = malachite_q::Rational::from_naturals(t.content.clone(), t.den.clone());
+        let scale = malachite_q::Rational::from_naturals(t.content().clone(), t.den().clone());
         for e in 0..m.dim() {
             let p = m.public[e] as usize;
             permuted |= p != e;
             assert_eq!(t.norm[p], m.norm[e], "{root:?} {l:?}");
             assert_eq!(t.rank[p], m.rank[e], "{root:?} {l:?}");
-            assert!(!t.nu.is_negative(p) && t.nu.bits(p) > 0);
-            let nu = malachite_q::Rational::from(t.nu.integer(p));
+            assert!(!t.nu().is_negative(p) && t.nu().bits(p) > 0);
+            let nu = malachite_q::Rational::from(t.nu().integer(p));
             assert_eq!(nu * &scale, m.norm[e].to_rational(), "{root:?} {l:?}");
         }
         assert_eq!(t.top, m.public[0]);
         let slots = m.module.weights.iter().map(|s| s.norms.len()).max();
         assert_eq!(Some(t.slots as usize), slots);
         assert!(t.rank.iter().all(|&r| r < t.slots));
+    }
+    assert!(permuted, "a GT fixture permutes its indices");
+}
+
+/// A stored norm table decodes to the generated one, field for field: the
+/// derived `ν`, `Δ` and `g` are rebuilt from the norms, for GT modules (at
+/// least one with a nontrivial public map), G2 and E6.
+#[cfg(feature = "disk-cache")]
+#[test]
+fn stored_norm_tables_are_the_generated_ones() {
+    let mut permuted = false;
+    for (root, l) in [
+        (RootSystem::A(2), vec![1, 1]),
+        (RootSystem::A(2), vec![2, 1]),
+        (RootSystem::A(3), vec![1, 0, 1]),
+        (RootSystem::G2, G27.to_vec()),
+        (RootSystem::E6, vec![1, 0, 0, 0, 0, 0]),
+    ] {
+        let data = CartanData::new(root);
+        let m = Ladders::new(&data, &l).unwrap();
+        permuted |= m.public.iter().enumerate().any(|(e, &p)| p as usize != e);
+        let t = NormTable::new(&m).unwrap();
+        let mut out = Vec::new();
+        t.encode(&mut out);
+        assert_eq!(Some(out.len()), t.encoded_len(), "{root:?}");
+        assert_eq!(NormTable::decode(&out, m.dim()), Some(t), "{root:?}");
     }
     assert!(permuted, "a GT fixture permutes its indices");
 }
@@ -2918,14 +2944,8 @@ fn view_keeps_rounded_zeros_and_omits_exact_zeros() {
     ];
     let exact =
         exact::ExactCgc::from_columns([2, 2, 2], columns, &[one(), one()], false, None).unwrap();
-    let unit = |dim: usize| NormTable {
-        norm: vec![Q::from(1); dim].into_boxed_slice(),
-        nu: crate::exact::radical::SignedInts::from_words(&vec![(false, 1); dim]).unwrap(),
-        den: malachite_nz::natural::Natural::from(1u32),
-        content: malachite_nz::natural::Natural::from(1u32),
-        rank: vec![0; dim].into_boxed_slice(),
-        slots: 1,
-        top: 0,
+    let unit = |dim: usize| {
+        NormTable::from_parts(vec![Q::from(1); dim].into(), vec![0; dim].into(), 1, 0).unwrap()
     };
     let two = unit(2);
     let (p, m) = (1.0f64.to_bits(), (-1.0f64).to_bits());

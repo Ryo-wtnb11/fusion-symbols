@@ -20,9 +20,9 @@ value/gauge rule noted below.
   coefficient value changes. The CGC tier also retains highest-weight seeds
   and irrep norm tables, and a view evicted while its exact channel is
   resident is rounded again without a descent.
-- The disk cache stores exact CGC rows only (storage schema 2): exact
-  channels, seeds and norm tables, checked by structural decoders before any
-  arithmetic. A loaded channel is rounded into its view as after a
+- The disk cache stores exact CGC rows only (storage schema 3): exact
+  channels, seeds and norm tables (the norms only; their integer form is
+  rebuilt on load), checked by structural decoders before any arithmetic. A loaded channel is rounded into its view as after a
   generation, building no irrep module when its norm tables are stored:
   the first view of a loaded channel costs one conversion per entry
   (in team sections under `prefill` with a team, on the calling thread
