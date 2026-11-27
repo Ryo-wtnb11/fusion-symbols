@@ -1169,10 +1169,10 @@ macro_rules! product_queries {
                 validate($this, &[a]);
                 $this.__fusion_symbols_validated_frobenius_schur_indicator(a, Validated(()))
             }
-            fn twist(&$this, a: &Self::Object) -> Self::Scalar {
+            fn twist(&$this, a: &Self::Object) -> Result<Self::Scalar, Self::Error> {
                 validate($this, &[a]);
                 if let Some(factor) = ($braidings).into_iter().position(|s| s == BraidingStyle::None) {
-                    panic!("product factor {factor} has no braiding");
+                    return Err(ProductError::NoBraiding { factor });
                 }
                 $this.__fusion_symbols_validated_twist(a, Validated(()))
             }
@@ -1330,9 +1330,10 @@ macro_rules! impl_product {
                 $(let value = <$Prev as Embed<$C::Scalar>>::left(value) * <$Prev as Embed<$C::Scalar>>::right(self.factors.$i.__fusion_symbols_validated_frobenius_schur_indicator(&a.$i, t));)+ value
             }
             // The caller has checked that every factor braids.
-            fn __fusion_symbols_validated_twist(&self, a: &Self::Object, t: Validated) -> Self::Scalar {
-                let value = self.factors.0.__fusion_symbols_validated_twist(&a.0, t);
-                $(let value = <$Prev as Embed<$C::Scalar>>::left(value) * <$Prev as Embed<$C::Scalar>>::right(self.factors.$i.__fusion_symbols_validated_twist(&a.$i, t));)+ value
+            fn __fusion_symbols_validated_twist(&self, a: &Self::Object, t: Validated) -> Result<Self::Scalar, Self::Error> {
+                let value = self.factors.0.__fusion_symbols_validated_twist(&a.0, t).map_err(ProductError::Factor0)?;
+                $(let value = <$Prev as Embed<$C::Scalar>>::left(value) * <$Prev as Embed<$C::Scalar>>::right(self.factors.$i.__fusion_symbols_validated_twist(&a.$i, t).map_err(ProductError::$Err)?);)+
+                Ok(value)
             }
             fn __fusion_symbols_validated_fusion<'a>(&'a self, a: &Self::Object, b: &Self::Object, t: Validated) -> Result<Self::Fusion<'a>, Self::Error> {
                 let raw = (self.factors.0.__fusion_symbols_validated_fusion(&a.0, &b.0, t).map_err(ProductError::Factor0)?,
@@ -1555,13 +1556,19 @@ where
                 .map(|(c, a)| c.__fusion_symbols_validated_frobenius_schur_indicator(a, t)),
         )
     }
-    fn __fusion_symbols_validated_twist(&self, a: &Self::Object, t: Validated) -> Self::Scalar {
-        scalar_product(
-            self.factors
-                .iter()
-                .zip(a)
-                .map(|(c, a)| c.__fusion_symbols_validated_twist(a, t)),
-        )
+    fn __fusion_symbols_validated_twist(
+        &self,
+        a: &Self::Object,
+        t: Validated,
+    ) -> Result<Self::Scalar, Self::Error> {
+        let mut value = None;
+        for (index, (c, a)) in self.factors.iter().zip(a).enumerate() {
+            let x = c
+                .__fusion_symbols_validated_twist(a, t)
+                .map_err(|source| ProductError::Factor { index, source })?;
+            value = Some(value.map_or(x, |v| v * x));
+        }
+        Ok(value.unwrap_or_else(Self::Scalar::one))
     }
     fn __fusion_symbols_validated_dual(&self, a: &Self::Object, t: Validated) -> Self::Object {
         self.factors
@@ -2056,8 +2063,8 @@ mod tests {
         fn frobenius_schur_indicator(&self, _: &()) -> f64 {
             1.0
         }
-        fn twist(&self, _: &()) -> f64 {
-            1.0
+        fn twist(&self, _: &()) -> Result<f64, Infallible> {
+            Ok(1.0)
         }
         fn fusion<'a>(&'a self, _: &(), _: &()) -> Result<Self::Fusion<'a>, Infallible> {
             Ok(std::iter::once(((), self.n)))

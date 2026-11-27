@@ -128,7 +128,7 @@ and `sectors.jl` style `&` methods. Their relevant guards and assumptions map as
 | Scalar `_kron_promote` fills the logical N-derived shape | Logical axes queried independently of `SymbolBlock::dims`; zero axes skip values, all-one axes stay inline. |
 | `_kron` assumes matching ranks and valid Cartesian indices | Fixed block ranks; each level expands in place with per-axis digit countdowns, last factor fastest; shape/count/byte overflow is a typed `Overflow`. |
 | Julia product iteration can restart each component | Clone initialized iterators; nonempty reset is a documented loud-panic invariant. A valid clone preserves the initialized iterator sequence. |
-| Styles restrict braiding and symbol availability | R capability errors and twist panic after full preflight; no special-case branch bypasses validation. |
+| Styles restrict braiding and symbol availability | R and twist capability errors after full preflight; no special-case branch bypasses validation. |
 | Julia multiplicity/product arithmetic fits its representation | Checked Rust arithmetic, zero-wins N, typed `nsymbol`/F/R `Overflow`. |
 | Single-sector symbol base cases | Singleton vectors delegate symbols to the factor authority; the empty vector supplies the scalar identity. Tuples accept 2..=12 factors. |
 

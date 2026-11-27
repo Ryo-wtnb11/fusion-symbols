@@ -426,7 +426,7 @@ impl<C: FusionCategory> FusionCategory for Forward<C> {
     fn frobenius_schur_indicator(&self, a: &C::Object) -> C::Scalar {
         self.0.frobenius_schur_indicator(a)
     }
-    fn twist(&self, a: &C::Object) -> C::Scalar {
+    fn twist(&self, a: &C::Object) -> Result<C::Scalar, C::Error> {
         self.0.twist(a)
     }
     fn fusion<'a>(&'a self, a: &C::Object, b: &C::Object) -> Result<C::Fusion<'a>, C::Error> {

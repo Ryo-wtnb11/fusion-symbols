@@ -59,7 +59,7 @@ fn compare<C, T>(
                 runtime.frobenius_schur_indicator(&va),
                 tuple.frobenius_schur_indicator(a),
             ),
-            (runtime.twist(&va), tuple.twist(a)),
+            (runtime.twist(&va).unwrap(), tuple.twist(a).unwrap()),
         ] {
             assert_eq!(x.to_bits(), y.to_bits());
         }
@@ -283,7 +283,7 @@ fn empty_and_singleton() {
         empty.inv_sqrt_dim(&u),
         empty.frobenius_schur_phase(&u).unwrap(),
         empty.frobenius_schur_indicator(&u),
-        empty.twist(&u),
+        empty.twist(&u).unwrap(),
     ] {
         assert_eq!(v, 1.0);
     }

@@ -52,7 +52,8 @@
 //!     fermion::{FermionParity, FermionParityIrrep}, product::Product};
 //! let cat = Product::new((ZN::new(2).unwrap(), FermionParity));
 //! let odd = (cat.factors().0.unit(), FermionParityIrrep::ODD);
-//! assert_eq!(cat.twist(&odd), -1.0);
+//! assert_eq!(cat.twist(&odd)?, -1.0);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! # Where to look

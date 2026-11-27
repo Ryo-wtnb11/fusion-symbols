@@ -194,7 +194,8 @@ assert_eq!(r.get([0, 0]), -1.0);
   multiplicity beyond `u32`.
 - `dim`, `dual`, `frobenius_schur_phase`, `frobenius_schur_indicator` and
   `twist` are per-object data. `frobenius_schur_phase` returns a `Result`:
-  a complex irrep of a generated family may need its modules built.
+  a complex irrep of a generated family may need its modules built. `twist`
+  returns a `Result` too: without braiding it is the error `r_symbol` returns.
 - `f_symbol`, `r_symbol`, `a_symbol` and `b_symbol` return blocks whose axes
   are vertex multiplicities (next section). An inadmissible vertex gives a
   zero block, not an error; errors mean a genuine failure or a missing
@@ -293,7 +294,7 @@ let z3 = ZN::new(3)?;
 let one = ZNIrrep::new(1, 3)?;
 assert_eq!(z3.fusion(&one, &one)?.next(), Some((ZNIrrep::new(2, 3)?, 1)));
 
-assert_eq!(FermionParity.twist(&FermionParityIrrep::ODD), -1.0);
+assert_eq!(FermionParity.twist(&FermionParityIrrep::ODD)?, -1.0);
 
 let a = CU1Irrep::new(HalfInt::new(1, 2)?, 2)?;
 let channels: Vec<_> = CU1.fusion(&a, &a)?.collect();
@@ -332,7 +333,7 @@ Open a category with `fibonacci()`, `ising()`, or `by_uuid(uuid)`;
 categories of rank ≤ 4 ship by default and 303 more of rank 5–7 with the
 `anyonwiki-unitary` feature. A known but unshipped entry returns
 `TableError::Unsupported` with an `UnsupportedReason`. Fusion-only tables
-return `TableError::NoBraiding` from R and panic on `twist`. Values are in
+return `TableError::NoBraiding` from R and `twist`. Values are in
 AnyonWiki's gauge; Ising differs from TensorKitSectors' `IsingAnyon` by a
 vertex gauge and object order (see [differences](../tensorkitsectors-differences.md)).
 Provenance and pins are in [category conventions](../references_categories.md).
@@ -350,7 +351,7 @@ use fusion_symbols::{category::{CgcBlock, FusionCategory, GroupRepresentations},
 
 let cat = Product::new((U1, FermionParity));
 let odd = (U1Irrep::new(1)?, FermionParityIrrep::ODD);
-assert_eq!(cat.twist(&odd), -1.0);
+assert_eq!(cat.twist(&odd)?, -1.0);
 
 let su2 = LieGroup::new(GroupId::su(2)?)?;
 let spin_charge = Product::new((su2.clone(), U1));

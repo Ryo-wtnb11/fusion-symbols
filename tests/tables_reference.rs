@@ -228,7 +228,7 @@ fn gauge_equivalent(
         )?;
         close(
             format!("twist {a}"),
-            category.twist(&here(a)),
+            category.twist(&here(a)).unwrap(),
             tks.twist[&a],
         )?;
         for &b in &labels {
@@ -599,12 +599,12 @@ fn ribbon_relation_ties_twists_to_the_braid() {
         for &a in &objects {
             for &b in &objects {
                 for c in channels(&p, a, b) {
-                    let actual = p.twist(&a)
-                        * p.twist(&b)
+                    let actual = p.twist(&a).unwrap()
+                        * p.twist(&b).unwrap()
                         * p.r_symbol(&b, &a, &c).unwrap()
                         * p.r_symbol(&a, &b, &c).unwrap();
                     assert!(
-                        (actual - p.twist(&c)).norm() <= FP_BOUND,
+                        (actual - p.twist(&c).unwrap()).norm() <= FP_BOUND,
                         "{name}: ribbon{:?}",
                         (a, b, c)
                     );
@@ -696,7 +696,7 @@ fn foreign_objects_panic_before_capability_checks_in_every_argument() {
             cat.frobenius_schur_indicator(&foreign);
         });
         rejects(&|| {
-            cat.twist(&foreign);
+            cat.twist(&foreign).unwrap();
         });
     }
 }
@@ -704,14 +704,13 @@ fn foreign_objects_panic_before_capability_checks_in_every_argument() {
 #[test]
 fn fusion_only_entries_refuse_braiding() {
     use fusion_symbols::table::TableError;
-    use std::panic::{catch_unwind, AssertUnwindSafe};
     for cat in shipped().filter(|cat| cat.braiding_style() == BraidingStyle::None) {
         let unit = cat.unit();
         assert_eq!(
             cat.r_symbol(&unit, &unit, &unit),
             Err(TableError::NoBraiding)
         );
-        assert!(catch_unwind(AssertUnwindSafe(|| cat.twist(&unit))).is_err());
+        assert_eq!(cat.twist(&unit), Err(TableError::NoBraiding));
         assert_eq!(
             cat.f_symbol(&unit, &unit, &unit, &unit, &unit, &unit)
                 .unwrap(),

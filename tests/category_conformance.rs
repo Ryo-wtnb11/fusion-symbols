@@ -73,7 +73,7 @@ fn conformance<C: FusionCategory>(cat: C, labels: Vec<C::Object>) {
                         twist + C::Scalar::from_f64(cat.dim(&b) / cat.dim(a)) * block.get([mu, mu]);
                 }
             }
-            close(cat.twist(a), twist);
+            close(cat.twist(a).unwrap(), twist);
         }
         for b in &labels {
             // Consistency identity, not an oracle: each item's count is N.

@@ -92,7 +92,7 @@ const ISING_UUID: &str = "37fa4e56-97c6-11f1-907a-eb6ab8e8bc11";
 /// Every object-taking query except `contains` panics on foreign objects before
 /// checking capabilities.
 /// Inadmissible symbols are exact zero. On fusion-only entries, `r_symbol`
-/// returns [`TableError::NoBraiding`] and `twist` panics.
+/// and `twist` return [`TableError::NoBraiding`].
 ///
 /// Enumeration (frozen): the source object order; the object with one-based
 /// AnyonWiki label `i` is [`FusionCategory::object_at`]`(i − 1)`, its
@@ -389,16 +389,14 @@ impl FusionCategory for TableCategory {
             Complex64::new(0.0, 0.0)
         }
     }
-    /// Twist derived from R.
-    ///
-    /// # Panics
-    /// Panics on foreign objects first, then if braiding is absent.
-    fn twist(&self, a: &TableObject) -> Complex64 {
+    /// Twist derived from R; [`TableError::NoBraiding`] without braiding.
+    /// Foreign objects panic first.
+    fn twist(&self, a: &TableObject) -> Result<Complex64, TableError> {
         let i = self.index(a);
-        self.data
-            .twists
-            .as_ref()
-            .expect("twist: the category has no braiding")[i]
+        match &self.data.twists {
+            Some(twists) => Ok(twists[i]),
+            None => Err(TableError::NoBraiding),
+        }
     }
     fn fusion<'a>(
         &'a self,

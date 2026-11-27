@@ -60,7 +60,7 @@ fn labels_forms_and_rank_one_isomorphisms() {
             su.r_symbol(&su_one, &su_one, &su.unit()).unwrap()
         );
         assert_eq!(cat.frobenius_schur_phase(&one).unwrap(), 1.0);
-        assert_eq!(cat.twist(&one), 1.0);
+        assert_eq!(cat.twist(&one).unwrap(), 1.0);
         assert!(std::panic::catch_unwind(|| cat.dim(&su_one)).is_err());
     }
 }

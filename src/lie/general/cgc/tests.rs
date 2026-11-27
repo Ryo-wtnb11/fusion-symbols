@@ -933,8 +933,8 @@ impl FusionCategory for Cat {
             0.0
         }
     }
-    fn twist(&self, _: &Vec<i64>) -> f64 {
-        1.0
+    fn twist(&self, _: &Vec<i64>) -> Result<f64, LieError> {
+        Ok(1.0)
     }
     fn fusion<'a>(&'a self, a: &Vec<i64>, b: &Vec<i64>) -> Result<Self::Fusion<'a>, LieError> {
         Ok(self

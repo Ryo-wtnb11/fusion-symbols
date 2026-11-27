@@ -23,7 +23,7 @@ pub enum FusionStyle {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum BraidingStyle {
-    /// Braiding is absent: R returns an error and twist panics.
+    /// Braiding is absent: R and twist return an error.
     None,
     /// Symmetric braiding with trivial twists.
     Bosonic,
@@ -673,17 +673,20 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     fn frobenius_schur_indicator(&self, a: &Self::Object) -> Self::Scalar;
-    /// Ribbon twist; panics on foreign objects or `BraidingStyle::None`.
+    /// Ribbon twist; error if braiding is absent, the same error
+    /// [`Self::r_symbol`] returns. Foreign objects panic before capability
+    /// checks.
     ///
     /// # Examples
     ///
     /// ```
     /// use fusion_symbols::{category::FusionCategory, fermion::{FermionParity, FermionParityIrrep}};
     ///
-    /// assert_eq!(FermionParity.twist(&FermionParityIrrep::ODD), -1.0);
-    /// assert_eq!(FermionParity.twist(&FermionParityIrrep::EVEN), 1.0);
+    /// assert_eq!(FermionParity.twist(&FermionParityIrrep::ODD)?, -1.0);
+    /// assert_eq!(FermionParity.twist(&FermionParityIrrep::EVEN)?, 1.0);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    fn twist(&self, a: &Self::Object) -> Self::Scalar;
+    fn twist(&self, a: &Self::Object) -> Result<Self::Scalar, Self::Error>;
     /// Deterministic outcomes `c` of `a ⊗ b`, each once with its multiplicity
     /// `N(a, b, c) ≥ 1`, which equals [`Self::nsymbol`]. Reading every channel
     /// with its multiplicity this way costs one decomposition lookup per
@@ -1158,7 +1161,7 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         &self,
         a: &Self::Object,
         _: sealed::Validated,
-    ) -> Self::Scalar {
+    ) -> Result<Self::Scalar, Self::Error> {
         self.twist(a)
     }
     #[doc(hidden)]

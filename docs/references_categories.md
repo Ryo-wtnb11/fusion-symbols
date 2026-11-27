@@ -120,7 +120,7 @@ Changing any step is a new projection epoch.
 | Object ordering | `FusionCategory::object_at(i)` is the object with one-based source label `i + 1` and `object_index` its inverse; objects carry a private catalog tag. Fusion-ring element order, `object_at(0)` = unit. Frozen; not re-sorted |
 | Gauge | Source gauge, loaded verbatim (unitary), named constructors included. No conversion to TensorKitSectors' gauge |
 | Provenance | One generated `TableProvenance` per entry (uuid and fusion-ring uuid in `source_entry`, code in `category_key`) |
-| Braiding | `FusionCategory::braiding_style` (`BraidingStyle::None` on fusion-only entries); `FusionCategory::r_symbol` returns `TableError::NoBraiding` on fusion-only entries; `twist` panics. Foreign objects panic before either capability check |
+| Braiding | `FusionCategory::braiding_style` (`BraidingStyle::None` on fusion-only entries); `FusionCategory::r_symbol` and `twist` return `TableError::NoBraiding` on fusion-only entries. Foreign objects panic before either capability check |
 
 ### Named constructors and TensorKitSectors 0.3.9
 

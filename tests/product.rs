@@ -56,7 +56,7 @@ fn fermionic_closed_forms_and_complex_promotion() {
         [(fu1.unit(), 1)]
     );
     assert_eq!(fu1.r_symbol(&a, &b, &fu1.unit()).unwrap().get([0, 0]), -1.0);
-    assert_eq!(fu1.twist(&a), -1.0);
+    assert_eq!(fu1.twist(&a).unwrap(), -1.0);
     assert_eq!(fu1.frobenius_schur_indicator(&a), 0.0);
     let fsu2 = Product::new((su2(), FermionParity));
     let half = (fsu2.factors().0.irrep(&[1]).unwrap(), Parity::ODD);
@@ -74,7 +74,7 @@ fn fermionic_closed_forms_and_complex_promotion() {
     );
     assert_eq!(fsu2.frobenius_schur_phase(&half).unwrap(), -1.0);
     assert_eq!(fsu2.frobenius_schur_indicator(&half), -1.0);
-    assert_eq!(fsu2.twist(&half), -1.0);
+    assert_eq!(fsu2.twist(&half).unwrap(), -1.0);
     close(
         fsu2.f_symbol(&half, &half, &half, &half, &fsu2.unit(), &fsu2.unit())
             .unwrap()
@@ -103,7 +103,7 @@ fn fermionic_closed_forms_and_complex_promotion() {
         -Complex64::from_polar(1.0, 4.0 * std::f64::consts::PI / 5.0),
     );
     complex_close(
-        fibsu2.twist(&x),
+        fibsu2.twist(&x).unwrap(),
         Complex64::from_polar(1.0, -4.0 * std::f64::consts::PI / 5.0),
     );
     complex_close(
@@ -116,13 +116,13 @@ fn fermionic_closed_forms_and_complex_promotion() {
     // Both promotion directions, and a promoted value followed by a real factor.
     let reverse = Product::new((su2(), TableCategory::fibonacci()));
     complex_close(
-        reverse.twist(&(reverse.factors().0.unit(), tau)),
-        fibsu2.twist(&x),
+        reverse.twist(&(reverse.factors().0.unit(), tau)).unwrap(),
+        fibsu2.twist(&x).unwrap(),
     );
     let three = Product::new((U1, TableCategory::fibonacci(), FermionParity));
     complex_close(
-        three.twist(&(U1.unit(), tau, Parity::ODD)),
-        -fibsu2.twist(&x),
+        three.twist(&(U1.unit(), tau, Parity::ODD)).unwrap(),
+        -fibsu2.twist(&x).unwrap(),
     );
 }
 
@@ -156,8 +156,8 @@ fn fusion_first_factor_fastest_and_reassociation() {
     let a = (h.clone(), Parity::ODD, t);
     let l = ((h.clone(), Parity::ODD), t);
     let r = (h, (Parity::ODD, t));
-    complex_close(flat.twist(&a), left.twist(&l));
-    complex_close(flat.twist(&a), right.twist(&r));
+    complex_close(flat.twist(&a).unwrap(), left.twist(&l).unwrap());
+    complex_close(flat.twist(&a).unwrap(), right.twist(&r).unwrap());
     let f = flat
         .f_symbol(&a, &a, &a, &a, &flat.unit(), &flat.unit())
         .unwrap();
@@ -369,10 +369,10 @@ impl FusionCategory for Probe {
         self.dim(a);
         1.0
     }
-    fn twist(&self, a: &u8) -> f64 {
+    fn twist(&self, a: &u8) -> Result<f64, Self::Error> {
         self.dim(a);
         assert_ne!(self.braiding, BraidingStyle::None);
-        1.0
+        Ok(1.0)
     }
     fn fusion<'a>(&'a self, a: &u8, b: &u8) -> Result<Self::Fusion<'a>, Self::Error> {
         self.dim(a);
@@ -658,6 +658,9 @@ fn every_factor_position_obeys_validation_and_overflow_precedence() {
         assert!(
             matches!(cat.r_symbol(&zero,&zero,&zero),Err(ProductError::NoBraiding{factor}) if factor==position)
         );
+        assert!(
+            matches!(cat.twist(&zero),Err(ProductError::NoBraiding{factor}) if factor==position)
+        );
         // A later zero must also beat multiplication overflow in a nonzero prefix.
         factors.iter_mut().for_each(|c| c.n = [u32::MAX; 4]);
         factors[position].n = [0; 4];
@@ -731,7 +734,7 @@ fn every_factor_position_obeys_validation_and_overflow_precedence() {
                     cat.frobenius_schur_indicator(&bad);
                 }
                 4 => {
-                    cat.twist(&bad);
+                    cat.twist(&bad).unwrap();
                 }
                 5 => {
                     let _ = cat.fusion(&zero, &bad);
@@ -869,9 +872,13 @@ fn left_fold_and_unbraided_table_preflight() {
         cat.r_symbol(&a, &a, &c),
         Err(ProductError::NoBraiding { factor: 1 })
     ));
+    assert!(matches!(
+        cat.twist(&c),
+        Err(ProductError::NoBraiding { factor: 1 })
+    ));
     let foreign = (fib.unit(), fib.object_at(1).unwrap());
     assert!(std::panic::catch_unwind(|| cat.r_symbol(&a, &a, &foreign)).is_err());
-    assert!(std::panic::catch_unwind(|| cat.twist(&foreign)).is_err());
+    assert!(std::panic::catch_unwind(|| cat.twist(&foreign).unwrap()).is_err());
 }
 
 #[cfg(feature = "lie-generated")]
@@ -1562,8 +1569,8 @@ impl FusionCategory for Counted {
     fn frobenius_schur_indicator(&self, _: &u8) -> f64 {
         1.0
     }
-    fn twist(&self, _: &u8) -> f64 {
-        1.0
+    fn twist(&self, _: &u8) -> Result<f64, Self::Error> {
+        Ok(1.0)
     }
     fn fusion(&self, _: &u8, _: &u8) -> Result<CountedFusion, Infallible> {
         Ok(CountedFusion {
@@ -1636,7 +1643,7 @@ impl FusionCategory for Wrapped {
     fn frobenius_schur_indicator(&self, a: &Self::Object) -> f64 {
         self.0.frobenius_schur_indicator(a)
     }
-    fn twist(&self, a: &Self::Object) -> f64 {
+    fn twist(&self, a: &Self::Object) -> Result<f64, Self::Error> {
         self.0.twist(a)
     }
     fn fusion(&self, a: &Self::Object, b: &Self::Object) -> Result<WrappedFusion, Self::Error> {

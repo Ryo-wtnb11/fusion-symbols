@@ -160,8 +160,8 @@ impl FusionCategory for U1 {
     fn frobenius_schur_indicator(&self, a: &U1Irrep) -> f64 {
         f64::from(u8::from(*a == self.dual(a)))
     }
-    fn twist(&self, _a: &U1Irrep) -> f64 {
-        1.0
+    fn twist(&self, _a: &U1Irrep) -> Result<f64, U1Error> {
+        Ok(1.0)
     }
     fn fusion<'a>(&'a self, a: &U1Irrep, b: &U1Irrep) -> Result<Self::Fusion<'a>, Self::Error> {
         Ok(std::iter::once((

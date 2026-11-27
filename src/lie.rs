@@ -1011,16 +1011,18 @@ impl FusionCategory for LieGroup {
         }
         su2::fs_phase(a.dj())
     }
-    fn twist(&self, a: &LieIrrep) -> f64 {
+    fn twist(&self, a: &LieIrrep) -> Result<f64, LieError> {
         self.label(a);
         if let Some(product) = &self.composite {
-            return product.twist(self.factor_labels(a));
+            return product
+                .twist(self.factor_labels(a))
+                .map_err(composite_error);
         }
         // Bosonic, twist one (`docs/gauge_cartan.md` §6.1).
         if a.simple().is_some() {
-            return 1.0;
+            return Ok(1.0);
         }
-        su2::twist(a.dj())
+        Ok(su2::twist(a.dj()))
     }
     fn fusion<'a>(&'a self, a: &LieIrrep, b: &LieIrrep) -> Result<Self::Fusion<'a>, LieError> {
         self.label(a);

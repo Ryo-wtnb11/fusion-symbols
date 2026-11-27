@@ -77,7 +77,7 @@ impl FusionCategory for Damaged {
     fn frobenius_schur_indicator(&self, a: &O) -> Complex64 {
         self.inner.frobenius_schur_indicator(a)
     }
-    fn twist(&self, a: &O) -> Complex64 {
+    fn twist(&self, a: &O) -> Result<Complex64, TableError> {
         self.inner.twist(a)
     }
     fn fusion<'a>(&'a self, a: &O, b: &O) -> Result<TableFusion<'a>, TableError> {

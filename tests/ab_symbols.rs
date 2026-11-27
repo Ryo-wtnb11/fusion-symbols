@@ -373,7 +373,7 @@ mod su3 {
         fn frobenius_schur_indicator(&self, a: &LieIrrep) -> f64 {
             self.0.frobenius_schur_indicator(a)
         }
-        fn twist(&self, a: &LieIrrep) -> f64 {
+        fn twist(&self, a: &LieIrrep) -> Result<f64, Self::Error> {
             self.0.dim(a);
             panic!("no braiding in the rotated gauge")
         }

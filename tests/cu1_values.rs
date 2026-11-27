@@ -195,7 +195,10 @@ fn unary_data_and_fusion_order_follow_tensorkitsectors() {
         assert_eq!(CU1.dim(&a), dim(a) as f64);
         assert_eq!(CU1.dual(&a), a);
         assert_eq!(
-            (CU1.frobenius_schur_phase(&a).unwrap(), CU1.twist(&a)),
+            (
+                CU1.frobenius_schur_phase(&a).unwrap(),
+                CU1.twist(&a).unwrap()
+            ),
             (1.0, 1.0)
         );
     }

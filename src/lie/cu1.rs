@@ -375,8 +375,8 @@ impl FusionCategory for CU1 {
     fn frobenius_schur_indicator(&self, _a: &CU1Irrep) -> f64 {
         1.0
     }
-    fn twist(&self, _a: &CU1Irrep) -> f64 {
-        1.0
+    fn twist(&self, _a: &CU1Irrep) -> Result<f64, CU1Error> {
+        Ok(1.0)
     }
     /// Fusion channels of `a ⊗ b`, each with multiplicity one, in
     /// TensorKitSectors' `CU1IrrepProdIterator` order: `0± ⊗ 0± = 0+` or `0-`
@@ -682,7 +682,7 @@ mod tests {
                 .unwrap()
                 .map(|(b, _)| CU1.dim(&b) / CU1.dim(&a) * CU1.r_symbol(&a, &a, &b).unwrap())
                 .sum();
-            assert_eq!(CU1.twist(&a), twist);
+            assert_eq!(CU1.twist(&a).unwrap(), twist);
             assert_eq!(
                 CU1.frobenius_schur_phase(&a).unwrap(),
                 CU1.f_symbol(&a, &CU1.dual(&a), &a, &a, &OP, &OP)

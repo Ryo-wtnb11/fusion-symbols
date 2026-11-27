@@ -150,7 +150,7 @@ hashing represent mathematical identity.
   a noncanonical charge checks `charge < N` first. CU(1) uses the full `u32`
   twice-charge range.
 - Table lookup distinguishes unknown entries from known unsupported entries.
-  Fusion-only tables return `TableError::NoBraiding` from R and panic on twist.
+  Fusion-only tables return `TableError::NoBraiding` from R and twist.
   Foreign objects are rejected first. Clones share parsed and derived data;
   categories with the same uuid accept the same objects.
 - The exact `lie::su2` evaluators return exact zero for forbidden labels at
@@ -240,8 +240,8 @@ in one `Vec`, and a real prefix of more than one coefficient meeting a
 complex factor costs one transient real buffer.
 
 All factors' objects are validated before capability or shape checks. R reports
-`ProductError::NoBraiding { factor }` even when N = 0; twist panics on absent
-braiding. Factor failures retain their immediate index. For N, a zero factor
+`ProductError::NoBraiding { factor }` even when N = 0, and twist the same error
+on absent braiding. Factor failures retain their immediate index. For N, a zero factor
 wins over factor errors and overflow; otherwise `nsymbol` returns the first
 factor error by position, then `ProductError::Overflow`. A phase returns the
 first failing factor's error; it has no zero rule.

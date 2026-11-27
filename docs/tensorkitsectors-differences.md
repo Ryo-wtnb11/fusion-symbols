@@ -20,6 +20,10 @@ API and convention differences, not a claim of complete feature parity.
 | Fibonacci | Same gauge and braiding as TKS; exact-source rounding can differ from TKS floating arithmetic by a few ulp |
 | Ising | TKS `(I,σ,ψ)` maps to source `(1,3,2)`, with vertex gauge `u^{σσ}_ψ = −1` (R identical, six F signs differ) |
 | Resource control | Bounded coefficient caches and explicit application-owned policy |
+| Twist | `twist` returns `Result` like `r_symbol`: without braiding it is the error R returns (`TableError::NoBraiding`, `ProductError::NoBraiding { factor }`) rather than a panic; every braided category returns `Ok` |
+| CGC | `GroupRepresentations::cgc(a, b, c)` is TKS `fusiontensor`, named for its content; a `CgcBlock` with ascending projections on row-major `[m₁, m₂, m₃, μ]` axes (TKS SU(2) arrays use descending projections, [gauge](gauge_cartan.md)) |
+| Canonical unit | `has_canonical_unit` states that every F with `a`, `b` or `c` the unit is `1`; TKS has no such query (its generic code assumes it) |
+| Inverse dimension | `inv_dim(a)` has no TKS name (TKS writes `inv(dim(a))`); it sits beside `sqrt_dim`/`inv_sqrt_dim` (TKS `sqrtdim`/`invsqrtdim`) so a product can fold factor values |
 | Hexagon check | `hexagon_residual`'s second hexagon uses the adjoint of each R block for the inverse braiding; TKS `hexagon_equation` uses the elementwise `conj`, which equals the adjoint only for symmetric blocks and so rejects valid data with `N ≥ 2` vertices between different irreps |
 
 Exact SU(2) evaluators return exact zero for forbidden labels, as in

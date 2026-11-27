@@ -76,12 +76,8 @@ impl FusionCategory for FermionParity {
     fn frobenius_schur_indicator(&self, a: &FermionParityIrrep) -> f64 {
         f64::from(u8::from(*a == self.dual(a)))
     }
-    fn twist(&self, a: &FermionParityIrrep) -> f64 {
-        if a.odd {
-            -1.0
-        } else {
-            1.0
-        }
+    fn twist(&self, a: &FermionParityIrrep) -> Result<f64, Infallible> {
+        Ok(if a.odd { -1.0 } else { 1.0 })
     }
     fn fusion<'a>(
         &'a self,

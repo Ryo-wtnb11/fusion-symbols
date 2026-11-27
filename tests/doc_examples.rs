@@ -218,7 +218,7 @@ fn guide_abelian_and_finite_categories_1() -> Result<(), Box<dyn std::error::Err
         Some((ZNIrrep::new(2, 3)?, 1))
     );
 
-    assert_eq!(FermionParity.twist(&FermionParityIrrep::ODD), -1.0);
+    assert_eq!(FermionParity.twist(&FermionParityIrrep::ODD)?, -1.0);
 
     let a = CU1Irrep::new(HalfInt::new(1, 2)?, 2)?;
     let channels: Vec<_> = CU1.fusion(&a, &a)?.collect();
@@ -269,7 +269,7 @@ fn guide_products_1() -> Result<(), Box<dyn std::error::Error>> {
 
     let cat = Product::new((U1, FermionParity));
     let odd = (U1Irrep::new(1)?, FermionParityIrrep::ODD);
-    assert_eq!(cat.twist(&odd), -1.0);
+    assert_eq!(cat.twist(&odd)?, -1.0);
 
     let su2 = LieGroup::new(GroupId::su(2)?)?;
     let spin_charge = Product::new((su2.clone(), U1));

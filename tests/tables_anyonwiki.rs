@@ -101,7 +101,7 @@ fn check_dims_and_twists(category: &TableCategory, dims: &[f64], twists: &[(f64,
         assert!((category.dim(&a) - want).abs() <= FP_BOUND * want, "{uuid}");
     }
     for (a, &(re, im)) in crate::common::objects(category).zip(twists) {
-        let got = category.twist(&a);
+        let got = category.twist(&a).unwrap();
         assert!((got - Complex64::new(re, im)).norm() <= FP_BOUND, "{uuid}");
     }
 }

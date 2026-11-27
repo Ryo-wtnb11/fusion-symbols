@@ -165,9 +165,9 @@ impl FusionCategory for ZN {
     fn frobenius_schur_indicator(&self, a: &ZNIrrep) -> f64 {
         f64::from(u8::from(*a == self.dual(a)))
     }
-    fn twist(&self, a: &ZNIrrep) -> f64 {
+    fn twist(&self, a: &ZNIrrep) -> Result<f64, Infallible> {
         self.validate(&[a]);
-        1.0
+        Ok(1.0)
     }
     fn fusion<'a>(&'a self, a: &ZNIrrep, b: &ZNIrrep) -> Result<Self::Fusion<'a>, Self::Error> {
         self.validate(&[a, b]);
@@ -443,7 +443,7 @@ mod tests {
                     (
                         cat.dim(a),
                         cat.frobenius_schur_phase(a).unwrap(),
-                        cat.twist(a)
+                        cat.twist(a).unwrap()
                     ),
                     (1.0, 1.0, 1.0)
                 );
@@ -480,7 +480,10 @@ mod tests {
         let (e, o) = (FermionParityIrrep::EVEN, FermionParityIrrep::ODD);
         assert_eq!((FermionParity.dual(&e), FermionParity.dual(&o)), (e, o));
         assert_eq!(
-            (FermionParity.twist(&e), FermionParity.twist(&o)),
+            (
+                FermionParity.twist(&e).unwrap(),
+                FermionParity.twist(&o).unwrap()
+            ),
             (1.0, -1.0)
         );
         assert_eq!(
@@ -520,7 +523,7 @@ mod tests {
                 (
                     U1.dim(&u1(q)),
                     U1.frobenius_schur_phase(&u1(q)).unwrap(),
-                    U1.twist(&u1(q))
+                    U1.twist(&u1(q)).unwrap()
                 ),
                 (1.0, 1.0, 1.0)
             );
