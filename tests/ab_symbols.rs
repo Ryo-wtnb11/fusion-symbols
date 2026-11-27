@@ -609,3 +609,16 @@ fn unit_a_and_b_are_exactly_plus_and_minus_one() {
         assert_eq!(entry(g.b_symbol(&four, &bar, &one).unwrap()), -1.0);
     }
 }
+
+// A warm A or B view does not bypass foreign-object validation: SO(3)'s
+// spin-1 irrep has the same doubled spin as SU(2)'s, but is foreign to SU(2).
+#[test]
+#[should_panic(expected = "foreign Lie object")]
+fn warm_ab_still_reject_foreign_objects() {
+    let s = su2();
+    let one = s.irrep(&[2]).unwrap();
+    s.a_symbol(&one, &one, &one).unwrap();
+    let so3 = LieGroup::new(GroupId::so(3).unwrap()).unwrap();
+    let foreign = so3.irrep(&[2]).unwrap();
+    let _ = s.a_symbol(&one, &one, &foreign);
+}

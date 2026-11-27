@@ -1385,7 +1385,8 @@ impl LieGroup {
         b: &LieIrrep,
         c: &LieIrrep,
     ) -> Result<Option<RBlock<f64>>, LieError> {
-        let words = [a, b, c].map(|x| [i64::from(x.dj())]);
+        // Validates every object before the lookup: a hit must not bypass it.
+        let words = [a, b, c].map(|x| [i64::from(self.label(x))]);
         let labels = match [a, b, c].map(|x| x.simple()) {
             [Some(a), Some(b), Some(c)] => [a.label(), b.label(), c.label()],
             _ if matches!(a.payload, LiePayload::RankOne(_)) => {
