@@ -178,3 +178,46 @@ fn roots_are_formed_from_the_break_even() {
     assert!(pays(0, 0));
     assert!(!pays(0, 1));
 }
+
+/// The gate routes columns within one channel: in `2 ⊗ 2 → 4` with `a = b`
+/// sharing one table, a distinct `c`, `N = 1` and columns of 2, 3, 3 and 3
+/// entries, the channel's 3 serial roots pay on the 9 entries of its
+/// 3-entry columns, and only the 2-entry column skips its coupled root.
+/// Every entry, through `round_column`, is `X/√2`, the correctly rounded
+/// `√(X²/2)` that IEEE `sqrt` gives for the exactly representable `X²/2`.
+#[test]
+fn the_gate_routes_each_column_and_rounds_every_entry() {
+    let q = Q::from;
+    let cols: [&[(u32, u32, i64)]; 4] = [
+        &[(0, 0, 1), (1, 1, -3)],
+        &[(0, 0, 2), (0, 1, -5), (1, 0, 7)],
+        &[(0, 1, 4), (1, 0, 6), (1, 1, -9)],
+        &[(0, 0, 11), (1, 0, -13), (1, 1, 8)],
+    ];
+    let built = cols
+        .iter()
+        .map(|c| Column::new(c.iter().map(|&(ma, mb, x)| (ma, mb, q(x))).collect()))
+        .collect();
+    let exact = ExactCgc::from_columns([2, 2, 4], built, &[q(2)], false, None).unwrap();
+    let (two, four) = (unit(2), unit(4));
+    let norms = [&two, &two, &four];
+    let lengths: Vec<u64> = cols.iter().map(|c| c.len() as u64).collect();
+    let estimates = ChannelEstimates::for_channel(exact.vertices(), norms, &lengths)
+        .expect("3 roots pay on 9 entries");
+    for (k, col) in cols.iter().enumerate() {
+        let coords = exact.column_coords(k);
+        assert_eq!(
+            estimates.column(&coords, &four).is_some(),
+            col.len() >= 3,
+            "column {k}"
+        );
+        let mut out = view_slots(col.len());
+        round_column(&coords, norms, Some(&estimates), &mut out);
+        for (e, &(ma, mb, x)) in out.iter().zip(col.iter()) {
+            let want = ((x * x) as f64 / 2.0).sqrt();
+            let want = if x < 0 { -want } else { want };
+            assert_eq!((e.m1, e.m2, e.m3, e.mu), (ma, mb, k as u32, 0));
+            assert_eq!(e.value.to_bits(), want.to_bits(), "column {k}, X = {x}");
+        }
+    }
+}

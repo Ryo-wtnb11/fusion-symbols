@@ -1158,8 +1158,6 @@ fn sparse_nullspace_matches_dense_channels() {
         (RootSystem::G2, G7.to_vec(), G14.to_vec()),
         (RootSystem::G2, G14.to_vec(), G14.to_vec()),
         (RootSystem::G2, G27.to_vec(), G27.to_vec()),
-        (RootSystem::G2, G7.to_vec(), G27.to_vec()),
-        (RootSystem::G2, G27.to_vec(), G7.to_vec()),
         (RootSystem::F4, unit(4, 3), unit(4, 3)),
         (RootSystem::F4, unit(4, 3), unit(4, 0)),
         (RootSystem::E6, unit(6, 0), unit(6, 0)),
@@ -1301,6 +1299,8 @@ fn estimated_entries_equal_the_exact_conversion() {
         (RootSystem::G2, G7.to_vec(), G7.to_vec()),
         (RootSystem::G2, G7.to_vec(), G14.to_vec()),
         (RootSystem::G2, G27.to_vec(), G27.to_vec()),
+        (RootSystem::G2, G7.to_vec(), G27.to_vec()),
+        (RootSystem::G2, G27.to_vec(), G7.to_vec()),
         (RootSystem::F4, unit(4, 3), unit(4, 3)),
         (RootSystem::E6, unit(6, 0), unit(6, 5)),
     ] {
