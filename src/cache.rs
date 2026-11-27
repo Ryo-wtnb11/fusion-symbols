@@ -14,9 +14,9 @@
 //!
 //! # What a consumer needs from this module
 //!
-//! - **A ceiling.** [`BASE_CACHE_MAX_BYTES`] is the documented sum of the
-//!   per-tier retained-entry charge caps. It bounds *cache-owned entry
-//!   charge*, not RSS.
+//! - **A ceiling.** The sum of [`CoefficientCacheBudgets::limit`] over
+//!   [`CoefficientCacheTier::ALL`] bounds *cache-owned entry charge*, not RSS:
+//!   each tier is bounded by its own cap.
 //! - **A smaller ceiling, if you want one.** [`configure_cache_budgets`],
 //!   once, before first use. Shrink-only.
 //! - **Observation.** [`tier_stats`] for one tier; iterate
@@ -28,7 +28,7 @@
 //!   them** — exactly one component in a process owns that policy.
 //!
 //! ```
-//! use fusion_symbols::cache::{tier_stats, CoefficientCacheTier, BASE_CACHE_MAX_BYTES};
+//! use fusion_symbols::cache::{cache_budgets, tier_stats, CoefficientCacheTier};
 //!
 //! let _ = fusion_symbols::lie::su2::wigner_6j(2, 2, 2, 2, 2, 2);
 //! let base = [
@@ -38,7 +38,11 @@
 //!     CoefficientCacheTier::Cgc,
 //! ];
 //! let bytes: usize = base.into_iter().map(|tier| tier_stats(tier).bytes).sum();
-//! assert!(bytes <= BASE_CACHE_MAX_BYTES);
+//! let ceiling: usize = CoefficientCacheTier::ALL
+//!     .iter()
+//!     .map(|&tier| cache_budgets().limit(tier))
+//!     .sum();
+//! assert!(bytes <= ceiling);
 //! ```
 //!
 //! The task-oriented version is in the [User Guide].
@@ -427,20 +431,6 @@ fn validate_budgets(b: CoefficientCacheBudgets) -> Result<(), CacheBudgetError> 
     }
     Ok(())
 }
-
-/// Aggregate conservative retained-charge cap of every tier: Wigner 3j,
-/// Wigner 6j, F, R, Product and CGC, `576 MiB` = `64 + 64 + 64 + 64 + 64 +
-/// 256 MiB`, in every build: every tier is compiled in every build.
-///
-/// This is a **documented static partition**, not a shared budget: each tier is
-/// bounded independently by its own per-tier charged-entry cap. The aggregate
-/// is therefore a provable corollary — `Σ tier bytes ≤ Σ tier caps` — rather
-/// than an enforced global limit.
-pub const BASE_CACHE_MAX_BYTES: usize = 576 << 20;
-
-// Compile-time tie: if a per-tier retained-charge cap changes, the aggregate
-// must be reconciled in the same edit or the crate stops building.
-const _: () = assert!(BASE_CACHE_MAX_BYTES == 5 * DEFAULT_MAX_BYTES + CGC_MAX_BYTES);
 
 /// Snapshot of one coefficient-cache tier, returned by [`tier_stats`].
 ///

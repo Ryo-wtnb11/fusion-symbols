@@ -228,7 +228,7 @@ fn identity_framing_and_arity() {
     assert_eq!(max.clone(), max);
     assert_eq!(hash(&max), hash(&max.clone()));
     let repeated = Product::new((U1, U1));
-    assert_eq!(repeated.into_factors(), (U1, U1));
+    assert_eq!(repeated.factors(), &(U1, U1));
     // Trivial factors change category identity but preserve projected mathematical queries.
     let trivial = Product::new((su2(), ZN::new(1).unwrap()));
     let h = trivial.factors().0.irrep(&[1]).unwrap();
@@ -1144,7 +1144,7 @@ fn runtime_checked_composition_and_initialized_iteration() {
     let cat = Product::new(vec![Probe::default(); usize::BITS as usize]);
     let z = cat.unit();
     assert!(matches!(cat.fusion(&z, &z), Err(ProductError::Overflow)));
-    let mut factors = cat.into_factors();
+    let mut factors = cat.factors().clone();
     factors.push(probe(0));
     let zero = Product::new(factors);
     let z = zero.unit();

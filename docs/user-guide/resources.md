@@ -18,7 +18,7 @@ least-recently-used replacement. Default retained-entry charge caps are:
 | `RSymbol` (`"r_symbol"`) | Cartan-engine R blocks (SU(2) R is a closed-form sign) | 64 MiB |
 | `Product` (`"product"`) | exact simple-Lie tensor products and the rounded composite F/R/A/B views of products of exact leaves | 64 MiB |
 
-`BASE_CACHE_MAX_BYTES` (576 MiB) is the sum of every tier's cap. Every
+The default caps sum to 576 MiB, the ceiling on cache-owned entry charge. Every
 build compiles every tier.
 
 The CGC tier holds the construction data of one operation under one limit. A

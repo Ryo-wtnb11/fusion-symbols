@@ -35,6 +35,17 @@ pub enum BraidingStyle {
 
 pub(crate) mod sealed {
     pub trait Sealed {}
+    /// The scalar embeddings behind [`super::Promote`].
+    pub trait Embed<R: super::Scalar>: Sized {
+        /// Embed the left scalar.
+        fn left(self) -> <Self as super::Promote<R>>::Output
+        where
+            Self: super::Promote<R>;
+        /// Embed the right scalar.
+        fn right(r: R) -> <Self as super::Promote<R>>::Output
+        where
+            Self: super::Promote<R>;
+    }
     /// Proof, constructible only inside this crate, that every object passed
     /// alongside it already passed the caller's validation.
     #[derive(Clone, Copy)]
@@ -414,16 +425,14 @@ impl Scalar for Complex64 {
 }
 
 /// Lossless common scalar for a pair of category scalars.
-pub trait Promote<R: Scalar>: Scalar {
+pub trait Promote<R: Scalar>: Scalar + sealed::Embed<R> {
     /// Real only when both inputs are real.
     type Output: Scalar;
-    /// Embed the left scalar.
-    fn left(self) -> <Self as Promote<R>>::Output;
-    /// Embed the right scalar.
-    fn right(r: R) -> <Self as Promote<R>>::Output;
 }
 impl Promote<f64> for f64 {
     type Output = f64;
+}
+impl sealed::Embed<f64> for f64 {
     fn left(self) -> f64 {
         self
     }
@@ -433,6 +442,8 @@ impl Promote<f64> for f64 {
 }
 impl Promote<Complex64> for f64 {
     type Output = Complex64;
+}
+impl sealed::Embed<Complex64> for f64 {
     fn left(self) -> Complex64 {
         self.into()
     }
@@ -442,6 +453,8 @@ impl Promote<Complex64> for f64 {
 }
 impl Promote<f64> for Complex64 {
     type Output = Complex64;
+}
+impl sealed::Embed<f64> for Complex64 {
     fn left(self) -> Complex64 {
         self
     }
@@ -451,6 +464,8 @@ impl Promote<f64> for Complex64 {
 }
 impl Promote<Complex64> for Complex64 {
     type Output = Complex64;
+}
+impl sealed::Embed<Complex64> for Complex64 {
     fn left(self) -> Complex64 {
         self
     }

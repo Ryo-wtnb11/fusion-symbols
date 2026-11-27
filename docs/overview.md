@@ -35,7 +35,7 @@ This page is the contract reference; task-oriented examples are in the
 | `lie::LieGroup`: U(N), semisimple×torus quotients | Dynkin labels then torus charges, restricted to the character lattice | Base for U(2); otherwise union of factor features |
 | `lie::LieGroup`: trivial group | Empty Dynkin and charge slices | Base |
 | `lie::U1` | `U1Irrep`: integer `i32` charge, excluding `i32::MIN` | Base |
-| `lie::CU1` = O(2) | `CU1Irrep`: `(twice_charge, s)` = `(0,0)`, `(0,1)`, or `(q>0,2)` | Base |
+| `lie::CU1` = O(2) | `CU1Irrep`: `(j, s)` = `(0,0)`, `(0,1)`, or `(j>0,2)` | Base |
 | `finite::ZN` | `ZNIrrep`: charge and runtime nonzero `u32` modulus | Base |
 | `fermion::FermionParity` | `FermionParityIrrep`: even or odd | Base |
 | `table::TableCategory` | Tagged `TableObject`, source index `1..=rank`, unit = 1 | Rank ≤ 4 in base; rank 5–7 with `anyonwiki-unitary` |

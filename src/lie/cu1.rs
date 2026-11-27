@@ -103,11 +103,6 @@ impl CU1Irrep {
         HalfInt::from_doubled(self.twice_charge)
     }
 
-    /// `2j`.
-    pub const fn twice_charge(self) -> u32 {
-        self.twice_charge
-    }
-
     /// TensorKitSectors' `s`: `0` for `0+`, `1` for `0-`, `2` for `j > 0`.
     pub const fn s(self) -> u8 {
         self.s
@@ -606,7 +601,7 @@ mod tests {
                 if (n == 0 && s <= 1) || (n > 0 && s == 2) {
                     let label = CU1Irrep::new(charge, s).unwrap();
                     assert_eq!(
-                        (label.charge(), label.twice_charge(), label.s()),
+                        (label.charge(), label.twice_charge, label.s()),
                         (charge, n, s)
                     );
                 } else {

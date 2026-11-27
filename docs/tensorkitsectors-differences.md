@@ -35,7 +35,7 @@ even to absent channels. See [validation](overview.md#validation-and-errors).
 | Rank-one Lie | The label is the `u32` Dynkin label `dj = 2j`; `HalfInt` spins only through `LieGroup::irrep_spin` and `LieIrrep::spin` on SU(2) and SO(3) (any rank-one presentation); projections doubled too |
 | Z_N | Runtime modulus in category and label, rather than a type parameter; `new` reduces charges like `ZNIrrep{N}(n)` |
 | U(1) | Integer `i32` charges, excluding `i32::MIN`; half-integer charges cannot be represented |
-| CU(1) | `twice_charge: u32` and validated `s`; full `u32` range, separate category provider |
+| CU(1) | `CU1Irrep::new(j: HalfInt, s)` with validated `s`; `2j` spans the full `u32` range; separate category provider |
 | Tables | Validated one-based source indices with a private catalog tag, rather than named TKS objects |
 
 ## Object enumeration
@@ -49,7 +49,7 @@ and independent of object `Ord` or fusion-iterator order.
 | `ZN(N)` | Charges `0,…,N−1` |
 | `FermionParity` | Even, odd |
 | `U1` or U(1) through `LieGroup` | `0,1,−1,2,−2,…`; integer subsequence of TKS's `0,½,−½,1,−1,…`, reindexed densely |
-| `CU1` | `0+`, `0−`, then `twice_charge = 1,2,…` |
+| `CU1` | `0+`, `0−`, then `2j = 1,2,…` |
 | Rank-one Lie | Admitted doubled spins increasing; SO(3)/PSU(2) skip odd labels |
 | SU(N), N ≥ 3, simply connected | Dynkin labels by increasing total, then lexicographic (SUNRepresentations 0.4.0 order) |
 | Tables | Source index minus one; Ising `(I,ψ,σ)`, whereas TKS uses `(I,σ,ψ)` |

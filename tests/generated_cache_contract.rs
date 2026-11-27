@@ -45,16 +45,15 @@ fn generated_cache_resource_contract() {
         "R + Product"
     );
     assert_eq!(default.limit(Tier::RSymbol), 64 << 20, "64 MiB of R");
-    assert_eq!(
-        fusion_symbols::cache::BASE_CACHE_MAX_BYTES,
-        (64 * 5 + 256) << 20,
-        "576 MiB = Wigner 3j + 6j + F + R + Product + CGC"
-    );
     let all: usize = Tier::ALL
         .iter()
         .map(|&t| fusion_symbols::cache::cache_budgets().limit(t))
         .sum();
-    assert_eq!(all, fusion_symbols::cache::BASE_CACHE_MAX_BYTES);
+    assert_eq!(
+        all,
+        (64 * 5 + 256) << 20,
+        "576 MiB = Wigner 3j + 6j + F + R + Product + CGC"
+    );
 
     // ---- per-tier hit/miss accounting on deterministic accesses ----
     cache::reset();

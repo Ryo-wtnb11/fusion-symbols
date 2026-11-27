@@ -187,21 +187,19 @@ fn scalar_storage_and_promotion() {
     storage(0.0);
     storage(Complex64::new(0.0, 0.0));
     storage(Complex64::new(2.0, 3.0));
-    assert_eq!(<f64 as Promote<f64>>::left(2.0), 2.0);
-    assert_eq!(<f64 as Promote<f64>>::right(3.0), 3.0);
+    // The common scalar is real only when both are.
+    fn output<L: Promote<R>, R: Scalar>() -> &'static str {
+        std::any::type_name::<<L as Promote<R>>::Output>()
+    }
+    assert_eq!(output::<f64, f64>(), "f64");
+    for complex in [
+        output::<f64, Complex64>(),
+        output::<Complex64, f64>(),
+        output::<Complex64, Complex64>(),
+    ] {
+        assert_eq!(complex, std::any::type_name::<Complex64>());
+    }
     let z = Complex64::new(2.0, 3.0);
-    assert_eq!(
-        <f64 as Promote<Complex64>>::left(2.0),
-        Complex64::new(2.0, 0.0)
-    );
-    assert_eq!(<f64 as Promote<Complex64>>::right(z), z);
-    assert_eq!(<Complex64 as Promote<f64>>::left(z), z);
-    assert_eq!(
-        <Complex64 as Promote<f64>>::right(2.0),
-        Complex64::new(2.0, 0.0)
-    );
-    assert_eq!(<Complex64 as Promote<Complex64>>::left(z), z);
-    assert_eq!(<Complex64 as Promote<Complex64>>::right(z), z);
     assert_eq!(Scalar::conj(z), Complex64::new(2.0, -3.0));
     close(Scalar::abs(z), 13.0_f64.sqrt());
 }

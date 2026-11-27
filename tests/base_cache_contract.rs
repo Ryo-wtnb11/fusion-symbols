@@ -18,7 +18,7 @@ mod common;
 
 use crate::common::a1;
 use a1::exact_f;
-use fusion_symbols::cache::{self, CoefficientCacheTier, TierStats, BASE_CACHE_MAX_BYTES};
+use fusion_symbols::cache::{self, CoefficientCacheTier, TierStats};
 use fusion_symbols::category::GroupRepresentations;
 use fusion_symbols::lie::su2::{wigner_3j, wigner_6j};
 
@@ -82,11 +82,14 @@ fn base_cache_resource_contract() {
 
     // Aggregate charged-entry cap — the documented per-tier corollary.
     let total = common::stats_sum(&common::BASE_TIERS);
+    let ceiling: usize = common::BASE_TIERS
+        .iter()
+        .map(|&tier| cache::cache_budgets().limit(tier))
+        .sum();
     assert!(
-        total.bytes <= BASE_CACHE_MAX_BYTES,
-        "aggregate over BASE_CACHE_MAX_BYTES: {} > {}",
-        total.bytes,
-        BASE_CACHE_MAX_BYTES
+        total.bytes <= ceiling,
+        "aggregate over the summed caps: {} > {ceiling}",
+        total.bytes
     );
     assert!(total.entries > 0, "the fill retained entries");
 

@@ -29,7 +29,7 @@ fn labels() -> Vec<CU1Irrep> {
 }
 
 fn dim(a: CU1Irrep) -> usize {
-    if a.twice_charge() == 0 {
+    if a.charge().doubled() == 0 {
         1
     } else {
         2
@@ -41,9 +41,9 @@ fn dim(a: CU1Irrep) -> usize {
 fn fusion_tensor(a: CU1Irrep, b: CU1Irrep, c: CU1Irrep) -> [[[f64; 2]; 2]; 2] {
     let mut t = [[[0.0; 2]; 2]; 2];
     let (qa, qb, qc) = (
-        i64::from(a.twice_charge()),
-        i64::from(b.twice_charge()),
-        i64::from(c.twice_charge()),
+        i64::from(a.charge().doubled()),
+        i64::from(b.charge().doubled()),
+        i64::from(c.charge().doubled()),
     );
     let r = std::f64::consts::FRAC_1_SQRT_2;
     let sign = |x: CU1Irrep| if x.s() == 1 { -1.0 } else { 1.0 };
@@ -199,7 +199,7 @@ fn unary_data_and_fusion_order_follow_tensorkitsectors() {
     let all = labels();
     for &a in &all {
         for &b in &all {
-            let (qa, qb) = (a.twice_charge(), b.twice_charge());
+            let (qa, qb) = (a.charge().doubled(), b.charge().doubled());
             let want = match (qa, qb) {
                 (0, 0) => vec![CU1Irrep::new(HalfInt::new(0, 1).unwrap(), a.s() ^ b.s()).unwrap()],
                 (0, _) => vec![b],
