@@ -682,12 +682,12 @@ fn product_cgc<C: GroupRepresentations>(
     }
 }
 
-/// A factor block's dimensions and stored entries
-/// ([`CgcBlock::__fusion_symbols_stored`]): a stored entry is kept even when
-/// its rounded value is `±0.0`.
+/// A factor block's dimensions and present entries
+/// ([`CgcBlock::__fusion_symbols_stored`]): a present entry is kept even
+/// when its rounded value is `±0.0`.
 // ponytail: a block outside `LieCgc` is read by a dense scan of
-// `d_a d_b d_c N` reads, only on the float path; its own sparse override
-// would remove it if such blocks grow large.
+// `d_a d_b d_c N` reads and reports every one, only on the float path; its
+// own sparse override would remove both costs if such blocks grow large.
 fn stored(block: &impl CgcBlock) -> ([usize; 4], Vec<MEntry>) {
     let mut out = Vec::new();
     block.__fusion_symbols_stored(&mut |at, value| {
@@ -705,7 +705,7 @@ fn stored(block: &impl CgcBlock) -> ([usize; 4], Vec<MEntry>) {
 }
 
 /// The float block of a product with a factor outside the exact protocol:
-/// each entry the left-to-right `f64` product of the factors' stored entries, last
+/// each entry the left-to-right `f64` product of the factors' present entries, last
 /// factor fastest on every axis; `None` when an axis overflows (or, for a
 /// nonempty block, exceeds `u32`) or the entries are not allocatable
 /// ([`composite_len`]).

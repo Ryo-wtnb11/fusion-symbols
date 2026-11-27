@@ -677,28 +677,29 @@ impl<const SHIFT: i32> GroupRepresentations for Forward<SHIFT> {
     }
 }
 
-// Purpose: on the float path a factor entry that underflows to -0.0 is
-// still a present entry, so the product reads the documented float product
-// (-0.0) * 1.0 = -0.0 rather than an absent +0.0.
+// Purpose: on the float path a factor entry that underflows to ±0.0 is
+// still a present entry, so each product entry is the documented float
+// product of the factor entries: (+0.0) * (-1/√2) = -0.0 and
+// (-0.0) * (+1/√2) = -0.0, never an absent +0.0.
 #[test]
 fn an_underflowed_factor_entry_keeps_its_sign() {
     let g = su2();
     let (half, u) = (g.irrep(&[1]).unwrap(), g.unit());
     let cat = Product::new((Forward::<1100>(g.clone()), g.clone()));
-    let block = cat
-        .cgc(
-            &(half.clone(), u.clone()),
-            &(half.clone(), u.clone()),
-            &(u.clone(), u.clone()),
-        )
-        .unwrap();
+    let pair = (half.clone(), half.clone());
+    let block = cat.cgc(&pair, &pair, &(u.clone(), u.clone())).unwrap();
     let exact = g.cgc(&half, &half, &u).unwrap();
+    let tiny = 2f64.powi(-1100);
     let mut negative = 0;
-    for i in [[0, 1, 0, 0], [1, 0, 0, 0]] {
-        negative += usize::from(exact.get(i) < 0.0);
-        assert_eq!(block.get(i).to_bits(), (exact.get(i) * 0.0).to_bits());
+    for i in [[0, 1], [1, 0]] {
+        for j in [[0, 1], [1, 0]] {
+            let want = (exact.get([i[0], i[1], 0, 0]) * tiny) * exact.get([j[0], j[1], 0, 0]);
+            negative += usize::from(want.is_sign_negative());
+            let at = [2 * i[0] + j[0], 2 * i[1] + j[1], 0, 0];
+            assert_eq!(block.get(at).to_bits(), want.to_bits(), "{at:?}");
+        }
     }
-    assert_eq!(negative, 1);
+    assert_eq!(negative, 2);
 }
 
 // Purpose: a product with a factor outside the exact protocol keeps the one
@@ -723,9 +724,15 @@ fn a_downstream_factor_keeps_the_float_product() {
     for i in 0..6 {
         for j in 0..4 {
             for k in 0..6 {
-                let want = l0.get([i / 3, j / 2, k / 2, 0]) * l1.get([i % 3, j % 2, k % 2, 0]);
-                // An exactly zero entry has no stored value and reads +0.
-                assert_eq!(dense[flat].to_bits(), (want + 0.0).to_bits());
+                let right = l1.get([i % 3, j % 2, k % 2, 0]);
+                // The opaque factor reports every entry, so only an entry
+                // absent from the sparse Lie factor reads +0.
+                let want = if right == 0.0 {
+                    0.0
+                } else {
+                    l0.get([i / 3, j / 2, k / 2, 0]) * right
+                };
+                assert_eq!(dense[flat].to_bits(), want.to_bits());
                 flat += 1;
             }
         }

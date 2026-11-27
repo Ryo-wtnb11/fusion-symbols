@@ -1469,28 +1469,28 @@ pub trait CgcBlock {
         }
         data
     }
-    /// Calls `each` with every stored entry `([m₁, m₂, m₃, μ], value)`, in
+    /// Calls `each` with every present entry `([m₁, m₂, m₃, μ], value)`, in
     /// any order: presence is the block's sparsity, so a stored coefficient
     /// that rounds to `±0.0` is reported. A block known only through
-    /// [`Self::get`] cannot tell an absent entry from a stored `+0.0`, so the
-    /// default reports every entry that does not read `+0.0`.
+    /// [`Self::get`] has unknown sparsity, so the default reports every
+    /// index of [`Self::dims`]; a block that knows its sparsity overrides it.
+    /// A product entry is present exactly when every factor reports its
+    /// part, and is then the left-to-right `f64` product of those parts.
     #[doc(hidden)]
     fn __fusion_symbols_stored(&self, each: &mut dyn FnMut([usize; 4], f64)) {
         read_stored(self, each);
     }
 }
 
-/// The default of [`CgcBlock::__fusion_symbols_stored`]: a dense scan.
+/// The default of [`CgcBlock::__fusion_symbols_stored`]: every index, read
+/// by a dense scan.
 pub(crate) fn read_stored<B: CgcBlock + ?Sized>(block: &B, each: &mut dyn FnMut([usize; 4], f64)) {
     let [da, db, dc, n] = block.dims();
     for mu in 0..n {
         for mc in 0..dc {
             for ma in 0..da {
                 for mb in 0..db {
-                    let value = block.get([ma, mb, mc, mu]);
-                    if value.to_bits() != 0 {
-                        each([ma, mb, mc, mu], value);
-                    }
+                    each([ma, mb, mc, mu], block.get([ma, mb, mc, mu]));
                 }
             }
         }
