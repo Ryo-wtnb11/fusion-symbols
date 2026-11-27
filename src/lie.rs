@@ -22,7 +22,7 @@ use crate::category::{
     FusionStyle, GroupRepresentations, RBlock,
 };
 use crate::product::{Product, ProductError};
-use crate::rounding::{DimValue, Factor};
+use crate::rounding::{round_dim, DimValue, Factor};
 use malachite_base::{
     num::conversion::traits::RoundingFrom, rounding_modes::RoundingMode::Nearest,
 };
@@ -1166,6 +1166,17 @@ impl FusionCategory for LieGroup {
                 .__fusion_symbols_exact_symbol(op.map(|x| self.factor_labels(x)), t)
                 .map_err(composite_error);
         }
+        use crate::category::sealed::{ExactAnswer, ExactOp};
+        if let ExactOp::Dim(a, d) = op {
+            self.label(a);
+            match &a.payload {
+                LiePayload::RankOne(dj) => d.0.mul(Factor::Words(&[u64::from(*dj) + 1])),
+                LiePayload::Torus(_) => {}
+                LiePayload::Simple(x) => d.0.mul(Factor::Natural(x.dim())),
+                LiePayload::Composite(_) => unreachable!("a composite group forwards"),
+            }
+            return Ok(ExactAnswer::Done);
+        }
         if self.is_torus() {
             return crate::category::unit_symbol(self, op);
         }
@@ -1367,8 +1378,23 @@ impl LieGroup {
             .ok_or(LieError::LabelOverflow)
     }
 
+    /// One load for a simple irrep (rounded when it is made), IEEE single
+    /// operations or [`crate::rounding::round_dim`]'s word path for rank one.
     fn derived_dim(&self, a: &LieIrrep, value: DimValue) -> f64 {
-        crate::category::exact_dim(self, a, value).expect("a Lie dimension is exact")
+        self.label(a);
+        match &a.payload {
+            LiePayload::RankOne(dj) => round_dim(Factor::Words(&[u64::from(*dj) + 1]), value),
+            LiePayload::Torus(_) => 1.0,
+            LiePayload::Simple(x) => x.derived_dim(value),
+            LiePayload::Composite(factors) => {
+                let product = self
+                    .composite
+                    .as_ref()
+                    .expect("composite object has a product");
+                crate::category::exact_dim(product, factors, value)
+                    .expect("a Lie dimension is exact")
+            }
+        }
     }
 
     /// The exact product hook of a simple or rank-one group (a torus is
@@ -1450,14 +1476,7 @@ impl LieGroup {
                 });
                 Ok(ExactAnswer::Done)
             }
-            ExactOp::Dim(a, d) => {
-                self.label(a);
-                match a.simple() {
-                    Some(x) => d.0.mul(Factor::Natural(x.dim())),
-                    None => d.0.mul(Factor::Words(&[u64::from(a.dj()) + 1])),
-                }
-                Ok(ExactAnswer::Done)
-            }
+            ExactOp::Dim(..) => unreachable!("the hook answers Dim first"),
         }
     }
 
@@ -1783,6 +1802,10 @@ mod tests {
         let j = |dj: i64| su2.irrep(&[dj]).unwrap();
         // 1/√2 rounded once; the reciprocal of the rounded √2 is 0x…BCC.
         assert_eq!(su2.inv_sqrt_dim(&j(1)).to_bits(), 0x3FE6_A09E_667F_3BCD);
+        // Rank one takes the word path (`inv_sqrt_small` below 2^53).
+        for dj in (0..2_000).chain(u32::MAX - 2_000..=u32::MAX) {
+            assert_dims_nearest(&su2, &j(i64::from(dj)), &Natural::from(u64::from(dj) + 1));
+        }
         let two = crate::lie::CU1Irrep::new(HalfInt::new(1, 2).unwrap(), 2).unwrap();
         assert_eq!(
             crate::lie::CU1.inv_sqrt_dim(&two).to_bits(),

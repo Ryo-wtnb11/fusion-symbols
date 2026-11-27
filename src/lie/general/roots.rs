@@ -24,6 +24,7 @@
 //! Arithmetic is checked; anything outside the integer range is
 //! [`LieError::LabelOverflow`].
 
+use crate::rounding::{round_dim, DimValue, Factor};
 use malachite_base::num::arithmetic::traits::{DivRound, UnsignedAbs};
 use malachite_base::rounding_modes::RoundingMode::Exact;
 use malachite_nz::natural::Natural;
@@ -766,6 +767,8 @@ impl CartanData {
             .weyl_dimension_in(lambda, &label.classical)?
             .unsigned_abs();
         let dim_f64 = crate::lie::weyl_dim_f64(u128::try_from(&dim).ok(), || dim.clone());
+        let derived = [DimValue::Sqrt, DimValue::InvSqrt, DimValue::Inv]
+            .map(|v| round_dim(Factor::Natural(&dim), v));
         Ok(RootIrrep {
             data: Arc::new(IrrepData {
                 root: self.root,
@@ -776,6 +779,7 @@ impl CartanData {
                 dual,
                 dim,
                 dim_f64,
+                derived,
                 principal_sign: self.two_rho_vee_sign(lambda)?,
             }),
             conjugate: false,
@@ -1062,6 +1066,8 @@ struct IrrepData {
     dual: Option<Coordinates>,
     dim: Natural,
     dim_f64: f64,
+    /// `√d`, `1/√d` and `1/d`, each rounded once when the irrep is made.
+    derived: [f64; 3],
     principal_sign: i8,
 }
 /// One immutable exact payload; conjugation selects the other coordinate view.
@@ -1100,6 +1106,14 @@ impl RootIrrep {
     }
     pub(crate) fn dim_f64(&self) -> f64 {
         self.data.dim_f64
+    }
+    pub(crate) fn derived_dim(&self, value: DimValue) -> f64 {
+        match value {
+            DimValue::Dim => self.data.dim_f64,
+            DimValue::Sqrt => self.data.derived[0],
+            DimValue::InvSqrt => self.data.derived[1],
+            DimValue::Inv => self.data.derived[2],
+        }
     }
     pub(crate) fn sign(&self) -> i8 {
         self.data.principal_sign
