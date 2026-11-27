@@ -24,6 +24,11 @@ value/gauge rule noted below.
   the first view of a loaded channel costs one conversion per entry
   (in team sections under `prefill` with a team, on the calling thread
   otherwise). Files written by 0.12 are recreated on enable.
+- Cost of keeping the exact channels, measured on a Xeon Platinum 9242
+  against 0.12.2 over 16 channels: warm lookups are unchanged; a cold
+  generation takes 1.05-1.16 times as long at one thread and 0.94-1.18 times
+  at four to eight; a channel is charged 1.06-1.87 times the cache bytes; a
+  disk row of a large channel is 0.67-0.88 times the size.
 
 ### Performance
 
