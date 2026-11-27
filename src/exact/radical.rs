@@ -647,6 +647,7 @@ impl<const R: usize> RadicalBlock<R> {
     }
 
     /// Bytes owned: the struct, the integers and every radicand.
+    #[allow(dead_code)] // charged by the exact F/R tier, which lands with the cutover
     pub(crate) fn bytes(&self) -> usize {
         std::mem::size_of::<Self>()
             .saturating_add(self.nums.heap_bytes())
