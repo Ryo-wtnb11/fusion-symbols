@@ -688,13 +688,9 @@ fn product_cgc<C: GroupRepresentations>(
     }
 }
 
-/// A factor block's dimensions and present entries
-/// ([`CgcBlock::__fusion_symbols_stored`]): a present entry is kept even
-/// when its rounded value is `±0.0`.
-// ponytail: a block outside `LieCgc` is read by a dense scan of
-// `d_a d_b d_c N` reads and reports every one, only on the float path; its
-// own sparse override would remove both costs if such blocks grow large.
-fn stored(block: &impl CgcBlock) -> ([usize; 4], Vec<MEntry>) {
+/// A factor block's present entries ([`CgcBlock::__fusion_symbols_stored`]):
+/// a present entry is kept even when its rounded value is `±0.0`.
+fn stored(block: &dyn CgcBlock) -> Vec<MEntry> {
     let mut out = Vec::new();
     block.__fusion_symbols_stored(&mut |at, value| {
         // Indices below a combined axis checked to fit `u32`.
@@ -707,22 +703,31 @@ fn stored(block: &impl CgcBlock) -> ([usize; 4], Vec<MEntry>) {
             value,
         });
     });
-    (block.dims(), out)
+    out
 }
 
 /// The float block of a product with a factor outside the exact protocol:
 /// each entry the left-to-right `f64` product of the factors' present entries, last
 /// factor fastest on every axis; `None` when an axis overflows (or, for a
-/// nonempty block, exceeds `u32`) or the entries are not allocatable
-/// ([`composite_len`]).
-fn float_cgc(factors: Vec<([usize; 4], Vec<MEntry>)>) -> Option<LieCgc> {
-    let dims = cgc_dims(factors.iter().map(|f| f.0))?;
+/// nonempty block, exceeds `u32`), a factor's dense scan or the entries are
+/// not allocatable ([`composite_len`]). Every bound is checked before any
+/// factor entry is read.
+// ponytail: a block outside `LieCgc` is read by a dense scan of
+// `d_a d_b d_c N` reads and reports every one, so that scan size bounds
+// each factor, sparse `LieCgc` included; a sparse-size hook would lift it
+// if such blocks grow large.
+fn float_cgc(blocks: &[&dyn CgcBlock]) -> Option<LieCgc> {
+    let dims = cgc_dims(blocks.iter().map(|b| b.dims()))?;
     if dims[3] == 0 {
         return Some(LieCgc::scalar(dims));
     }
     if dims.iter().any(|&d| d > u32::MAX as usize) {
         return None;
     }
+    for b in blocks {
+        composite_len(b.dims())?;
+    }
+    let factors: Vec<_> = blocks.iter().map(|b| (b.dims(), stored(*b))).collect();
     let mut entries = Vec::with_capacity(composite_len(factors.iter().map(|f| f.1.len()))?);
     let mut pick = vec![0usize; factors.len()];
     'odometer: while factors.iter().all(|f| !f.1.is_empty()) {
@@ -1521,8 +1526,8 @@ macro_rules! impl_product {
             fn cgc(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<LieCgc, Self::Error> {
                 validate(self, &[a, b, c]);
                 product_cgc(self, [a, b, c], || ProductError::Overflow, || {
-                    float_cgc(vec![stored(&self.factors.0.cgc(&a.0, &b.0, &c.0).map_err(ProductError::Factor0)?),
-                        $(stored(&self.factors.$i.cgc(&a.$i, &b.$i, &c.$i).map_err(ProductError::$Err)?),)+])
+                    float_cgc(&[&self.factors.0.cgc(&a.0, &b.0, &c.0).map_err(ProductError::Factor0)?,
+                        $(&self.factors.$i.cgc(&a.$i, &b.$i, &c.$i).map_err(ProductError::$Err)?,)+])
                         .ok_or(ProductError::Overflow)
                 })
             }
@@ -1935,11 +1940,11 @@ where
                     .enumerate()
                     .map(|(index, f)| {
                         f.cgc(&a[index], &b[index], &c[index])
-                            .map(|block| stored(&block))
                             .map_err(|source| ProductError::Factor { index, source })
                     })
-                    .collect::<Result<_, _>>()?;
-                float_cgc(blocks).ok_or(ProductError::Overflow)
+                    .collect::<Result<Vec<_>, _>>()?;
+                let blocks: Vec<&dyn CgcBlock> = blocks.iter().map(|b| b as _).collect();
+                float_cgc(&blocks).ok_or(ProductError::Overflow)
             },
         )
     }

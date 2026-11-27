@@ -569,19 +569,22 @@ fn flat_nested_vec_and_composite_products_agree_bitwise() {
 }
 
 /// A downstream group forwarding its CGCs, outside the exact protocol, each
-/// coefficient scaled by `2^-SHIFT` in its own opaque block.
+/// coefficient scaled by `2^-SHIFT` in its own opaque block; with `HUGE`,
+/// every block is instead an unreadable `[2^32, 1, 2^32, 1]` one.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct Forward<const SHIFT: i32 = 0>(LieGroup);
-struct Scaled<const SHIFT: i32>(fusion_symbols::lie::LieCgc);
+struct Forward<const SHIFT: i32 = 0, const HUGE: bool = false>(LieGroup);
+struct Scaled<const SHIFT: i32>(Option<fusion_symbols::lie::LieCgc>);
 impl<const SHIFT: i32> CgcBlock for Scaled<SHIFT> {
     fn dims(&self) -> [usize; 4] {
-        self.0.dims()
+        self.0
+            .as_ref()
+            .map_or([1 << 32, 1, 1 << 32, 1], |b| b.dims())
     }
     fn get(&self, index: [usize; 4]) -> f64 {
-        self.0.get(index) * 2f64.powi(-SHIFT)
+        self.0.as_ref().expect("read").get(index) * 2f64.powi(-SHIFT)
     }
 }
-impl<const SHIFT: i32> FusionCategory for Forward<SHIFT> {
+impl<const SHIFT: i32, const HUGE: bool> FusionCategory for Forward<SHIFT, HUGE> {
     type Object = fusion_symbols::lie::LieIrrep;
     type Scalar = f64;
     type FSymbol = <LieGroup as FusionCategory>::FSymbol;
@@ -665,7 +668,7 @@ impl<const SHIFT: i32> FusionCategory for Forward<SHIFT> {
         self.0.object_index(a)
     }
 }
-impl<const SHIFT: i32> GroupRepresentations for Forward<SHIFT> {
+impl<const SHIFT: i32, const HUGE: bool> GroupRepresentations for Forward<SHIFT, HUGE> {
     type Cgc = Scaled<SHIFT>;
     fn cgc(
         &self,
@@ -673,7 +676,10 @@ impl<const SHIFT: i32> GroupRepresentations for Forward<SHIFT> {
         b: &Self::Object,
         c: &Self::Object,
     ) -> Result<Self::Cgc, Self::Error> {
-        self.0.cgc(a, b, c).map(Scaled)
+        if HUGE {
+            return Ok(Scaled(None));
+        }
+        self.0.cgc(a, b, c).map(|b| Scaled(Some(b)))
     }
 }
 
@@ -755,6 +761,27 @@ fn unallocatable_composite_cgc_is_overflow() {
     let float = Product::new(vec![Forward::<0>(g); 10]);
     assert!(matches!(
         float.cgc(&a, &a, &a),
+        Err(fusion_symbols::product::ProductError::Overflow)
+    ));
+}
+
+// Purpose: a float-path block with a combined axis beyond `u32` is an
+// overflow error decided from the factor dimensions alone, before any
+// factor entry is read, on the tuple and the vector path.
+#[test]
+fn oversized_opaque_factor_is_overflow_without_reads() {
+    let g = su2();
+    let u = g.unit();
+    let tuple = Product::new((Forward::<0, true>(g.clone()), g.clone()));
+    let pair = (u.clone(), u.clone());
+    assert!(matches!(
+        tuple.cgc(&pair, &pair, &pair),
+        Err(fusion_symbols::product::ProductError::Overflow)
+    ));
+    let vec = Product::new(vec![Forward::<0, true>(g); 2]);
+    let a = vec![u.clone(), u];
+    assert!(matches!(
+        vec.cgc(&a, &a, &a),
         Err(fusion_symbols::product::ProductError::Overflow)
     ));
 }
