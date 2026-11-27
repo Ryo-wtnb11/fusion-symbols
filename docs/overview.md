@@ -223,9 +223,10 @@ U(1), CU(1), Z_N and parity factors), F/R/A/B and the dimension with its roots
 and inverses are the exact composition rounded once, identical for every
 nesting; otherwise scalar promotion and
 multiplication fold left to right, and reassociation agrees to floating-point
-tolerance where intermediate queries are representable. Products of `GroupRepresentations` provide lazy tuple or vector CGCs,
+tolerance where intermediate queries are representable. Products of `GroupRepresentations` return one sparse `LieCgc`,
 with the last factor fastest on each magnetic and multiplicity axis. Combined
-axis overflow returns `ProductError::Overflow`. The only product cache is the
+axis overflow, or a sparse entry count that cannot be allocated, returns
+`ProductError::Overflow`. The only product cache is the
 rounded composite view of two or more exact non-unit leaves, in the Product
 tier.
 Warm Lie A/B queries are cached views and allocate nothing.

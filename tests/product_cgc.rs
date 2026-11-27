@@ -159,7 +159,7 @@ fn last_factor_fastest_and_nested_products() {
         .unwrap();
     assert_eq!(nested_block.dims(), block.dims());
     assert_eq!(nested_block.get(combined), want);
-    // The arity-12 implementation remains lazy, including explicitly nested tuples.
+    // Arity 12, the widest tuple implementation, composes its unit CGC too.
     let z = ZN::new(3).unwrap();
     let twelve = Product::new((z, z, z, z, z, z, z, z, z, z, z, z));
     assert_eq!(
