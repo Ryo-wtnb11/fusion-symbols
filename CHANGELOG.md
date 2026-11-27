@@ -36,8 +36,9 @@ value/gauge rule noted below.
   from exact integer square roots and multiplies, accepted only when its
   error bound keeps it clear of every rounding boundary; any other entry
   takes the exact conversion as before. The estimate's roots are formed only
-  where they cost less than they save (about 10 entries per root), so a
-  small channel converts exactly, as before. Values are unchanged.
+  where they cost less than they save (about 2.5 entries per root); a root
+  of operands up to 128 bits is computed on the stack without allocating.
+  The smallest channels convert exactly, as before. Values are unchanged.
 - Hashing a `GroupId`, and therefore a `LieIrrep` or `LieGroup`, writes
   one stored `u64` instead of walking the root blocks, the torus rank and
   the lattice basis. The value is computed once by the fixed crate hasher

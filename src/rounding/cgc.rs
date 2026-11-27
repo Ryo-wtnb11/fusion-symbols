@@ -125,12 +125,14 @@ fn norm_root(n: &Q, inverse: bool) -> Option<Est> {
 /// 150 ns, is taken.
 const SAVING_NS: u64 = 150;
 
-/// Nanoseconds one exact root costs, conservatively. Measured on the same
-/// host: 319–529 ns per root on serial tables of at least 53 roots, 385–433
-/// ns per root inside the stage, and 800–1383 ns per root on tables of 15–32
-/// roots; the largest, rounded up, is taken. With [`SAVING_NS`] a root pays
-/// for itself from 10 entries (`1400/150 ≈ 9.3`).
-const ROOT_NS: u64 = 1400;
+/// Nanoseconds one exact root costs, conservatively: the stack root's cost
+/// in the first roots of a fresh process, the larger of two lg jobs (Xeon
+/// Platinum 9242, `reviews/fs-root-bench`: 214–230 ns warm, 240–370 ns cold,
+/// no allocation). With [`SAVING_NS`] a root pays for itself from about 2.5
+/// entries (`370/150`), one coupled root from 3. Roots of operands beyond 128
+/// bits take the big-integer path (about 0.3–1.1 µs) but occur only on the
+/// largest channels' vertices and norms, where the estimate pays anyway.
+const ROOT_NS: u64 = 370;
 
 /// Whether forming `roots` exact roots costs no more than the estimate saves
 /// on the `entries` they serve.
@@ -229,7 +231,9 @@ impl ChannelEstimates {
             1
         };
         let c = c.map(|t| if t == 0 { 0 } else { b });
-        let vertices = vertices.map(|r| estimate::root(r.num(), r.den())).collect();
+        let vertices = vertices
+            .map(|r| estimate::root_of(Factor::Natural(r.num()), Factor::Natural(r.den())))
+            .collect();
         Self {
             tables,
             of: [0, b],

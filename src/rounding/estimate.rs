@@ -12,8 +12,9 @@
 //! errors only count:
 //!
 //! - [`top_words`] / [`top_natural`]: an integer's top 128 bits;
-//! - [`root`]: `√(p/q)` as the floor of an exact integer square root, one
-//!   truncation;
+//! - [`root_of`]: `√(p/q)` as the floor of an exact integer square root, one
+//!   truncation: on the stack for operands of at most 128 bits
+//!   ([`stack_root`], no allocation), in big integers ([`root`]) beyond;
 //! - [`mul`]: the exact 256-bit product of four `u64 × u64` partials,
 //!   truncated to 128 bits.
 //!
@@ -32,7 +33,7 @@
 
 use std::borrow::Cow;
 
-use malachite_base::num::arithmetic::traits::FloorSqrt;
+use malachite_base::num::arithmetic::traits::{FloorSqrt, XXDivModYToQR};
 use malachite_base::num::logic::traits::SignificantBits;
 use malachite_nz::natural::Natural;
 
@@ -175,9 +176,30 @@ pub(crate) fn root(p: &Natural, q: &Natural) -> Option<Est> {
     })
 }
 
-/// [`root`] of factors given in either form.
+/// [`root`] of factors given in either form: [`stack_root`] when both fit
+/// two words, the big-integer [`root`] otherwise (an operand of more than 128
+/// bits: a norm or vertex beyond two words).
 pub(crate) fn root_of(p: Factor<'_>, q: Factor<'_>) -> Option<Est> {
-    root(&natural(p), &natural(q))
+    match (two_words(p), two_words(q)) {
+        (Some(p), Some(q)) => stack_root(p, q),
+        _ => root(&natural(p), &natural(q)),
+    }
+}
+
+/// A factor's value when it fits two words.
+fn two_words(f: Factor<'_>) -> Option<u128> {
+    match f {
+        Factor::Natural(x) => u128::try_from(x).ok(),
+        Factor::Words(w) => {
+            let used = w.len() - w.iter().rev().take_while(|&&x| x == 0).count();
+            match &w[..used] {
+                [] => Some(0),
+                [a] => Some(u128::from(*a)),
+                [a, b] => Some(u128::from(*a) | (u128::from(*b) << 64)),
+                _ => None,
+            }
+        }
+    }
 }
 
 /// A factor as a big integer, borrowed when it is one.
@@ -185,6 +207,77 @@ fn natural(f: Factor<'_>) -> Cow<'_, Natural> {
     match f {
         Factor::Natural(x) => Cow::Borrowed(x),
         Factor::Words(w) => Cow::Owned(words_natural(w)),
+    }
+}
+
+/// [`root`] for `p, q < 2^128`, on the stack: the same value, with no
+/// allocation.
+///
+/// - `pn = p·2^zp` and `qn = q·2^zq` are normalized to bit 127, and
+///   `s ∈ {254, 255, 256}` is chosen with `s + zp − zq` even so that
+///   `R = ⌊pn·2^s/qn⌋ ∈ [2^254, 2^256)` (`pn/qn ∈ (1/2, 2)`). Then
+///   `√(p/q) = √(pn·2^s/qn)·2^e` with `e = −(s + zp − zq)/2`, and
+///   `⌊√R⌋ = ⌊√(pn·2^s/qn)⌋ ∈ [2^127, 2^128)` is the mantissa: one truncation.
+/// - `pn·2^s` is the three 128-bit digits `(d2, d1, 0)` with `d2 < qn`, so the
+///   quotient is two 256-by-128 divisions (`xx_div_mod_y_to_qr`), the second
+///   from the first's remainder.
+/// - `⌊√R⌋` is [`isqrt256`].
+fn stack_root(p: u128, q: u128) -> Option<Est> {
+    if p == 0 || q == 0 {
+        return None;
+    }
+    let (zp, zq) = (p.leading_zeros(), q.leading_zeros());
+    let (pn, qn) = (p << zp, q << zq);
+    let d = i64::from(zp) - i64::from(zq);
+    let base = if pn >= qn { 254 } else { 255 };
+    let s = base + ((base + d) & 1);
+    let (d2, d1) = match s {
+        256 => (pn, 0),
+        255 => (pn >> 1, pn << 127),
+        _ => (pn >> 2, pn << 126),
+    };
+    let (hi, r) = u128::xx_div_mod_y_to_qr(d2, d1, qn);
+    let (lo, _) = u128::xx_div_mod_y_to_qr(r, 0, qn);
+    Some(Est {
+        m: isqrt256(hi, lo),
+        e: -(d + s) / 2,
+    })
+}
+
+/// `⌊√(hi·2^128 + lo)⌋` for `hi ≥ 2^126`, so the root lies in
+/// `[2^127, 2^128)`.
+///
+/// A seed `s1·2^64 + q` from `s1 = ⌊√hi⌋ ∈ [2^63, 2^64)` (std `u128::isqrt`)
+/// and one division for the low half, `q = ⌊(r1·2^63 + ⌊lo/2^65⌋)/s1⌋` with
+/// `r1 = hi − s1² ≤ 2s1` (the numerator and the divisor of
+/// `(r1·2^64 + lo/2^64)/(2s1)` halved to stay in 128 bits), capped at
+/// `2^64 − 1`. The result is certified by its last step alone: the loop lowers
+/// `s` while `s² > R` and then raises it while `(s + 1)² ≤ R`, comparing the
+/// exact 256-bit square from [`wide_mul`], so it returns exactly the `s` with
+/// `s² ≤ R < (s + 1)²` whatever the seed. It terminates: once `s² ≤ R` it only
+/// raises `s`, and only while `(s + 1)² ≤ R`, and `s` stays below `2^128`
+/// since `R < 2^256`. No constant bound on its steps is proved here; the
+/// seed is the first step of Zimmermann's square-root recursion, which is off
+/// by a few units at most.
+fn isqrt256(hi: u128, lo: u128) -> u128 {
+    let s1 = hi.isqrt();
+    let r1 = hi - s1 * s1;
+    let q = (((r1 << 63) | (lo >> 65)) / s1).min(LOW);
+    let mut s = (s1 << 64) | q;
+    loop {
+        let (h, l) = wide_mul(s, s);
+        if (h, l) > (hi, lo) {
+            s -= 1;
+            continue;
+        }
+        // `R − s² > 2s`, that is `(s + 1)² ≤ R`, in 256 bits.
+        let (dl, borrow) = lo.overflowing_sub(l);
+        let dh = hi - h - u128::from(borrow);
+        if (dh, dl) > (s >> 127, s << 1) {
+            s += 1;
+            continue;
+        }
+        return s;
     }
 }
 

@@ -1,6 +1,6 @@
 //! The estimate's contracts, each against exact rationals formed from the
 //! inputs: `top`, `mul` and `root` truncate from below by less than one
-//! unit, an entry lies in `[V(1 + u)^-9, V]`, exponents are exact and
+//! unit, the stack root equals the big-integer one, an entry lies in `[V(1 + u)^-9, V]`, exponents are exact and
 //! checked, and `decide` rounds and gates as stated.
 
 use super::*;
@@ -254,4 +254,71 @@ fn decide_rounds_the_ends_and_gates() {
         decide(false, Est::new(one, 1022 - 127)),
         Some(f64::from_bits(2045 << 52))
     );
+}
+
+/// Values of every boundary class for the stack root: small integers,
+/// `2^i` and `2^i ± 1` across the range, `3·2^(i−1)`, `2^127 − 1`,
+/// `2^128 − 1`, `(2^64 − 1)²` and `3^80`.
+fn boundary_values() -> Vec<u128> {
+    let mut v: Vec<u128> = (1..=9).collect();
+    for i in [1u32, 2, 31, 32, 33, 63, 64, 65, 95, 96, 126, 127] {
+        let t = 1u128 << i;
+        v.extend([t - 1, t, t + 1, 3 * (t >> 1)]);
+    }
+    v.extend([
+        (1 << 127) - 1,
+        u128::MAX - 1,
+        u128::MAX,
+        u128::from(u64::MAX) * u128::from(u64::MAX),
+        3u128.pow(80),
+    ]);
+    v.sort_unstable();
+    v.dedup();
+    v
+}
+
+/// The stack root equals the big-integer root, `⌊√⌊p·2^(2k)/q⌋⌋` by
+/// malachite's `floor_sqrt`, normalized: on every pair of boundary values
+/// (`p` or `q` = 1, `p = q`, powers of two and their neighbours, both ends
+/// of two words), on perfect-square ratios `a²c/b²c` and their `±1`
+/// neighbours, and on seeded random pairs of random bit lengths.
+#[test]
+fn stack_root_equals_the_big_integer_root() {
+    let oracle = |p: u128, q: u128| root(&Natural::from(p), &Natural::from(q));
+    let values = boundary_values();
+    let mut pairs: Vec<(u128, u128)> = Vec::new();
+    for &p in &values {
+        for &q in &values {
+            pairs.push((p, q));
+        }
+    }
+    for a in [1u128, 2, 3, 7, 1 << 40, (1 << 63) - 1] {
+        for b in [1u128, 5, 9, (1 << 31) + 1] {
+            for c in [1u128, 3, 1 << 20] {
+                let (Some(p), Some(q)) = (a.checked_mul(a * c), b.checked_mul(b * c)) else {
+                    continue;
+                };
+                for (dp, dq) in [(0, 0), (1, 0), (0, 1)] {
+                    if let (Some(up), Some(uq)) = (p.checked_add(dp), q.checked_add(dq)) {
+                        pairs.push((up, uq));
+                    }
+                    pairs.push((p - dp, q.max(2) - dq));
+                }
+            }
+        }
+    }
+    let mut rng = rng();
+    for _ in 0..3000 {
+        let r = |rng: &mut rand_chacha::ChaCha8Rng| {
+            let bits = 1 + rng.random::<u64>() % 128;
+            let x = u128::from(rng.random::<u64>()) << 64 | u128::from(rng.random::<u64>());
+            (x >> (128 - bits)) | (1 << (bits - 1))
+        };
+        pairs.push((r(&mut rng), r(&mut rng)));
+    }
+    for (p, q) in pairs {
+        assert_eq!(stack_root(p, q), oracle(p, q), "√({p}/{q})");
+    }
+    assert_eq!(stack_root(0, 1), None);
+    assert_eq!(stack_root(1, 0), None);
 }

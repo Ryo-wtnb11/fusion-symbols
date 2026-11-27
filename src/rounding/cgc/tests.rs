@@ -167,14 +167,14 @@ fn midpoints_round_exactly_on_both_sides_of_the_stack_limit() {
     }
 }
 
-/// Roots are formed exactly when `entries · 150 ≥ roots · 1400` (ns): one
-/// root pays from 10 entries, fifteen from 140, and no root needs nothing.
+/// Roots are formed exactly when `entries · 150 ≥ roots · 370` (ns): one
+/// root pays from 3 entries, fifteen from 37, and no root needs nothing.
 #[test]
 fn roots_are_formed_from_the_break_even() {
-    assert!(!pays(9, 1));
-    assert!(pays(10, 1));
-    assert!(!pays(139, 15));
-    assert!(pays(140, 15));
+    assert!(!pays(2, 1));
+    assert!(pays(3, 1));
+    assert!(!pays(36, 15));
+    assert!(pays(37, 15));
     assert!(pays(0, 0));
     assert!(!pays(0, 1));
 }
