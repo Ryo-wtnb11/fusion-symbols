@@ -222,10 +222,13 @@ fn cu1_identities() {
     assert_eq!(CU1.braiding_style(), BraidingStyle::Bosonic);
     conformance(
         CU1,
-        [CU1Irrep::VACUUM, CU1Irrep::PSEUDOSCALAR]
-            .into_iter()
-            .chain((1..=4).map(|n| CU1Irrep::new(HalfInt::from_doubled(n), 2).unwrap()))
-            .collect(),
+        [
+            CU1.unit(),
+            CU1Irrep::new(HalfInt::from_doubled(0), 1).unwrap(),
+        ]
+        .into_iter()
+        .chain((1..=4).map(|n| CU1Irrep::new(HalfInt::from_doubled(n), 2).unwrap()))
+        .collect(),
     );
 }
 

@@ -1909,7 +1909,7 @@ fn unavailable_factor_keeps_the_overflow_precedence() {
         },
         U1,
     ));
-    let x = (0, U1Irrep::UNIT);
+    let x = (0, U1.unit());
     assert!(matches!(
         p.f_symbol(&x, &x, &x, &x, &x, &x),
         Err(ProductError::Overflow)
@@ -1966,10 +1966,10 @@ fn product_b_is_the_rounded_exact_composition() {
 fn one_leaf_absent_channel_keeps_its_axes() {
     use fusion_symbols::lie::{CU1Irrep, HalfInt, CU1};
     let p = Product::new((CU1, U1));
-    let x = (CU1Irrep::VACUUM, U1Irrep::UNIT);
+    let x = (CU1.unit(), U1.unit());
     let y = (
         CU1Irrep::new(HalfInt::from_doubled(1), 2).unwrap(),
-        U1Irrep::UNIT,
+        U1.unit(),
     );
     let f = p.f_symbol(&x, &x, &x, &x, &y, &x).unwrap();
     assert_eq!(f.dims(), [0, 0, 1, 1]);

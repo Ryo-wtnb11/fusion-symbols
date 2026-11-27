@@ -50,7 +50,7 @@ fn guide_building_lie_groups_1() -> Result<(), Box<dyn std::error::Error>> {
     let so5 = LieGroup::new(GroupId::so(5)?)?;
     let spin5 = LieGroup::new(GroupId::spin(5)?)?;
     let sp4 = LieGroup::new(GroupId::sp(4)?)?; // defining dimension 4, rank 2
-    let psu3 = LieGroup::new(GroupId::psu(3)?)?; // SU(3)/Z3
+    let psu3 = LieGroup::new(GroupId::su_quotient(3, 3)?)?; // SU(3)/Z3
     let u2 = LieGroup::new(GroupId::u(2)?)?;
     let t2 = LieGroup::new(GroupId::torus(2)?)?;
     assert_eq!(su3.group_id().semisimple_rank(), 2);
@@ -225,8 +225,8 @@ fn guide_abelian_and_finite_categories_1() -> Result<(), Box<dyn std::error::Err
     assert_eq!(
         channels,
         [
-            (CU1Irrep::VACUUM, 1),
-            (CU1Irrep::PSEUDOSCALAR, 1),
+            (CU1.unit(), 1),
+            (CU1Irrep::new(HalfInt::from_doubled(0), 1)?, 1),
             (CU1Irrep::new(HalfInt::new(2, 2)?, 2)?, 1)
         ]
     );
@@ -279,7 +279,7 @@ fn guide_products_1() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(c.dims(), [2, 2, 3, 1]);
 
     let chain = Product::new(vec![U1; 4]);
-    assert_eq!(chain.unit(), vec![U1Irrep::UNIT; 4]);
+    assert_eq!(chain.unit(), vec![U1.unit(); 4]);
     Ok(())
 }
 
@@ -690,8 +690,8 @@ fn contract_fusion_5() {
     assert_eq!(
         channels,
         vec![
-            (CU1Irrep::VACUUM, 1),
-            (CU1Irrep::PSEUDOSCALAR, 1),
+            (CU1.unit(), 1),
+            (CU1Irrep::new(HalfInt::from_doubled(0), 1).unwrap(), 1),
             (CU1Irrep::new(HalfInt::new(2, 2).unwrap(), 2).unwrap(), 1)
         ]
     );
@@ -801,7 +801,7 @@ fn contract_fusion_sp4_defining_squared() {
 #[test]
 fn contract_labels_psu3_admission() {
     use fusion_symbols::lie::{GroupId, LieGroup};
-    let psu3 = GroupId::psu(3).unwrap(); // SU(3)/Z₃
+    let psu3 = GroupId::su_quotient(3, 3).unwrap(); // SU(3)/Z₃
 
     // The adjoint 8 has zero triality, so it is a genuine PSU(3) representation.
     assert!(LieGroup::new(psu3.clone()).unwrap().irrep(&[1, 1]).is_ok());

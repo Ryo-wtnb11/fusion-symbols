@@ -31,7 +31,10 @@ fn parities() -> Vec<FermionParityIrrep> {
     vec![FermionParityIrrep::EVEN, FermionParityIrrep::ODD]
 }
 fn cu1_irreps() -> Vec<CU1Irrep> {
-    let mut objects = vec![CU1Irrep::VACUUM, CU1Irrep::PSEUDOSCALAR];
+    let mut objects = vec![
+        CU1.unit(),
+        CU1Irrep::new(HalfInt::from_doubled(0), 1).unwrap(),
+    ];
     objects.extend((1..=3).map(|n| CU1Irrep::new(HalfInt::from_doubled(n), 2).unwrap()));
     objects
 }
@@ -311,7 +314,7 @@ fn false_trivial_associators_have_a_non_unit_f() {
 
     // CU(1), `cu1irrep.jl:Fsymbol`: F^{jjj}_j[0+, 0+] = 1/2 for j = 1/2.
     let j = CU1Irrep::new(HalfInt::new(1, 2).unwrap(), 2).unwrap();
-    let v = CU1Irrep::VACUUM;
+    let v = CU1.unit();
     assert_eq!(CU1.f_symbol(&j, &j, &j, &j, &v, &v).unwrap(), 0.5);
 
     // Fibonacci: F^{τττ}_τ[𝟙, 𝟙] = 1/φ.

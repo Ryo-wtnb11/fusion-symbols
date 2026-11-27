@@ -38,10 +38,10 @@ fn labels_forms_and_rank_one_isomorphisms() {
         GroupId::so(3).unwrap(),
         GroupId::spin(3).unwrap(),
         GroupId::sp(2).unwrap(),
-        GroupId::psu(2).unwrap(),
+        GroupId::su_quotient(2, 2).unwrap(),
     ] {
         let cat = LieGroup::new(id.clone()).unwrap();
-        if id == GroupId::so(3).unwrap() || id == GroupId::psu(2).unwrap() {
+        if id == GroupId::so(3).unwrap() || id == GroupId::su_quotient(2, 2).unwrap() {
             assert_eq!(cat.irrep(&[1]), Err(LieError::NotAdmissible));
         } else {
             assert!(cat.irrep(&[1]).is_ok());
@@ -111,7 +111,7 @@ fn warm_cgc_is_a_hit_and_oversized_or_empty_blocks_are_typed() {
 fn every_valid_rank_one_datum_admits_the_unit() {
     for id in [
         GroupId::su(2).unwrap(),
-        GroupId::psu(2).unwrap(),
+        GroupId::su_quotient(2, 2).unwrap(),
         GroupId::so(3).unwrap(),
     ] {
         let cat = LieGroup::new(id.clone()).unwrap();

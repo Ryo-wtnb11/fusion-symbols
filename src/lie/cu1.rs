@@ -56,12 +56,12 @@ impl std::error::Error for CU1Error {}
 
 impl CU1Irrep {
     /// The unit `0+`, TensorKitSectors `CU1Irrep(0, 0)`.
-    pub const VACUUM: Self = Self {
+    const VACUUM: Self = Self {
         twice_charge: 0,
         s: 0,
     };
     /// The pseudoscalar `0-`, TensorKitSectors `CU1Irrep(0, 1)`.
-    pub const PSEUDOSCALAR: Self = Self {
+    const PSEUDOSCALAR: Self = Self {
         twice_charge: 0,
         s: 1,
     };

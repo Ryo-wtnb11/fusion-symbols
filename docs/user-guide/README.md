@@ -83,7 +83,7 @@ let su3 = LieGroup::new(GroupId::su(3)?)?;
 let so5 = LieGroup::new(GroupId::so(5)?)?;
 let spin5 = LieGroup::new(GroupId::spin(5)?)?;
 let sp4 = LieGroup::new(GroupId::sp(4)?)?; // defining dimension 4, rank 2
-let psu3 = LieGroup::new(GroupId::psu(3)?)?; // SU(3)/Z3
+let psu3 = LieGroup::new(GroupId::su_quotient(3, 3)?)?; // SU(3)/Z3
 let u2 = LieGroup::new(GroupId::u(2)?)?;
 let t2 = LieGroup::new(GroupId::torus(2)?)?;
 assert_eq!(su3.group_id().semisimple_rank(), 2);
@@ -95,7 +95,7 @@ assert_ne!(so5.group_id(), spin5.group_id());
 assert_ne!(psu3.group_id(), su3.group_id());
 ```
 
-Named constructors: `su(n)`, `su_quotient(n, k)`, `psu(n)`, `u(n)`,
+Named constructors: `su(n)`, `su_quotient(n, k)` (PSU(n) is `su_quotient(n, n)`), `u(n)`,
 `torus(t)`, `so(n)`, `spin(n)`, `pso(n)`, `sp(m)`, `psp(m)`,
 `half_spin_plus(n)`, `half_spin_minus(n)`. Orthogonal and symplectic
 arguments are the defining matrix dimension, not the rank.
@@ -297,7 +297,7 @@ assert_eq!(FermionParity.twist(&FermionParityIrrep::ODD), -1.0);
 
 let a = CU1Irrep::new(HalfInt::new(1, 2)?, 2)?;
 let channels: Vec<_> = CU1.fusion(&a, &a)?.collect();
-assert_eq!(channels, [(CU1Irrep::VACUUM, 1), (CU1Irrep::PSEUDOSCALAR, 1), (CU1Irrep::new(HalfInt::new(2, 2)?, 2)?, 1)]);
+assert_eq!(channels, [(CU1.unit(), 1), (CU1Irrep::new(HalfInt::from_doubled(0), 1)?, 1), (CU1Irrep::new(HalfInt::new(2, 2)?, 2)?, 1)]);
 ```
 
 `U1` is the same group as `LieGroup::new(GroupId::u(1)?)`, with `Copy` labels
@@ -360,7 +360,7 @@ let c = spin_charge.cgc(&x, &x, &y)?;
 assert_eq!(c.dims(), [2, 2, 3, 1]);
 
 let chain = Product::new(vec![U1; 4]);
-assert_eq!(chain.unit(), vec![U1Irrep::UNIT; 4]);
+assert_eq!(chain.unit(), vec![U1.unit(); 4]);
 ```
 
 Nesting is kept: `Product::new((Product::new((a, b)), c))` has objects

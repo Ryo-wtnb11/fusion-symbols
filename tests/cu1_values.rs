@@ -12,8 +12,13 @@ use fusion_symbols::{
     lie::{CU1Irrep, HalfInt, CU1},
 };
 
-const OP: CU1Irrep = CU1Irrep::VACUUM;
-const OM: CU1Irrep = CU1Irrep::PSEUDOSCALAR;
+fn op() -> CU1Irrep {
+    CU1.unit()
+}
+
+fn om() -> CU1Irrep {
+    CU1Irrep::new(HalfInt::from_doubled(0), 1).unwrap()
+}
 
 fn j(twice_charge: u32) -> CU1Irrep {
     CU1Irrep::new(
@@ -25,7 +30,7 @@ fn j(twice_charge: u32) -> CU1Irrep {
 
 /// `0+`, `0-`, `2j = 1..=5`.
 fn labels() -> Vec<CU1Irrep> {
-    [OP, OM].into_iter().chain((1..=5).map(j)).collect()
+    [op(), om()].into_iter().chain((1..=5).map(j)).collect()
 }
 
 fn dim(a: CU1Irrep) -> usize {
@@ -154,14 +159,14 @@ fn values_checked_against_tensorkitsectors() {
     // Checked against TensorKitSectors 0.3.9 (`CU1Irrep`, Julia 1.11.6).
     let s = std::f64::consts::FRAC_1_SQRT_2;
     let f = [
-        ([j(1), j(1), j(1), j(1), OP, OP], 0.5),
-        ([j(1), j(1), j(1), j(1), OP, OM], -0.5),
-        ([j(1), j(1), j(1), j(1), OM, OM], -0.5),
-        ([j(1), j(1), j(1), j(1), j(2), OP], s),
+        ([j(1), j(1), j(1), j(1), op(), op()], 0.5),
+        ([j(1), j(1), j(1), j(1), op(), om()], -0.5),
+        ([j(1), j(1), j(1), j(1), om(), om()], -0.5),
+        ([j(1), j(1), j(1), j(1), j(2), op()], s),
         ([j(1), j(1), j(1), j(1), j(2), j(2)], 0.0),
-        ([j(1), j(1), j(3), j(3), OM, j(4)], -s),
+        ([j(1), j(1), j(3), j(3), om(), j(4)], -s),
         ([j(1), j(3), j(1), j(3), j(2), j(4)], 1.0),
-        ([OM, j(1), j(3), j(2), j(1), j(2)], -1.0),
+        ([om(), j(1), j(3), j(2), j(1), j(2)], -1.0),
     ];
     for ([a, b, c, d, e, x], want) in f {
         assert_eq!(
@@ -170,15 +175,15 @@ fn values_checked_against_tensorkitsectors() {
             "{a:?}{b:?}{c:?}{d:?}{e:?}{x:?}"
         );
     }
-    assert_eq!(CU1.r_symbol(&j(1), &j(1), &OM).unwrap(), -1.0);
-    assert_eq!(CU1.r_symbol(&j(1), &j(1), &OP).unwrap(), 1.0);
+    assert_eq!(CU1.r_symbol(&j(1), &j(1), &om()).unwrap(), -1.0);
+    assert_eq!(CU1.r_symbol(&j(1), &j(1), &op()).unwrap(), 1.0);
     assert_eq!(CU1.r_symbol(&j(1), &j(1), &j(2)).unwrap(), 1.0);
-    assert_eq!(CU1.r_symbol(&OM, &j(1), &j(1)).unwrap(), 1.0);
+    assert_eq!(CU1.r_symbol(&om(), &j(1), &j(1)).unwrap(), 1.0);
     // Known deviation: TensorKitSectors returns `-0.0` on this inadmissible
     // tuple (`-convert(Float64, N)` with `N = 0`); here every inadmissible
     // symbol is `+0.0`.
     assert_eq!(
-        CU1.r_symbol(&j(1), &j(2), &OM).unwrap().to_bits(),
+        CU1.r_symbol(&j(1), &j(2), &om()).unwrap().to_bits(),
         0.0f64.to_bits()
     );
 }
@@ -204,7 +209,7 @@ fn unary_data_and_fusion_order_follow_tensorkitsectors() {
                 (0, 0) => vec![CU1Irrep::new(HalfInt::new(0, 1).unwrap(), a.s() ^ b.s()).unwrap()],
                 (0, _) => vec![b],
                 (_, 0) => vec![a],
-                _ if qa == qb => vec![OP, OM, j(2 * qa)],
+                _ if qa == qb => vec![op(), om(), j(2 * qa)],
                 _ => vec![j(qa.abs_diff(qb)), j(qa + qb)],
             };
             let got: Vec<_> = CU1.fusion(&a, &b).unwrap().map(|(c, _)| c).collect();

@@ -69,7 +69,7 @@ fn dynkin_matches_input_labels_without_allocation() {
     });
     // Higher-rank simple centers still admit labels without a scratch allocation.
     for id in [
-        GroupId::psu(13).unwrap(),
+        GroupId::su_quotient(13, 13).unwrap(),
         GroupId::so(25).unwrap(),
         GroupId::psp(24).unwrap(),
         GroupId::pso(24).unwrap(),
@@ -84,7 +84,7 @@ fn dynkin_matches_input_labels_without_allocation() {
         GroupId::spin(3).unwrap(),
         GroupId::sp(2).unwrap(),
         GroupId::so(3).unwrap(),
-        GroupId::psu(2).unwrap(),
+        GroupId::su_quotient(2, 2).unwrap(),
     ] {
         let cat = LieGroup::new(id.clone()).unwrap();
         for label in 0..=200 {
@@ -118,7 +118,7 @@ fn dynkin_matches_input_labels_without_allocation() {
     for id in [
         GroupId::su(3).unwrap(),
         GroupId::su(4).unwrap(),
-        GroupId::psu(3).unwrap(),
+        GroupId::su_quotient(3, 3).unwrap(),
         GroupId::spin(5).unwrap(),
         GroupId::so(5).unwrap(),
         GroupId::sp(4).unwrap(),
@@ -152,7 +152,7 @@ fn dynkin_matches_input_labels_without_allocation() {
                 seeds.push(cat.irrep(&label).unwrap());
             }
         }
-        if id == GroupId::psu(3).unwrap() {
+        if id == GroupId::su_quotient(3, 3).unwrap() {
             seeds.push(cat.irrep(&[1, 1]).unwrap());
         }
         for a in &seeds {

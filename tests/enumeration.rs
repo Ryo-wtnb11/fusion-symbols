@@ -165,7 +165,7 @@ fn su_n_uses_total_grade_then_lexicographic_dynkin_order() {
 #[test]
 fn other_global_forms_and_bcd_are_not_enumerable() {
     for group in [
-        GroupId::psu(3).unwrap(),
+        GroupId::su_quotient(3, 3).unwrap(),
         GroupId::so(5).unwrap(),
         GroupId::spin(5).unwrap(),
         GroupId::sp(4).unwrap(),
@@ -182,7 +182,7 @@ fn other_global_forms_and_bcd_are_not_enumerable() {
 #[cfg(feature = "lie-generated")]
 #[test]
 fn foreign_objects_panic_before_the_capability_check() {
-    let psu3 = lie(GroupId::psu(3).unwrap());
+    let psu3 = lie(GroupId::su_quotient(3, 3).unwrap());
     let su3 = lie(GroupId::su(3).unwrap());
     let foreign = su3.unit();
     assert!(panics(|| {
@@ -335,7 +335,7 @@ fn counts_above_u64_keep_indices_addressable() {
 fn products_with_a_non_enumerable_factor_are_not_enumerable() {
     #[cfg(feature = "lie-generated")]
     {
-        let p = Product::new((U1, lie(GroupId::psu(3).unwrap())));
+        let p = Product::new((U1, lie(GroupId::su_quotient(3, 3).unwrap())));
         assert_eq!(p.object_count(), Err(NotEnumerable));
         assert_eq!(p.object_at(0), Err(NotEnumerable));
         assert_eq!(p.object_index(&p.unit()), Err(NotEnumerable));
@@ -343,7 +343,7 @@ fn products_with_a_non_enumerable_factor_are_not_enumerable() {
     // NotEnumerable wins over a factor's label overflow.
     #[cfg(feature = "lie-generated")]
     {
-        let p = Product::new((U1, lie(GroupId::psu(3).unwrap())));
+        let p = Product::new((U1, lie(GroupId::su_quotient(3, 3).unwrap())));
         assert_eq!(p.object_at(u64::MAX), Err(NotEnumerable));
     }
     // (0, 2^32 - 1) opens shell 2^32 - 1, at index C(2^32, 2); its second

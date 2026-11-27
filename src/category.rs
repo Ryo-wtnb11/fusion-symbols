@@ -669,7 +669,7 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// use fusion_symbols::{category::FusionCategory, lie::{U1Irrep, U1}};
     ///
     /// assert_eq!(U1.frobenius_schur_indicator(&U1Irrep::new(1)?), 0.0); // not self-dual
-    /// assert_eq!(U1.frobenius_schur_indicator(&U1Irrep::UNIT), 1.0);
+    /// assert_eq!(U1.frobenius_schur_indicator(&U1.unit()), 1.0);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     fn frobenius_schur_indicator(&self, a: &Self::Object) -> Self::Scalar;

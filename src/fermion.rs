@@ -32,10 +32,6 @@ impl FermionParityIrrep {
     pub const EVEN: Self = Self { odd: false };
     /// Odd parity.
     pub const ODD: Self = Self { odd: true };
-    /// Construct either validated parity.
-    pub const fn new(odd: bool) -> Self {
-        Self { odd }
-    }
     /// Whether the object has odd parity.
     pub const fn is_odd(self) -> bool {
         self.odd
@@ -92,7 +88,10 @@ impl FusionCategory for FermionParity {
         a: &FermionParityIrrep,
         b: &FermionParityIrrep,
     ) -> Result<Self::Fusion<'a>, Self::Error> {
-        Ok(std::iter::once((FermionParityIrrep::new(a.odd ^ b.odd), 1)))
+        Ok(std::iter::once((
+            FermionParityIrrep { odd: a.odd ^ b.odd },
+            1,
+        )))
     }
     fn nsymbol(
         &self,

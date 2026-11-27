@@ -47,7 +47,7 @@ pub struct U1Irrep {
 
 impl U1Irrep {
     /// The unit, charge `0`.
-    pub const UNIT: Self = Self { charge: 0 };
+    pub(crate) const UNIT: Self = Self { charge: 0 };
 
     /// The irrep of the given charge.
     ///

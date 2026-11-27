@@ -357,9 +357,21 @@ mod tests {
                         Ok(f64::from(ZN::new(2).unwrap().nsymbol(&x, &y, &z).unwrap()))
                     );
                     let (x, y, z) = (
-                        FermionParityIrrep::new(a),
-                        FermionParityIrrep::new(b),
-                        FermionParityIrrep::new(c),
+                        if a {
+                            FermionParityIrrep::ODD
+                        } else {
+                            FermionParityIrrep::EVEN
+                        },
+                        if b {
+                            FermionParityIrrep::ODD
+                        } else {
+                            FermionParityIrrep::EVEN
+                        },
+                        if c {
+                            FermionParityIrrep::ODD
+                        } else {
+                            FermionParityIrrep::EVEN
+                        },
                     );
                     let n = f64::from(FermionParity.nsymbol(&x, &y, &z).unwrap());
                     assert_eq!(

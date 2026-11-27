@@ -112,7 +112,10 @@ fn su2_matches_tensorkitsectors_including_negative_frobenius_schur() {
 #[test]
 fn cu1_charged_sectors_match_tensorkitsectors() {
     let j = |n| CU1Irrep::new(HalfInt::from_doubled(n), 2).unwrap();
-    let (zp, zm) = (CU1Irrep::VACUUM, CU1Irrep::PSEUDOSCALAR);
+    let (zp, zm) = (
+        CU1.unit(),
+        CU1Irrep::new(HalfInt::from_doubled(0), 1).unwrap(),
+    );
     for (a, b, c, want_a, want_b) in [
         (j(1), j(1), zp, 1.0, 1.0),
         (j(1), j(1), zm, -1.0, 1.0),

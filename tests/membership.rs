@@ -20,8 +20,8 @@ fn leaf_categories_accept_own_and_reject_foreign_objects() {
         assert!(U1.contains(&U1Irrep::new(q).unwrap()));
     }
     for a in [
-        CU1Irrep::VACUUM,
-        CU1Irrep::PSEUDOSCALAR,
+        CU1.unit(),
+        CU1Irrep::new(HalfInt::from_doubled(0), 1).unwrap(),
         CU1Irrep::new(HalfInt::new(1, 2).unwrap(), 2).unwrap(),
         CU1Irrep::new(HalfInt::new(u32::MAX, 2).unwrap(), 2).unwrap(),
     ] {

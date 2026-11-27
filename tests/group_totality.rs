@@ -29,7 +29,7 @@ fn hnf_identity_is_independent_of_row_basis() {
 fn named_and_general_lattices_agree() {
     assert_eq!(GroupId::su(3).unwrap(), GroupId::cover(&[A(2)], 0).unwrap());
     assert_eq!(
-        GroupId::psu(3).unwrap(),
+        GroupId::su_quotient(3, 3).unwrap(),
         GroupId::new(&[A(2)], 0, &[vec![2, -1], vec![-1, 2]]).unwrap()
     );
     assert_eq!(GroupId::su(4).unwrap(), GroupId::su_quotient(4, 1).unwrap());
@@ -288,7 +288,7 @@ fn tori_and_trivial_data() {
 
 #[test]
 fn label_errors_precede_admission_then_engine_limits() {
-    let g = LieGroup::new(GroupId::psu(2).unwrap()).unwrap();
+    let g = LieGroup::new(GroupId::su_quotient(2, 2).unwrap()).unwrap();
     assert_eq!(
         g.irrep_with_charges(&[i64::MAX], &[0]),
         Err(LieError::InvalidLabel)
@@ -404,7 +404,7 @@ fn huge_bcd_groups_construct_without_root_data() {
 #[test]
 fn unaddressable_named_lattices_return_size_overflow() {
     for result in [
-        GroupId::psu(1usize << 62),
+        GroupId::su_quotient(1usize << 62, 1usize << 62),
         GroupId::psp(1usize << 63),
         GroupId::half_spin_plus(1usize << 63),
     ] {
@@ -421,7 +421,7 @@ fn large_named_lattices_construct_and_compare_without_dense_storage() {
             huge - 1,
             0,
         ),
-        (GroupId::psu, huge - 1, 0),
+        (|n| GroupId::su_quotient(n, n), huge - 1, 0),
         (GroupId::u, huge - 1, 1),
         (GroupId::so, huge / 2, 0),
         (GroupId::psp, huge / 2, 0),
@@ -441,7 +441,10 @@ fn large_named_lattices_construct_and_compare_without_dense_storage() {
     assert!(GroupId::su(usize::MAX).is_ok());
     assert!(GroupId::torus(usize::MAX).is_ok());
     assert!(GroupId::sp(1usize << (usize::BITS - 2)).is_ok());
-    for group in [GroupId::su(huge).unwrap(), GroupId::psu(huge).unwrap()] {
+    for group in [
+        GroupId::su(huge).unwrap(),
+        GroupId::su_quotient(huge, huge).unwrap(),
+    ] {
         let result = LieGroup::new(group);
         #[cfg(feature = "lie-generated")]
         assert!(result.is_ok());
@@ -458,7 +461,7 @@ fn large_named_lattices_construct_and_compare_without_dense_storage() {
 #[test]
 fn named_lattices_contain_roots_across_ranks() {
     for n in 2..=24 {
-        let mut groups = vec![GroupId::psu(n).unwrap(), GroupId::u(n).unwrap()];
+        let mut groups = vec![GroupId::su_quotient(n, n).unwrap(), GroupId::u(n).unwrap()];
         if n >= 3 {
             groups.extend([GroupId::so(n).unwrap(), GroupId::pso(n).unwrap()]);
         }
