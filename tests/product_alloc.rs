@@ -177,13 +177,13 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
                 calls >= expected
             }
         };
-        use crate::common::{generated_tiers, stats_sum, BASE_TIERS};
+        use crate::common::{stats_sum, BASE_TIERS, PRODUCT_AND_R};
         use cache::{tier_stats, CoefficientCacheTier as Tier};
         let query_f = || cat.f_symbol(x, x, x, x, x, x).unwrap();
         query_f();
         let (base, generated, hits) = (
             stats_sum(&BASE_TIERS),
-            stats_sum(generated_tiers()),
+            stats_sum(&PRODUCT_AND_R),
             tier_stats(Tier::FSymbol).hits,
         );
         let (calls, _, _, _) = counting_alloc::measure(query_f);
@@ -193,15 +193,11 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
             hits + k,
             "{name}: factor hits"
         );
-        assert_eq!(
-            stats_sum(generated_tiers()).misses,
-            generated.misses,
-            "{name}"
-        );
+        assert_eq!(stats_sum(&PRODUCT_AND_R).misses, generated.misses, "{name}");
         assert_eq!(stats_sum(&BASE_TIERS).misses, base.misses, "{name}");
         let query_r = || cat.r_symbol(x, x, x).unwrap();
         query_r();
-        let (generated, hits) = (stats_sum(generated_tiers()), tier_stats(Tier::RSymbol).hits);
+        let (generated, hits) = (stats_sum(&PRODUCT_AND_R), tier_stats(Tier::RSymbol).hits);
         let (calls, _, _, _) = counting_alloc::measure(query_r);
         assert!(matches(calls, r), "{name} R: {calls} calls, expected {r}");
         assert_eq!(
@@ -210,7 +206,7 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
             "{name}: R factor hits"
         );
         assert_eq!(
-            stats_sum(generated_tiers()).misses,
+            stats_sum(&PRODUCT_AND_R).misses,
             generated.misses,
             "{name} R"
         );

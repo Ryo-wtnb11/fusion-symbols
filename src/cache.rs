@@ -14,9 +14,9 @@
 //!
 //! # What a consumer needs from this module
 //!
-//! - **A ceiling.** [`BASE_CACHE_MAX_BYTES`] and, with `lie-generated`,
-//!   [`GENERATED_CACHE_MAX_BYTES`] are the documented sums of the per-tier
-//!   retained-entry charge caps. They bound *cache-owned entry charge*, not RSS.
+//! - **A ceiling.** [`BASE_CACHE_MAX_BYTES`] is the documented sum of the
+//!   per-tier retained-entry charge caps. It bounds *cache-owned entry
+//!   charge*, not RSS.
 //! - **A smaller ceiling, if you want one.** [`configure_cache_budgets`],
 //!   once, before first use. Shrink-only.
 //! - **Observation.** [`tier_stats`] for one tier; iterate
@@ -426,42 +426,19 @@ fn validate_budgets(b: CoefficientCacheBudgets) -> Result<(), CacheBudgetError> 
     Ok(())
 }
 
-/// Aggregate conservative retained-charge cap of the tiers a build without
-/// `lie-generated` can fill: Wigner 3j, Wigner 6j, F and CGC,
-/// `448 MiB` = `64 + 64 + 64 + 256 MiB`.
+/// Aggregate conservative retained-charge cap of every tier: Wigner 3j,
+/// Wigner 6j, F, R, Product and CGC, `576 MiB` = `64 + 64 + 64 + 64 + 64 +
+/// 256 MiB`, in every build: every tier is compiled in every build.
 ///
 /// This is a **documented static partition**, not a shared budget: each tier is
 /// bounded independently by its own per-tier charged-entry cap. The aggregate
 /// is therefore a provable corollary — `Σ tier bytes ≤ Σ tier caps` — rather
 /// than an enforced global limit.
-///
-/// The whole-process cap is `BASE_CACHE_MAX_BYTES + GENERATED_CACHE_MAX_BYTES`
-/// with `lie-generated`, and `BASE_CACHE_MAX_BYTES` without it, whose groups
-/// never fill the Product and R tiers.
-pub const BASE_CACHE_MAX_BYTES: usize = 448 << 20;
+pub const BASE_CACHE_MAX_BYTES: usize = 576 << 20;
 
 // Compile-time tie: if a per-tier retained-charge cap changes, the aggregate
 // must be reconciled in the same edit or the crate stops building.
-const _: () = assert!(BASE_CACHE_MAX_BYTES == 3 * DEFAULT_MAX_BYTES + CGC_MAX_BYTES);
-
-/// Aggregate conservative retained-charge cap of the two tiers only
-/// higher-rank (`lie-generated`) groups fill, Product and R:
-/// `128 MiB` = `64 + 64 MiB`. Added to [`BASE_CACHE_MAX_BYTES`] it is the
-/// whole-process cap.
-///
-/// **Unstable: shape may change.** There is no Cargo-feature way to express an
-/// instability tier, so this doc label is the marker.
-///
-/// Like the base cap this is a **static partition, not a shared pool**:
-/// `Σ tier charged bytes ≤ Σ tier caps` holds as a corollary without global
-/// enforcement.
-#[cfg(feature = "lie-generated")]
-pub const GENERATED_CACHE_MAX_BYTES: usize = 128 << 20;
-
-// Compile-time tie, as for the base cap: R and Product each default to
-// `DEFAULT_MAX_BYTES`.
-#[cfg(feature = "lie-generated")]
-const _: () = assert!(GENERATED_CACHE_MAX_BYTES == 2 * DEFAULT_MAX_BYTES);
+const _: () = assert!(BASE_CACHE_MAX_BYTES == 5 * DEFAULT_MAX_BYTES + CGC_MAX_BYTES);
 
 /// Snapshot of one coefficient-cache tier, returned by [`tier_stats`].
 ///

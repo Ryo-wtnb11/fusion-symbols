@@ -9,6 +9,9 @@ value/gauge rule noted below.
 
 ### Changed
 
+- `BASE_CACHE_MAX_BYTES` is the sum of every tier's cap, 576 MiB
+  (Wigner 3j, 6j, F, R, Product and CGC), in every build.
+  **Breaking:** `GENERATED_CACHE_MAX_BYTES` is removed.
 - Every Cartan-engine CGC channel keeps its exact value as the stored
   authority: per multiplicity index, integer coordinates on one common
   denominator with the content divided out, and one vertex radicand. The

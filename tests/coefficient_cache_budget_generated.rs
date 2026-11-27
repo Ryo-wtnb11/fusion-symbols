@@ -69,7 +69,7 @@ fn disabled_policy_preserves_product_value_without_retention() {
     // Label-owned duals need no cache retention.
     for (cat, a) in [(&cat, &three), (&bcd, &v)] {
         assert_eq!(cat.dual(&cat.dual(a)), *a);
-        let stats = common::stats_sum(common::generated_tiers());
+        let stats = common::stats_sum(&common::PRODUCT_AND_R);
         assert_eq!((stats.entries, stats.bytes), (0, 0));
     }
 }

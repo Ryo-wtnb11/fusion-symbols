@@ -42,7 +42,7 @@ fn check<C: FusionCategory<Scalar = f64>>(
         let cold = query();
         elements = cold.as_slice().len();
         let base = crate::common::stats_sum(&crate::common::BASE_TIERS);
-        let generated = crate::common::stats_sum(crate::common::generated_tiers());
+        let generated = crate::common::stats_sum(&crate::common::PRODUCT_AND_R);
         let (allocation, warm) = measure(query);
         let expected = buffers(if composition_buffers.is_empty() {
             std::slice::from_ref(&elements)
@@ -62,7 +62,7 @@ fn check<C: FusionCategory<Scalar = f64>>(
             .zip(cold.as_slice())
             .all(|(a, b)| a.to_bits() == b.to_bits()));
         let base_warm = crate::common::stats_sum(&crate::common::BASE_TIERS);
-        let generated_warm = crate::common::stats_sum(crate::common::generated_tiers());
+        let generated_warm = crate::common::stats_sum(&crate::common::PRODUCT_AND_R);
         assert_eq!(
             base_warm.misses, base.misses,
             "{name}: no base regeneration"

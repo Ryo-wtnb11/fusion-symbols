@@ -18,10 +18,8 @@ least-recently-used replacement. Default retained-entry charge caps are:
 | `RSymbol` (`"r_symbol"`) | Cartan-engine R blocks (SU(2) R is a closed-form sign) | 64 MiB |
 | `Product` (`"product"`) | exact simple-Lie tensor products | 64 MiB |
 
-`BASE_CACHE_MAX_BYTES` (448 MiB) is the sum of the four tiers a build
-without `lie-generated` can fill; `GENERATED_CACHE_MAX_BYTES` (128 MiB)
-adds Product and R, which only higher-rank groups fill. Every build
-compiles every tier.
+`BASE_CACHE_MAX_BYTES` (576 MiB) is the sum of every tier's cap. Every
+build compiles every tier.
 
 The CGC tier holds the construction data of one operation under one limit. A
 channel is kept twice, as separate entries: its exact channel (integer
