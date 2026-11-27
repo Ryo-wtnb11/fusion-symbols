@@ -4,7 +4,8 @@
 //! `radicand` a nonnegative rational over big integers. That is the closed
 //! form of the Racah expressions: a triangle/dimension product under a square
 //! root times a rational alternating sum. We keep the value in this exact form
-//! all the way through and round to `f64` exactly once, in [`SignedSqrtRational::to_f64`].
+//! all the way through and round to `f64` exactly once, in
+//! [`SignedSqrtRational::to_f64`] (the rounding layer, `src/rounding.rs`).
 
 use std::sync::Arc;
 
@@ -15,8 +16,7 @@ use malachite_base::num::{arithmetic::traits::Pow, basic::traits::One};
 use malachite_nz::integer::Integer;
 use malachite_q::Rational;
 
-use crate::rounding::{round_radical, Factor};
-
+pub(crate) mod limbs;
 pub(crate) mod radical;
 
 /// Signed square root of a nonnegative rational: the value `sign * sqrt(radicand)`.
@@ -116,35 +116,6 @@ impl SignedSqrtRational {
     pub(crate) fn neg_value(mut self) -> Self {
         self.sign = -self.sign;
         self
-    }
-
-    /// Correctly-rounded conversion to `f64` — the single rounding point.
-    ///
-    /// The value is `sign * sqrt(N/D)` with `N, D` nonnegative big integers.
-    /// We return the `f64` nearest to that real number (ties to even), i.e.
-    /// error <= 0.5 ulp over the whole `f64` range: subnormal results keep the
-    /// significand bits the fixed subnormal spacing allows and are rounded once,
-    /// and values below half the smallest subnormal give a signed zero.
-    ///
-    /// Method (integer square root with scaling, then an exact midpoint test):
-    /// pick an even scale `2g` so that `Q = floor(sqrt(floor(N*2^(2g)/D)))`
-    /// has 54..=56 bits. Then `Q ≈ sqrt(N/D) * 2^g` and the inner division
-    /// floor perturbs `Q` by less than `1/(2*sqrt(scaled)) < 2^-54` of a unit,
-    /// so `Q` is the exact `floor(sqrt(N/D) * 2^g)`. Let `mant = Q >> (bits-53)`
-    /// be the 53-bit significand floor (fewer bits below `2^-1022`, where the
-    /// spacing is `2^-1074`) and `exp` its binary exponent. The
-    /// correctly rounded significand is `mant` or `mant+1` depending on whether
-    /// the true value lies below or above the midpoint `(mant + 1/2) * 2^exp`.
-    /// We decide this by the exact big-integer comparison of `N/D` against
-    /// `(2*mant+1)^2 * 2^(2*exp-2)` — no floating point enters the decision, so
-    /// the only rounding is the final exactly-representable `mant * 2^exp`.
-    pub fn to_f64(&self) -> f64 {
-        let r = self.radicand();
-        round_radical(
-            self.sign,
-            &[Factor::Natural(r.numerator_ref())],
-            &[Factor::Natural(r.denominator_ref())],
-        )
     }
 }
 

@@ -6,6 +6,7 @@
 //! mathematics: every value it rounds is held exactly by the exact layer, and
 //! only the rounded views it returns are floating point.
 
+pub(crate) mod blocks;
 pub(crate) mod cgc;
 mod estimate;
 
@@ -13,13 +14,14 @@ use std::borrow::Cow;
 
 use malachite_base::num::{
     arithmetic::traits::{FloorSqrt, XMulYToZZ, XXDivModYToQR},
-    basic::traits::{One, Zero},
+    basic::traits::One,
     logic::traits::SignificantBits,
 };
 use malachite_nz::natural::Natural;
-use malachite_nz::platform::Limb;
 
+use crate::exact::limbs::Limbs;
 use crate::exact::radical::words_natural;
+use crate::exact::SignedSqrtRational;
 
 /// One factor of a radicand's numerator or denominator, read in place: a
 /// slab entry is passed as its words, so no big integer is formed for it.
@@ -49,6 +51,37 @@ pub(crate) fn round_radical(sign: i8, num: &[Factor<'_>], den: &[Factor<'_>]) ->
         return signed_sqrt_limbs_to_f64(sign, n, d);
     }
     signed_sqrt_to_f64(sign, &big_product(num), &big_product(den))
+}
+
+impl SignedSqrtRational {
+    /// Correctly-rounded conversion to `f64` — the single rounding point.
+    ///
+    /// The value is `sign * sqrt(N/D)` with `N, D` nonnegative big integers.
+    /// We return the `f64` nearest to that real number (ties to even), i.e.
+    /// error <= 0.5 ulp over the whole `f64` range: subnormal results keep the
+    /// significand bits the fixed subnormal spacing allows and are rounded once,
+    /// and values below half the smallest subnormal give a signed zero.
+    ///
+    /// Method (integer square root with scaling, then an exact midpoint test):
+    /// pick an even scale `2g` so that `Q = floor(sqrt(floor(N*2^(2g)/D)))`
+    /// has 54..=56 bits. Then `Q ≈ sqrt(N/D) * 2^g` and the inner division
+    /// floor perturbs `Q` by less than `1/(2*sqrt(scaled)) < 2^-54` of a unit,
+    /// so `Q` is the exact `floor(sqrt(N/D) * 2^g)`. Let `mant = Q >> (bits-53)`
+    /// be the 53-bit significand floor (fewer bits below `2^-1022`, where the
+    /// spacing is `2^-1074`) and `exp` its binary exponent. The
+    /// correctly rounded significand is `mant` or `mant+1` depending on whether
+    /// the true value lies below or above the midpoint `(mant + 1/2) * 2^exp`.
+    /// We decide this by the exact big-integer comparison of `N/D` against
+    /// `(2*mant+1)^2 * 2^(2*exp-2)` — no floating point enters the decision, so
+    /// the only rounding is the final exactly-representable `mant * 2^exp`.
+    pub fn to_f64(&self) -> f64 {
+        let r = self.radicand();
+        round_radical(
+            self.sign(),
+            &[Factor::Natural(r.numerator_ref())],
+            &[Factor::Natural(r.denominator_ref())],
+        )
+    }
 }
 
 /// `Π f` in stack limbs, when every partial product fits. Every factor is at
@@ -387,219 +420,15 @@ pub(crate) const INPUT_LIMBS: usize = 6;
 /// way the scale shifts, and every shift checks the resulting width first.
 const WORK_LIMBS: usize = 8;
 
-/// A nonnegative integer below `2^(64·N)` in little-endian 64-bit limbs.
-/// `len` counts the limbs up to the highest nonzero one; the limbs above it
-/// are zero, so the representation is unique.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Limbs<const N: usize> {
-    limbs: [u64; N],
-    len: usize,
-}
-
+// The `Factor` adapter stays with the conversion: the exact layer's
+// `Limbs` knows integers, not the rounding layer's factor lists.
 impl<const N: usize> Limbs<N> {
-    pub(crate) const ONE: Self = Self::from_word(1);
-
-    const fn from_word(w: u64) -> Self {
-        let mut limbs = [0; N];
-        limbs[0] = w;
-        Self {
-            limbs,
-            len: (w != 0) as usize,
-        }
-    }
-
-    /// The value of `limbs`, of which those from `len` on are zero.
-    fn trimmed(limbs: [u64; N], mut len: usize) -> Self {
-        while len > 0 && limbs[len - 1] == 0 {
-            len -= 1;
-        }
-        Self { limbs, len }
-    }
-
-    /// `x` when it is below `2^(64·N)`; reads Malachite's limbs in place.
-    pub(crate) fn from_natural(x: &Natural) -> Option<Self> {
-        if let Ok(w) = u64::try_from(x) {
-            return Some(Self::from_word(w));
-        }
-        let bits = x.significant_bits();
-        if bits > 64 * N as u64 {
-            return None;
-        }
-        let mut limbs = [0u64; N];
-        for (i, w) in x.limbs().enumerate() {
-            let bit = i * Limb::BITS as usize;
-            // A Malachite limb is 64 bits wide, or 32 under its `32_bit_limbs`
-            // feature, where this conversion is not the identity.
-            #[allow(clippy::useless_conversion)]
-            let w = u64::from(w);
-            limbs[bit / 64] |= w << (bit % 64);
-        }
-        Some(Self {
-            limbs,
-            len: bits.div_ceil(64) as usize,
-        })
-    }
-
-    /// The value as a big integer; only the fallback of a rejected primitive.
-    fn to_natural(self) -> Natural {
-        self.used()
-            .iter()
-            .rev()
-            .fold(Natural::ZERO, |acc, &w| (acc << 64u32) + Natural::from(w))
-    }
-
-    fn used(&self) -> &[u64] {
-        &self.limbs[..self.len]
-    }
-
-    fn bits(&self) -> u64 {
-        self.used().last().map_or(0, |&top| {
-            64 * self.len as u64 - u64::from(top.leading_zeros())
-        })
-    }
-
-    fn word(&self) -> Option<u64> {
-        (self.len <= 1).then_some(self.limbs[0])
-    }
-
-    /// `(w, s)` with `w` the leading at most 64 bits, `self = w · 2^s + r`,
-    /// `r < 2^s`.
-    fn leading_word(&self) -> (u64, u64) {
-        let s = self.bits().saturating_sub(64);
-        let (i, k) = ((s / 64) as usize, (s % 64) as u32);
-        let mut w = self.limbs[i] >> k;
-        if k > 0 {
-            w |= self.limbs[i + 1] << (64 - k);
-        }
-        (w, s)
-    }
-
-    /// `self *= x` when the product fits `N` limbs, `None` (leaving `self`
-    /// unspecified) otherwise. A word `x` takes one pass in place.
-    pub(crate) fn checked_mul_assign(&mut self, x: &Natural) -> Option<()> {
-        let Ok(w) = u64::try_from(x) else {
-            *self = self.checked_mul_wide(x)?;
-            return Some(());
-        };
-        self.checked_mul_word(w)
-    }
-
-    /// [`Self::checked_mul_assign`] for a factor given as little-endian
-    /// 64-bit words, high zero words allowed.
-    fn checked_mul_words(&mut self, words: &[u64]) -> Option<()> {
-        let used = words.len() - words.iter().rev().take_while(|&&w| w == 0).count();
-        match &words[..used] {
-            [] => self.checked_mul_word(0),
-            [w] => self.checked_mul_word(*w),
-            wide => {
-                *self = self.checked_mul(&Self::from_words(wide)?)?;
-                Some(())
-            }
-        }
-    }
-
     /// `self *= f` for a factor in either form.
     fn checked_mul_factor(&mut self, f: &Factor<'_>) -> Option<()> {
         match *f {
             Factor::Natural(x) => self.checked_mul_assign(x),
             Factor::Words(w) => self.checked_mul_words(w),
         }
-    }
-
-    /// The value of `words` when it has at most `N` of them.
-    fn from_words(words: &[u64]) -> Option<Self> {
-        let mut limbs = [0u64; N];
-        limbs.get_mut(..words.len())?.copy_from_slice(words);
-        Some(Self::trimmed(limbs, words.len()))
-    }
-
-    /// `self *= w` in one pass in place.
-    fn checked_mul_word(&mut self, w: u64) -> Option<()> {
-        let mut carry = 0u64;
-        for l in &mut self.limbs[..self.len] {
-            let t = u128::from(*l) * u128::from(w) + u128::from(carry);
-            *l = t as u64;
-            carry = (t >> 64) as u64;
-        }
-        if w == 0 {
-            self.len = 0;
-        } else if carry != 0 {
-            *self.limbs.get_mut(self.len)? = carry;
-            self.len += 1;
-        }
-        Some(())
-    }
-
-    // Out of line, so that the word loop above stays small where it inlines.
-    #[inline(never)]
-    fn checked_mul_wide(&self, x: &Natural) -> Option<Self> {
-        self.checked_mul(&Limbs::<N>::from_natural(x)?)
-    }
-
-    /// `self · rhs` when the product fits `M` limbs.
-    fn checked_mul<const K: usize, const M: usize>(&self, rhs: &Limbs<K>) -> Option<Limbs<M>> {
-        let (a, b) = (self.used(), rhs.used());
-        let mut r = [0u64; M];
-        if a.is_empty() || b.is_empty() {
-            return Some(Limbs { limbs: r, len: 0 });
-        }
-        // The product has `a.len() + b.len() - 1` limbs or one more.
-        if a.len() + b.len() - 1 > M {
-            return None;
-        }
-        for (i, &x) in a.iter().enumerate() {
-            let mut carry = 0u64;
-            for (j, &y) in b.iter().enumerate() {
-                let t = u128::from(x) * u128::from(y) + u128::from(r[i + j]) + u128::from(carry);
-                r[i + j] = t as u64;
-                carry = (t >> 64) as u64;
-            }
-            match r.get_mut(i + b.len()) {
-                Some(top) => *top = carry,
-                None if carry != 0 => return None,
-                None => {}
-            }
-        }
-        Some(Limbs::trimmed(r, (a.len() + b.len()).min(M)))
-    }
-
-    /// `self · 2^k` when it fits `M` limbs.
-    fn checked_shl<const M: usize>(&self, k: u64) -> Option<Limbs<M>> {
-        let mut r = [0u64; M];
-        let bits = self.bits();
-        if bits == 0 {
-            return Some(Limbs { limbs: r, len: 0 });
-        }
-        if bits + k > 64 * M as u64 {
-            return None;
-        }
-        let (s, b) = ((k / 64) as usize, (k % 64) as u32);
-        // Every used limb lands below `M` by the bit count above, and so does
-        // its high part whenever that is nonzero.
-        for (i, &w) in self.used().iter().enumerate() {
-            r[i + s] |= w << b;
-            if b > 0 && i + s + 1 < M {
-                r[i + s + 1] |= w >> (64 - b);
-            }
-        }
-        Some(Limbs {
-            limbs: r,
-            len: (bits + k).div_ceil(64) as usize,
-        })
-    }
-}
-
-impl<const N: usize> Ord for Limbs<N> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.len
-            .cmp(&other.len)
-            .then_with(|| self.used().iter().rev().cmp(other.used().iter().rev()))
-    }
-}
-
-impl<const N: usize> PartialOrd for Limbs<N> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
     }
 }
 
@@ -668,8 +497,8 @@ fn two_pow_i(e: i64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::exact::SignedSqrtRational;
     use malachite_base::num::arithmetic::traits::Pow;
+    use malachite_base::num::basic::traits::Zero;
     use malachite_nz::integer::Integer;
     use malachite_q::Rational;
 

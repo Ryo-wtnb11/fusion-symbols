@@ -55,9 +55,9 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 use super::fingerprint::{fold, root_code, Label, P1, P2, P3};
 use super::Shape;
 use crate::category::{FBlock, RBlock, SymbolBlock};
-use crate::frcore::{check_f_block, check_r_block};
 use crate::lie::general::cgc::exact::{ExactCgc, HighestColumn, NormTable};
 use crate::lie::RootSystem;
+use crate::rounding::blocks::{check_f_block, check_r_block};
 
 /// Storage format version: the key and value encodings and the table layout.
 /// Schema 2 stores exact CGC channels, seeds and norm tables.
