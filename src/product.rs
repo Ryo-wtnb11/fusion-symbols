@@ -63,7 +63,7 @@
 use crate::category::exact_dim;
 use crate::category::sealed::{
     CgcExact, CgcLeaves, CgcOp, DimAcc, ExactAnswer, ExactBuf, ExactOp, FloatSink, InlineVec,
-    LeafBuf, LegRows, Query, SymbolKind, Unit, View,
+    LeafBuf, LeafVisit, LegRows, Query, SymbolKind, Unit, View,
 };
 use crate::category::{
     rank_checked, sealed::Embed, sealed::ExactCount, sealed::Ranked, sealed::Validated, unrank,
@@ -646,7 +646,9 @@ fn product_rank(factors: Vec<Ranked>) -> Result<Ranked, EnumerationError> {
 /// scalar of a unit product, the one Radical leaf's own block, or the
 /// composite channel of two or more leaves, composed exactly and rounded
 /// once ([`compose_channel`]) and shared through the Product tier; else
-/// `float`. A warm composite is one tier hit and an `Arc` clone.
+/// `float`. A warm composite is one tier hit and an `Arc` clone, for any
+/// leaf count: the leaves are walked twice (described with the key hash,
+/// then compared against the stored key) and collected only on a miss.
 fn product_cgc<C: GroupRepresentations>(
     cat: &C,
     q: [&C::Object; 3],
@@ -662,7 +664,7 @@ fn product_cgc<C: GroupRepresentations>(
     if leaves.absent {
         return Ok(LieCgc::scalar([dims[0], dims[1], dims[2], 0]));
     }
-    match leaves.leaves.0.len() {
+    match leaves.count {
         0 => Ok(LieCgc::scalar([1; 4])),
         1 => {
             let mut view = None;
@@ -670,7 +672,11 @@ fn product_cgc<C: GroupRepresentations>(
             Ok(view.expect("the Radical leaf answers its view"))
         }
         n => {
-            let channel = crate::cache::composed_cgc(&leaves.leaves, || {
+            let walk = |each: &mut dyn FnMut(_)| {
+                let walked = cat.__fusion_symbols_exact_cgc(q, CgcOp::Leaves(LeafVisit(each)), t);
+                debug_assert!(matches!(walked, Ok(true)), "a described query replays");
+            };
+            let channel = crate::cache::composed_cgc(leaves.hash, walk, || {
                 let mut exact = CgcExact(Vec::with_capacity(n));
                 cat.__fusion_symbols_exact_cgc(q, CgcOp::Fetch(&mut exact), t)?;
                 compose_channel(&exact.0)
@@ -2613,10 +2619,15 @@ mod exact_route_tests {
         let p = Product::new((g.clone(), g));
         let [a, b, c] = [(&h, &one), (&h, &h), (&one, &h)].map(|(x, y)| (x.clone(), y.clone()));
         let resident = || {
-            let mut leaves = CgcLeaves::new();
-            p.__fusion_symbols_exact_cgc([&a, &b, &c], CgcOp::Describe(&mut leaves), Validated(()))
-                .unwrap();
-            crate::cache::composed_is_resident(SymbolKind::Cgc, &leaves.leaves)
+            let mut leaves = LeafBuf(InlineVec::with_capacity(0));
+            let mut each = |leaf| leaves.0.push(leaf);
+            p.__fusion_symbols_exact_cgc(
+                [&a, &b, &c],
+                CgcOp::Leaves(LeafVisit(&mut each)),
+                Validated(()),
+            )
+            .unwrap();
+            crate::cache::composed_is_resident(SymbolKind::Cgc, &leaves)
         };
         let cold = p.cgc(&a, &b, &c).unwrap();
         assert!(resident());

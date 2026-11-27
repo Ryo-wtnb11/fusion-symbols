@@ -385,15 +385,15 @@ fn warm_composite_factor_queries_allocate_nothing() {
     );
 }
 
-fn tuple11<T: Clone>(t: &T) -> (T, T, T, T, T, T, T, T, T, T, T) {
+fn tuple12<T: Clone>(t: &T) -> (T, T, T, T, T, T, T, T, T, T, T, T) {
     let c = || t.clone();
-    (c(), c(), c(), c(), c(), c(), c(), c(), c(), c(), c())
+    (c(), c(), c(), c(), c(), c(), c(), c(), c(), c(), c(), c())
 }
 
 // Purpose: a warm product CGC allocates nothing: two or more Radical leaves
-// are one Product-tier hit and an `Arc` clone, up to the largest tuple
-// arity (11 leaves), one leaf is that leaf's own shared block, and a unit
-// or absent product is a scalar.
+// are one Product-tier hit and an `Arc` clone for any leaf count (the
+// largest tuple arity, 12, and a nesting past it), one leaf is that leaf's
+// own shared block, and a unit or absent product is a scalar.
 #[test]
 fn warm_product_cgc_allocates_nothing() {
     use fusion_symbols::category::GroupRepresentations;
@@ -414,9 +414,11 @@ fn warm_product_cgc_allocates_nothing() {
     let five = Product::new((g.clone(), g.clone(), g.clone(), g.clone(), g.clone()));
     let h5 = (x(1), x(1), x(1), x(1), x(1));
     let o5 = (x(0), x(2), x(0), x(2), x(0));
-    let eleven = Product::new(tuple11(&g));
-    let h11 = tuple11(&x(1));
-    let o11 = eleven.unit();
+    let twelve = Product::new(tuple12(&g));
+    let h12 = tuple12(&x(1));
+    let o12 = twelve.unit();
+    let nested = Product::new((twelve.clone(), g.clone()));
+    let (hn, on) = ((h12.clone(), x(1)), (o12.clone(), x(0)));
     assert_eq!(
         [
             warm(|| two.cgc(&a, &b, &c).unwrap()).0,
@@ -424,8 +426,9 @@ fn warm_product_cgc_allocates_nothing() {
             warm(|| one.cgc(&oa, &ob, &oc).unwrap()).0,
             warm(|| one.cgc(&oa, &ob, &absent).unwrap()).0,
             warm(|| five.cgc(&h5, &h5, &o5).unwrap()).0,
-            warm(|| eleven.cgc(&h11, &h11, &o11).unwrap()).0,
+            warm(|| twelve.cgc(&h12, &h12, &o12).unwrap()).0,
+            warm(|| nested.cgc(&hn, &hn, &on).unwrap()).0,
         ],
-        [0; 6]
+        [0; 7]
     );
 }

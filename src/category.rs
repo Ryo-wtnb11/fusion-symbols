@@ -253,26 +253,28 @@ pub(crate) mod sealed {
     pub(crate) enum LeafLabel<'q> {
         /// A simple factor's rank-length words and their stored fingerprint.
         Words(&'q [i64], u64),
-        /// A rank-one label's single word and `label_hash(&[w])`.
-        Inline(i64, u64),
+        /// A rank-one label's single word, fingerprinted only when hashed,
+        /// so a leaf walked for comparison computes no fingerprint.
+        Inline(i64),
     }
 
     impl LeafLabel<'_> {
         /// The rank-one label `w`.
         pub(crate) fn inline(w: i64) -> Self {
-            Self::Inline(w, crate::cache::label_hash(&[w]))
+            Self::Inline(w)
         }
 
         pub(crate) fn words(&self) -> &[i64] {
             match self {
                 Self::Words(w, _) => w,
-                Self::Inline(w, _) => std::slice::from_ref(w),
+                Self::Inline(w) => std::slice::from_ref(w),
             }
         }
 
         pub(crate) fn hash(&self) -> u64 {
             match *self {
-                Self::Words(_, h) | Self::Inline(_, h) => h,
+                Self::Words(_, h) => h,
+                Self::Inline(w) => crate::cache::label_hash(&[w]),
             }
         }
     }
@@ -295,7 +297,7 @@ pub(crate) mod sealed {
             root: crate::lie::RootSystem,
             labels: impl IntoIterator<Item = LeafLabel<'q>>,
         ) -> Self {
-            let mut out = [LeafLabel::Inline(0, 0); 6];
+            let mut out = [LeafLabel::Inline(0); 6];
             for (o, l) in out.iter_mut().zip(labels) {
                 *o = l;
             }
@@ -332,15 +334,8 @@ pub(crate) mod sealed {
             self.len += 1;
         }
 
-        pub(crate) fn len(&self) -> usize {
-            self.len
-        }
-
         pub(crate) fn iter(&self) -> impl Iterator<Item = &T> {
-            self.inline[..self.len.min(N)]
-                .iter()
-                .flatten()
-                .chain(&self.spill)
+            self.inline.iter().flatten().chain(&self.spill)
         }
 
         pub(crate) fn get(&self, i: usize) -> Option<&T> {
@@ -379,25 +374,20 @@ pub(crate) mod sealed {
     /// The float-route fold of one query's leaf blocks.
     pub struct FloatSink(pub(crate) crate::product::FloatState);
 
-    /// The Radical leaves of one product query, depth-first: inline up to
-    /// the largest tuple product arity, so a warm query of any tuple keeps
-    /// its composite lookup allocation-free; more leaves (a longer `Vec` or
-    /// a nesting) spill once per query.
-    // ponytail: 11 inline leaves cost 1.8 KiB of stack per product query
-    // (168 bytes a leaf); a borrowed key walking the factors would remove
-    // both the stack and the spill if deeper products matter.
-    pub struct LeafBuf<'q>(pub(crate) InlineVec<LeafRef<'q>, INLINE_LEAVES>);
-
-    /// The largest tuple product arity (`impl_product!` in `product.rs`).
-    pub(crate) const INLINE_LEAVES: usize = 11;
+    /// The Radical leaves of one product query, depth-first.
+    pub struct LeafBuf<'q>(pub(crate) InlineVec<LeafRef<'q>, 4>);
 
     /// An operation of the exact product CGC protocol: a product's CGC is
     /// the exact composition of its Radical leaves' exact channels, rounded
     /// once, when every factor answers.
     pub enum CgcOp<'q, 'b> {
-        /// Append the query's Radical leaves and multiply their magnetic
-        /// dimensions into `dims`; an absent unit channel sets `absent`.
-        Describe(&'b mut CgcLeaves<'q>),
+        /// Count and fingerprint the query's Radical leaves and multiply
+        /// their magnetic dimensions into `dims`; an absent unit channel
+        /// sets `absent`.
+        Describe(&'b mut CgcLeaves),
+        /// Visit each Radical leaf again, in leaf order, of a query whose
+        /// `Describe` answered; never fails.
+        Leaves(LeafVisit<'q, 'b>),
         /// Append each Radical leaf's exact channel, in leaf order.
         Fetch(&'b mut CgcExact),
         /// The one Radical leaf's rounded block (a query with one leaf).
@@ -409,27 +399,40 @@ pub(crate) mod sealed {
         pub(crate) fn reborrow(&mut self) -> CgcOp<'q, '_> {
             match self {
                 Self::Describe(x) => CgcOp::Describe(x),
+                Self::Leaves(x) => CgcOp::Leaves(LeafVisit(&mut *x.0)),
                 Self::Fetch(x) => CgcOp::Fetch(x),
                 Self::View(x) => CgcOp::View(x),
             }
         }
     }
 
-    /// The described leaves of a product CGC query.
-    pub struct CgcLeaves<'q> {
-        pub(crate) leaves: LeafBuf<'q>,
+    /// The visitor of [`CgcOp::Leaves`].
+    pub struct LeafVisit<'q, 'b>(pub(crate) &'b mut dyn FnMut(LeafRef<'q>));
+
+    /// The described leaves of a product CGC query: their count and the
+    /// composite key's hash, folded leaf by leaf, so no leaf is collected.
+    pub struct CgcLeaves {
+        pub(crate) count: usize,
+        pub(crate) hash: u64,
         /// `[d_a, d_b, d_c]`, `None` once an axis overflows `usize`.
         pub(crate) dims: Option<[usize; 3]>,
         pub(crate) absent: bool,
     }
 
-    impl CgcLeaves<'_> {
+    impl CgcLeaves {
         pub(crate) fn new() -> Self {
             Self {
-                leaves: LeafBuf(InlineVec::with_capacity(0)),
+                count: 0,
+                hash: crate::cache::composed_seed(SymbolKind::Cgc),
                 dims: Some([1; 3]),
                 absent: false,
             }
+        }
+
+        /// Count one leaf and fold it into the key hash.
+        pub(crate) fn leaf(&mut self, leaf: &LeafRef<'_>) {
+            self.count += 1;
+            self.hash = crate::cache::composed_step(self.hash, SymbolKind::Cgc, leaf);
         }
 
         /// Multiply one leaf's magnetic dimensions into the axes.

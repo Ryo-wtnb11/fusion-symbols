@@ -1681,8 +1681,9 @@ impl GroupRepresentations for LieGroup {
         match op {
             CgcOp::Describe(leaves) => {
                 leaves.times(self.leaf_cgc_dims(a, b, c)?);
-                leaves.leaves.0.push(self.leaf_ref(&[a, b, c]));
+                leaves.leaf(&self.leaf_ref(&[a, b, c]));
             }
+            CgcOp::Leaves(each) => (each.0)(self.leaf_ref(&[a, b, c])),
             CgcOp::Fetch(buf) => {
                 buf.0.push(
                     self.with_cgc_labels(a, b, c, |engine, [a, b, c]| engine.cgc_exact(a, b, c))?,
