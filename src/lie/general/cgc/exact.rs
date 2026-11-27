@@ -22,7 +22,9 @@ use malachite_q::Rational;
 use threadteam::Exec;
 
 use super::Ladders;
-use crate::exact::radical::{compact, natural_bytes, put_u32, write_natural, Radicand, SignedInts};
+#[cfg(feature = "disk-cache")]
+use crate::exact::radical::put_u32;
+use crate::exact::radical::{compact, natural_bytes, write_natural, Radicand, SignedInts};
 #[cfg(feature = "disk-cache")]
 use crate::exact::radical::{decode_natural, encode_natural, natural_encoded_len, read_u32};
 use crate::exact::{div as wide_div, gcd as wide_gcd, rem as wide_rem};
@@ -59,10 +61,6 @@ impl Column {
 /// vertex factor `ρ_μ`, reduced once.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct MuCoords {
-    /// The largest `|X|` width in bits over the `μ` range (recomputed on
-    /// decode): width metadata for exact F and R and the width reports.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) bits: u64,
     pub(crate) x: SignedInts,
     pub(crate) vertex: Radicand,
 }
@@ -333,15 +331,14 @@ impl Scale {
 }
 
 /// The integers of one run (a `μ`, or a norm table): `D` and `g`, also in
-/// two words when the run's scale was, the widest `|X|` in bits and its
-/// word count, the canonical stride.
+/// two words when the run's scale was, and the canonical stride (the word
+/// count of the widest `|X|`).
 #[derive(Debug)]
 struct Integers {
     den: Natural,
     content: Natural,
     wide: Option<(u128, u128)>,
     stride: usize,
-    bits: u64,
 }
 
 impl Integers {
@@ -380,7 +377,6 @@ impl Integers {
             wide,
             // A word count of a width in bits.
             stride: bits.div_ceil(64) as usize,
-            bits,
         }
     }
 
@@ -646,7 +642,6 @@ impl Pending {
                     }
                 }
                 MuCoords {
-                    bits: plan.ints.bits,
                     x: SignedInts::from_raw(len, plan.ints.stride, neg, mag),
                     vertex: plan.vertex,
                 }
@@ -833,7 +828,7 @@ impl Coords {
             .saturating_add(self.per_mu.iter().map(MuCoords::bytes).sum())
     }
 
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+    #[cfg(feature = "disk-cache")]
     fn encoded_len(&self) -> Option<usize> {
         u32::try_from(self.m_ab.len()).ok()?;
         let mut n = self
@@ -852,7 +847,7 @@ impl Coords {
 
     /// `u32 count`, `count × (u32 m_a, u32 m_b)`, the column ends as `u32`,
     /// then per `μ` its slab and its radicand.
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+    #[cfg(feature = "disk-cache")]
     fn encode(&self, out: &mut Vec<u8>) {
         put_u32(out, self.m_ab.len());
         for &(ma, mb) in self.m_ab.iter() {
@@ -934,11 +929,7 @@ impl Coords {
             if x.len() != coords.mu_range(mu, width).len() || !x.all_nonzero() {
                 return None;
             }
-            per_mu.push(MuCoords {
-                bits: x.max_bits(),
-                x,
-                vertex,
-            });
+            per_mu.push(MuCoords { x, vertex });
         }
         coords.per_mu = per_mu.into_boxed_slice();
         Some(coords)
@@ -1055,7 +1046,7 @@ impl ExactCgc {
     }
 
     /// Payload bytes, or `None` when a count does not fit its `u32` field.
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+    #[cfg(feature = "disk-cache")]
     pub(crate) fn encoded_len(&self) -> Option<usize> {
         for x in [self.mult, self.dims[0], self.dims[1], self.dims[2]] {
             u32::try_from(x).ok()?;
@@ -1064,7 +1055,7 @@ impl ExactCgc {
     }
 
     /// `u32 mult`, `3 × u32` dims, then the coordinates ([`Coords::encode`]).
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+    #[cfg(feature = "disk-cache")]
     pub(crate) fn encode(&self, out: &mut Vec<u8>) {
         put_u32(out, self.mult);
         for d in self.dims {
@@ -1162,14 +1153,14 @@ impl HighestColumn {
         out
     }
 
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+    #[cfg(feature = "disk-cache")]
     pub(crate) fn encoded_len(&self) -> Option<usize> {
         u32::try_from(self.mult).ok()?;
         self.coords.encoded_len()?.checked_add(4)
     }
 
     /// `u32 mult`, then the coordinates with one column per `μ`.
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+    #[cfg(feature = "disk-cache")]
     pub(crate) fn encode(&self, out: &mut Vec<u8>) {
         put_u32(out, self.mult);
         self.coords.encode(out);

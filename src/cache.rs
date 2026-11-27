@@ -73,8 +73,8 @@
 //! irreps' norm tables, computed Frobenius–Schur phases, and Cartan F and R
 //! blocks. Only exact CGC data is persisted: a rounded channel is derived
 //! from its exact row after a load as after a generation, and is never
-//! stored. F and R rows hold their rounded blocks, which are their only
-//! authority until exact F and R. Loading those costs far less than
+//! stored. F and R rows hold their exact blocks, the authority of their
+//! rounded views. Loading those costs far less than
 //! generating them. The exact SU(2) 3j/6j symbols and the SU(2) F scalar are
 //! never persisted, because computing them is cheaper than loading them
 //! (about 1 µs against about 10 µs). Irrep modules and products are

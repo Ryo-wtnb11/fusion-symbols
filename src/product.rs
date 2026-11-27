@@ -1083,15 +1083,6 @@ macro_rules! impl_product {
                     $(self.factors.$i.__fusion_symbols_counted_object_at(x($i)?, &factors[$i], t)?,)+))
             }
 
-            fn __fusion_symbols_validated_sqrt_dim(&self, a: &Self::Object, t: Validated) -> f64 {
-                let value = self.factors.0.__fusion_symbols_validated_sqrt_dim(&a.0, t); $(let value = value * self.factors.$i.__fusion_symbols_validated_sqrt_dim(&a.$i, t);)+ value
-            }
-            fn __fusion_symbols_validated_inv_sqrt_dim(&self, a: &Self::Object, t: Validated) -> f64 {
-                let value = self.factors.0.__fusion_symbols_validated_inv_sqrt_dim(&a.0, t); $(let value = value * self.factors.$i.__fusion_symbols_validated_inv_sqrt_dim(&a.$i, t);)+ value
-            }
-            fn __fusion_symbols_validated_inv_dim(&self, a: &Self::Object, t: Validated) -> f64 {
-                let value = self.factors.0.__fusion_symbols_validated_inv_dim(&a.0, t); $(let value = value * self.factors.$i.__fusion_symbols_validated_inv_dim(&a.$i, t);)+ value
-            }
             fn __fusion_symbols_exact_object_count(&self, t: Validated) -> Result<ExactCount, EnumerationError> {
                 let counts = all_ok([self.factors.0.__fusion_symbols_exact_object_count(t), $(self.factors.$i.__fusion_symbols_exact_object_count(t)),+])?;
                 Ok(ExactCount { total: Count::product(counts.iter().map(|c| &c.total)), factors: counts })
@@ -1330,30 +1321,6 @@ where
     fn inv_dim(&self, a: &Self::Object) -> f64 {
         assert_eq!(a.len(), self.factors.len(), "foreign product object");
         scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.inv_dim(a)))
-    }
-    fn __fusion_symbols_validated_sqrt_dim(&self, a: &Self::Object, t: Validated) -> f64 {
-        scalar_product(
-            self.factors
-                .iter()
-                .zip(a)
-                .map(|(c, a)| c.__fusion_symbols_validated_sqrt_dim(a, t)),
-        )
-    }
-    fn __fusion_symbols_validated_inv_sqrt_dim(&self, a: &Self::Object, t: Validated) -> f64 {
-        scalar_product(
-            self.factors
-                .iter()
-                .zip(a)
-                .map(|(c, a)| c.__fusion_symbols_validated_inv_sqrt_dim(a, t)),
-        )
-    }
-    fn __fusion_symbols_validated_inv_dim(&self, a: &Self::Object, t: Validated) -> f64 {
-        scalar_product(
-            self.factors
-                .iter()
-                .zip(a)
-                .map(|(c, a)| c.__fusion_symbols_validated_inv_dim(a, t)),
-        )
     }
     fn __fusion_symbols_validated_frobenius_schur_phase(
         &self,

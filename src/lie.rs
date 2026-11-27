@@ -20,7 +20,7 @@ pub use prefill::{prefill, PrefillRequest};
 use crate::category::{
     sealed::{SymbolWithAxes, Validated},
     BraidingStyle, CgcBlock, EnumerationError, FBlock, FusionCategory, FusionStyle,
-    GroupRepresentations, RBlock, SymbolBlock,
+    GroupRepresentations, RBlock,
 };
 use crate::product::{Product, ProductError, Shaped};
 use malachite_base::{
@@ -1222,7 +1222,38 @@ impl FusionCategory for LieGroup {
         Ok((block, n))
     }
     fn r_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock<f64>, LieError> {
-        self.r_symbol_in(a, b, c)
+        self.label(a);
+        self.label(b);
+        self.label(c);
+        if let Some(product) = &self.composite {
+            return product
+                .r_symbol(
+                    self.factor_labels(a),
+                    self.factor_labels(b),
+                    self.factor_labels(c),
+                )
+                .map_err(LieError::from);
+        }
+        if matches!(a.payload, LiePayload::Torus(_)) {
+            return Ok(
+                if self.__fusion_symbols_validated_nsymbol(a, b, c, Validated(()))? == 0 {
+                    RBlock::zeros(0)
+                } else {
+                    RBlock::one(1.0)
+                },
+            );
+        }
+        if matches!(a.payload, LiePayload::RankOne(_)) {
+            return Ok(if su2::triangle_ok(a.dj(), b.dj(), c.dj()) {
+                RBlock::one(su2::r_symbol(a.dj(), b.dj(), c.dj()))
+            } else {
+                RBlock::zeros(0)
+            });
+        }
+        if let (Some(a), Some(b), Some(c)) = (a.simple(), b.simple(), c.simple()) {
+            return self.engine().r_symbol([a.label(), b.label(), c.label()]);
+        }
+        unreachable!("higher-rank labels have a generated payload")
     }
     #[doc(hidden)]
     fn __fusion_symbols_exact_symbol(
@@ -1241,51 +1272,10 @@ impl FusionCategory for LieGroup {
         self.exact_leaf(op)
     }
     fn a_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock<f64>, LieError> {
-        if let Some(product) = &self.composite {
-            let [a, b, c] = [a, b, c].map(|x| {
-                self.label(x);
-                self.factor_labels(x)
-            });
-            return product.a_symbol(a, b, c).map_err(LieError::from);
-        }
-        if let Some(block) = self.ab_view(false, a, b, c)? {
-            return Ok(block);
-        }
-        let n = checked_dimension(self.nsymbol(a, b, c)?)?;
-        checked_size([n, n])?;
-        if n == 0 {
-            return Ok(RBlock::zeros(0));
-        }
-        let f = self.f_symbol(&self.dual(a), a, b, b, &self.unit(), c)?;
-        let kappa = self.frobenius_schur_phase(a)?;
-        let scale = self.sqrt_dim(a) * self.sqrt_dim(b) / self.sqrt_dim(c);
-        Ok(crate::category::rank2_block(
-            n,
-            f.as_slice().iter().map(|&x| scale * (kappa * x)),
-        ))
+        self.ab_symbol(false, a, b, c)
     }
     fn b_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock<f64>, LieError> {
-        if let Some(product) = &self.composite {
-            let [a, b, c] = [a, b, c].map(|x| {
-                self.label(x);
-                self.factor_labels(x)
-            });
-            return product.b_symbol(a, b, c).map_err(LieError::from);
-        }
-        if let Some(block) = self.ab_view(true, a, b, c)? {
-            return Ok(block);
-        }
-        let n = checked_dimension(self.nsymbol(a, b, c)?)?;
-        checked_size([n, n])?;
-        if n == 0 {
-            return Ok(RBlock::zeros(0));
-        }
-        let f = self.f_symbol(a, b, &self.dual(b), a, c, &self.unit())?;
-        let scale = self.sqrt_dim(a) * self.sqrt_dim(b) / self.sqrt_dim(c);
-        Ok(crate::category::rank2_block(
-            n,
-            f.as_slice().iter().map(|&x| scale * x),
-        ))
+        self.ab_symbol(true, a, b, c)
     }
     /// Tori and the trivial group certify a trivial associator. Semisimple
     /// factors have an irrep of dimension d > 1 with `|F^{a ā a}_a[𝟙,𝟙]| = 1/d`.
@@ -1376,23 +1366,39 @@ impl LieGroup {
     /// group (`docs/gauge_cartan.md` §6.1): the rounded view of
     /// `√(d_a d_b/d_c)·κ_a·F^{ā a b}_b[𝟙, c]` (A) or
     /// `√(d_a d_b/d_c)·F^{a b b̄}_a[c, 𝟙]` (B), formed exactly from the exact F
-    /// of the unit-leg sextet and rounded once. `None` for a torus, whose
-    /// symbols are the closed form.
-    fn ab_view(
+    /// of the unit-leg sextet and rounded once. A torus has the closed form
+    /// `1` (or `0 × 0`); a composite group is its product's.
+    fn ab_symbol(
         &self,
         is_b: bool,
         a: &LieIrrep,
         b: &LieIrrep,
         c: &LieIrrep,
-    ) -> Result<Option<RBlock<f64>>, LieError> {
+    ) -> Result<RBlock<f64>, LieError> {
         // Validates every object before the lookup: a hit must not bypass it.
         let words = [a, b, c].map(|x| [i64::from(self.label(x))]);
+        if let Some(product) = &self.composite {
+            let [a, b, c] = [a, b, c].map(|x| self.factor_labels(x));
+            let block = if is_b {
+                product.b_symbol(a, b, c)
+            } else {
+                product.a_symbol(a, b, c)
+            };
+            return block.map_err(LieError::from);
+        }
         let labels = match [a, b, c].map(|x| x.simple()) {
             [Some(a), Some(b), Some(c)] => [a.label(), b.label(), c.label()],
             _ if matches!(a.payload, LiePayload::RankOne(_)) => {
                 words.each_ref().map(|w| crate::cache::Label::new(w))
             }
-            _ => return Ok(None),
+            _ => {
+                let n = self.__fusion_symbols_validated_nsymbol(a, b, c, Validated(()))?;
+                return Ok(if n == 0 {
+                    RBlock::zeros(0)
+                } else {
+                    RBlock::one(1.0)
+                });
+            }
         };
         let root = self.group.root_systems()[0];
         crate::cache::ab_block(is_b, root, labels, || {
@@ -1402,7 +1408,6 @@ impl LieGroup {
                 crate::rounding::blocks::round_block(&block),
             ))
         })
-        .map(Some)
     }
 
     /// The exact A (`is_b = false`) or B of a simple or rank-one group, from
@@ -1595,47 +1600,6 @@ impl LieGroup {
             return self
                 .engine()
                 .f_symbol([a, b, c, d, e, f].map(|x| x.label()), exec);
-        }
-        unreachable!("higher-rank labels have a generated payload")
-    }
-
-    #[inline]
-    pub(crate) fn r_symbol_in(
-        &self,
-        a: &LieIrrep,
-        b: &LieIrrep,
-        c: &LieIrrep,
-    ) -> Result<RBlock<f64>, LieError> {
-        self.label(a);
-        self.label(b);
-        self.label(c);
-        if let Some(product) = &self.composite {
-            return product
-                .r_symbol(
-                    self.factor_labels(a),
-                    self.factor_labels(b),
-                    self.factor_labels(c),
-                )
-                .map_err(LieError::from);
-        }
-        if matches!(a.payload, LiePayload::Torus(_)) {
-            return Ok(
-                if self.__fusion_symbols_validated_nsymbol(a, b, c, Validated(()))? == 0 {
-                    RBlock::zeros(0)
-                } else {
-                    RBlock::one(1.0)
-                },
-            );
-        }
-        if matches!(a.payload, LiePayload::RankOne(_)) {
-            return Ok(if su2::triangle_ok(a.dj(), b.dj(), c.dj()) {
-                RBlock::one(su2::r_symbol(a.dj(), b.dj(), c.dj()))
-            } else {
-                RBlock::zeros(0)
-            });
-        }
-        if let (Some(a), Some(b), Some(c)) = (a.simple(), b.simple(), c.simple()) {
-            return self.engine().r_symbol([a.label(), b.label(), c.label()]);
         }
         unreachable!("higher-rank labels have a generated payload")
     }
@@ -1849,6 +1813,7 @@ fn is_spin_group(group: &GroupId) -> bool {
 #[cfg(all(test, feature = "lie-generated"))]
 mod tests {
     use super::*;
+    use crate::category::SymbolBlock;
     use std::error::Error;
 
     #[test]
@@ -2588,6 +2553,7 @@ mod root_payload_tests {
 mod product_oracle {
     use super::*;
     use crate::category::sealed::{ExactBuf, ExactOp, Query, Validated};
+    use crate::category::SymbolBlock;
     use crate::exact::SignedSqrtRational;
     use malachite_q::Rational;
 

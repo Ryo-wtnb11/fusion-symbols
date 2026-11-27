@@ -170,8 +170,8 @@ multiplicities are exact. SU(2) coefficients use signed square-rooted rationals
 and round once to `f64`. The CGC of every simple factor is computed in exact
 rationals, held in machine words when the reduced value fits and in the same
 required Malachite 0.14 arithmetic family as the rest of the crate otherwise,
-and rounded once to `f64`; F, R, A and B follow a fixed floating-point
-evaluation order, so all are bit-identical across builds and platforms.
+and rounded once to `f64`, as are its F, R, A and B, so all are
+bit-identical across builds and platforms.
 Public exact rationals are `malachite_q::Rational`; there are no arithmetic
 backend conversions. Tables are offline projections of exact AnyonWiki data
 to `Complex64`.
@@ -228,8 +228,7 @@ with the last factor fastest on each magnetic and multiplicity axis. Combined
 axis overflow returns `ProductError::Overflow`. The only product cache is the
 rounded composite view of two or more exact non-unit leaves, in the Product
 tier.
-With label-owned dimension reads, warm single-factor A/B queries allocate only their
-returned coefficient buffer (zero for empty or inline blocks).
+Warm Lie A/B queries are cached views and allocate nothing.
 A warm product F/R/A/B of exact factors is one search (the composite view,
 or the one non-unit factor's view) and allocates nothing, except one copy for
 a `−1` unit or a complex promotion of a multi-entry block and one leaf buffer

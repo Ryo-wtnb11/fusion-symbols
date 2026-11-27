@@ -108,9 +108,9 @@
 //!
 //! Labels, dimensions, duals, Frobenius–Schur indicators and fusion
 //! multiplicities are exact. SU(2) values are exact rationals under a square
-//! root, rounded once to `f64`. Every simple Lie factor's CGC is exact until
-//! one rounding to `f64`, and its F and R follow a fixed floating-point
-//! evaluation order, so they are bit-identical across builds; generation-time
+//! root, rounded once to `f64`. Every simple Lie factor's CGC, F, R, A and B
+//! are exact until one rounding to `f64`, as are products of such factors,
+//! so they are bit-identical across builds; generation-time
 //! gates return typed errors on failure and never alter a value. Closed-form
 //! families use `f64`; [`table`] uses [`num_complex::Complex64`]. Index order
 //! follows TensorKitSectors.jl (`F^{abc}_d[e, f]` with `e ∈ a ⊗ b`,

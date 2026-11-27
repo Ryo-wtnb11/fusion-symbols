@@ -180,7 +180,7 @@ fn evaluate(group: &LieGroup, item: &Item, exec: &mut Exec<'_>) -> Result<(), Li
     match item {
         Item::Cgc([a, b, c]) => group.cgc_in(a, b, c, Some(exec)).map(drop),
         Item::F(labels) => group.f_symbol_in(labels.each_ref(), Some(exec)).map(drop),
-        Item::R([a, b, c]) => group.r_symbol_in(a, b, c).map(drop),
+        Item::R([a, b, c]) => group.r_symbol(a, b, c).map(drop),
         Item::A([a, b, c]) => group.a_symbol(a, b, c).map(drop),
         Item::B([a, b, c]) => group.b_symbol(a, b, c).map(drop),
         Item::Fusion([a, b]) => group.fusion(a, b).map(drop),

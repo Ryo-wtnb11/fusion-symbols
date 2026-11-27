@@ -73,13 +73,13 @@ impl Radicand {
 
     /// Encoded bytes, or `None` when a part has more words than a `u32`
     /// counts.
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+    #[cfg(any(test, feature = "disk-cache"))]
     pub(crate) fn encoded_len(&self) -> Option<usize> {
         natural_encoded_len(&self.num)?.checked_add(natural_encoded_len(&self.den)?)
     }
 
     /// Appends `num` then `den`, each as [`encode_natural`].
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+    #[cfg(any(test, feature = "disk-cache"))]
     pub(crate) fn encode(&self, out: &mut Vec<u8>) {
         encode_natural(&self.num, out);
         encode_natural(&self.den, out);
@@ -87,7 +87,7 @@ impl Radicand {
 
     /// The radicand at `*at`, advancing it, if both parts are canonical and
     /// positive.
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+    #[cfg(any(test, feature = "disk-cache"))]
     pub(crate) fn decode(bytes: &[u8], at: &mut usize) -> Option<Self> {
         let num = decode_natural(bytes, at)?;
         let den = decode_natural(bytes, at)?;
@@ -216,7 +216,6 @@ impl SignedInts {
         }
     }
 
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
     pub(crate) fn len(&self) -> usize {
         self.len
     }
@@ -261,7 +260,7 @@ impl SignedInts {
     }
 
     /// Whether every entry is nonzero.
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+    #[cfg(feature = "disk-cache")]
     pub(crate) fn all_nonzero(&self) -> bool {
         (0..self.len).all(|i| !self.magnitude(i).is_empty())
     }
@@ -284,7 +283,7 @@ impl SignedInts {
 
     /// Encoded bytes, or `None` when `len` or `stride` does not fit its
     /// `u32` field.
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+    #[cfg(any(test, feature = "disk-cache"))]
     pub(crate) fn encoded_len(&self) -> Option<usize> {
         u32::try_from(self.len).ok()?;
         u32::try_from(self.stride).ok()?;
@@ -295,7 +294,7 @@ impl SignedInts {
 
     /// `u32 len`, `u32 stride`, then the `⌈len/64⌉` sign words and the
     /// `len·stride` magnitude words, little-endian.
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+    #[cfg(any(test, feature = "disk-cache"))]
     pub(crate) fn encode(&self, out: &mut Vec<u8>) {
         put_u32(out, self.len);
         put_u32(out, self.stride);
@@ -306,7 +305,7 @@ impl SignedInts {
 
     /// The slab at `*at`, advancing it, if it is canonical. Every length is
     /// checked against the remaining bytes before anything is allocated.
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+    #[cfg(any(test, feature = "disk-cache"))]
     pub(crate) fn decode(bytes: &[u8], at: &mut usize) -> Option<Self> {
         let len = read_u32(bytes, at)? as usize;
         let stride = read_u32(bytes, at)? as usize;
@@ -323,7 +322,6 @@ impl SignedInts {
         slab.is_canonical().then_some(slab)
     }
 
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
     fn is_canonical(&self) -> bool {
         if !self.len.is_multiple_of(64)
             && self.neg.last().is_some_and(|&w| w >> (self.len % 64) != 0)
@@ -396,7 +394,7 @@ pub(crate) fn natural_bytes(x: &Natural) -> usize {
 }
 
 /// Encoded bytes of `x`: a `u32` word count and the words.
-#[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+#[cfg(any(test, feature = "disk-cache"))]
 pub(crate) fn natural_encoded_len(x: &Natural) -> Option<usize> {
     let words = x.significant_bits().div_ceil(64);
     u32::try_from(words).ok()?;
@@ -405,7 +403,7 @@ pub(crate) fn natural_encoded_len(x: &Natural) -> Option<usize> {
 
 /// Appends `u32 count`, then the `count` little-endian words of `x` (none
 /// for zero).
-#[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+#[cfg(any(test, feature = "disk-cache"))]
 pub(crate) fn encode_natural(x: &Natural, out: &mut Vec<u8>) {
     let words = natural_words(x);
     put_u32(out, words.len());
@@ -415,7 +413,7 @@ pub(crate) fn encode_natural(x: &Natural, out: &mut Vec<u8>) {
 }
 
 /// The natural at `*at`, advancing it, if its top word is nonzero.
-#[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+#[cfg(any(test, feature = "disk-cache"))]
 pub(crate) fn decode_natural(bytes: &[u8], at: &mut usize) -> Option<Natural> {
     let count = read_u32(bytes, at)? as usize;
     let words = read_words(bytes, at, count)?;
@@ -426,13 +424,13 @@ pub(crate) fn decode_natural(bytes: &[u8], at: &mut usize) -> Option<Natural> {
 }
 
 /// Appends `x` as a little-endian `u32`; the caller checked that it fits.
-#[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+#[cfg(any(test, feature = "disk-cache"))]
 pub(crate) fn put_u32(out: &mut Vec<u8>, x: usize) {
     out.extend_from_slice(&(x as u32).to_le_bytes());
 }
 
 /// The little-endian `u32` at `*at`, advancing it.
-#[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+#[cfg(any(test, feature = "disk-cache"))]
 pub(crate) fn read_u32(bytes: &[u8], at: &mut usize) -> Option<u32> {
     let b = bytes.get(*at..at.checked_add(4)?)?;
     *at += 4;
@@ -441,7 +439,7 @@ pub(crate) fn read_u32(bytes: &[u8], at: &mut usize) -> Option<u32> {
 
 /// `count` little-endian `u64` at `*at`, advancing it; the length is checked
 /// against the remaining bytes before the words are allocated.
-#[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+#[cfg(any(test, feature = "disk-cache"))]
 fn read_words(bytes: &[u8], at: &mut usize, count: usize) -> Option<Box<[u64]>> {
     let end = at.checked_add(count.checked_mul(8)?)?;
     let b = bytes.get(*at..end)?;
@@ -461,10 +459,9 @@ fn read_words(bytes: &[u8], at: &mut usize, count: usize) -> Option<Box<[u64]>> 
 ///
 /// Axis `k` is stored when `dims[k] > 1`, with one radicand per index; a
 /// singleton (or empty) axis stores nothing, its radicand folded into
-/// `common`. `pub` so the sealed product hook can name it; the module is
-/// crate-private.
+/// `common`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RadicalBlock<const R: usize> {
+pub(crate) struct RadicalBlock<const R: usize> {
     dims: [usize; R],
     nums: SignedInts,
     axis: [Box<[Radicand]>; R],
@@ -692,7 +689,7 @@ impl<const R: usize> RadicalBlock<R> {
     }
 
     /// Encoded bytes, or `None` when a count does not fit its `u32` field.
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+    #[cfg(any(test, feature = "disk-cache"))]
     pub(crate) fn encoded_len(&self) -> Option<usize> {
         let mut n = R.checked_mul(4)?.checked_add(self.nums.encoded_len()?)?;
         for d in self.dims {
@@ -706,7 +703,7 @@ impl<const R: usize> RadicalBlock<R> {
 
     /// `R × u32 dims`, the slab `S`, the radicands of every stored axis in
     /// axis order, then `common`.
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+    #[cfg(any(test, feature = "disk-cache"))]
     pub(crate) fn encode(&self, out: &mut Vec<u8>) {
         for d in self.dims {
             put_u32(out, d);
@@ -720,7 +717,7 @@ impl<const R: usize> RadicalBlock<R> {
 
     /// The block of `payload`, checked before it is used: the slab canonical
     /// with `Π dims` entries, every radicand positive, and no trailing bytes.
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+    #[cfg(any(test, feature = "disk-cache"))]
     pub(crate) fn decode(payload: &[u8]) -> Option<Self> {
         let at = &mut 0;
         let mut dims = [0; R];

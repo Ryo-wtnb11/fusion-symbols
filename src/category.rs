@@ -228,7 +228,7 @@ pub(crate) mod sealed {
 
     /// One label of a Radical leaf, read in place with its fingerprint.
     #[derive(Clone, Copy, Debug)]
-    pub enum LeafLabel<'q> {
+    pub(crate) enum LeafLabel<'q> {
         /// A simple factor's rank-length words and their stored fingerprint.
         Words(&'q [i64], u64),
         /// A rank-one label's single word and `label_hash(&[w])`.
@@ -260,7 +260,7 @@ pub(crate) mod sealed {
     /// query's labels in that factor, of which the symbol kind's
     /// [`SymbolKind::labels`] are read.
     #[derive(Clone, Copy, Debug)]
-    pub struct LeafRef<'q> {
+    pub(crate) struct LeafRef<'q> {
         pub(crate) family: u8,
         pub(crate) root: crate::lie::RootSystem,
         pub(crate) labels: [LeafLabel<'q>; 6],
@@ -286,7 +286,7 @@ pub(crate) mod sealed {
     }
 
     /// Up to `N` values inline, the rest in one spill vector.
-    pub struct InlineVec<T, const N: usize> {
+    pub(crate) struct InlineVec<T, const N: usize> {
         len: usize,
         inline: [Option<T>; N],
         spill: Vec<T>,
@@ -820,8 +820,9 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// `1 × 1` block is stored inline without allocation. The default
     /// evaluates that F; a category may override it with the same values.
     /// With warm Lie caches and inline dimension arithmetic, only the returned
-    /// coefficient buffer allocates (nothing for an inline block). Products also
-    /// allocate factor blocks and their per-query Kronecker composition buffers.
+    /// coefficient buffer allocates (nothing for an inline block). Products of
+    /// exact factors return a cached view; other products also allocate factor
+    /// blocks and their per-query Kronecker composition buffers.
     /// Errors are those of N, the phase and F.
     ///
     /// # Panics
@@ -1042,22 +1043,6 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     // before indexing. The token is unnameable outside the crate, so they can be
     // neither called nor overridden there; the prefix keeps them from colliding
     // with downstream extension-trait methods.
-    #[doc(hidden)]
-    fn __fusion_symbols_validated_sqrt_dim(&self, a: &Self::Object, _: sealed::Validated) -> f64 {
-        self.sqrt_dim(a)
-    }
-    #[doc(hidden)]
-    fn __fusion_symbols_validated_inv_sqrt_dim(
-        &self,
-        a: &Self::Object,
-        _: sealed::Validated,
-    ) -> f64 {
-        self.inv_sqrt_dim(a)
-    }
-    #[doc(hidden)]
-    fn __fusion_symbols_validated_inv_dim(&self, a: &Self::Object, _: sealed::Validated) -> f64 {
-        self.inv_dim(a)
-    }
     #[doc(hidden)]
     fn __fusion_symbols_validated_object_index(
         &self,

@@ -735,25 +735,6 @@ mod tests {
         }
     }
 
-    /// The charged pair `a = b = (½, 2)` (dimension 2) into `0+`: A and B
-    /// both read `F^{aaa}_a[0+, 0+]`, exactly `+1/2`, so
-    /// `A = B = √(2·2/1)·½ = 1` exactly, where multiplying the rounded
-    /// factors gives `1 + 2^−52`.
-    #[test]
-    fn charged_a_and_b_are_exactly_one() {
-        use crate::category::SymbolBlock;
-        let a = CU1Irrep::new(HalfInt::from_doubled(1), 2).unwrap();
-        let one = CU1Irrep::VACUUM;
-        let quarter = malachite_q::Rational::from_signeds(1, 4);
-        assert_eq!(exact_f(&a, &a, &a, &a, &one, &one).signed_square(), quarter);
-        let cat = CU1;
-        for block in [cat.a_symbol(&a, &a, &one), cat.b_symbol(&a, &a, &one)] {
-            assert_eq!(block.unwrap().as_slice()[0].to_bits(), 0x3ff0000000000000);
-        }
-        let control = (2f64.sqrt() * 2f64.sqrt()) * 0.5;
-        assert_ne!(control.to_bits(), 0x3ff0000000000000);
-    }
-
     /// Witness: charged `a = b` (dimension 2), `c = 0+`. The selected F
     /// entry is exactly `+1/2`, so `A = B = √(2·2/1)·(1/2) = +1` exactly,
     /// at the leaf and through a product of two leaves; the rounded factors

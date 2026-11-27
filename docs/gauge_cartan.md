@@ -325,9 +325,9 @@ therefore exactly an `exact.rs::SignedSqrtRational`.
   Gram–Schmidt on it gives rational `b_k = Σ_t r_{kt} c_t` and rational `n_k`,
   and `F[a, b] = ⟨f_j b_b, b_a⟩/n_a` is rational. ∎
 
-Implementations store `(F, n)` exactly and never add two square roots. The
-claim does not extend to F and R symbols, which are sums of products of four
-CGC (§6).
+Implementations store `(F, n)` exactly and never add two square roots. F and
+R entries are likewise single signed square roots of rationals: their sums of
+four CGC products share one radical, so only rationals are added (§6.2).
 
 ## 4. Tensor products and CGC
 
@@ -844,8 +844,8 @@ column.
 - **Retention.** Modules, exact channels, their rounded views,
   highest-weight seeds (the engine-0 column of a channel, from the
   elimination alone), norm tables (per irrep at public indices: the reduced
-  norms, the integers `ν_m = n_m Δ/g` on the table's denominator lcm `Δ`
-  with content `g`, and the within-weight ranks) and computed dual-pair
+  norms, from which the integers `ν_m = n_m Δ/g` on the table's denominator
+  lcm `Δ` with content `g` are derived) and computed dual-pair
   phases are retained only by the process-wide CGC tier of
   [`cache`](user-guide/resources.md). Its configured charged-byte and entry
   limits apply in aggregate across presented roots and groups; after a query,
