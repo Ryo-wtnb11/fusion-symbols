@@ -2128,12 +2128,14 @@ mod tests {
 
     /// A reset that completes on another thread after an outer CGC, F or R
     /// placeholder is acquired but before its generation starts leaves none
-    /// of that generation's modules, channels or products retained.
+    /// of that generation's modules, channels or products retained. The
+    /// channel `(a, b, e)` each query builds first is its rounded view (CGC),
+    /// its exact channel (F) or its seeds (R).
     #[test]
     fn reset_between_guard_and_generation_retains_no_child() {
         use crate::cache::{
-            cgc_channel_is_resident, cgc_module_is_resident, product_multiplicities_are_resident,
-            AFTER_GUARD,
+            cgc_channel_is_resident, cgc_exact_channel_is_resident, cgc_module_is_resident,
+            cgc_seeds_are_resident, product_multiplicities_are_resident, AFTER_GUARD,
         };
         fn hook() {
             std::thread::spawn(crate::cache::reset).join().unwrap();
@@ -2151,35 +2153,36 @@ mod tests {
             .map(|(d, _)| d)
             .find(|d| g2.nsymbol(&la, &lf, d).unwrap() > 0)
             .unwrap();
-        let resident = || {
+        type Probe = fn(RootSystem, [&[i64]; 3]) -> bool;
+        let resident = |channel: Probe| {
             [
-                cgc_channel_is_resident(RootSystem::G2, [&a, &b, &e]),
+                channel(RootSystem::G2, [&a, &b, &e]),
                 cgc_module_is_resident(RootSystem::G2, &a),
                 cgc_module_is_resident(RootSystem::G2, &e),
                 product_multiplicities_are_resident(RootSystem::G2, &a, &b),
             ]
         };
-        let queries: [(&str, &dyn Fn()); 3] = [
-            ("cgc", &|| {
+        let queries: [(&str, Probe, &dyn Fn()); 3] = [
+            ("cgc", cgc_channel_is_resident, &|| {
                 g2.cgc(&la, &lb, &le).unwrap();
             }),
-            ("f", &|| {
+            ("f", cgc_exact_channel_is_resident, &|| {
                 g2.f_symbol(&la, &lb, &lb, &ld, &le, &lf).unwrap();
             }),
-            ("r", &|| {
+            ("r", cgc_seeds_are_resident, &|| {
                 g2.r_symbol(&la, &lb, &le).unwrap();
             }),
         ];
-        for (name, query) in queries {
+        for (name, channel, query) in queries {
             crate::cache::reset();
             AFTER_GUARD.with(|h| h.set(Some(hook)));
             query();
             assert!(AFTER_GUARD.with(std::cell::Cell::get).is_none(), "{name}");
-            assert_eq!(resident(), [false; 4], "{name}");
+            assert_eq!(resident(channel), [false; 4], "{name}");
             // Without the reset the same query retains them.
             crate::cache::reset();
             query();
-            assert_eq!(resident(), [true; 4], "{name}: control");
+            assert_eq!(resident(channel), [true; 4], "{name}: control");
         }
     }
 

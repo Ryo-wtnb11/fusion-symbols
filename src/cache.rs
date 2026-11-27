@@ -1920,6 +1920,20 @@ pub(crate) fn cgc_exact_channel_is_resident(root: RootSystem, parts: [&[i64]; 3]
         .is_some()
 }
 
+/// Whether the highest-weight seeds of the ordered triple are retained.
+#[cfg(all(test, feature = "lie-generated"))]
+pub(crate) fn cgc_seeds_are_resident(root: RootSystem, parts: [&[i64]; 3]) -> bool {
+    assert_cache_access_allowed();
+    CACHE_CGC
+        .inner
+        .peek(&LabelRef {
+            kind: SEEDS,
+            root,
+            parts: parts.map(Label::new),
+        })
+        .is_some()
+}
+
 /// Whether the computed phase keyed by `label` is retained.
 #[cfg(all(test, feature = "lie-generated"))]
 pub(crate) fn cgc_phase_is_resident(root: RootSystem, label: &[i64]) -> bool {
