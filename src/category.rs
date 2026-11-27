@@ -39,8 +39,6 @@ pub(crate) mod sealed {
     /// alongside it already passed the caller's validation.
     #[derive(Clone, Copy)]
     pub struct Validated(pub(crate) ());
-    /// A returned block and the independently checked N axes to validate it against.
-    pub type SymbolWithAxes<B, const R: usize> = (B, [u32; R]);
     /// Object count, unbounded by `u64` so that a product nested in another
     /// still bounds its coordinates, with a product's per-factor counts so
     /// that unranking visits each leaf once.
@@ -1036,13 +1034,11 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
 
     // Crate-internal `__fusion_symbols_validated_*` entry points, not part of
     // the public API. A product calls them after validating every leaf object
-    // with `contains` (and, for F/R/A/B, establishing nonzero representable
-    // shapes); a nested product overrides them to skip re-validation and shape
-    // recomputation, which would otherwise repeat at every nesting level. Symbol
-    // hooks return the block with its checked N axes; Product checks storage
-    // before indexing. The token is unnameable outside the crate, so they can be
-    // neither called nor overridden there; the prefix keeps them from colliding
-    // with downstream extension-trait methods.
+    // with `contains`; a nested product overrides them to skip re-validation,
+    // which would otherwise repeat at every nesting level. The token is
+    // unnameable outside the crate, so they can be neither called nor
+    // overridden there; the prefix keeps them from colliding with downstream
+    // extension-trait methods.
     #[doc(hidden)]
     fn __fusion_symbols_validated_object_index(
         &self,
@@ -1149,82 +1145,6 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         _: sealed::Validated,
     ) -> Result<u32, Self::Error> {
         self.nsymbol(a, b, c)
-    }
-    // The block with the axes its product checks it against. `ones` is given
-    // when every product axis is 1: each leaf N is then 1 (a product of positive
-    // multiplicities), so it is not evaluated again.
-    #[doc(hidden)]
-    #[allow(clippy::too_many_arguments)]
-    fn __fusion_symbols_validated_f_symbol(
-        &self,
-        a: &Self::Object,
-        b: &Self::Object,
-        c: &Self::Object,
-        d: &Self::Object,
-        e: &Self::Object,
-        f: &Self::Object,
-        ones: Option<[u32; 4]>,
-        _: sealed::Validated,
-    ) -> Result<sealed::SymbolWithAxes<Self::FSymbol, 4>, Self::Error> {
-        let block = self.f_symbol(a, b, c, d, e, f)?;
-        let n = match ones {
-            Some(n) => n,
-            None => [
-                self.nsymbol(a, b, e)?,
-                self.nsymbol(e, c, d)?,
-                self.nsymbol(b, c, f)?,
-                self.nsymbol(a, f, d)?,
-            ],
-        };
-        Ok((block, n))
-    }
-    #[doc(hidden)]
-    fn __fusion_symbols_validated_r_symbol(
-        &self,
-        a: &Self::Object,
-        b: &Self::Object,
-        c: &Self::Object,
-        ones: Option<[u32; 2]>,
-        _: sealed::Validated,
-    ) -> Result<sealed::SymbolWithAxes<Self::RSymbol, 2>, Self::Error> {
-        let block = self.r_symbol(a, b, c)?;
-        let n = match ones {
-            Some(n) => n,
-            None => [self.nsymbol(a, b, c)?, self.nsymbol(b, a, c)?],
-        };
-        Ok((block, n))
-    }
-    #[doc(hidden)]
-    fn __fusion_symbols_validated_a_symbol(
-        &self,
-        a: &Self::Object,
-        b: &Self::Object,
-        c: &Self::Object,
-        ones: Option<[u32; 2]>,
-        _: sealed::Validated,
-    ) -> Result<sealed::SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
-        let block = self.a_symbol(a, b, c)?;
-        let n = match ones {
-            Some(n) => n,
-            None => [self.nsymbol(a, b, c)?, self.nsymbol(&self.dual(a), c, b)?],
-        };
-        Ok((block, n))
-    }
-    #[doc(hidden)]
-    fn __fusion_symbols_validated_b_symbol(
-        &self,
-        a: &Self::Object,
-        b: &Self::Object,
-        c: &Self::Object,
-        ones: Option<[u32; 2]>,
-        _: sealed::Validated,
-    ) -> Result<sealed::SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
-        let block = self.b_symbol(a, b, c)?;
-        let n = match ones {
-            Some(n) => n,
-            None => [self.nsymbol(a, b, c)?, self.nsymbol(c, &self.dual(b), a)?],
-        };
-        Ok((block, n))
     }
     // The exact product protocol: a product's F/R/A/B are the rounding of
     // the exact composition of its leaves' exact values when every factor

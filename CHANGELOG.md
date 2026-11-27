@@ -25,8 +25,12 @@ value/gauge rule noted below.
   factors. With two or more non-unit factors they are cached as one
   composite view in the Product tier; with one, the factor's own value is
   returned. Products containing a table category or a category defined
-  outside the crate still multiply rounded factor values left to right in
-  `f64`, as do product dimensions and CGCs.
+  outside the crate still multiply their immediate factors' public values
+  left to right in `f64` (a nested exact product contributes its own
+  rounded value), as do product dimensions and CGCs. On that route each
+  leaf N is evaluated once per vertex at every product level that holds the
+  leaf, whatever the multiplicities, and a nested factor validates its
+  objects again.
 - **Breaking (values):** CU(1) A and B are formed exactly from its exact F
   and rounded once, so unit values are exactly `±1`; F and R are unchanged.
 - **Breaking (values):** F, R, A and B of every simple Lie type, and A and B
