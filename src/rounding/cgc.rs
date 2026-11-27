@@ -9,7 +9,9 @@ use std::collections::HashMap;
 
 use threadteam::Exec;
 
-use super::{round_radical, Factor, SharedFactors};
+use super::estimate::{self, Est};
+use super::{round_radical, Factor};
+use crate::exact::radical::Radicand;
 use crate::frcore::{GateError, MEntry};
 use crate::lie::general::cgc::exact::{ColumnCoords, ExactCgc, NormTable};
 use crate::lie::general::cgc::{CgcChannel, Ladders};
@@ -37,11 +39,17 @@ pub(crate) fn round_channel(
     use crate::stage::{part_units, run_items, split_parts, take_part, StageBuf};
     let ends = exact.column_ends();
     let units = part_units(ends);
+    let estimates = ChannelEstimates::for_channel(exact.vertices(), norms, &units);
     let mut entries = view_slots(exact.len());
     {
         let parts = split_parts(&mut entries, ends.iter().copied());
         let _width = run_items(exec, &units, &mut StageBuf::default(), |k| {
-            round_column(&exact.column_coords(k), norms, take_part(&parts, k));
+            round_column(
+                &exact.column_coords(k),
+                norms,
+                estimates.as_ref(),
+                take_part(&parts, k),
+            );
         });
         #[cfg(test)]
         if _width.get() > 1 {
@@ -97,48 +105,227 @@ impl<'a> NormParts<'a> {
     }
 }
 
-/// Rounds the column `column` into `out`, its entries.
-///
-/// `ρ_μ` and `n^c` are the column's constants, multiplied once into
-/// [`SharedFactors`], so an entry multiplies only `X²` and the factors of
-/// `n^a n^b`; an entry whose products leave the stack limbs converts all its
-/// factors in one [`round_radical`], with the same bits.
+/// `√n` (or `1/√n` when `inverse`) of a positive rational, `None` when an
+/// exponent leaves the estimate's range.
+fn norm_root(n: &Q, inverse: bool) -> Option<Est> {
+    let parts = NormParts::of(n);
+    let [p, q] = parts.factors();
+    if inverse {
+        estimate::root_of(q, p)
+    } else {
+        estimate::root_of(p, q)
+    }
+}
+
+/// Nanoseconds the estimate saves per entry against [`exact_entry`],
+/// conservatively. Measured on lg (Xeon Platinum 9242, release, one
+/// thread): the exact conversion 194–305 ns per entry and the fast path
+/// 32–45 ns on channels of at least 300 entries; on channels of 30–277
+/// entries 263–471 ns against 92–112 ns. The smallest difference, about
+/// 150 ns, is taken.
+const SAVING_NS: u64 = 150;
+
+/// Nanoseconds one exact root costs, conservatively: the stack root's cost
+/// in the first roots of a fresh process, the larger of two lg jobs (Xeon
+/// Platinum 9242, `reviews/fs-root-bench`: 214–230 ns warm, 240–370 ns cold,
+/// no allocation). With [`SAVING_NS`] a root pays for itself from about 2.5
+/// entries (`370/150`), one coupled root from 3. Roots of operands beyond 128
+/// bits take the big-integer path (about 0.3–1.1 µs) but occur only on the
+/// largest channels' vertices and norms, where the estimate pays anyway.
+const ROOT_NS: u64 = 370;
+
+/// Whether forming `roots` exact roots costs no more than the estimate saves
+/// on the `entries` they serve.
+fn pays(entries: u64, roots: u64) -> bool {
+    entries.saturating_mul(SAVING_NS) >= roots.saturating_mul(ROOT_NS)
+}
+
+/// The roots one label's norms contribute: `√n_m` as a left or right
+/// factor, `1/√n_m` as the coupled one.
+type Roots = (Option<Est>, Option<Est>);
+
+/// Which norm tables are the same allocation, as the CGC tier shares them:
+/// whether `b` repeats `a`, and the factor table (`0` for `a`, `1` for a
+/// distinct `b`) a repeated `c` reuses.
+fn shared_labels([na, nb, nc]: [&NormTable; 3]) -> (bool, Option<usize>) {
+    let b_is_a = std::ptr::eq(na, nb);
+    let c = if std::ptr::eq(nc, na) {
+        Some(0)
+    } else if std::ptr::eq(nc, nb) {
+        Some(1)
+    } else {
+        None
+    };
+    (b_is_a, c)
+}
+
+/// The factor estimates of one channel call, built serially before its
+/// stage and never retained: per index of every distinct label among `a`,
+/// `b` and `c` the roots it is used with (a repeated label shares one
+/// table), and `√ρ_μ` per `μ`. A distinct `c` label's roots are formed per
+/// column, inside the stage, since each `m_c` occurs in `N` columns only.
+pub(crate) struct ChannelEstimates {
+    tables: Vec<Box<[Roots]>>,
+    /// The tables of `a` and `b`, and of `c` when it repeats either.
+    of: [usize; 2],
+    c: Option<usize>,
+    vertices: Box<[Option<Est>]>,
+    /// Whether a column's own coupled root is formed only when it [`pays`].
+    gate_columns: bool,
+}
+
+impl ChannelEstimates {
+    /// The estimates of a channel whose columns hold `columns` entries each,
+    /// or `None` when its roots cost more than they save, when every entry
+    /// takes [`exact_entry`].
+    ///
+    /// One comparison, [`pays`], at the two places roots are formed: a
+    /// column of a distinct `c` label adds one root, so it uses the estimate
+    /// when it pays alone; the channel's serial roots (the factor tables, the
+    /// repeated `c`'s reciprocal roots and one per `μ`) are formed when they
+    /// pay on the entries of the columns that use the estimate.
+    pub(crate) fn for_channel<'a>(
+        vertices: impl ExactSizeIterator<Item = &'a Radicand>,
+        norms: [&NormTable; 3],
+        columns: &[u64],
+    ) -> Option<Self> {
+        let (b_is_a, c) = shared_labels(norms);
+        let [da, db] = [norms[0].norm.len(), norms[1].norm.len()].map(|d| d as u64);
+        let tables = da + if b_is_a { 0 } else { db };
+        let inverse = match c {
+            Some(0) => da,
+            Some(_) => db,
+            None => 0,
+        };
+        let roots = tables + inverse + vertices.len() as u64;
+        let served: u64 = columns.iter().filter(|&&n| c.is_some() || pays(n, 1)).sum();
+        pays(served, roots).then(|| Self::new(vertices, norms, true))
+    }
+
+    /// The estimates for a channel with vertices `vertices` (in `μ` order)
+    /// over the norm tables `[a, b, c]`, every root formed; with
+    /// `gate_columns`, a distinct `c` label's column forms its root only
+    /// when it [`pays`].
+    fn new<'a>(
+        vertices: impl Iterator<Item = &'a Radicand>,
+        norms: [&NormTable; 3],
+        gate_columns: bool,
+    ) -> Self {
+        let (b_is_a, c) = shared_labels(norms);
+        let [na, nb, nc] = norms;
+        let table = |t: &NormTable| -> Box<[Roots]> {
+            let inverse = std::ptr::eq(t, nc);
+            t.norm
+                .iter()
+                .map(|n| {
+                    let inv = if inverse { norm_root(n, true) } else { None };
+                    (norm_root(n, false), inv)
+                })
+                .collect()
+        };
+        let mut tables = vec![table(na)];
+        let b = if b_is_a {
+            0
+        } else {
+            tables.push(table(nb));
+            1
+        };
+        let c = c.map(|t| if t == 0 { 0 } else { b });
+        let vertices = vertices
+            .map(|r| estimate::root_of(Factor::Natural(r.num()), Factor::Natural(r.den())))
+            .collect();
+        Self {
+            tables,
+            of: [0, b],
+            c,
+            vertices,
+            gate_columns,
+        }
+    }
+
+    /// `√ρ_μ/√n^c_{m_c}` of the column, or `None` when a factor has no
+    /// estimate or the column's own root does not pay.
+    fn column(&self, column: &ColumnCoords<'_>, nc: &NormTable) -> Option<Est> {
+        let mc = column.mc();
+        let tc = match self.c {
+            Some(t) => self.tables[t][mc].1?,
+            None if self.gate_columns && !pays(column.pairs().len() as u64, 1) => return None,
+            None => norm_root(&nc.norm[mc], true)?,
+        };
+        estimate::mul(self.vertices[column.mu()]?, tc)
+    }
+
+    /// The fast value of entry `j` of a column whose constant is `k`
+    /// ([`Self::column`]), or `None` when the estimate cannot certify it.
+    fn entry(&self, k: Option<Est>, column: &ColumnCoords<'_>, j: usize) -> Option<f64> {
+        let (ma, mb) = column.pairs()[j];
+        let sa = self.tables[self.of[0]][ma as usize].0?;
+        let sb = self.tables[self.of[1]][mb as usize].0?;
+        let v = estimate::entry(column.magnitude(j), k?, sa, sb)?;
+        estimate::decide(column.is_negative(j), v)
+    }
+}
+
+/// The exact value of entry `j` of `column`: [`round_radical`] over the
+/// full factor lists, the definition every fast value equals.
+fn exact_entry(column: &ColumnCoords<'_>, [na, nb, nc]: [&NormTable; 3], j: usize) -> f64 {
+    let vertex = column.vertex();
+    let (pc, qc) = nc.norm[column.mc()].magnitudes();
+    let (ma, mb) = column.pairs()[j];
+    let x = column.magnitude(j);
+    let sign = if column.is_negative(j) { -1 } else { 1 };
+    let a = NormParts::of(&na.norm[ma as usize]);
+    let b = NormParts::of(&nb.norm[mb as usize]);
+    let ([pa, qa], [pb, qb]) = (a.factors(), b.factors());
+    round_radical(
+        sign,
+        &[
+            Factor::Words(x),
+            Factor::Words(x),
+            Factor::Natural(vertex.num()),
+            pa,
+            pb,
+            Factor::Natural(&qc),
+        ],
+        &[Factor::Natural(vertex.den()), qa, qb, Factor::Natural(&pc)],
+    )
+}
+
+/// Per entry of `exact`, in order: the bits [`ChannelEstimates`] certifies,
+/// or `None`, and the bits of [`exact_entry`]; every root is formed, whatever
+/// [`pays`] would decide, so every entry is tried on the estimate.
+#[cfg(test)]
+pub(crate) fn fast_and_exact(exact: &ExactCgc, norms: [&NormTable; 3]) -> Vec<(Option<u64>, u64)> {
+    let estimates = ChannelEstimates::new(exact.vertices(), norms, false);
+    let mut out = Vec::new();
+    for k in 0..exact.column_ends().len() {
+        let column = exact.column_coords(k);
+        let kc = estimates.column(&column, norms[2]);
+        for j in 0..column.pairs().len() {
+            out.push((
+                estimates.entry(kc, &column, j).map(f64::to_bits),
+                exact_entry(&column, norms, j).to_bits(),
+            ));
+        }
+    }
+    out
+}
+
+/// Rounds the column `column` into `out`, its entries: the certified
+/// estimate of [`ChannelEstimates`] where the channel has one and it decides,
+/// [`exact_entry`] otherwise, with the same bits.
 pub(crate) fn round_column(
     column: &ColumnCoords<'_>,
-    [na, nb, nc]: [&NormTable; 3],
+    norms: [&NormTable; 3],
+    estimates: Option<&ChannelEstimates>,
     out: &mut [MEntry],
 ) {
     let (mu, mc) = (column.mu(), column.mc());
-    let vertex = column.vertex();
-    let (rn, rd) = (vertex.num(), vertex.den());
-    let (pc, qc) = nc.norm[mc].magnitudes();
-    let shared = SharedFactors::new(
-        &[Factor::Natural(rn), Factor::Natural(&qc)],
-        &[Factor::Natural(rd), Factor::Natural(&pc)],
-    );
+    let k = estimates.and_then(|e| e.column(column, norms[2]));
     for (j, (slot, &(ma, mb))) in out.iter_mut().zip(column.pairs()).enumerate() {
-        let x = column.magnitude(j);
-        let sign = if column.is_negative(j) { -1 } else { 1 };
-        let a = NormParts::of(&na.norm[ma as usize]);
-        let b = NormParts::of(&nb.norm[mb as usize]);
-        let ([pa, qa], [pb, qb]) = (a.factors(), b.factors());
-        let value = shared
-            .as_ref()
-            .and_then(|s| s.round_square(sign, x, [pa, pb], [qa, qb]))
-            .unwrap_or_else(|| {
-                round_radical(
-                    sign,
-                    &[
-                        Factor::Words(x),
-                        Factor::Words(x),
-                        Factor::Natural(rn),
-                        pa,
-                        pb,
-                        Factor::Natural(&qc),
-                    ],
-                    &[Factor::Natural(rd), qa, qb, Factor::Natural(&pc)],
-                )
-            });
+        let value = estimates
+            .and_then(|e| e.entry(k, column, j))
+            .unwrap_or_else(|| exact_entry(column, norms, j));
         // The multiplicity and every dimension fit `u32` (§7 gate 1).
         *slot = MEntry {
             m1: ma,
@@ -687,3 +874,6 @@ thread_local! {
     /// Replaces the isometry gate's allowance beyond the serial peak.
     pub(crate) static GATE_ALLOWANCE: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
 }
+
+#[cfg(test)]
+mod tests;

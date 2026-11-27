@@ -556,6 +556,11 @@ impl Pending {
         self.m_ab.is_empty()
     }
 
+    /// Every `μ`'s vertex `ρ_μ`, in `μ` order.
+    pub(crate) fn vertices(&self) -> impl ExactSizeIterator<Item = &Radicand> + '_ {
+        self.meta.plans.iter().map(|p| &p.vertex)
+    }
+
     /// The entries of every column: a column stage's units.
     pub(crate) fn units(&self) -> Vec<u64> {
         crate::stage::part_units(&self.meta.ends)
@@ -995,6 +1000,12 @@ impl ExactCgc {
     /// The exclusive end of every column `μ·d_c + m_c`.
     pub(crate) fn column_ends(&self) -> &[usize] {
         &self.coords.ends
+    }
+
+    /// Every `μ`'s vertex `ρ_μ`, in `μ` order: the values
+    /// `column_coords(k).vertex()` returns.
+    pub(crate) fn vertices(&self) -> impl ExactSizeIterator<Item = &Radicand> + '_ {
+        self.coords.per_mu.iter().map(|m| &m.vertex)
     }
 
     /// The coordinates of column `k = μ·d_c + m_c`, read in place.

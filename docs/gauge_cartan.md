@@ -479,7 +479,12 @@ subnormal results and underflow to a signed zero, and is
 value alone, so it is applied to the integer ratio of the products of the
 factors' numerators and denominators (`X` twice, `ρ_μ`, `n^a`, `n^b` over
 `n^c`) without reducing it; the bits equal those of the reduced radicand,
-including at ties and in the subnormal range. Only exactly zero
+including at ties and in the subnormal range. A CGC entry may be converted
+through a faster route (`src/rounding/estimate.rs`): a 128-bit estimate
+below the value by fewer than 19 units of its last place, returned only when
+both ends of the interval of 1024 such units around it round to the same
+`f64` and the result is normal, which is then the value's nearest `f64`; every other entry takes
+`round_radical`, so the value rule and every bit are unchanged. Only exactly zero
 coefficients are omitted; an exactly nonzero coefficient that rounds to a
 signed zero keeps its entry. An absent entry reads `+0.0`. There is no purge
 threshold.
