@@ -171,7 +171,7 @@ fn evaluate(group: &LieGroup, item: &Item, exec: &mut Exec<'_>) -> Result<(), Li
     match item {
         Item::Cgc([a, b, c]) => group.cgc_in(a, b, c, Some(exec)).map(drop),
         Item::F(labels) => group.f_symbol_in(labels.each_ref(), Some(exec)).map(drop),
-        Item::R([a, b, c]) => group.r_symbol_in(a, b, c, Some(exec)).map(drop),
+        Item::R([a, b, c]) => group.r_symbol_in(a, b, c).map(drop),
         Item::Fusion([a, b]) => group.fusion(a, b).map(drop),
         Item::Phase(a) => group.frobenius_schur_phase(a).map(drop),
     }

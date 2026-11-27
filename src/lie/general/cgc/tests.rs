@@ -11,7 +11,6 @@ use crate::category::{
     f_unitarity_residual, hexagon_residual, BraidingStyle, FBlock, FusionCategory, FusionStyle,
     RBlock, SymbolBlock,
 };
-use crate::frcore::{f_block_raw, r_block_raw};
 use crate::lie::general::{GeneralFamily, RequestModules};
 use crate::rounding::cgc::{
     check_rounded, gate_bytes, gate_replaced, round_channel, support_runs, worst, BlockEntry,
@@ -957,10 +956,11 @@ impl FusionCategory for Cat {
         e: &Vec<i64>,
         f: &Vec<i64>,
     ) -> Result<FBlock<f64>, LieError> {
-        f_block_raw(&self.fam, [a, b, c, d, e, f].map(|x| Label::new(x)), None)
+        self.fam
+            .f_symbol([a, b, c, d, e, f].map(|x| Label::new(x)), None)
     }
     fn r_symbol(&self, a: &Vec<i64>, b: &Vec<i64>, c: &Vec<i64>) -> Result<RBlock<f64>, LieError> {
-        r_block_raw(&self.fam, [a, b, c].map(|x| Label::new(x)), None)
+        self.fam.r_symbol([a, b, c].map(|x| Label::new(x)))
     }
 }
 
@@ -2244,7 +2244,7 @@ fn failed_block_gates_are_not_retained() {
     let f = [v, v, v, v, sym, sym];
     let r = [v, v, sym];
     CORRUPT_BLOCK.with(|x| x.set(Some(|x| x * 2.0)));
-    let bad_r = fam.r_symbol(r, None);
+    let bad_r = fam.r_symbol(r);
     CORRUPT_BLOCK.with(|x| x.set(Some(|_| f64::INFINITY)));
     let bad_f_inf = fam.f_symbol(f, None);
     CORRUPT_BLOCK.with(|x| x.set(None));
@@ -2260,7 +2260,7 @@ fn failed_block_gates_are_not_retained() {
         bad_f_inf,
         Err(LieError::from(GateError::NonFinite { gate: "F" }))
     );
-    let good_r = fam.r_symbol(r, None).unwrap();
+    let good_r = fam.r_symbol(r).unwrap();
     assert_eq!(good_r.as_slice(), [1.0]);
     let good_f = fam.f_symbol(f, None).unwrap();
     assert!(good_f
@@ -2359,7 +2359,7 @@ fn f_and_r_requests_build_each_module_label_once() {
     let a2 = GeneralFamily::new(RootSystem::A(2));
     let builds = || BUILDS.with(std::cell::Cell::get)[0];
     let r = |fam: &GeneralFamily, [a, b, c]: [&[i64]; 3]| {
-        let block = r_block_raw(fam, [a, b, c].map(Label::new), None).unwrap();
+        let block = fam.r_symbol([a, b, c].map(Label::new)).unwrap();
         block
             .as_slice()
             .iter()
@@ -2367,9 +2367,8 @@ fn f_and_r_requests_build_each_module_label_once() {
             .collect::<Vec<_>>()
     };
     let f = |fam: &GeneralFamily, l: [[i64; 2]; 6]| {
-        let block = f_block_raw(fam, l.each_ref().map(|x| Label::new(x)), None).unwrap();
-        block
-            .as_slice()
+        let block = fam.f_exact(l.each_ref().map(|x| Label::new(x))).unwrap();
+        crate::rounding::blocks::round_block(&block)
             .iter()
             .map(|x| x.to_bits())
             .collect::<Vec<_>>()
@@ -2410,8 +2409,8 @@ thread_local! {
     static LOADS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-/// An F request whose four channels are resident loads exactly those four
-/// channels: a cached channel loads no module and holds none.
+/// An F generation whose two channels and two seed sets are resident loads
+/// exactly those four: it builds no module and holds none.
 #[test]
 fn resident_channels_load_no_module() {
     let _guard = crate::cache::TEST_CACHE_LOCK
@@ -2420,11 +2419,12 @@ fn resident_channels_load_no_module() {
     let fam = GeneralFamily::new(RootSystem::A(2));
     let labels = A2_F6.each_ref().map(|x| Label::new(x));
     crate::cache::reset();
-    let warm = f_block_raw(&fam, labels, None).unwrap();
+    let warm = fam.f_symbol(labels, None).unwrap();
+    crate::cache::trim_to(crate::cache::CoefficientCacheTier::FSymbol, 0);
     REQUEST_MODULES.with(|c| c.set([0; 2]));
     LOADS.with(|c| c.set(0));
     BEFORE_LOAD.with(|h| h.set(Some(|| LOADS.with(|c| c.set(c.get() + 1)))));
-    let hit = f_block_raw(&fam, labels, None).unwrap();
+    let hit = fam.f_symbol(labels, None).unwrap();
     BEFORE_LOAD.with(|h| h.set(None));
     assert_eq!(LOADS.with(std::cell::Cell::get), 4);
     assert_eq!(REQUEST_MODULES.with(std::cell::Cell::get), [0; 2]);
@@ -2736,10 +2736,10 @@ fn seeds_are_the_highest_weight_column() {
     ));
 }
 
-/// A norm table is its module's norms and ranks moved to public indices,
-/// with `n_m = ν_m g/Δ` and every `ν_m ≥ 1`, the top at the highest weight's
-/// public index and every rank below the largest weight multiplicity; at
-/// least one GT module of the fixtures has a nontrivial public map.
+/// A norm table is its module's norms moved to public indices, with
+/// `n_m = ν_m g/Δ` and every `ν_m ≥ 1` and the top at the highest weight's
+/// public index; at least one GT module of the fixtures has a nontrivial
+/// public map.
 #[test]
 fn norm_tables_follow_the_public_index() {
     let mut permuted = false;
@@ -2757,15 +2757,11 @@ fn norm_tables_follow_the_public_index() {
             let p = m.public[e] as usize;
             permuted |= p != e;
             assert_eq!(t.norm[p], m.norm[e], "{root:?} {l:?}");
-            assert_eq!(t.rank[p], m.rank[e], "{root:?} {l:?}");
             assert!(!t.nu().is_negative(p) && t.nu().bits(p) > 0);
             let nu = malachite_q::Rational::from(t.nu().integer(p));
             assert_eq!(nu * &scale, m.norm[e].to_rational(), "{root:?} {l:?}");
         }
         assert_eq!(t.top, m.public[0]);
-        let slots = m.module.weights.iter().map(|s| s.norms.len()).max();
-        assert_eq!(Some(t.slots as usize), slots);
-        assert!(t.rank.iter().all(|&r| r < t.slots));
     }
     assert!(permuted, "a GT fixture permutes its indices");
 }
@@ -2944,9 +2940,7 @@ fn view_keeps_rounded_zeros_and_omits_exact_zeros() {
     ];
     let exact =
         exact::ExactCgc::from_columns([2, 2, 2], columns, &[one(), one()], false, None).unwrap();
-    let unit = |dim: usize| {
-        NormTable::from_parts(vec![Q::from(1); dim].into(), vec![0; dim].into(), 1, 0).unwrap()
-    };
+    let unit = |dim: usize| NormTable::from_parts(vec![Q::from(1); dim].into(), 0).unwrap();
     let two = unit(2);
     let (p, m) = (1.0f64.to_bits(), (-1.0f64).to_bits());
     let check = |view: CgcChannel, token: &str| {
@@ -2976,4 +2970,231 @@ fn view_keeps_rounded_zeros_and_omits_exact_zeros() {
         "team",
     );
     assert!(crate::rounding::cgc::ROUND_SECTIONS.with(std::cell::Cell::get) > 0);
+}
+
+/// The exact F/R oracle (`docs/gauge_cartan.md` §8): each leg read from the
+/// test-only rational [`ExactChannel`] in engine indices, summed as rational
+/// prefactors in a naive nested loop. It never reads an integral coordinate,
+/// a seed set or a norm table, and shares with production only the descent.
+#[cfg(feature = "lie-generated")]
+mod exact_fr {
+    use super::*;
+    use crate::exact::SignedSqrtRational;
+    use malachite_q::Rational;
+
+    /// `x` per `(m_a, m_b, μ)` of channel `ch` at engine state `m_c`.
+    fn at(ch: &ExactChannel, mc: usize) -> HashMap<(usize, usize, usize), Rational> {
+        let mut out = HashMap::new();
+        for mu in 0..ch.mult {
+            for (&(pa, pb), x) in ch.spaces[mc].pairs.iter().zip(&ch.phi[mc][mu]) {
+                if !x.is_zero() {
+                    out.insert((pa, pb, mu), x.to_rational());
+                }
+            }
+        }
+        out
+    }
+
+    fn norms(l: &Ladders) -> Vec<Rational> {
+        l.norm.iter().map(|q| q.to_rational()).collect()
+    }
+
+    /// `sign(s)·s²/n`: the signed square of `s/√n`.
+    fn signed_square(s: &Rational, n: &Rational) -> Rational {
+        let sq = s * s / n;
+        if *s < 0 {
+            -sq
+        } else {
+            sq
+        }
+    }
+
+    /// The signed squares of `F^{abc}_d[e, f]` in `[μ,ν,κ,λ]` order, after
+    /// asserting that every engine slice `m_d` gives the same prefactor
+    /// sums `Σ_ℚ(m_d) = Σ x_A x_B x_C x_D·n^a n^b n^c/n^d` (`n^e`, `n^f`
+    /// cancel between the CGC pairs, so every term shares one radical).
+    fn oracle_f(root: RootSystem, l: [&[i64]; 6]) -> ([usize; 4], Vec<Rational>) {
+        let fam = GeneralFamily::new(root);
+        let [a, b, c, d, e, f] = l;
+        let (ca, la, lb, _) = fam.channel(a, b, e).unwrap();
+        let (cb, _, lc, ld) = fam.channel(e, c, d).unwrap();
+        let (cc, ..) = fam.channel(b, c, f).unwrap();
+        let (cd, ..) = fam.channel(a, f, d).unwrap();
+        let dims = [ca.mult, cb.mult, cc.mult, cd.mult];
+        let [na, nb, nc, nd] = [&la, &lb, &lc, &ld].map(|m| norms(m.as_ref()));
+        // A and C at every coupled state: (m_a, m_b, m_e, μ) and (m_b, m_c, m_f, κ).
+        let full = |ch: &ExactChannel| {
+            let mut out = Vec::new();
+            for m in 0..ch.spaces.len() {
+                for (&(p, q, mu), x) in &at(ch, m) {
+                    out.push((p, q, m, mu, x.clone()));
+                }
+            }
+            out
+        };
+        let a_full = full(&ca);
+        let mut c_by: HashMap<(usize, usize), Vec<(usize, usize, Rational)>> = HashMap::new();
+        for (pb, pc, pf, kappa, x) in full(&cc) {
+            c_by.entry((pb, pc)).or_default().push((pf, kappa, x));
+        }
+        let len = dims.iter().product();
+        let mut first: Option<Vec<Rational>> = None;
+        for md in 0..ld.norm.len() {
+            let (bs, ds) = (at(&cb, md), at(&cd, md));
+            let mut b_by: HashMap<usize, Vec<(usize, usize, &Rational)>> = HashMap::new();
+            for ((pe, pc, nu), x) in &bs {
+                b_by.entry(*pe).or_default().push((*pc, *nu, x));
+            }
+            let mut sums = vec![Rational::from(0); len];
+            for (pa, pb, pe, mu, xa) in &a_full {
+                for (pc, nu, xb) in b_by.get(pe).into_iter().flatten() {
+                    for (pf, kappa, xc) in c_by.get(&(*pb, *pc)).into_iter().flatten() {
+                        for lambda in 0..dims[3] {
+                            let Some(xd) = ds.get(&(*pa, *pf, lambda)) else {
+                                continue;
+                            };
+                            let i = ((mu * dims[1] + nu) * dims[2] + kappa) * dims[3] + lambda;
+                            sums[i] +=
+                                xa * *xb * xc * xd * &na[*pa] * &nb[*pb] * &nc[*pc] / &nd[md];
+                        }
+                    }
+                }
+            }
+            match &first {
+                Some(f) => assert!(*f == sums, "slice {md} of {l:?}"),
+                None => first = Some(sums),
+            }
+        }
+        let sums = first.unwrap();
+        let n = |ch: &ExactChannel, m: usize| ch.seed_norms[m].to_rational();
+        let squares = (0..len)
+            .map(|i| {
+                let [mu, nu, kappa, lambda] = [
+                    i / (dims[1] * dims[2] * dims[3]),
+                    i / (dims[2] * dims[3]) % dims[1],
+                    i / dims[3] % dims[2],
+                    i % dims[3],
+                ];
+                let norm = n(&ca, mu) * n(&cb, nu) * n(&cc, kappa) * n(&cd, lambda);
+                signed_square(&sums[i], &norm)
+            })
+            .collect();
+        (dims, squares)
+    }
+
+    /// The signed squares of `R^{ab}_c`, row-major, after asserting that
+    /// every engine slice `m_c` gives the same
+    /// `T_ℚ(m_c) = Σ x_{ab}[m_a,m_b,μ]·x_{ba}[m_b,m_a,ν]·n^a n^b/n^c`.
+    fn oracle_r(root: RootSystem, [a, b, c]: [&[i64]; 3]) -> Vec<Rational> {
+        let fam = GeneralFamily::new(root);
+        let (cab, la, lb, lc) = fam.channel(a, b, c).unwrap();
+        let (cba, ..) = fam.channel(b, a, c).unwrap();
+        let n = cab.mult;
+        let [na, nb, nc] = [&la, &lb, &lc].map(|m| norms(m.as_ref()));
+        let mut first: Option<Vec<Rational>> = None;
+        for mc in 0..lc.norm.len() {
+            let (xs, ys) = (at(&cab, mc), at(&cba, mc));
+            let mut sums = vec![Rational::from(0); n * n];
+            for ((pa, pb, mu), x) in &xs {
+                for nu in 0..n {
+                    if let Some(y) = ys.get(&(*pb, *pa, nu)) {
+                        sums[mu * n + nu] += x * y * &na[*pa] * &nb[*pb] / &nc[mc];
+                    }
+                }
+            }
+            match &first {
+                Some(f) => assert!(*f == sums, "slice {mc}"),
+                None => first = Some(sums),
+            }
+        }
+        let sums = first.unwrap();
+        (0..n * n)
+            .map(|i| {
+                let norm =
+                    cab.seed_norms[i / n].to_rational() * cba.seed_norms[i % n].to_rational();
+                signed_square(&sums[i], &norm)
+            })
+            .collect()
+    }
+
+    fn q(p: i64, d: u64) -> Rational {
+        Rational::from_integers(p.into(), d.into())
+    }
+
+    /// Production equals the oracle exactly, and the public view has the
+    /// bits of the oracle value rounded once.
+    fn check_f(root: RootSystem, l: [&[i64]; 6]) -> Vec<Rational> {
+        let (dims, want) = oracle_f(root, l);
+        let fam = GeneralFamily::new(root);
+        let labels = l.map(Label::new);
+        let exact = fam.f_exact(labels).unwrap();
+        assert_eq!(exact.dims(), dims);
+        let view = fam.f_symbol(labels, None).unwrap();
+        for (i, w) in want.iter().enumerate() {
+            assert!(exact.entry(i).signed_square() == *w, "{l:?} entry {i}");
+            let sign = if *w < 0 { -1 } else { i8::from(*w != 0) };
+            let bits = SignedSqrtRational::from_radicand(sign, if *w < 0 { -w } else { w.clone() })
+                .to_f64()
+                .to_bits();
+            assert_eq!(view.as_slice()[i].to_bits(), bits, "{l:?} entry {i}");
+        }
+        want
+    }
+
+    fn check_r(root: RootSystem, l: [&[i64]; 3]) -> Vec<Rational> {
+        let want = oracle_r(root, l);
+        let fam = GeneralFamily::new(root);
+        let view = fam.r_symbol(l.map(Label::new)).unwrap();
+        for (i, w) in want.iter().enumerate() {
+            let sign = if *w < 0 { -1 } else { i8::from(*w != 0) };
+            let bits = SignedSqrtRational::from_radicand(sign, if *w < 0 { -w } else { w.clone() })
+                .to_f64()
+                .to_bits();
+            assert_eq!(view.as_slice()[i].to_bits(), bits, "{l:?} entry {i}");
+        }
+        want
+    }
+
+    /// SU(3) F against the oracle and hand values: `F^{3 3̄ 3}_3[1, 1] = 1/3`
+    /// and `F^{888}_8[8, 8]` at `[0,0,0,0] = 6/7`, `[1,1,0,0] = −1/7` (signed
+    /// squares `1/9`, `36/49`, `−1/49`). The oracle sums prefactors: summing
+    /// the 17 terms' own signed squares at the highest slice of
+    /// `F^{888}_8[0,0,0,0]` gives `1321/19208`, not `36/49`.
+    #[test]
+    fn su3_f_is_the_oracle() {
+        let (t, tb, one, o) = (
+            &[1i64, 0][..],
+            &[0i64, 1][..],
+            &[0i64, 0][..],
+            &[1i64, 1][..],
+        );
+        let f = check_f(RootSystem::A(2), [t, tb, t, t, one, one]);
+        assert_eq!(f, [q(1, 9)]);
+        let f = check_f(RootSystem::A(2), [o; 6]);
+        assert_eq!(f.len(), 16);
+        assert_eq!(f[0], q(36, 49));
+        // `[1,1,0,0]` is entry `((1·2 + 1)·2 + 0)·2 + 0 = 6`.
+        assert_eq!(f[6], q(-1, 49));
+    }
+
+    /// G2 and Sp(4) F, against the oracle only.
+    #[test]
+    fn g2_and_sp4_f_are_the_oracle() {
+        check_f(RootSystem::G2, [&G7[..]; 6]);
+        let (v, adj) = (&[1i64, 0][..], &[2i64, 0][..]);
+        check_f(RootSystem::C(2), [v, v, v, v, adj, adj]);
+    }
+
+    /// SU(3) R against the oracle and hand values: `R^{33}_{3̄} = −1` and
+    /// `R^{88}_8 = [[−2/7, 3√5/7], [3√5/7, 2/7]]`.
+    #[test]
+    fn su3_r_is_the_oracle() {
+        let (t, tb, o) = (&[1i64, 0][..], &[0i64, 1][..], &[1i64, 1][..]);
+        assert_eq!(check_r(RootSystem::A(2), [t, t, tb]), [q(-1, 1)]);
+        assert_eq!(
+            check_r(RootSystem::A(2), [o, o, o]),
+            [q(-4, 49), q(45, 49), q(45, 49), q(4, 49)]
+        );
+        check_r(RootSystem::G2, [&G7[..]; 3]);
+    }
 }

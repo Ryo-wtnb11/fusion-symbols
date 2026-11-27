@@ -232,8 +232,6 @@ const LOW: u128 = u64::MAX as u128;
 /// `2^64`, to any column. The caller bounds the calls per column so that a
 /// column plus the settlement carry stays below `2^128` (`docs/gauge_cartan.md`
 /// §9 and `frcore::accum`); nothing is checked here.
-// Read by the exact F and R sums; until then only tests.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn mac_into(a: &[u64], b: &[u64], cols: &mut [u128]) {
     for (i, &x) in a.iter().enumerate() {
         if x == 0 {
@@ -251,7 +249,6 @@ pub(crate) fn mac_into(a: &[u64], b: &[u64], cols: &mut [u128]) {
 /// least `cols.len() + 1` words; every column is cleared. Each column plus
 /// the incoming carry is below `2^128` by the caller's bound, so every carry
 /// is below `2^64`.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn settle(cols: &mut [u128], out: &mut [u64]) {
     let mut carry = 0u128;
     for (o, c) in out.iter_mut().zip(cols.iter_mut()) {
@@ -267,7 +264,6 @@ pub(crate) fn settle(cols: &mut [u128], out: &mut [u64]) {
 
 /// `a·b` exactly, as little-endian words in `out`, which holds at least
 /// `a.len() + b.len()` words; schoolbook, with every partial below `2^128`.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn mul_into(a: &[u64], b: &[u64], out: &mut [u64]) {
     out.fill(0);
     for (i, &x) in a.iter().enumerate() {
@@ -282,7 +278,6 @@ pub(crate) fn mul_into(a: &[u64], b: &[u64], out: &mut [u64]) {
 }
 
 /// `words` without its high zero words.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn trimmed_words(words: &[u64]) -> &[u64] {
     &words[..words.len() - words.iter().rev().take_while(|&&w| w == 0).count()]
 }

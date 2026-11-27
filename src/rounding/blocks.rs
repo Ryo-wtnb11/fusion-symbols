@@ -3,7 +3,9 @@
 //! block, never certificates of its rounding, and never changing a value.
 
 use crate::category::{FBlock, RBlock, SymbolBlock};
+use crate::exact::radical::RadicalBlock;
 use crate::frcore::GateError;
+use crate::rounding::{round_radical, Factor};
 
 /// Gate 7: every entry of a completed F block is finite. A fixed
 /// `F^{abc}_d[e, f]` is only a subblock of a change of basis, so it has no
@@ -87,4 +89,48 @@ mod tests {
         );
         assert_eq!(check_f_block(&FBlock::zeros([0, 1, 1, 1])), Ok(()));
     }
+}
+
+/// Every entry of `block`, row-major, correctly rounded once
+/// (`docs/gauge_cartan.md` §6.2): entry `i` is
+/// `round_radical(sign(S_i), [|S_i|, |S_i|, common.num, axis[k][i_k].num…],
+/// [common.den, axis[k][i_k].den…])` over the stored axes `k`. The factor
+/// lists are fixed-size, so only the result allocates.
+pub(crate) fn round_block<const R: usize>(block: &RadicalBlock<R>) -> Vec<f64> {
+    let dims = block.dims();
+    let nums = block.nums();
+    let len = dims.iter().product::<usize>();
+    let mut digits = [0usize; R];
+    let mut out = Vec::with_capacity(len);
+    for i in 0..len {
+        let s = nums.magnitude(i);
+        let sign = if s.is_empty() {
+            0
+        } else if nums.is_negative(i) {
+            -1
+        } else {
+            1
+        };
+        let common = block.common();
+        let mut num = [Factor::Words(s); 7];
+        let mut den = [Factor::Natural(common.den()); 5];
+        num[2] = Factor::Natural(common.num());
+        let (mut n, mut d) = (3, 1);
+        for (k, &digit) in digits.iter().enumerate() {
+            if let Some(r) = block.axis(k).get(digit) {
+                num[n] = Factor::Natural(r.num());
+                den[d] = Factor::Natural(r.den());
+                (n, d) = (n + 1, d + 1);
+            }
+        }
+        out.push(round_radical(sign, &num[..n], &den[..d]));
+        for k in (0..R).rev() {
+            digits[k] += 1;
+            if digits[k] < dims[k] {
+                break;
+            }
+            digits[k] = 0;
+        }
+    }
+    out
 }

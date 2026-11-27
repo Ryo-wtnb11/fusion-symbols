@@ -22,7 +22,7 @@ fn nat(x: u64) -> Natural {
 
 /// The norm table of an irrep of dimension `dim` with every norm 1.
 fn unit(dim: usize) -> NormTable {
-    NormTable::from_parts(vec![Q::from(1); dim].into(), vec![0; dim].into(), 1, 0).unwrap()
+    NormTable::from_parts(vec![Q::from(1); dim].into(), 0).unwrap()
 }
 
 /// Per entry `(fast bits or None, exact bits)` of `2 ⊗ 2 → 1` with unit

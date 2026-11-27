@@ -1222,7 +1222,7 @@ impl FusionCategory for LieGroup {
         Ok((block, n))
     }
     fn r_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock<f64>, LieError> {
-        self.r_symbol_in(a, b, c, None)
+        self.r_symbol_in(a, b, c)
     }
     fn a_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock<f64>, LieError> {
         if let Some(product) = &self.composite {
@@ -1231,6 +1231,9 @@ impl FusionCategory for LieGroup {
                 self.factor_labels(x)
             });
             return product.a_symbol(a, b, c).map_err(LieError::from);
+        }
+        if let Some(block) = self.ab_view(false, a, b, c)? {
+            return Ok(block);
         }
         let n = checked_dimension(self.nsymbol(a, b, c)?)?;
         checked_size([n, n])?;
@@ -1252,6 +1255,9 @@ impl FusionCategory for LieGroup {
                 self.factor_labels(x)
             });
             return product.b_symbol(a, b, c).map_err(LieError::from);
+        }
+        if let Some(block) = self.ab_view(true, a, b, c)? {
+            return Ok(block);
         }
         let n = checked_dimension(self.nsymbol(a, b, c)?)?;
         checked_size([n, n])?;
@@ -1277,11 +1283,11 @@ impl FusionCategory for LieGroup {
     // `𝟙 ⊗ a = a ⊗ 𝟙 = a` once. SU(2): the exact 6j closed form gives
     // `F^{𝟙bc}_d = F^{a𝟙c}_d = F^{ab𝟙}_d = (-1)^{2(j_1+j_2+j_3)} = 1` (integer
     // triangle sum), rounded exactly. Higher-rank groups contract four CGC
-    // (`frcore::f_block_raw`); with a unit leg two of them are the exact
+    // exactly (`frcore::f_exact`); with a unit leg two of them are the exact
     // identity embeddings of `𝟙 ⊗ s → s` / `s ⊗ 𝟙 → s`
     // (`docs/gauge_cartan.md` §4.5) and the other two are the same isometry
     // `x ⊗ y → z`, so the block is its column orthonormality
-    // `Σ C_κ C_ν = δ_{κν}`: the identity, up to rounding.
+    // `Σ C_κ C_ν = δ_{κν}`: the identity, exactly.
     fn has_canonical_unit(&self) -> bool {
         if let Some(product) = &self.composite {
             return product.has_canonical_unit();
@@ -1350,6 +1356,86 @@ impl FusionCategory for LieGroup {
 /// descent and isometry gate on `exec`; the entries pass `None`, the serial
 /// token, so a warm query never builds a token.
 impl LieGroup {
+    /// `A^{ab}_c` (`is_b = false`) or `B^{ab}_c` of a simple or rank-one
+    /// group (`docs/gauge_cartan.md` §6.1): the rounded view of
+    /// `√(d_a d_b/d_c)·κ_a·F^{ā a b}_b[𝟙, c]` (A) or
+    /// `√(d_a d_b/d_c)·F^{a b b̄}_a[c, 𝟙]` (B), formed exactly from the exact F
+    /// of the unit-leg sextet and rounded once. `None` for a torus, whose
+    /// symbols are the closed form.
+    fn ab_view(
+        &self,
+        is_b: bool,
+        a: &LieIrrep,
+        b: &LieIrrep,
+        c: &LieIrrep,
+    ) -> Result<Option<RBlock<f64>>, LieError> {
+        let words = [a, b, c].map(|x| [i64::from(x.dj())]);
+        let labels = match [a, b, c].map(|x| x.simple()) {
+            [Some(a), Some(b), Some(c)] => [a.label(), b.label(), c.label()],
+            _ if matches!(a.payload, LiePayload::RankOne(_)) => {
+                words.each_ref().map(|w| crate::cache::Label::new(w))
+            }
+            _ => return Ok(None),
+        };
+        let root = self.group.root_systems()[0];
+        crate::cache::ab_block(is_b, root, labels, || {
+            let n = checked_dimension(self.nsymbol(a, b, c)?)?;
+            checked_size([n, n])?;
+            if n == 0 {
+                return Ok(RBlock::zeros(0));
+            }
+            let (f, dims) = match [a, b, c].map(|x| x.simple()) {
+                [Some(xa), Some(xb), Some(xc)] => {
+                    let fam = self.engine();
+                    let (unit, bar) = (self.unit(), self.dual(if is_b { b } else { a }));
+                    let [unit, bar] = [&unit, &bar].map(|x| x.simple().map(general::Irrep::label));
+                    let (Some(unit), Some(bar)) = (unit, bar) else {
+                        unreachable!("a simple group's unit and duals are simple")
+                    };
+                    let [la, lb, lc] = [xa.label(), xb.label(), xc.label()];
+                    let sextet = if is_b {
+                        [la, lb, bar, la, lc, unit]
+                    } else {
+                        [bar, la, lb, lb, unit, lc]
+                    };
+                    let dims = [la, lb, lc].map(|l| fam.dimension(l));
+                    (fam.f_exact(sextet)?, [dims[0]?, dims[1]?, dims[2]?])
+                }
+                _ => {
+                    let [ja, jb, jc] = [a, b, c].map(LieIrrep::dj);
+                    // Rank-one irreps are self-dual and the unit is spin 0.
+                    let x = if is_b {
+                        su2::f_symbol_exact(ja, jb, jb, ja, jc, 0)
+                    } else {
+                        su2::f_symbol_exact(ja, ja, jb, jb, 0, jc)
+                    };
+                    let dims = [ja, jb, jc].map(|j| j as usize + 1);
+                    (
+                        Arc::new(crate::exact::radical::RadicalBlock::from_signed_sqrt(&x)),
+                        dims,
+                    )
+                }
+            };
+            let negate = !is_b && self.frobenius_schur_phase(a)? < 0.0;
+            let ratio = crate::exact::radical::Radicand::new(
+                Natural::from(dims[0] as u64) * Natural::from(dims[1] as u64),
+                Natural::from(dims[2] as u64),
+            )
+            .ok_or(LieError::LabelOverflow)?;
+            let (rows, cols) = if is_b { (0, 1) } else { (2, 3) };
+            let block = f
+                .scaled(negate, &ratio)
+                .matrix(rows, cols)
+                .filter(|m| m.dims() == [n, n])
+                .ok_or(LieError::LabelOverflow)?;
+            Ok(RBlock::from_vec(
+                n,
+                crate::rounding::blocks::round_block(&block),
+            ))
+        })
+        .map(Some)
+    }
+
     #[inline]
     pub(crate) fn f_symbol_in(
         &self,
@@ -1411,7 +1497,6 @@ impl LieGroup {
         a: &LieIrrep,
         b: &LieIrrep,
         c: &LieIrrep,
-        exec: Option<&mut Exec<'_>>,
     ) -> Result<RBlock<f64>, LieError> {
         self.label(a);
         self.label(b);
@@ -1442,9 +1527,7 @@ impl LieGroup {
             });
         }
         if let (Some(a), Some(b), Some(c)) = (a.simple(), b.simple(), c.simple()) {
-            return self
-                .engine()
-                .r_symbol([a.label(), b.label(), c.label()], exec);
+            return self.engine().r_symbol([a.label(), b.label(), c.label()]);
         }
         unreachable!("higher-rank labels have a generated payload")
     }
@@ -1849,17 +1932,19 @@ mod tests {
     #[test]
     fn exceptional_values_are_the_engine_values() {
         use crate::cache::Label;
-        use crate::frcore::f_block_raw;
         let g = LieGroup::new(GroupId::g2()).unwrap();
         let fam = general::GeneralFamily::new(RootSystem::G2);
         let (v, adj) = (vec![1, 0], vec![0, 1]);
         let [lv, ladj] = [&v, &adj].map(|x| g.irrep(x).unwrap());
         let got = g.f_symbol(&lv, &lv, &lv, &lv, &ladj, &ladj).unwrap();
         let (v, adj) = (Label::new(&v), Label::new(&adj));
-        let want = f_block_raw(&fam, [v, v, v, v, adj, adj], None).unwrap();
+        let want = fam.f_exact([v, v, v, v, adj, adj]).unwrap();
         assert_eq!(got.dims(), want.dims());
         let bits = |x: &[f64]| x.iter().map(|y| y.to_bits()).collect::<Vec<_>>();
-        assert_eq!(bits(got.as_slice()), bits(want.as_slice()));
+        assert_eq!(
+            bits(got.as_slice()),
+            bits(&crate::rounding::blocks::round_block(&want))
+        );
         let cgc = g.cgc(&lv, &lv, &ladj).unwrap();
         let entries = fam.cgc_entries(v, v, adj, None).unwrap();
         for e in entries.iter() {

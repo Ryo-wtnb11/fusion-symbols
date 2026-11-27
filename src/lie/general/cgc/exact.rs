@@ -1098,7 +1098,6 @@ impl ExactCgc {
 /// The highest-weight column (engine index 0 of `c`) of `a ⊗ b → c`: per
 /// `μ` the coordinates of `√N_μ Φ_μ(v_λ)` over `P`, with their own
 /// integral scale.
-#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct HighestColumn {
     mult: usize,
@@ -1106,8 +1105,6 @@ pub(crate) struct HighestColumn {
     coords: Coords,
 }
 
-// Read by exact F and R; until then only tests and the disk tier.
-#[cfg_attr(not(test), allow(dead_code))]
 impl HighestColumn {
     pub(crate) fn empty() -> Self {
         Self {
@@ -1192,24 +1189,17 @@ impl HighestColumn {
 }
 
 /// The norm data of one irrep, indexed by **public** magnetic index: the
-/// reduced `n_m` (read by the rounding layer), the integral `ν_m` with
+/// reduced `n_m` (read by the rounding layer), and the integral `ν_m` with
 /// `n_m = ν_m g/Δ` for the whole-table denominator lcm `Δ` and the content
-/// `g` of the scaled norms (read by exact F and R), and each index's
-/// position within its weight space.
-// `ν`, `Δ`, `g`, ranks, slots and top are read by exact F and R;
-// until then only by the disk tier and tests.
-#[cfg_attr(not(any(test, feature = "disk-cache")), allow(dead_code))]
+/// `g` of the scaled norms (read by exact F and R).
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct NormTable {
-    /// The authority: every other field but the ranks, slots and top is
-    /// derived from it by [`NormTable::from_parts`].
+    /// The authority: every other field but the top is derived from it by
+    /// [`NormTable::from_parts`].
     pub(crate) norm: Box<[Q]>,
     nu: SignedInts,
     den: Natural,
     content: Natural,
-    pub(crate) rank: Box<[u32]>,
-    /// The largest weight multiplicity; every rank is below it.
-    pub(crate) slots: u32,
     /// The public index of engine index 0, the highest weight.
     pub(crate) top: u32,
 }
@@ -1220,7 +1210,6 @@ impl NormTable {
         let dim = l.dim();
         let mut seen = vec![false; dim];
         let mut norm = vec![Q::from(0); dim];
-        let mut rank = vec![0u32; dim];
         for (m, &p) in l.public.iter().enumerate() {
             let p = p as usize;
             assert!(
@@ -1229,28 +1218,14 @@ impl NormTable {
             );
             norm[p] = l.norm[m].clone();
             norm[p].compact();
-            rank[p] = l.rank[m];
         }
-        let slots = l
-            .module
-            .weights
-            .iter()
-            .map(|s| s.norms.len())
-            .max()
-            .unwrap_or(0);
-        // A weight multiplicity is at most the dimension, a `u32`.
-        Self::from_parts(norm.into(), rank.into(), slots as u32, l.public[0])
+        Self::from_parts(norm.into(), l.public[0])
     }
 
-    /// The table of the public-indexed `norm`, `rank`, `slots` and `top`:
+    /// The table of the public-indexed `norm` and `top`:
     /// `ν`, `Δ` and `g` derived as `integral(norm)`, the one path every table
     /// is built by, so `n_m = ν_m g/Δ` on every path.
-    pub(crate) fn from_parts(
-        norm: Box<[Q]>,
-        rank: Box<[u32]>,
-        slots: u32,
-        top: u32,
-    ) -> Result<Self, LieError> {
+    pub(crate) fn from_parts(norm: Box<[Q]>, top: u32) -> Result<Self, LieError> {
         let Integral {
             x: nu,
             den,
@@ -1261,8 +1236,6 @@ impl NormTable {
             nu,
             den,
             content,
-            rank,
-            slots,
             top,
         };
         #[cfg(test)]
@@ -1283,22 +1256,16 @@ impl NormTable {
     }
 
     /// `ν_m` with `n_m = ν_m g/Δ`, every entry at least 1.
-    // Read by exact F and R; until then only tests.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn nu(&self) -> &SignedInts {
         &self.nu
     }
 
     /// `Δ`, the lcm of the norms' denominators.
-    // Read by exact F and R; until then only tests.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn den(&self) -> &Natural {
         &self.den
     }
 
     /// `g`, the content of the norms times `Δ`.
-    // Read by exact F and R; until then only tests.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn content(&self) -> &Natural {
         &self.content
     }
@@ -1315,7 +1282,6 @@ impl NormTable {
             .saturating_add(self.nu.heap_bytes())
             .saturating_add(natural_bytes(&self.den))
             .saturating_add(natural_bytes(&self.content))
-            .saturating_add(std::mem::size_of_val(self.rank.as_ref()))
     }
 
     #[cfg(feature = "disk-cache")]
@@ -1328,12 +1294,11 @@ impl NormTable {
                 .checked_add(natural_encoded_len(&p)?)?
                 .checked_add(natural_encoded_len(&d)?)?;
         }
-        n.checked_add(self.rank.len().checked_mul(4)?)?
-            .checked_add(8)
+        n.checked_add(4)
     }
 
-    /// `u32 dim`, `dim × (n_m numerator, denominator)`, `dim × u32 rank`,
-    /// `u32 slots`, `u32 top`. The derived `ν`, `Δ` and `g` are not stored.
+    /// `u32 dim`, `dim × (n_m numerator, denominator)`, `u32 top`. The
+    /// derived `ν`, `Δ` and `g` are not stored.
     #[cfg(feature = "disk-cache")]
     pub(crate) fn encode(&self, out: &mut Vec<u8>) {
         put_u32(out, self.norm.len());
@@ -1342,16 +1307,12 @@ impl NormTable {
             encode_natural(&p, out);
             encode_natural(&d, out);
         }
-        for &r in self.rank.iter() {
-            out.extend_from_slice(&r.to_le_bytes());
-        }
-        out.extend_from_slice(&self.slots.to_le_bytes());
         out.extend_from_slice(&self.top.to_le_bytes());
     }
 
     /// The table of `payload` for an irrep of dimension `dim`, checked before
-    /// any arithmetic or indexing: every norm positive, `dim` ranks below
-    /// `slots ≥ 1`, `top < dim`, and no trailing bytes; then built by
+    /// any arithmetic or indexing: every norm positive, `top < dim`, and no
+    /// trailing bytes; then built by
     /// [`Self::from_parts`]. A truncated table fails.
     #[cfg(feature = "disk-cache")]
     pub(crate) fn decode(payload: &[u8], dim: usize) -> Option<Self> {
@@ -1371,24 +1332,11 @@ impl NormTable {
             q.compact();
             norm.push(q);
         }
-        let raw = payload.get(*at..at.checked_add(dim.checked_mul(4)?)?)?;
-        *at += raw.len();
-        let rank: Box<[u32]> = raw
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|r| u32::from_le_bytes(*r))
-            .collect();
-        let slots = read_u32(payload, at)?;
         let top = read_u32(payload, at)?;
-        if slots == 0
-            || rank.iter().any(|&r| r >= slots)
-            || top as usize >= dim
-            || *at != payload.len()
-        {
+        if top as usize >= dim || *at != payload.len() {
             return None;
         }
-        Self::from_parts(norm.into(), rank, slots, top).ok()
+        Self::from_parts(norm.into(), top).ok()
     }
 }
 

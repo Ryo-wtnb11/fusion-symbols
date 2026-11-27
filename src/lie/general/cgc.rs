@@ -1055,7 +1055,6 @@ pub(super) fn exact_channel(
 /// The highest-weight column of `a ⊗ b → c` (engine index 0 of `c`): the
 /// exact certificates and seeds of §4.2–§4.3, integralized per `μ`, with no
 /// descent.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn highest_column(
     data: &CartanData,
     a: &Ladders,

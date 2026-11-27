@@ -10,8 +10,6 @@
 //! the term count times the summands per term is below `2^64`. That
 //! inequality is all the fixed path relies on; there is no rounding and no
 //! error to bound.
-// Read by the exact F and R kernels; until then only tests.
-#![cfg_attr(not(test), allow(dead_code))]
 
 use malachite_base::num::arithmetic::traits::UnsignedAbs;
 use malachite_nz::integer::Integer;

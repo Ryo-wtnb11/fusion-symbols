@@ -8,9 +8,11 @@
 
 use malachite_base::num::basic::traits::{One, Zero};
 use malachite_base::num::logic::traits::SignificantBits;
+#[cfg(test)]
 use malachite_nz::integer::Integer;
 use malachite_nz::natural::Natural;
 use malachite_nz::platform::Limb;
+#[cfg(test)]
 use malachite_q::Rational;
 
 use super::limbs::{mul_into, trimmed_words};
@@ -44,13 +46,14 @@ impl Radicand {
     }
 
     /// The unreduced product `self·other`.
-    fn mul(&self, other: &Self) -> Self {
+    pub(crate) fn mul(&self, other: &Self) -> Self {
         Self {
             num: compact(&self.num * &other.num),
             den: compact(&self.den * &other.den),
         }
     }
 
+    #[cfg(test)]
     fn rational(&self) -> Rational {
         Rational::from_naturals(self.num.clone(), self.den.clone())
     }
@@ -183,7 +186,6 @@ impl SignedInts {
     /// words each (`mag.len() == len·cap`) with sign words `neg`: the stride
     /// becomes the widest actual magnitude, every entry moving forward in
     /// place, and the sign of a zero entry is cleared.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn compacted(len: usize, cap: usize, mut neg: Vec<u64>, mut mag: Vec<u64>) -> Self {
         let mut widest = 0;
         for i in 0..len {
@@ -203,7 +205,6 @@ impl SignedInts {
     }
 
     /// Every entry negated.
-    #[cfg_attr(not(test), allow(dead_code))]
     fn negated(&self) -> Self {
         let mut neg = self.neg.clone();
         for i in (0..self.len).filter(|&i| !self.magnitude(i).is_empty()) {
@@ -247,8 +248,6 @@ impl SignedInts {
     }
 
     /// Significant bits of `|entry i|`.
-    // Read by the exact F and R bounds; until then only tests and the disk tier.
-    #[cfg_attr(not(any(test, feature = "disk-cache")), allow(dead_code))]
     pub(crate) fn bits(&self, i: usize) -> u64 {
         let w = self.magnitude(i);
         w.last().map_or(0, |&top| {
@@ -257,8 +256,6 @@ impl SignedInts {
     }
 
     /// The largest [`Self::bits`] over all entries.
-    // Read by the exact F and R bounds; until then only tests and the disk tier.
-    #[cfg_attr(not(any(test, feature = "disk-cache")), allow(dead_code))]
     pub(crate) fn max_bits(&self) -> u64 {
         (0..self.len).map(|i| self.bits(i)).max().unwrap_or(0)
     }
@@ -270,6 +267,7 @@ impl SignedInts {
     }
 
     /// Entry `i` as a signed big integer.
+    #[cfg(test)]
     pub(crate) fn integer(&self, i: usize) -> Integer {
         let m = Integer::from(words_natural(self.magnitude(i)));
         if self.is_negative(i) {
@@ -346,7 +344,6 @@ impl SignedInts {
 
 /// The little-endian 64-bit words of `x`, without high zero words. Reads
 /// Malachite's limbs in place, at either limb width.
-#[cfg_attr(not(any(test, feature = "disk-cache")), allow(dead_code))]
 pub(crate) fn natural_words(x: &Natural) -> Vec<u64> {
     let mut words = vec![0u64; x.significant_bits().div_ceil(64) as usize];
     for (i, w) in x.limbs().enumerate() {
@@ -466,7 +463,6 @@ fn read_words(bytes: &[u8], at: &mut usize, count: usize) -> Option<Box<[u64]>> 
 /// singleton (or empty) axis stores nothing, its radicand folded into
 /// `common`. `pub` so the sealed product hook can name it; the module is
 /// crate-private.
-#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RadicalBlock<const R: usize> {
     dims: [usize; R],
@@ -475,8 +471,6 @@ pub struct RadicalBlock<const R: usize> {
     common: Radicand,
 }
 
-// Read by exact F, R, A and B from the #325 cutover on; until then only tests.
-#[cfg_attr(not(test), allow(dead_code))]
 impl<const R: usize> RadicalBlock<R> {
     /// The block of these parts, if they fit: `Π dims` integers, and `axis[k]`
     /// of `dims[k]` radicands when `dims[k] > 1`, else empty.
@@ -497,6 +491,42 @@ impl<const R: usize> RadicalBlock<R> {
             axis,
             common,
         })
+    }
+
+    /// The block of `dims` whose leg `k` holds one radicand per index of
+    /// axis `k`; the radicand of a singleton axis is folded into `common`.
+    pub(crate) fn from_legs(
+        dims: [usize; R],
+        nums: SignedInts,
+        legs: [Vec<Radicand>; R],
+        mut common: Radicand,
+    ) -> Option<Self> {
+        let mut axis: [Box<[Radicand]>; R] = std::array::from_fn(|_| Box::default());
+        for (k, leg) in legs.into_iter().enumerate() {
+            if dims[k] > 1 {
+                axis[k] = leg.into_boxed_slice();
+            } else if dims[k] == 1 {
+                match leg.as_slice() {
+                    [r] => common = common.mul(r),
+                    _ => return None,
+                }
+            }
+        }
+        Self::new(dims, nums, axis, common)
+    }
+
+    /// The integers `S`, row-major.
+    pub(crate) fn nums(&self) -> &SignedInts {
+        &self.nums
+    }
+
+    /// The radicands of axis `k`: empty for a singleton axis.
+    pub(crate) fn axis(&self, k: usize) -> &[Radicand] {
+        &self.axis[k]
+    }
+
+    pub(crate) fn common(&self) -> &Radicand {
+        &self.common
     }
 
     /// The zero block of `dims`, with unit radicands.
@@ -542,6 +572,8 @@ impl<const R: usize> RadicalBlock<R> {
     /// The Kronecker product `self ⊗ other`: each axis index is
     /// `l·other.dims[k] + r`, entry `S_l·S_r`, radicands multiplied
     /// (unreduced). `None` when a dimension overflows.
+    // The product composer's; until the product cutover only tests.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn kron(&self, other: &Self) -> Option<Self> {
         let mut dims = [0; R];
         for (d, (&a, &b)) in dims.iter_mut().zip(self.dims.iter().zip(&other.dims)) {
@@ -632,7 +664,8 @@ impl<const R: usize> RadicalBlock<R> {
         )
     }
 
-    /// Entry `i` (row-major) exactly.
+    /// Entry `i` (row-major) exactly: the oracle tests' reader.
+    #[cfg(test)]
     pub(crate) fn entry(&self, i: usize) -> SignedSqrtRational {
         let mut rad = self.common.rational();
         let mut rest = i;
@@ -647,7 +680,6 @@ impl<const R: usize> RadicalBlock<R> {
     }
 
     /// Bytes owned: the struct, the integers and every radicand.
-    #[allow(dead_code)] // charged by the exact F/R tier, which lands with the cutover
     pub(crate) fn bytes(&self) -> usize {
         std::mem::size_of::<Self>()
             .saturating_add(self.nums.heap_bytes())

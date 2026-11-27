@@ -586,3 +586,26 @@ mod su3 {
         assert_block(b.as_slice(), &B_15, "B (15,1)");
     }
 }
+
+/// Rounded once from the exact F of the unit-leg sextet, A and B of unit
+/// magnitude are exactly `±1`: SU(2) `½ ⊗ ½ → 0` (`κ = −1`) gives `A = +1`
+/// and `B = −1`, and SU(4) `4 ⊗ 4̄ → 1` (`κ = −1` while the indicator is 0,
+/// both scalar F entries `−1/4`) gives the same.
+#[test]
+fn unit_a_and_b_are_exactly_plus_and_minus_one() {
+    let g = su2();
+    let (half, zero) = (g.irrep(&[1]).unwrap(), g.irrep(&[0]).unwrap());
+    assert_eq!(entry(g.a_symbol(&half, &half, &zero).unwrap()), 1.0);
+    assert_eq!(entry(g.b_symbol(&half, &half, &zero).unwrap()), -1.0);
+    #[cfg(feature = "lie-generated")]
+    {
+        let g = LieGroup::new(GroupId::su(4).unwrap()).unwrap();
+        let (four, bar, one) = (
+            g.irrep(&[1, 0, 0]).unwrap(),
+            g.irrep(&[0, 0, 1]).unwrap(),
+            g.irrep(&[0, 0, 0]).unwrap(),
+        );
+        assert_eq!(entry(g.a_symbol(&four, &bar, &one).unwrap()), 1.0);
+        assert_eq!(entry(g.b_symbol(&four, &bar, &one).unwrap()), -1.0);
+    }
+}

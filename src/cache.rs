@@ -111,6 +111,7 @@ use std::sync::{Arc, LazyLock, OnceLock};
 
 use crate::category::sealed::{LeafBuf, LeafLabel, LeafRef, SymbolKind};
 use crate::category::{FBlock, RBlock, SymbolBlock};
+use crate::exact::radical::RadicalBlock;
 use crate::exact::SignedSqrtRational;
 use crate::lie::general::cgc::exact::{ExactCgc, HighestColumn, NormTable};
 use crate::lie::general::cgc::{CgcChannel, Ladders};
@@ -967,7 +968,6 @@ pub(crate) const DISK_CHANNEL: u8 = 1;
 pub(crate) const DISK_PHASE: u8 = 2;
 pub(crate) const DISK_F: u8 = 3;
 pub(crate) const DISK_R: u8 = 4;
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) const DISK_SEEDS: u8 = 5;
 pub(crate) const DISK_NORMS: u8 = 6;
 
@@ -978,7 +978,6 @@ pub(crate) enum Shape {
     /// Weyl dimensions of the three labels and `N^c_{ab}`.
     Channel { dims: [usize; 3], mult: usize },
     /// Weyl dimensions of the two factors and `N^c_{ab}`.
-    #[cfg_attr(not(test), allow(dead_code))]
     Seeds { dims: [usize; 2], mult: usize },
     /// The Weyl dimension of the irrep.
     Norms { dim: usize },
@@ -1293,17 +1292,28 @@ enum FValue {
     /// A rounded SU(2) F symbol: a *presentation* of the exact 6j tier's
     /// value, never an independent value source.
     Scalar(f64),
+    /// A rounded Cartan block: a view of its exact block (kind 1).
     Block(FBlock<f64>),
+    /// The exact Cartan block, the stored authority.
+    Exact(Arc<RadicalBlock<4>>),
 }
 
 impl CacheCharge for FValue {
     fn value_bytes(&self) -> usize {
-        match self {
-            Self::Scalar(_) => std::mem::size_of::<Self>(),
-            Self::Block(block) => std::mem::size_of::<Self>().saturating_add(block.value_bytes()),
-        }
+        std::mem::size_of::<Self>().saturating_add(match self {
+            Self::Scalar(_) => 0,
+            Self::Block(block) => block.value_bytes(),
+            Self::Exact(x) => ARC_COUNTS_BYTES.saturating_add(x.bytes()),
+        })
     }
 }
+
+/// Key kinds of the Cartan F and R tiers: a rounded view and the exact
+/// block below it; A and B views share the R tier.
+const VIEW: u8 = 0;
+const EXACT: u8 = 1;
+const A_VIEW: u8 = 2;
+const B_VIEW: u8 = 3;
 
 /// The F tier. A warm SU(2) hit returns a `Copy` scalar without re-running the
 /// big-integer `sqrt` of [`SignedSqrtRational::to_f64`]; a warm Cartan hit
@@ -1320,14 +1330,16 @@ pub(crate) fn su2_f<E>(key: FKey, compute: impl FnOnce() -> Result<f64, E>) -> R
         &key,
         |value| match value {
             FValue::Scalar(x) => *x,
-            FValue::Block(_) => unreachable!("an SU(2) key stores a scalar"),
+            _ => unreachable!("an SU(2) key stores a scalar"),
         },
         || key.clone(),
         |_| compute().map(FValue::Scalar),
     )
 }
 
-/// Cartan-engine F block of the six labels as given, in presented root `root`.
+/// The rounded Cartan-engine F block of the six labels as given, in
+/// presented root `root`: a view, whose miss gets or generates the exact
+/// block ([`f_exact`]) below it.
 #[inline]
 pub(crate) fn f_block<E>(
     root: RootSystem,
@@ -1335,7 +1347,7 @@ pub(crate) fn f_block<E>(
     compute: impl FnOnce() -> Result<FBlock<f64>, E>,
 ) -> Result<FBlock<f64>, E> {
     let key = FCartanRef(LabelRef {
-        kind: 0,
+        kind: VIEW,
         root,
         parts,
     });
@@ -1343,32 +1355,121 @@ pub(crate) fn f_block<E>(
         &key,
         |value| match value {
             FValue::Block(block) => block.clone(),
-            FValue::Scalar(_) => unreachable!("a Cartan key stores a block"),
+            _ => unreachable!("a view key stores a block"),
         },
         || FSymbolKey::Cartan(key.0.to_key()),
         |_| compute().map(FValue::Block),
     )
 }
 
+/// The exact Cartan-engine F block of the six labels. Loaded inside a view
+/// miss, it inherits that generation's reset epoch; its generation never
+/// claims a view.
+pub(crate) fn f_exact<E>(
+    root: RootSystem,
+    parts: [Label<'_>; 6],
+    compute: impl FnOnce() -> Result<Arc<RadicalBlock<4>>, E>,
+) -> Result<Arc<RadicalBlock<4>>, E> {
+    let key = FCartanRef(LabelRef {
+        kind: EXACT,
+        root,
+        parts,
+    });
+    CACHE_F.get_or_try_sweep(
+        &key,
+        |value| match value {
+            FValue::Exact(x) => x.clone(),
+            _ => unreachable!("an exact key stores an exact block"),
+        },
+        || FSymbolKey::Cartan(key.0.to_key()),
+        |_| compute().map(FValue::Exact),
+    )
+}
+
+/// A value of the R tier: a rounded R, A or B view, or an exact R block.
+#[derive(Clone, Debug)]
+enum RValue {
+    View(RBlock<f64>),
+    Exact(Arc<RadicalBlock<2>>),
+}
+
+impl CacheCharge for RValue {
+    fn value_bytes(&self) -> usize {
+        std::mem::size_of::<Self>().saturating_add(match self {
+            Self::View(block) => block.value_bytes(),
+            Self::Exact(x) => ARC_COUNTS_BYTES.saturating_add(x.bytes()),
+        })
+    }
+}
+
 /// The R tier: Cartan-engine blocks keyed by the ordered triple, since
 /// `R^{ab}_c` and `R^{ba}_c` are different blocks. SUNRepresentations
-/// (`sector.jl:Rsymbol`, `RCACHE`) caches R blocks for the same reason.
-static CACHE_R: LazyLock<CoefficientCache<LabelKey, RBlock<f64>, FoldBuild>> =
+/// (`sector.jl:Rsymbol`, `RCACHE`) caches R blocks for the same reason. The
+/// A and B views of a triple share it.
+static CACHE_R: LazyLock<CoefficientCache<LabelKey, RValue, FoldBuild>> =
     LazyLock::new(|| CoefficientCache::shared(R_MAX_ENTRIES, effective_budgets().r_symbol_bytes));
 
-/// Cartan-engine R block of the three labels as given.
+fn r_view<E>(
+    kind: u8,
+    root: RootSystem,
+    parts: [Label<'_>; 3],
+    compute: impl FnOnce() -> Result<RBlock<f64>, E>,
+) -> Result<RBlock<f64>, E> {
+    let key = LabelRef { kind, root, parts };
+    CACHE_R.get_or_try_sweep(
+        &key,
+        |value| match value {
+            RValue::View(block) => block.clone(),
+            RValue::Exact(_) => unreachable!("a view key stores a view"),
+        },
+        || key.to_key(),
+        |_| compute().map(RValue::View),
+    )
+}
+
+/// The rounded Cartan-engine R block of the three labels as given: a view
+/// over [`r_exact`].
 #[inline]
 pub(crate) fn r_block<E>(
     root: RootSystem,
     parts: [Label<'_>; 3],
     compute: impl FnOnce() -> Result<RBlock<f64>, E>,
 ) -> Result<RBlock<f64>, E> {
+    r_view(VIEW, root, parts, compute)
+}
+
+/// The rounded `A^{ab}_c` (`b = false`) or `B^{ab}_c` (`b = true`) of the
+/// three labels as given, every rank-one presentation included: a view over
+/// the exact F of its unit-leg sextet.
+pub(crate) fn ab_block<E>(
+    b: bool,
+    root: RootSystem,
+    parts: [Label<'_>; 3],
+    compute: impl FnOnce() -> Result<RBlock<f64>, E>,
+) -> Result<RBlock<f64>, E> {
+    r_view(if b { B_VIEW } else { A_VIEW }, root, parts, compute)
+}
+
+/// The exact Cartan-engine R block of the three labels.
+pub(crate) fn r_exact<E>(
+    root: RootSystem,
+    parts: [Label<'_>; 3],
+    compute: impl FnOnce() -> Result<Arc<RadicalBlock<2>>, E>,
+) -> Result<Arc<RadicalBlock<2>>, E> {
     let key = LabelRef {
-        kind: 0,
+        kind: EXACT,
         root,
         parts,
     };
-    CACHE_R.get_or_try_compute(&key, || key.to_key(), compute)
+    CACHE_R.get_or_try_sweep(
+        &key,
+        |value| match value {
+            RValue::Exact(x) => x.clone(),
+            RValue::View(_) => unreachable!("an exact key stores an exact block"),
+        },
+        || key.to_key(),
+        |_| compute().map(RValue::Exact),
+    )
 }
 
 /// One retained Cartan-engine value. Modules, exact channels with their
@@ -1383,8 +1484,6 @@ enum CgcValue {
     Channel(Arc<CgcChannel>),
     Phase(i8),
     ExactChannel(Arc<ExactCgc>),
-    // Read by exact F and R; until then only tests.
-    #[cfg_attr(not(test), allow(dead_code))]
     Seeds(Arc<HighestColumn>),
     Norms(Arc<NormTable>),
 }
@@ -1410,7 +1509,6 @@ const MODULE: u8 = 0;
 const CHANNEL: u8 = 1;
 const PHASE: u8 = 2;
 const EXACT_CHANNEL: u8 = 3;
-#[cfg_attr(not(test), allow(dead_code))]
 const SEEDS: u8 = 4;
 const NORMS: u8 = 5;
 
@@ -1504,7 +1602,6 @@ pub(crate) fn cgc_exact_channel<E>(
 }
 
 /// The highest-weight column of the ordered triple.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn cgc_seeds<E>(
     root: RootSystem,
     parts: [Label<'_>; 3],
@@ -2434,8 +2531,8 @@ mod tests {
         let fam = crate::lie::general::GeneralFamily::new(RootSystem::A(2));
         let [e8, three, bar] = [&[1, 1], &[1, 0], &[0, 1]].map(|x| Label::new(x));
         // The 2×2 octet block shares an Arc; a 1×1 block is inline.
-        let a = fam.r_symbol([e8, e8, e8], None).unwrap();
-        let b = fam.r_symbol([three, bar, e8], None).unwrap();
+        let a = fam.r_symbol([e8, e8, e8]).unwrap();
+        let b = fam.r_symbol([three, bar, e8]).unwrap();
         // Purpose: a block charge covers its coefficient payload and grows with it.
         assert!(a.value_bytes() >= std::mem::size_of_val(a.as_slice()));
         assert!(a.value_bytes() > b.value_bytes());
@@ -3221,5 +3318,23 @@ mod tests {
         tier.get_or_compute(real.to_key(), || 1.0);
         assert_eq!(tier.get(&real), Some(1.0));
         assert_eq!(tier.get(&forged), None);
+    }
+
+    /// Purpose: an exact F or R entry is charged its block's owned bytes
+    /// (integers and every radicand) plus the shared counts, so the tier cap
+    /// bounds exact entries as it bounds views.
+    #[test]
+    fn exact_entries_are_charged_their_blocks() {
+        let f = Arc::new(RadicalBlock::<4>::zeros([1, 3, 1, 3]).unwrap());
+        assert_eq!(
+            FValue::Exact(f.clone()).value_bytes(),
+            std::mem::size_of::<FValue>() + ARC_COUNTS_BYTES + f.bytes()
+        );
+        assert!(f.bytes() > std::mem::size_of::<RadicalBlock<4>>());
+        let r = Arc::new(RadicalBlock::<2>::zeros([2, 2]).unwrap());
+        assert_eq!(
+            RValue::Exact(r.clone()).value_bytes(),
+            std::mem::size_of::<RValue>() + ARC_COUNTS_BYTES + r.bytes()
+        );
     }
 }

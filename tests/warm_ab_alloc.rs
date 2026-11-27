@@ -1,4 +1,4 @@
-//! Purpose: warm leaf A/B allocate only their returned block, and a product level adds only its own (counted in allocations).
+//! Purpose: warm leaf A/B allocate nothing, and a product level adds only its own output buffer (counted in allocations).
 #![cfg(feature = "lie-generated")]
 
 use crate::common::counting_alloc;
@@ -15,21 +15,14 @@ fn measure<T>(f: impl FnOnce() -> T) -> ((usize, usize), T) {
     ((calls, bytes), result)
 }
 
-// Every block of more than one element is one owned buffer. Byte totals depend
-// on std layouts and are not asserted.
-fn buffers(lengths: &[usize]) -> usize {
-    lengths.iter().filter(|&&n| n > 1).count()
-}
-
 fn check<C: FusionCategory<Scalar = f64>>(
     name: &str,
     cat: &C,
     a: &C::Object,
     b: &C::Object,
     c: &C::Object,
-    composition_buffers: &[usize],
-) -> usize {
-    let mut elements = 0;
+    buffers: usize,
+) {
     for is_a in [true, false] {
         let query = || {
             if is_a {
@@ -40,18 +33,12 @@ fn check<C: FusionCategory<Scalar = f64>>(
             .unwrap()
         };
         let cold = query();
-        elements = cold.as_slice().len();
         let base = crate::common::stats_sum(&crate::common::BASE_TIERS);
         let generated = crate::common::stats_sum(&crate::common::PRODUCT_AND_R);
         let (allocation, warm) = measure(query);
-        let expected = buffers(if composition_buffers.is_empty() {
-            std::slice::from_ref(&elements)
-        } else {
-            composition_buffers
-        });
         assert_eq!(
             allocation.0,
-            expected,
+            buffers,
             "{name} {}",
             if is_a { "A" } else { "B" }
         );
@@ -84,34 +71,35 @@ fn check<C: FusionCategory<Scalar = f64>>(
         assert_eq!(measure(|| cat.dual(object)).0, (0, 0), "{name}: dual");
     }
     assert_eq!(measure(|| cat.unit()).0, (0, 0), "{name}: unit");
-    elements
 }
 
-// Purpose: allocation counts follow the structure (leaf blocks plus one output
-// buffer per product level). The serial guard isolates the cache lifecycle checks.
+// Purpose: warm leaf A/B are cached views (shared or inline, no allocation),
+// and a product level adds its own output buffer. Byte totals depend on std
+// layouts and are not asserted. The serial guard isolates the cache
+// lifecycle checks.
 #[test]
 fn warm_ab_allocate_only_leaf_blocks_and_one_buffer_per_product_level() {
     let _serial = crate::common::counting_alloc::serial();
     let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
     let oct = su3.irrep(&[1, 1]).unwrap();
-    let n = check("SU3", &su3, &oct, &oct, &oct, &[]);
+    check("SU3", &su3, &oct, &oct, &oct, 0);
     let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
     let half = su2.irrep(&[1]).unwrap();
     let one = su2.irrep(&[2]).unwrap();
-    check("SU2", &su2, &half, &one, &half, &[]);
+    check("SU2", &su2, &half, &one, &half, 0);
     let sp4 = LieGroup::new(GroupId::sp(4).unwrap()).unwrap();
     let v = sp4.irrep(&[1, 0]).unwrap();
     let adj = sp4.irrep(&[2, 0]).unwrap();
-    check("Sp4", &sp4, &v, &adj, &v, &[]);
+    check("Sp4", &sp4, &v, &adj, &v, 0);
 
     let p = Product::new((su3.clone(), su3.clone()));
     let x = (oct.clone(), oct.clone());
-    // Two leaf blocks and the one output buffer.
-    let nn = check("SU3xSU3", &p, &x, &x, &x, &[n, n, n * n]);
+    // The one output buffer.
+    check("SU3xSU3", &p, &x, &x, &x, 1);
     let p = Product::new((p, su3));
     let x = (x, oct);
-    // Three leaf blocks, the nested factor's own block, and the output buffer.
-    check("(SU3xSU3)xSU3", &p, &x, &x, &x, &[n, n, nn, n, nn * n]);
+    // The nested factor's output buffer and the outer one.
+    check("(SU3xSU3)xSU3", &p, &x, &x, &x, 2);
 
     // Complex SU(N) and odd-D chiral labels must also dualize without rebuilding.
     for (id, labels) in [

@@ -30,7 +30,7 @@ fn octet_f(fam: &GeneralFamily) -> Result<FBlock<f64>, LieError> {
 
 fn octet_r(fam: &GeneralFamily) -> RBlock<f64> {
     let o = Label::new(&OCTET);
-    fam.r_symbol([o; 3], None).unwrap()
+    fam.r_symbol([o; 3]).unwrap()
 }
 
 fn bits(c: &CgcChannel) -> Vec<(u32, u32, u32, u32, u64)> {

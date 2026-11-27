@@ -53,6 +53,15 @@ fn f_symbol_cache_hit_reset_stats_and_concurrency() {
     );
 
     // --- concurrency: many threads race on the same key ---
+    // One cold call's own entries and misses in the tier (a view over its
+    // exact block); the race must add exactly those.
+    let tier = |t| {
+        let s = cache::tier_stats(t);
+        (s.entries, s.misses)
+    };
+    let _ = f_symbol(&e8, &e8, &e8, &e8, &e8, &e8).unwrap();
+    let cold_f = tier(cache::CoefficientCacheTier::FSymbol);
+    cache::reset();
     let e8 = Arc::new(e8);
     let want = first;
     let start = Arc::new(Barrier::new(8));
@@ -73,9 +82,9 @@ fn f_symbol_cache_hit_reset_stats_and_concurrency() {
         h.join().unwrap();
     }
     let stats = cache::tier_stats(cache::CoefficientCacheTier::FSymbol);
-    assert_eq!(stats.entries, 1, "one F entry survives the race");
     assert_eq!(
-        stats.misses, 1,
+        (stats.entries, stats.misses),
+        cold_f,
         "one successful F computation under contention"
     );
     assert_eq!(stats.hits, 8 * 16 - 1, "all other callers share the result");
@@ -83,6 +92,7 @@ fn f_symbol_cache_hit_reset_stats_and_concurrency() {
     // --- R tier: the same single-flight contract ---
     cache::reset();
     let want = r_symbol(&e8, &e8, &e8).unwrap();
+    let cold_r = tier(cache::CoefficientCacheTier::RSymbol);
     cache::reset();
     let mut handles = Vec::new();
     for _ in 0..8 {
@@ -101,9 +111,9 @@ fn f_symbol_cache_hit_reset_stats_and_concurrency() {
         h.join().unwrap();
     }
     let stats = cache::tier_stats(cache::CoefficientCacheTier::RSymbol);
-    assert_eq!(stats.entries, 1, "one R entry survives the race");
     assert_eq!(
-        stats.misses, 1,
+        (stats.entries, stats.misses),
+        cold_r,
         "one successful R computation under contention"
     );
     assert_eq!(stats.hits, 8 * 16 - 1, "all other callers share the result");

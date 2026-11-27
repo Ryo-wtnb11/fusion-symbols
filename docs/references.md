@@ -26,7 +26,7 @@ algorithms that preceded it.
 
 ## F/R contraction and gates
 
-`src/frcore.rs::{f_block_raw,r_block_raw}` implements the contraction wiring
+`src/frcore.rs::{f_exact,r_exact}` implements the contraction wiring
 of every Cartan-engine F and R block, and `rounding::blocks::{check_f_block,
 check_r_block}` the block gates. The references are
 SUNRepresentations.jl 0.4.0 `src/sector.jl::{_Fsymbol,_Rsymbol}` and

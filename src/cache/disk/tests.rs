@@ -3,7 +3,7 @@
 //! hand-built rows whose shape is stated next to them.
 
 use super::*;
-use crate::exact::radical::SignedInts;
+use crate::exact::radical::{RadicalBlock, Radicand, SignedInts};
 use malachite_nz::natural::Natural;
 use std::cell::Cell;
 use std::sync::atomic::AtomicUsize;
@@ -222,27 +222,45 @@ fn two_column_channel() -> (Arc<ExactCgc>, Shape) {
 }
 
 /// The norm-table layout, written out field by field.
-fn norm_row(dim: u32, norms: &[(u64, u64)], rank: &[u32], slots: u32, top: u32) -> Vec<u8> {
+fn norm_row(dim: u32, norms: &[(u64, u64)], top: u32) -> Vec<u8> {
     let mut out = dim.to_le_bytes().to_vec();
     for &(n, d) in norms {
         out.extend(radicand(n, d));
     }
-    for r in rank {
-        out.extend_from_slice(&r.to_le_bytes());
-    }
-    out.extend_from_slice(&slots.to_le_bytes());
     out.extend_from_slice(&top.to_le_bytes());
     out
 }
 
-/// A three-dimensional table: norms `1, 1/2, 3/2`; the last two share a
-/// weight space.
+/// A three-dimensional table: norms `1, 1/2, 3/2`.
 fn good_norms() -> Vec<u8> {
-    norm_row(3, &[(1, 1), (1, 2), (3, 2)], &[0, 0, 1], 2, 0)
+    norm_row(3, &[(1, 1), (1, 2), (3, 2)], 0)
 }
 
-fn block_bits(x: &[f64]) -> Vec<u64> {
-    x.iter().map(|v| v.to_bits()).collect()
+fn rad(n: u32, d: u32) -> Radicand {
+    Radicand::new(Natural::from(n), Natural::from(d)).unwrap()
+}
+
+/// `[1, 2, 1, 2]`: `S = (1, −2, 0, 3)`, axes 1 and 3 stored.
+fn exact_f() -> Arc<RadicalBlock<4>> {
+    let nums = SignedInts::from_words(&[(false, 1), (true, 2), (false, 0), (false, 3)]).unwrap();
+    let two = || -> Box<[Radicand]> { vec![rad(1, 3), rad(2, 3)].into() };
+    Arc::new(
+        RadicalBlock::new(
+            [1, 2, 1, 2],
+            nums,
+            [Box::default(), two(), Box::default(), two()],
+            rad(1, 2),
+        )
+        .unwrap(),
+    )
+}
+
+/// `2 × 2`: `S = (−2, 3, 3, 2)` over `ρ = 1/49` per leg pair, both axes
+/// stored.
+fn exact_r() -> Arc<RadicalBlock<2>> {
+    let nums = SignedInts::from_words(&[(true, 2), (false, 3), (false, 3), (false, 2)]).unwrap();
+    let axis = || -> Box<[Radicand]> { vec![rad(1, 1), rad(5, 1)].into() };
+    Arc::new(RadicalBlock::new([2, 2], nums, [axis(), axis()], rad(1, 49)).unwrap())
 }
 
 #[test]
@@ -268,17 +286,15 @@ fn each_kind_round_trips_bit_identically() {
         assert_eq!(i8::decode(&payload(&k), &Shape::Phase), Some(k));
     }
 
-    let f = FBlock::from_vec([1, 2, 1, 2], vec![0.5, -0.0, f64::MIN_POSITIVE / 2.0, -1.0]);
-    let back = FBlock::decode(&payload(&f), &Shape::F([1, 2, 1, 2])).unwrap();
-    assert_eq!(block_bits(back.as_slice()), block_bits(f.as_slice()));
-    let empty = FBlock::<f64>::zeros([0, 2, 1, 1]);
-    let back = FBlock::decode(&payload(&empty), &Shape::F([0, 2, 1, 1])).unwrap();
-    assert_eq!(back.dims(), [0, 2, 1, 1]);
-
-    // A rotation: orthogonal, with a signed zero nowhere needed.
-    let r = RBlock::from_vec(2, vec![0.6, 0.8, -0.8, 0.6]);
-    let back = RBlock::decode(&payload(&r), &Shape::R(2)).unwrap();
-    assert_eq!(block_bits(back.as_slice()), block_bits(r.as_slice()));
+    let f = exact_f();
+    let back = Arc::<RadicalBlock<4>>::decode(&payload(&f), &Shape::F([1, 2, 1, 2])).unwrap();
+    assert_eq!(back, f);
+    let empty = Arc::new(RadicalBlock::<4>::zeros([0, 2, 1, 1]).unwrap());
+    let back = Arc::<RadicalBlock<4>>::decode(&payload(&empty), &Shape::F([0, 2, 1, 1]));
+    assert_eq!(back, Some(empty));
+    let r = exact_r();
+    let back = Arc::<RadicalBlock<2>>::decode(&payload(&r), &Shape::R(2)).unwrap();
+    assert_eq!(back, r);
 }
 
 #[test]
@@ -451,13 +467,11 @@ fn structurally_wrong_rows_with_valid_checksum_are_rejected() {
     }
 
     let norms = Shape::Norms { dim: 3 };
-    let table = |norms: &[(u64, u64)], rank: &[u32], slots, top| {
-        row(&key, &norm_row(3, norms, rank, slots, top))
-    };
+    let table = |norms: &[(u64, u64)], top| row(&key, &norm_row(3, norms, top));
     let n = [(1, 1), (1, 2), (3, 2)];
     // The derived fields are those of the norms: `Δ = 2`, `g = 1`, so
     // `ν = (2, 1, 3)`.
-    let decoded = decode_row::<Arc<NormTable>>(&key, &table(&n, &[0, 0, 1], 2, 0), &norms).unwrap();
+    let decoded = decode_row::<Arc<NormTable>>(&key, &table(&n, 0), &norms).unwrap();
     let want = SignedInts::from_words(&[(false, 2), (false, 1), (false, 3)]).unwrap();
     assert_eq!(
         (decoded.nu(), decoded.den(), decoded.content()),
@@ -469,13 +483,8 @@ fn structurally_wrong_rows_with_valid_checksum_are_rejected() {
         "dim"
     );
     for (name, stored) in [
-        (
-            "zero norm",
-            table(&[(1, 1), (0, 2), (3, 2)], &[0, 0, 1], 2, 0),
-        ),
-        ("rank past slots", table(&n, &[0, 0, 2], 2, 0)),
-        ("no slots", table(&n, &[0, 0, 0], 0, 0)),
-        ("top past dim", table(&n, &[0, 0, 1], 2, 3)),
+        ("zero norm", table(&[(1, 1), (0, 2), (3, 2)], 0)),
+        ("top past dim", table(&n, 3)),
     ] {
         assert!(
             decode_row::<Arc<NormTable>>(&key, &stored, &norms).is_none(),
@@ -483,56 +492,35 @@ fn structurally_wrong_rows_with_valid_checksum_are_rejected() {
         );
     }
 
-    let f = FBlock::from_vec([1, 1, 1, 2], vec![0.5, 0.5]);
-    let f_row = row(&key, &payload(&f));
+    let f_row = row(&key, &payload(&exact_f()));
     assert!(
-        decode_row::<FBlock<f64>>(&key, &f_row, &Shape::F([1, 1, 2, 1])).is_none(),
+        decode_row::<Arc<RadicalBlock<4>>>(&key, &f_row, &Shape::F([1, 2, 2, 1])).is_none(),
         "F dims"
     );
-    let mut huge = Vec::new();
-    for _ in 0..4 {
-        put_u32(&mut huge, u32::MAX as usize);
+    assert!(
+        decode_row::<Arc<RadicalBlock<4>>>(&key, &f_row, &Shape::R(2)).is_none(),
+        "F row as R"
+    );
+    // Dims alone, of a product past `usize` or of 2^64 entries: refused
+    // before any slab is read.
+    for (name, d) in [("F overflow", u32::MAX), ("F wrap", 1 << 16)] {
+        let dims: Vec<u8> = (0..4).flat_map(|_| d.to_le_bytes()).collect();
+        assert!(
+            decode_row::<Arc<RadicalBlock<4>>>(&key, &row(&key, &dims), &Shape::F([d as usize; 4]))
+                .is_none(),
+            "{name}"
+        );
     }
-    let huge_shape = Shape::F([u32::MAX as usize; 4]);
+    let r_row = row(&key, &payload(&exact_r()));
     assert!(
-        decode_row::<FBlock<f64>>(&key, &row(&key, &huge), &huge_shape).is_none(),
-        "F overflow"
-    );
-    // 2^16 per axis: a wrapping product would be 0 and accept no values.
-    let mut wraps = Vec::new();
-    for _ in 0..4 {
-        put_u32(&mut wraps, 1 << 16);
-    }
-    let wrap_shape = Shape::F([1 << 16; 4]);
-    assert!(
-        decode_row::<FBlock<f64>>(&key, &row(&key, &wraps), &wrap_shape).is_none(),
-        "F wrap"
-    );
-    let bad_f = FBlock::from_vec([1, 1, 1, 2], vec![0.5, f64::INFINITY]);
-    let bad_f_row = row(&key, &payload(&bad_f));
-    assert!(
-        decode_row::<FBlock<f64>>(&key, &bad_f_row, &Shape::F([1, 1, 1, 2])).is_none(),
-        "F gate"
-    );
-
-    let r1 = RBlock::from_vec(1, vec![1.0]);
-    let r1_row = row(&key, &payload(&r1));
-    assert!(
-        decode_row::<RBlock<f64>>(&key, &r1_row, &Shape::R(2)).is_none(),
+        decode_row::<Arc<RadicalBlock<2>>>(&key, &r_row, &Shape::R(3)).is_none(),
         "R n"
     );
-    let mut r_header = payload(&RBlock::from_vec(2, vec![0.6, 0.8, -0.8, 0.6]));
+    let mut r_header = payload(&exact_r());
     r_header[0] = 3;
-    let r_header_row = row(&key, &r_header);
     assert!(
-        decode_row::<RBlock<f64>>(&key, &r_header_row, &Shape::R(2)).is_none(),
+        decode_row::<Arc<RadicalBlock<2>>>(&key, &row(&key, &r_header), &Shape::R(2)).is_none(),
         "stored R n"
-    );
-    let skew = RBlock::from_vec(2, vec![1.0, 0.5, 0.0, 1.0]);
-    let skew_row = row(&key, &payload(&skew));
-    assert!(
-        decode_row::<RBlock<f64>>(&key, &skew_row, &Shape::R(2)).is_none(),
-        "R gate"
     );
     let phase_row = row(&key, &[2]);
     assert!(
