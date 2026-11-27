@@ -2983,11 +2983,13 @@ mod exact_fr {
     use crate::exact::SignedSqrtRational;
     use malachite_q::Rational;
 
-    /// `x` per `(m_a, m_b, μ)` of channel `ch` at engine state `m_c`.
-    fn at(ch: &ExactChannel, mc: usize) -> HashMap<(usize, usize, usize), Rational> {
+    /// `x` per `(m_a, m_b, μ)` of channel `ch` into `lc` at engine state
+    /// `m_c`, whose pairs are those of its weight space.
+    fn at(ch: &ExactChannel, lc: &Ladders, mc: usize) -> HashMap<(usize, usize, usize), Rational> {
         let mut out = HashMap::new();
-        for mu in 0..ch.mult {
-            for (&(pa, pb), x) in ch.spaces[mc].pairs.iter().zip(&ch.phi[mc][mu]) {
+        let pairs = &ch.spaces[lc.space[mc]].pairs;
+        for (mu, phi) in ch.phi[mc].iter().enumerate() {
+            for (&(pa, pb), x) in pairs.iter().zip(phi) {
                 if !x.is_zero() {
                     out.insert((pa, pb, mu), x.to_rational());
                 }
@@ -3017,32 +3019,32 @@ mod exact_fr {
     fn oracle_f(root: RootSystem, l: [&[i64]; 6]) -> ([usize; 4], Vec<Rational>) {
         let fam = GeneralFamily::new(root);
         let [a, b, c, d, e, f] = l;
-        let (ca, la, lb, _) = fam.channel(a, b, e).unwrap();
+        let (ca, la, lb, le) = fam.channel(a, b, e).unwrap();
         let (cb, _, lc, ld) = fam.channel(e, c, d).unwrap();
-        let (cc, ..) = fam.channel(b, c, f).unwrap();
+        let (cc, .., lf) = fam.channel(b, c, f).unwrap();
         let (cd, ..) = fam.channel(a, f, d).unwrap();
         let dims = [ca.mult, cb.mult, cc.mult, cd.mult];
         let [na, nb, nc, nd] = [&la, &lb, &lc, &ld].map(|m| norms(m.as_ref()));
         // A and C at every coupled state: (m_a, m_b, m_e, μ) and (m_b, m_c, m_f, κ).
-        let full = |ch: &ExactChannel| {
+        let full = |ch: &ExactChannel, l: &Ladders| {
             let mut out = Vec::new();
-            for m in 0..ch.spaces.len() {
-                for (&(p, q, mu), x) in &at(ch, m) {
+            for m in l.engine() {
+                for (&(p, q, mu), x) in &at(ch, l, m) {
                     out.push((p, q, m, mu, x.clone()));
                 }
             }
             out
         };
-        let a_full = full(&ca);
+        let a_full = full(&ca, le.as_ref());
         type Legs = Vec<(usize, usize, Rational)>;
         let mut c_by: HashMap<(usize, usize), Legs> = HashMap::new();
-        for (pb, pc, pf, kappa, x) in full(&cc) {
+        for (pb, pc, pf, kappa, x) in full(&cc, lf.as_ref()) {
             c_by.entry((pb, pc)).or_default().push((pf, kappa, x));
         }
         let len = dims.iter().product();
         let mut first: Option<Vec<Rational>> = None;
         for (md, nd_m) in nd.iter().enumerate() {
-            let (bs, ds) = (at(&cb, md), at(&cd, md));
+            let (bs, ds) = (at(&cb, &ld, md), at(&cd, &ld, md));
             let mut b_by: HashMap<usize, Vec<(usize, usize, &Rational)>> = HashMap::new();
             for ((pe, pc, nu), x) in &bs {
                 b_by.entry(*pe).or_default().push((*pc, *nu, x));
@@ -3094,7 +3096,7 @@ mod exact_fr {
         let [na, nb, nc] = [&la, &lb, &lc].map(|m| norms(m.as_ref()));
         let mut first: Option<Vec<Rational>> = None;
         for (mc, nc_m) in nc.iter().enumerate() {
-            let (xs, ys) = (at(&cab, mc), at(&cba, mc));
+            let (xs, ys) = (at(&cab, &lc, mc), at(&cba, &lc, mc));
             let mut sums = vec![Rational::from(0); n * n];
             for ((pa, pb, mu), x) in &xs {
                 for nu in 0..n {
