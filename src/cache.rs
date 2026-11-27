@@ -109,6 +109,7 @@ use std::hash::{BuildHasher, Hash};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, OnceLock};
 
+use crate::category::sealed::{LeafBuf, LeafLabel, LeafRef, SymbolKind};
 use crate::category::{FBlock, RBlock, SymbolBlock};
 use crate::exact::SignedSqrtRational;
 use crate::lie::general::cgc::exact::{ExactCgc, HighestColumn, NormTable};
@@ -131,7 +132,7 @@ pub use disk::{
     clear_disk_cache, disk_cache_stats, enable_disk_cache, DiskCacheError, DiskCacheStats,
 };
 mod fingerprint;
-use fingerprint::key_hash;
+use fingerprint::{fold, key_hash, P1, P2, P3};
 pub(crate) use fingerprint::{label_hash, FoldBuild, Label};
 
 /// Default entry cap of the Wigner and F tiers. Matches the reference order of
@@ -1079,6 +1080,117 @@ impl<const N: usize> clock::Equivalent<LabelKey> for LabelRef<'_, N> {
                 .iter()
                 .flat_map(|p| p.words)
                 .eq(key.labels.iter())
+    }
+}
+
+/// The key of a composite view: the symbol and the product's Radical
+/// leaves in depth-first order, each an owned [`LabelKey`] whose `kind` is
+/// the leaf family. Equality compares every leaf's family, root and words.
+// Keys of the composite views; until the product cutover only tests.
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ComposedKey {
+    symbol: SymbolKind,
+    leaves: Box<[LabelKey]>,
+}
+
+/// Key form of a composite view in the Product tier.
+#[cfg_attr(not(test), allow(dead_code))]
+const COMPOSED: u64 = 0x400;
+
+/// The symbol tag, then each leaf's [`LabelKey::key_hash`], in order.
+#[cfg_attr(not(test), allow(dead_code))]
+fn composed_hash(symbol: SymbolKind, leaves: impl IntoIterator<Item = u64>) -> u64 {
+    leaves
+        .into_iter()
+        .fold(fold(COMPOSED ^ symbol as u64 ^ P2, P3), |h, f| {
+            fold(h ^ f, P1)
+        })
+}
+
+impl Hash for ComposedKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_u64(composed_hash(
+            self.symbol,
+            self.leaves.iter().map(|l| l.key_hash(0)),
+        ));
+    }
+}
+
+impl CacheKeyCharge for ComposedKey {
+    fn key_bytes(&self) -> usize {
+        self.leaves
+            .iter()
+            .map(CacheKeyCharge::key_bytes)
+            .fold(std::mem::size_of::<Self>(), usize::saturating_add)
+    }
+}
+
+/// [`ComposedKey`] borrowed from a query's leaf buffer: hashed from the
+/// stored fingerprints, with no label buffer.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) struct ComposedRef<'a, 'q> {
+    pub(crate) symbol: SymbolKind,
+    pub(crate) leaves: &'a LeafBuf<'q>,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl ComposedRef<'_, '_> {
+    fn labels<'s>(&self, leaf: &'s LeafRef<'_>) -> &'s [LeafLabel<'s>] {
+        &leaf.labels[..self.symbol.labels()]
+    }
+
+    fn to_key(&self) -> ComposedKey {
+        ComposedKey {
+            symbol: self.symbol,
+            leaves: self
+                .leaves
+                .0
+                .iter()
+                .map(|leaf| LabelKey {
+                    kind: leaf.family,
+                    root: leaf.root,
+                    labels: self
+                        .labels(leaf)
+                        .iter()
+                        .flat_map(|l| l.words())
+                        .copied()
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
+}
+
+impl Hash for ComposedRef<'_, '_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let leaf = |leaf: &LeafRef<'_>| {
+            key_hash(
+                u64::from(leaf.family),
+                leaf.root,
+                self.labels(leaf).iter().map(LeafLabel::hash),
+            )
+        };
+        state.write_u64(composed_hash(self.symbol, self.leaves.0.iter().map(leaf)));
+    }
+}
+
+impl clock::Equivalent<ComposedKey> for ComposedRef<'_, '_> {
+    fn equivalent(&self, key: &ComposedKey) -> bool {
+        let mut owned = key.leaves.iter();
+        self.symbol == key.symbol
+            && self.leaves.0.iter().all(|leaf| {
+                owned.next().is_some_and(|k| {
+                    k.kind == leaf.family
+                        && k.root == leaf.root
+                        && self
+                            .labels(leaf)
+                            .iter()
+                            .flat_map(|l| l.words())
+                            .eq(k.labels.iter())
+                })
+            })
+            && owned.next().is_none()
     }
 }
 
@@ -3022,5 +3134,92 @@ mod tests {
             .map(|(dim, phase)| FSymbolKey::Su2(FKey::new(regge, dim, phase)));
         let hashes = keys.each_ref().map(|k| FoldBuild.hash_one(k));
         assert!(hashes[0] != hashes[1] && hashes[0] != hashes[2] && hashes[1] != hashes[2]);
+    }
+
+    /// Purpose: a composite query borrowed from its leaf buffer hashes like
+    /// its owned key and is equivalent to it, for simple, A(1)/B(1)/C(1) and
+    /// CU(1) leaves; keys that differ in the symbol, a root, a CU(1) word
+    /// (`0+` against `0−`, charge `1` against `1 + 2^30`) or the leaf count
+    /// differ; a forced-equal fingerprint never makes unequal keys equal.
+    #[test]
+    fn composed_keys_hash_alike_and_compare_exactly() {
+        use crate::category::sealed::{InlineVec, LEAF_A1, LEAF_CU1, LEAF_SIMPLE};
+        fn buf<'q>(leaves: &[LeafRef<'q>]) -> LeafBuf<'q> {
+            let mut b = InlineVec::with_capacity(leaves.len());
+            for &l in leaves {
+                b.push(l);
+            }
+            LeafBuf(b)
+        }
+        fn inline(w: [i64; 3], root: RootSystem, family: u8) -> LeafRef<'static> {
+            LeafRef {
+                family,
+                root,
+                labels: [w[0], w[1], w[2], 0, 0, 0].map(LeafLabel::inline),
+            }
+        }
+        let cu1 = |twice_charge: u32, s: u8| {
+            inline(
+                [(i64::from(twice_charge) << 2) | i64::from(s); 3],
+                RootSystem::A(1),
+                LEAF_CU1,
+            )
+        };
+        let a1 = |root| inline([1, 1, 0], root, LEAF_A1);
+        let su3 = [[1i64, 0], [0, 1], [1, 1]];
+        let simple = LeafRef {
+            family: LEAF_SIMPLE,
+            root: RootSystem::A(2),
+            labels: [0, 1, 2, 0, 1, 2].map(|i| LeafLabel::Words(&su3[i], label_hash(&su3[i]))),
+        };
+        let (a, b, c) = (RootSystem::A(1), RootSystem::B(1), RootSystem::C(1));
+        let queries = [
+            (SymbolKind::F, buf(&[simple, a1(a)])),
+            (SymbolKind::R, buf(&[a1(b), simple])),
+            (SymbolKind::A, buf(&[a1(c), cu1(1, 2)])),
+            // Five leaves: one past the inline four.
+            (SymbolKind::B, buf(&[simple, simple, simple, simple, a1(a)])),
+            (SymbolKind::A, buf(&[cu1(0, 0)])),
+            (SymbolKind::B, buf(&[cu1(0, 0)])),
+            (SymbolKind::A, buf(&[cu1(0, 1)])),
+            (SymbolKind::B, buf(&[cu1(1, 2)])),
+            (SymbolKind::B, buf(&[cu1(1 + (1 << 30), 2)])),
+            (SymbolKind::R, buf(&[a1(a)])),
+            (SymbolKind::R, buf(&[a1(b)])),
+            (SymbolKind::R, buf(&[a1(c)])),
+            (SymbolKind::R, buf(&[a1(a), a1(a)])),
+        ];
+        let refs: Vec<_> = queries
+            .iter()
+            .map(|(symbol, leaves)| ComposedRef {
+                symbol: *symbol,
+                leaves,
+            })
+            .collect();
+        let keys: Vec<_> = refs.iter().map(ComposedRef::to_key).collect();
+        for (i, r) in refs.iter().enumerate() {
+            assert_eq!(FoldBuild.hash_one(r), FoldBuild.hash_one(&keys[i]), "{i}");
+            for (j, k) in keys.iter().enumerate() {
+                assert_eq!(r.equivalent(k), i == j, "{i} against {j}");
+            }
+        }
+        // Unequal words forced to one fingerprint miss a tier holding the
+        // other key.
+        let mut forged = simple;
+        forged.labels[5] = LeafLabel::Words(&su3[0], label_hash(&su3[2]));
+        let (forged, real) = (buf(&[forged]), buf(&[simple]));
+        let forged = ComposedRef {
+            symbol: SymbolKind::F,
+            leaves: &forged,
+        };
+        let real = ComposedRef {
+            symbol: SymbolKind::F,
+            leaves: &real,
+        };
+        assert_eq!(FoldBuild.hash_one(&forged), FoldBuild.hash_one(&real));
+        let tier: CoefficientCache<ComposedKey, f64> = CoefficientCache::new(16, 1 << 20);
+        tier.get_or_compute(real.to_key(), || 1.0);
+        assert_eq!(tier.get(&real), Some(1.0));
+        assert_eq!(tier.get(&forged), None);
     }
 }

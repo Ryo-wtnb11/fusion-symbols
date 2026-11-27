@@ -56,6 +56,119 @@ pub(crate) mod sealed {
     }
     impl Sealed for f64 {}
     impl Sealed for num_complex::Complex64 {}
+
+    /// The kind of a categorical symbol query.
+    // Keys of the composite views; until the product cutover only tests.
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum SymbolKind {
+        /// `F^{abc}_d[e, f]`.
+        F,
+        /// `R^{ab}_c`.
+        R,
+        /// `A^{ab}_c`.
+        A,
+        /// `B^{ab}_c`.
+        B,
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    impl SymbolKind {
+        /// Labels per query: six for F, three otherwise.
+        pub(crate) fn labels(self) -> usize {
+            match self {
+                Self::F => 6,
+                _ => 3,
+            }
+        }
+    }
+
+    /// Family tags of a Radical leaf: its owned key's `kind`.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) const LEAF_SIMPLE: u8 = 0;
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) const LEAF_A1: u8 = 1;
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) const LEAF_CU1: u8 = 2;
+
+    /// One label of a Radical leaf, read in place with its fingerprint.
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[derive(Clone, Copy, Debug)]
+    pub enum LeafLabel<'q> {
+        /// A simple factor's rank-length words and their stored fingerprint.
+        Words(&'q [i64], u64),
+        /// A rank-one label's single word and `label_hash(&[w])`.
+        Inline(i64, u64),
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    impl LeafLabel<'_> {
+        /// The rank-one label `w`.
+        pub(crate) fn inline(w: i64) -> Self {
+            Self::Inline(w, crate::cache::label_hash(&[w]))
+        }
+
+        pub(crate) fn words(&self) -> &[i64] {
+            match self {
+                Self::Words(w, _) => w,
+                Self::Inline(w, _) => std::slice::from_ref(w),
+            }
+        }
+
+        pub(crate) fn hash(&self) -> u64 {
+            match *self {
+                Self::Words(_, h) | Self::Inline(_, h) => h,
+            }
+        }
+    }
+
+    /// A Radical leaf of a product query, borrowed: its family tag, its
+    /// presented root (`A(1)` for rank-one families without one) and the
+    /// query's labels in that factor, of which the symbol kind's
+    /// [`SymbolKind::labels`] are read.
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[derive(Clone, Copy, Debug)]
+    pub struct LeafRef<'q> {
+        pub(crate) family: u8,
+        pub(crate) root: crate::lie::RootSystem,
+        pub(crate) labels: [LeafLabel<'q>; 6],
+    }
+
+    /// Up to `N` values inline, the rest in one spill vector.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub struct InlineVec<T, const N: usize> {
+        len: usize,
+        inline: [Option<T>; N],
+        spill: Vec<T>,
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    impl<T, const N: usize> InlineVec<T, N> {
+        /// Room for `n` values: the spill is reserved once, only past `N`.
+        pub(crate) fn with_capacity(n: usize) -> Self {
+            Self {
+                len: 0,
+                inline: std::array::from_fn(|_| None),
+                spill: Vec::with_capacity(n.saturating_sub(N)),
+            }
+        }
+
+        pub(crate) fn push(&mut self, x: T) {
+            match self.inline.get_mut(self.len) {
+                Some(slot) => *slot = Some(x),
+                None => self.spill.push(x),
+            }
+            self.len += 1;
+        }
+
+        pub(crate) fn iter(&self) -> impl Iterator<Item = &T> {
+            self.inline.iter().flatten().chain(&self.spill)
+        }
+    }
+
+    /// The Radical leaves of one product query, depth-first.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub struct LeafBuf<'q>(pub(crate) InlineVec<LeafRef<'q>, 4>);
 }
 
 /// Closed scalar set (`f64`, `Complex64`) with arithmetic preserving the type.
