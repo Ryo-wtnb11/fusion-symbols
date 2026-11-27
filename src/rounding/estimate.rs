@@ -247,38 +247,39 @@ fn stack_root(p: u128, q: u128) -> Option<Est> {
 /// `⌊√(hi·2^128 + lo)⌋` for `hi ≥ 2^126`, so the root lies in
 /// `[2^127, 2^128)`.
 ///
-/// A seed `s1·2^64 + q` from `s1 = ⌊√hi⌋ ∈ [2^63, 2^64)` (std `u128::isqrt`)
-/// and one division for the low half, `q = ⌊(r1·2^63 + ⌊lo/2^65⌋)/s1⌋` with
-/// `r1 = hi − s1² ≤ 2s1` (the numerator and the divisor of
-/// `(r1·2^64 + lo/2^64)/(2s1)` halved to stay in 128 bits), capped at
-/// `2^64 − 1`. The result is certified by its last step alone: the loop lowers
-/// `s` while `s² > R` and then raises it while `(s + 1)² ≤ R`, comparing the
-/// exact 256-bit square from [`wide_mul`], so it returns exactly the `s` with
-/// `s² ≤ R < (s + 1)²` whatever the seed. It terminates: once `s² ≤ R` it only
-/// raises `s`, and only while `(s + 1)² ≤ R`, and `s` stays below `2^128`
-/// since `R < 2^256`. No constant bound on its steps is proved here; the
-/// seed is the first step of Zimmermann's square-root recursion, which is off
-/// by a few units at most.
+/// With `b = 2^64`, `R = hi·b² + a1·b + a0` (`a1, a0` the halves of `lo`),
+/// `s1 = ⌊√hi⌋ ∈ [2^63, 2^64)` (std `u128::isqrt`) and `r1 = hi − s1² ≤ 2s1`,
+/// the seed is `s1·b + q` with `q = min(⌊(r1·b + a1)/(2s1)⌋, b − 1)`. It is
+/// computed as `⌊(r1·2^63 + ⌊a1/2⌋)/s1⌋`, numerator and divisor halved to stay
+/// in 128 bits, which is the same quotient: the halved numerator is short of
+/// `(r1·b + a1)/2` by at most `1/2`, and no multiple of the integer `s1` lies
+/// strictly between an integer and that integer plus `1/2`.
+///
+/// The seed is never below the root `t = s1·b + u`: `t < (s1 + 1)·b` gives
+/// `u ≤ b − 1`, and `t² ≤ R` gives `2s1·u·b ≤ r1·b² + a1·b + a0`, so the
+/// integer `2s1·u` is at most `r1·b + a1` (`a0 < b`) and `u ≤ q`. The loop
+/// therefore only lowers `s` while `s² > R` (exact 256-bit squares from
+/// [`wide_mul`]); it stops at `t`, and the certified `R < (t + 1)²` is
+/// checked in debug builds.
 fn isqrt256(hi: u128, lo: u128) -> u128 {
     let s1 = hi.isqrt();
     let r1 = hi - s1 * s1;
     let q = (((r1 << 63) | (lo >> 65)) / s1).min(LOW);
     let mut s = (s1 << 64) | q;
-    loop {
-        let (h, l) = wide_mul(s, s);
-        if (h, l) > (hi, lo) {
-            s -= 1;
-            continue;
-        }
-        // `R − s² > 2s`, that is `(s + 1)² ≤ R`, in 256 bits.
-        let (dl, borrow) = lo.overflowing_sub(l);
-        let dh = hi - h - u128::from(borrow);
-        if (dh, dl) > (s >> 127, s << 1) {
-            s += 1;
-            continue;
-        }
-        return s;
+    while wide_mul(s, s) > (hi, lo) {
+        s -= 1;
     }
+    debug_assert!(
+        {
+            // `R − s² ≤ 2s`, that is `R < (s + 1)²`, in 256 bits.
+            let (h, l) = wide_mul(s, s);
+            let (dl, borrow) = lo.overflowing_sub(l);
+            let dh = hi - h - u128::from(borrow);
+            (dh, dl) <= (s >> 127, s << 1)
+        },
+        "the seed is at least the root"
+    );
+    s
 }
 
 /// `V̂ = |X|·k·s_a·s_b` for the slab words `x` of `|X|`: one truncation for

@@ -23,8 +23,9 @@ use super::cgc::{AFTER_EXACT, BEFORE_LOAD, CORRUPT, CORRUPT_BLOCK, FAIL_PHASE};
 use super::roots::CartanData;
 use crate::cache::Label;
 use crate::category::{FBlock, RBlock};
-use crate::frcore::{check_f_block, check_r_block, f_block_raw, r_block_raw};
+use crate::frcore::{f_block_raw, r_block_raw};
 use crate::lie::{LieError, RootSystem};
+use crate::rounding::blocks::{check_f_block, check_r_block};
 use crate::rounding::cgc::{
     check_rounded, round_channel, round_column, view_slots, ChannelEstimates,
 };
