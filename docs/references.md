@@ -2,7 +2,7 @@
 
 Local paths below include private engines, not public modules. Public Lie
 operations use `lie::LieGroup` through `category::{FusionCategory,GroupRepresentations}`;
-exact SU(2) evaluators are public under `lie::su2`. Reference-column paths
+the exact SU(2) kernel under `lie::su2` is internal. Reference-column paths
 refer to the external project, not this checkout. Closed-form and table
 provenance is in [category conventions](references_categories.md).
 

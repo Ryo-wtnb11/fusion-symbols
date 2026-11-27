@@ -115,8 +115,7 @@ fn u1_values_and_bounds() {
 
 #[test]
 fn typed_u1_matches_liegroup_bitwise() {
-    let g = group(U1.group_id());
-    assert_eq!(U1.group_id(), GroupId::u(1).unwrap());
+    let g = group(GroupId::u(1).unwrap());
     assert_eq!(
         U1.unit().charge(),
         g.unit().charges().next().unwrap() as i32

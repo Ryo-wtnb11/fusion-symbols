@@ -120,14 +120,6 @@ pub(super) fn conserves(a: &U1Irrep, b: &U1Irrep, c: &U1Irrep) -> u32 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct U1;
 
-impl U1 {
-    /// The connected compact group classified by this category.
-    /// U(1) always has a valid rank and character lattice.
-    pub fn group_id(&self) -> super::GroupId {
-        super::GroupId::u(1).expect("U(1) has a valid rank and character lattice")
-    }
-}
-
 impl FusionCategory for U1 {
     type Object = U1Irrep;
     type Scalar = f64;

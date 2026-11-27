@@ -10,7 +10,7 @@ pub(crate) mod general;
 mod gt;
 pub use gt::GtPattern;
 mod group;
-pub mod su2;
+pub(crate) mod su2;
 pub use group::{GroupError, GroupId, RootSystem};
 mod half_int;
 pub use half_int::{HalfInt, HalfIntError};

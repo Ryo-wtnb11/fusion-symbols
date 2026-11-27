@@ -53,11 +53,10 @@ remove measurable overhead, and it returns bitwise-identical values.
 
 `U1` is the only connected group with a dedicated typed category. Its `Copy`
 labels and scalar symbols avoid the general label and block overhead, with the
-same values as `LieGroup::new(GroupId::u(1)?)`. `U1::group_id()` returns
-`GroupId::u(1)`.
+same values as `LieGroup::new(GroupId::u(1)?)`.
 For Tᵗ at typed speed, use a tuple `Product` of `U1` factors, such as
 `Product::new((U1, U1, U1))`. `ZN`, `FermionParity`, and `CU1` are not connected
-groups and have no `group_id()`.
+groups.
 
 ## Lie labels and global forms
 
@@ -153,9 +152,9 @@ hashing represent mathematical identity.
   Fusion-only tables return `TableError::NoBraiding` from R and twist.
   Foreign objects are rejected first. Clones share parsed and derived data;
   categories with the same uuid accept the same objects.
-- The exact `lie::su2` evaluators return exact zero for forbidden labels at
-  every `u32`/`i32` input, with projection sums and sign changes evaluated in
-  `i64`; a forbidden coupling and an accidental zero read the same.
+- SU(2) symbols are exact zero for forbidden labels at every `u32` input; the
+  internal kernel evaluates sums and sign changes in `i64`, so a forbidden
+  coupling and an accidental zero read the same.
 
 ## Numerical and capability contracts
 
