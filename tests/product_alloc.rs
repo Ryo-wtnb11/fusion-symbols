@@ -384,3 +384,51 @@ fn warm_composite_factor_queries_allocate_nothing() {
         [0, 0, 0, 0]
     );
 }
+
+fn tuple12<T: Clone>(t: &T) -> (T, T, T, T, T, T, T, T, T, T, T, T) {
+    let c = || t.clone();
+    (c(), c(), c(), c(), c(), c(), c(), c(), c(), c(), c(), c())
+}
+
+// Purpose: a warm product CGC allocates nothing: two or more Radical leaves
+// are one Product-tier hit and an `Arc` clone for any leaf count (the
+// largest tuple arity, 12, and a nesting past it), one leaf is that leaf's
+// own shared block, and a unit or absent product is a scalar.
+#[test]
+fn warm_product_cgc_allocates_nothing() {
+    use fusion_symbols::category::GroupRepresentations;
+    use fusion_symbols::finite::{ZNIrrep, ZN};
+    use fusion_symbols::product::Product;
+    let _serial = counting_alloc::serial();
+    let g = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+    let x = |j| g.irrep(&[j]).unwrap();
+    let z = ZN::new(3).unwrap();
+    let q = |c| ZNIrrep::new(c, 3).unwrap();
+    let two = Product::new((g.clone(), g.clone()));
+    let [a, b, c] = [(x(1), x(2)), (x(1), x(1)), (x(2), x(1))];
+    let three = Product::new(vec![g.clone(); 3]);
+    let [va, vb, vc] = [[1, 2, 1], [1, 1, 2], [2, 1, 1]].map(|l| l.map(x).to_vec());
+    let one = Product::new((g.clone(), z));
+    let [oa, ob, oc] = [(x(1), q(1)), (x(1), q(1)), (x(2), q(2))];
+    let absent = (x(2), q(0));
+    let five = Product::new((g.clone(), g.clone(), g.clone(), g.clone(), g.clone()));
+    let h5 = (x(1), x(1), x(1), x(1), x(1));
+    let o5 = (x(0), x(2), x(0), x(2), x(0));
+    let twelve = Product::new(tuple12(&g));
+    let h12 = tuple12(&x(1));
+    let o12 = twelve.unit();
+    let nested = Product::new((twelve.clone(), g.clone()));
+    let (hn, on) = ((h12.clone(), x(1)), (o12.clone(), x(0)));
+    assert_eq!(
+        [
+            warm(|| two.cgc(&a, &b, &c).unwrap()).0,
+            warm(|| three.cgc(&va, &vb, &vc).unwrap()).0,
+            warm(|| one.cgc(&oa, &ob, &oc).unwrap()).0,
+            warm(|| one.cgc(&oa, &ob, &absent).unwrap()).0,
+            warm(|| five.cgc(&h5, &h5, &o5).unwrap()).0,
+            warm(|| twelve.cgc(&h12, &h12, &o12).unwrap()).0,
+            warm(|| nested.cgc(&hn, &hn, &on).unwrap()).0,
+        ],
+        [0; 7]
+    );
+}

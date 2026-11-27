@@ -65,21 +65,32 @@ fn warm_generated_fusion_yields_labels_without_allocation() {
     }
 }
 
-// Generated labels own their dimensions; warm `dim` and `sqrt_dim` read stored data.
+// Generated labels own their dimension and its derived values, rounded when
+// the irrep is made: warm queries are loads, with no big-integer work (a
+// dimension above 2^64 is a heap Natural, whose arithmetic would allocate).
 #[test]
-fn warm_generated_dim_and_sqrt_dim_do_not_allocate() {
+fn warm_generated_dim_queries_do_not_allocate() {
     let _serial = crate::common::counting_alloc::serial();
-    for (id, label, dim) in [
-        (GroupId::su(3).unwrap(), vec![1, 1], 8.0_f64),
-        (GroupId::su(5).unwrap(), vec![2, 1, 0, 3], 2_625.0),
-        (GroupId::spin(5).unwrap(), vec![1, 1], 16.0),
-        (GroupId::sp(6).unwrap(), vec![1, 0, 1], 70.0),
+    let big = 6_981_463_658_331;
+    for (id, label) in [
+        (GroupId::su(2).unwrap(), vec![1]),
+        (GroupId::su(3).unwrap(), vec![1, 1]),
+        (GroupId::su(3).unwrap(), vec![big, big]),
+        (GroupId::su(5).unwrap(), vec![2, 1, 0, 3]),
+        (GroupId::spin(5).unwrap(), vec![1, 1]),
+        (GroupId::sp(6).unwrap(), vec![1, 0, 1]),
     ] {
         let cat = LieGroup::new(id.clone()).unwrap();
         let a = cat.irrep(&label).unwrap();
         cat.dim(&a);
-        let (calls, _, _, (d, s)) = counting_alloc::measure(|| (cat.dim(&a), cat.sqrt_dim(&a)));
-        assert_eq!(calls, 0, "{id:?}");
-        assert_eq!((d, s), (dim, dim.sqrt()), "{id:?}");
+        let (calls, _, _, _) = counting_alloc::measure(|| {
+            (
+                cat.dim(&a),
+                cat.sqrt_dim(&a),
+                cat.inv_sqrt_dim(&a),
+                cat.inv_dim(&a),
+            )
+        });
+        assert_eq!(calls, 0, "{id:?} {label:?}");
     }
 }

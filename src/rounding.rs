@@ -53,6 +53,201 @@ pub(crate) fn round_radical(sign: i8, num: &[Factor<'_>], den: &[Factor<'_>]) ->
     signed_sqrt_to_f64(sign, &big_product(num), &big_product(den))
 }
 
+/// A value derived from a dimension `d`, a positive integer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DimValue {
+    Dim,
+    Sqrt,
+    InvSqrt,
+    Inv,
+}
+
+/// `d`, `√d`, `1/√d` or `1/d` of the integer `d ≥ 1`, correctly rounded
+/// once: [`round_radical`] with `d` passed once or as its root twice. Below
+/// `2^53` the integer is an exact `f64`, so the value, its square root and
+/// its reciprocal are IEEE 754 correctly rounded single operations, and
+/// `1/√d` is [`inv_sqrt_small`].
+pub(crate) fn round_dim(d: Factor<'_>, value: DimValue) -> f64 {
+    let small = match d {
+        Factor::Natural(x) => u64::try_from(x).ok(),
+        Factor::Words(w) => match crate::exact::limbs::trimmed_words(w) {
+            [] => Some(0),
+            &[x] => Some(x),
+            _ => None,
+        },
+    };
+    if let Some(x) = small.filter(|&x| x < 1 << 53) {
+        return round_small(x as f64, value);
+    }
+    match value {
+        DimValue::Dim => round_radical(1, &[d, d], &[]),
+        DimValue::Sqrt => round_radical(1, &[d], &[]),
+        DimValue::InvSqrt => round_radical(1, &[], &[d]),
+        DimValue::Inv => round_radical(1, &[], &[d, d]),
+    }
+}
+
+/// [`round_dim`] of an integer `1 ≤ x < 2^53`, held exactly.
+#[inline]
+fn round_small(x: f64, value: DimValue) -> f64 {
+    match value {
+        DimValue::Dim => x,
+        DimValue::Sqrt => x.sqrt(),
+        DimValue::Inv => x.recip(),
+        DimValue::InvSqrt => inv_sqrt_small(x),
+    }
+}
+
+/// The nearest `f64` to `1/√d` for an integer `1 ≤ d < 2^53` (an exact
+/// `x`), without big integers: the definition itself, checked exactly.
+///
+/// Bracketing: `y` is the nearest `f64` exactly when `1/√d` lies strictly
+/// between the midpoint below `y` (to `prev(y)`) and the midpoint above it
+/// (to `next(y)`). Each midpoint is `M·2^k` with `M = 2A + 1` odd and
+/// `M > 1` (`A ≥ 2^52` the significand of the smaller neighbour), and
+/// [`above_midpoint`] decides `1/√d > M·2^k` exactly as the integer
+/// comparison `M²·d < 2^(−2k)`. Ties are impossible: `M²·d` has the odd
+/// factor `M² > 1`, so it is never a power of two. The start
+/// `1/(√d)` is within a few ulp; the loop steps one ulp toward `1/√d` until
+/// both midpoint tests bracket it, so the result does not rest on that
+/// bound, only on the two exact tests.
+fn inv_sqrt_small(x: f64) -> f64 {
+    if x == 1.0 {
+        return 1.0;
+    }
+    let d = x as u64;
+    let mut y = x.sqrt().recip();
+    // `y ∈ (2^-27, 1)` is normal, so its successor is the next bit pattern.
+    let next = |y: f64| f64::from_bits(y.to_bits() + 1);
+    let prev = |y: f64| f64::from_bits(y.to_bits() - 1);
+    loop {
+        if above_midpoint(y, d) {
+            y = next(y);
+        } else if !above_midpoint(prev(y), d) {
+            y = prev(y);
+        } else {
+            return y;
+        }
+    }
+}
+
+/// Whether `1/√d > (a + a⁺)/2`, `a⁺` the successor of the normal `a < 1`.
+///
+/// With `a = A·2^e` (`A` the 53-bit significand), `a⁺ = (A + 1)·2^e` also
+/// across a binade, so the midpoint is `M·2^(e−1)` with `M = 2A + 1`, and
+/// `1/√d > M·2^(e−1)` exactly when `M²·d < 2^(2−2e)`, which (never equal)
+/// is a bit-length comparison of the exact product `M²·d < 2^163`.
+fn above_midpoint(a: f64, d: u64) -> bool {
+    let bits = a.to_bits();
+    let m = 2 * ((bits & ((1 << 52) - 1)) | (1 << 52)) + 1;
+    let e = (bits >> 52) as i64 - 1075;
+    let sq = u128::from(m) * u128::from(m);
+    let lo = (sq as u64 as u128) * u128::from(d);
+    let hi = (sq >> 64) * u128::from(d) + (lo >> 64);
+    let len = if hi > 0 {
+        64 + 128 - i64::from(hi.leading_zeros())
+    } else {
+        64 - i64::from((lo as u64).leading_zeros())
+    };
+    len <= 2 - 2 * e
+}
+
+/// The exact product of a product object's leaf dimensions, on the stack
+/// while it fits [`INPUT_LIMBS`] (allocating nothing), else a big integer.
+#[derive(Clone, Debug)]
+pub(crate) enum DimProduct {
+    /// Below `2^64`, the common case, multiplied without limb loops.
+    Word(u64),
+    Stack(Limbs<INPUT_LIMBS>),
+    Big(Natural),
+}
+
+impl DimProduct {
+    /// `self *= d`.
+    pub(crate) fn mul(&mut self, d: Factor<'_>) {
+        if let Self::Word(x) = self {
+            let w = match d {
+                Factor::Natural(d) => u64::try_from(d).ok(),
+                Factor::Words(w) => match crate::exact::limbs::trimmed_words(w) {
+                    &[w] => Some(w),
+                    _ => None,
+                },
+            };
+            if let Some(y) = w.and_then(|w| x.checked_mul(w)) {
+                *x = y;
+                return;
+            }
+            *self = Self::Stack(Limbs::trimmed(
+                std::array::from_fn(|i| if i == 0 { *x } else { 0 }),
+                1,
+            ));
+        }
+        if let Self::Stack(x) = self {
+            let mut y = *x;
+            if y.checked_mul_factor(&d).is_some() {
+                *x = y;
+                return;
+            }
+            *self = Self::Big(x.to_natural());
+        }
+        if let Self::Big(x) = self {
+            match d {
+                Factor::Natural(d) => *x *= d,
+                Factor::Words(w) => *x *= words_natural(w),
+            }
+        }
+    }
+
+    /// [`round_dim`] of the product.
+    pub(crate) fn round(&self, value: DimValue) -> f64 {
+        match self {
+            Self::Word(x) => round_dim(Factor::Words(&[*x]), value),
+            Self::Stack(x) => round_dim(Factor::Words(x.used()), value),
+            Self::Big(x) => round_dim(Factor::Natural(x), value),
+        }
+    }
+}
+
+use crate::category::sealed::WideDim;
+
+impl crate::category::sealed::DimAcc {
+    pub(crate) const ONE: Self = Self {
+        word: 1,
+        wide: None,
+    };
+
+    /// `self *= w`: one multiply while the product fits a word.
+    #[inline(always)]
+    pub(crate) fn mul_word(&mut self, w: u64) {
+        if self.wide.is_none() {
+            if let Some(y) = self.word.checked_mul(w) {
+                self.word = y;
+                return;
+            }
+        }
+        self.mul(Factor::Words(&[w]));
+    }
+
+    /// `self *= d`, past one word.
+    #[inline(never)]
+    pub(crate) fn mul(&mut self, d: Factor<'_>) {
+        self.wide
+            .get_or_insert(WideDim(DimProduct::Word(self.word)))
+            .0
+            .mul(d);
+    }
+
+    /// [`round_dim`] of the product; IEEE single operations below `2^53`.
+    #[inline(always)]
+    pub(crate) fn round(&self, value: DimValue) -> f64 {
+        match &self.wide {
+            None if self.word < 1 << 53 => round_small(self.word as f64, value),
+            None => round_dim(Factor::Words(&[self.word]), value),
+            Some(x) => x.0.round(value),
+        }
+    }
+}
+
 impl SignedSqrtRational {
     /// Correctly-rounded conversion to `f64` — the single rounding point.
     ///

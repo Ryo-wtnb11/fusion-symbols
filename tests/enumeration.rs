@@ -365,9 +365,9 @@ fn derived_dimensions_multiply_factorwise() {
     assert_eq!(p.sqrt_dim(&a), 1.7989074399478675);
     assert_eq!(p.inv_sqrt_dim(&a), 0.5558929702514211);
     assert_eq!(p.inv_dim(&a), 0.30901699437494745);
-    // Leaf defaults.
+    // Leaf values, correctly rounded.
     assert_eq!(su2.sqrt_dim(&a.0), 2f64.sqrt());
-    assert_eq!(su2.inv_sqrt_dim(&a.0), 0.7071067811865475);
+    assert_eq!(su2.inv_sqrt_dim(&a.0), std::f64::consts::FRAC_1_SQRT_2);
     assert_eq!(su2.inv_dim(&a.0), 0.5);
     // Left to right through explicit nesting.
     let nested = Product::new((Product::new((su2.clone(), fib.clone())), CU1));

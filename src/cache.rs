@@ -1085,9 +1085,36 @@ const COMPOSED: u64 = 0x400;
 fn composed_hash(symbol: SymbolKind, leaves: impl IntoIterator<Item = u64>) -> u64 {
     leaves
         .into_iter()
-        .fold(fold(COMPOSED ^ symbol as u64 ^ P2, P3), |h, f| {
-            fold(h ^ f, P1)
-        })
+        .fold(composed_seed(symbol), |h, f| fold(h ^ f, P1))
+}
+
+/// [`composed_hash`] before its first leaf.
+pub(crate) fn composed_seed(symbol: SymbolKind) -> u64 {
+    fold(COMPOSED ^ symbol as u64 ^ P2, P3)
+}
+
+/// [`composed_hash`] after one more borrowed leaf.
+pub(crate) fn composed_step(h: u64, symbol: SymbolKind, leaf: &LeafRef<'_>) -> u64 {
+    fold(h ^ leaf_hash(symbol, leaf), P1)
+}
+
+/// [`LabelKey::key_hash`] of a borrowed leaf, from its stored fingerprints.
+fn leaf_hash(symbol: SymbolKind, leaf: &LeafRef<'_>) -> u64 {
+    key_hash(
+        u64::from(leaf.family),
+        leaf.root,
+        leaf.labels[..symbol.labels()].iter().map(LeafLabel::hash),
+    )
+}
+
+/// Whether a borrowed leaf is the owned leaf `key`.
+fn leaf_matches(symbol: SymbolKind, leaf: &LeafRef<'_>, key: &LabelKey) -> bool {
+    key.kind == leaf.family
+        && key.root == leaf.root
+        && leaf.labels[..symbol.labels()]
+            .iter()
+            .flat_map(|l| l.words())
+            .eq(key.labels.iter())
 }
 
 impl Hash for ComposedKey {
@@ -1144,13 +1171,7 @@ impl ComposedRef<'_, '_> {
 
 impl Hash for ComposedRef<'_, '_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        let leaf = |leaf: &LeafRef<'_>| {
-            key_hash(
-                u64::from(leaf.family),
-                leaf.root,
-                self.labels(leaf).iter().map(LeafLabel::hash),
-            )
-        };
+        let leaf = |leaf| leaf_hash(self.symbol, leaf);
         state.write_u64(composed_hash(self.symbol, self.leaves.0.iter().map(leaf)));
     }
 }
@@ -1160,17 +1181,31 @@ impl clock::Equivalent<ComposedKey> for ComposedRef<'_, '_> {
         let mut owned = key.leaves.iter();
         self.symbol == key.symbol
             && self.leaves.0.iter().all(|leaf| {
-                owned.next().is_some_and(|k| {
-                    k.kind == leaf.family
-                        && k.root == leaf.root
-                        && self
-                            .labels(leaf)
-                            .iter()
-                            .flat_map(|l| l.words())
-                            .eq(k.labels.iter())
-                })
+                owned
+                    .next()
+                    .is_some_and(|k| leaf_matches(self.symbol, leaf, k))
             })
             && owned.next().is_none()
+    }
+}
+
+/// A composite CGC key borrowed from a repeatable walk of a query's leaves:
+/// the hash folded while describing them, and a comparison that walks them
+/// again against the stored key, so a warm lookup collects no leaf.
+struct WalkedCgcRef<'a> {
+    hash: u64,
+    matches: &'a dyn Fn(&ComposedKey) -> bool,
+}
+
+impl Hash for WalkedCgcRef<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_u64(self.hash);
+    }
+}
+
+impl clock::Equivalent<ProductTierKey> for WalkedCgcRef<'_> {
+    fn equivalent(&self, k: &ProductTierKey) -> bool {
+        matches!(k, ProductTierKey::Composed(k) if (self.matches)(k))
     }
 }
 
@@ -1463,9 +1498,7 @@ impl CacheCharge for CgcValue {
             Self::Module(m) => ARC_COUNTS_BYTES
                 .saturating_add(std::mem::size_of::<Ladders>())
                 .saturating_add(m.bytes()),
-            Self::Channel(c) => ARC_COUNTS_BYTES
-                .saturating_add(std::mem::size_of::<CgcChannel>())
-                .saturating_add(std::mem::size_of_val(c.entries.as_ref())),
+            Self::Channel(c) => channel_bytes(c),
             Self::Phase(_) => 0,
             Self::ExactChannel(c) => ARC_COUNTS_BYTES.saturating_add(c.bytes()),
             Self::Seeds(s) => ARC_COUNTS_BYTES.saturating_add(s.bytes()),
@@ -1749,6 +1782,56 @@ pub(crate) fn composed<E>(
         || ProductTierKey::Composed(key.to_key()),
         |_| compute().map(ProductValue::Composite),
     )
+}
+
+/// The composite CGC channel of a product query's Radical leaves (two or
+/// more), in the Product tier, charged by its entries. Its authority is the
+/// leaves' exact channels and the deterministic composition: no composite
+/// exact entry is stored. `hash` is [`composed_hash`] of the leaves that
+/// `walk` visits in order; the leaves are collected only on a miss.
+pub(crate) fn composed_cgc<'q, E>(
+    hash: u64,
+    walk: impl Fn(&mut dyn FnMut(LeafRef<'q>)),
+    compute: impl FnOnce() -> Result<Arc<CgcChannel>, E>,
+) -> Result<Arc<CgcChannel>, E> {
+    let symbol = SymbolKind::Cgc;
+    let matches = |key: &ComposedKey| {
+        let mut owned = key.leaves.iter();
+        let mut same = key.symbol == symbol;
+        walk(&mut |leaf| {
+            same = same && owned.next().is_some_and(|k| leaf_matches(symbol, &leaf, k));
+        });
+        same && owned.next().is_none()
+    };
+    CACHE_PRODUCT.get_or_try_sweep(
+        &WalkedCgcRef {
+            hash,
+            matches: &matches,
+        },
+        |value| match value {
+            ProductValue::CompositeCgc(channel) => channel.clone(),
+            _ => unreachable!("a composite CGC key stores a channel"),
+        },
+        || {
+            let mut leaves = LeafBuf(crate::category::sealed::InlineVec::with_capacity(0));
+            walk(&mut |leaf| leaves.0.push(leaf));
+            ProductTierKey::Composed(
+                ComposedRef {
+                    symbol,
+                    leaves: &leaves,
+                }
+                .to_key(),
+            )
+        },
+        |_| compute().map(ProductValue::CompositeCgc),
+    )
+}
+
+/// The retained bytes of a shared rounded channel.
+pub(crate) fn channel_bytes(c: &CgcChannel) -> usize {
+    ARC_COUNTS_BYTES
+        .saturating_add(std::mem::size_of::<CgcChannel>())
+        .saturating_add(std::mem::size_of_val(c.entries.as_ref()))
 }
 
 impl CacheCharge for View {

@@ -123,7 +123,7 @@ and `sectors.jl` style `&` methods. Their relevant guards and assumptions map as
 | Reference guard or invariant | Rust mapping |
 |---|---|
 | `SectorTuple`, same sector type `I` for symbol inputs | Compile-time tuple/object types and factor `contains` preflight; vector lengths must equal the factor count. Foreign labels panic loudly. |
-| Runtime Cartesian indices and lazy CGC axes fit their public index types | Fusion checks the product length for `usize` overflow; CGC checks each axis, without imposing a dense element-count limit. Empty products use one scalar entry. |
+| Runtime Cartesian indices and CGC axes fit their public index types | Fusion checks the product length for `usize` overflow; the sparse `LieCgc` checks each axis against `u32` and its entry count `Π nnz` against allocation, without a dense element-count limit. Empty products use one scalar entry. |
 | `unit` rejects `GenericUnit` | N/A: `category::FusionCategory::unit` requires one simple unit. |
 | Scalar `_kron_promote` fills the logical N-derived shape | Logical axes queried independently of `SymbolBlock::dims`; zero axes skip values, all-one axes stay inline. |
 | `_kron` assumes matching ranks and valid Cartesian indices | Fixed block ranks; each level expands in place with per-axis digit countdowns, last factor fastest; shape/count/byte overflow is a typed `Overflow`. |

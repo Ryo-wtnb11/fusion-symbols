@@ -22,6 +22,7 @@ use crate::category::{
     FusionStyle, GroupRepresentations, RBlock,
 };
 use crate::product::{Product, ProductError};
+use crate::rounding::{round_dim, DimValue, Factor};
 use malachite_base::{
     num::conversion::traits::RoundingFrom, rounding_modes::RoundingMode::Nearest,
 };
@@ -826,22 +827,37 @@ impl LieIrrep {
 /// pattern order of [`LieIrrep::gt_patterns`], and B, C, D, G2, F4, E6, E7 and
 /// E8 by depth order (highest weight first). Composite CGCs use Product's
 /// last-factor-fastest decoding on every axis; D(2) factors are α₁ then α₂ in
-/// the exact A(1) gauge. A simple-factor block shares the retained sparse
-/// channel; reading an entry is a binary search.
+/// the exact A(1) gauge. A block shares the retained sparse channel; reading
+/// an entry is a binary search. [`crate::product::Product`] returns this
+/// block too: each entry of a product of exact factors is the exact product
+/// of the factors' exact entries, rounded once.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LieCgc {
-    composite: Option<Vec<LieCgc>>,
     dims: [usize; 4],
-    // The exactly nonzero entries of a simple factor in §4.7 order, which is
-    // ascending `(μ, m_c, m_a, m_b)`; `None` for a torus scalar.
+    // The exactly nonzero entries in §4.7 order, which is ascending
+    // `(μ, m_c, m_a, m_b)`; `None` for a scalar (`1` when present).
     entries: Option<Arc<general::cgc::CgcChannel>>,
+}
+impl LieCgc {
+    /// The scalar block `[1, 1, 1, n]` (or another absent shape): `1` when
+    /// present.
+    pub(crate) fn scalar(dims: [usize; 4]) -> Self {
+        Self {
+            dims,
+            entries: None,
+        }
+    }
+    /// The block of a shared sparse channel.
+    pub(crate) fn sparse(dims: [usize; 3], channel: Arc<general::cgc::CgcChannel>) -> Self {
+        Self {
+            dims: [dims[0], dims[1], dims[2], channel.mult],
+            entries: Some(channel),
+        }
+    }
 }
 impl CgcBlock for LieCgc {
     /// Axis lengths, with multiplicity last (zero for an absent channel).
     fn dims(&self) -> [usize; 4] {
-        if let Some(blocks) = &self.composite {
-            return blocks.dims();
-        }
         self.dims
     }
     /// Read one coefficient.
@@ -849,15 +865,12 @@ impl CgcBlock for LieCgc {
     /// # Panics
     /// Panics if any index is outside its axis.
     fn get(&self, [m1, m2, m3, mu]: [usize; 4]) -> f64 {
-        if let Some(blocks) = &self.composite {
-            return blocks.get([m1, m2, m3, mu]);
-        }
         assert!(
             [m1, m2, m3, mu].iter().zip(self.dims).all(|(&i, n)| i < n),
             "CGC index out of range"
         );
         let Some(channel) = &self.entries else {
-            // The torus scalar uses no coefficient allocation.
+            // A scalar uses no coefficient allocation.
             return 1.0;
         };
         // In range, so every index fits the u32 storage.
@@ -866,6 +879,14 @@ impl CgcBlock for LieCgc {
         entries
             .binary_search_by_key(&key, |e| [e.mu, e.m3, e.m1, e.m2])
             .map_or(0.0, |i| entries[i].value)
+    }
+    fn __fusion_symbols_stored(&self, each: &mut dyn FnMut([usize; 4], f64)) {
+        let Some(channel) = &self.entries else {
+            return crate::category::read_stored(self, each);
+        };
+        for e in &channel.entries {
+            each([e.m1, e.m2, e.m3, e.mu].map(|i| i as usize), e.value);
+        }
     }
 }
 impl FusionCategory for LieGroup {
@@ -949,26 +970,15 @@ impl FusionCategory for LieGroup {
             LiePayload::Simple(x) => x.dim_f64(),
         }
     }
+    // Lie dimensions are integers: no numeric fallback.
     fn sqrt_dim(&self, a: &LieIrrep) -> f64 {
-        if let Some(product) = &self.composite {
-            self.label(a);
-            return product.sqrt_dim(self.factor_labels(a));
-        }
-        self.dim(a).sqrt()
+        self.derived_dim(a, DimValue::Sqrt)
     }
     fn inv_sqrt_dim(&self, a: &LieIrrep) -> f64 {
-        if let Some(product) = &self.composite {
-            self.label(a);
-            return product.inv_sqrt_dim(self.factor_labels(a));
-        }
-        self.sqrt_dim(a).recip()
+        self.derived_dim(a, DimValue::InvSqrt)
     }
     fn inv_dim(&self, a: &LieIrrep) -> f64 {
-        if let Some(product) = &self.composite {
-            self.label(a);
-            return product.inv_dim(self.factor_labels(a));
-        }
-        self.dim(a).recip()
+        self.derived_dim(a, DimValue::Inv)
     }
     /// A complex A-series label has the closed form; a complex D(r) (r odd)
     /// or E6 label generates σ_a σ_ā (`docs/gauge_cartan.md` §5.3), and a
@@ -1181,6 +1191,26 @@ impl FusionCategory for LieGroup {
         }
         self.exact_leaf(op)
     }
+    #[doc(hidden)]
+    #[inline(always)]
+    fn __fusion_symbols_exact_dim(
+        &self,
+        a: &LieIrrep,
+        d: &mut crate::category::sealed::DimAcc,
+        t: Validated,
+    ) -> bool {
+        self.label(a);
+        match &a.payload {
+            LiePayload::RankOne(dj) => d.mul_word(u64::from(*dj) + 1),
+            LiePayload::Torus(_) => {}
+            LiePayload::Simple(x) => match u64::try_from(x.dim()) {
+                Ok(w) => d.mul_word(w),
+                Err(_) => d.mul(Factor::Natural(x.dim())),
+            },
+            LiePayload::Composite(factors) => return self.composite_dim(factors, d, t),
+        }
+        true
+    }
     fn a_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock<f64>, LieError> {
         self.ab_symbol(false, a, b, c)
     }
@@ -1377,16 +1407,47 @@ impl LieGroup {
             .ok_or(LieError::LabelOverflow)
     }
 
+    /// The exact dimension of a composite object, out of line so that a
+    /// simple or rank-one factor's hook stays small enough to inline.
+    #[inline(never)]
+    fn composite_dim(
+        &self,
+        factors: &Vec<LieIrrep>,
+        d: &mut crate::category::sealed::DimAcc,
+        t: Validated,
+    ) -> bool {
+        self.composite
+            .as_ref()
+            .expect("composite object has a product")
+            .__fusion_symbols_exact_dim(factors, d, t)
+    }
+
+    /// One load for a simple irrep (rounded when it is made), IEEE single
+    /// operations or [`crate::rounding::round_dim`]'s word path for rank one.
+    fn derived_dim(&self, a: &LieIrrep, value: DimValue) -> f64 {
+        self.label(a);
+        match &a.payload {
+            LiePayload::RankOne(dj) => round_dim(Factor::Words(&[u64::from(*dj) + 1]), value),
+            LiePayload::Torus(_) => 1.0,
+            LiePayload::Simple(x) => x.derived_dim(value),
+            LiePayload::Composite(factors) => {
+                let product = self
+                    .composite
+                    .as_ref()
+                    .expect("composite object has a product");
+                crate::category::exact_dim(product, factors, value)
+                    .expect("a Lie dimension is exact")
+            }
+        }
+    }
+
     /// The exact product hook of a simple or rank-one group (a torus is
     /// unit-class; a composite delegates to its product).
     fn exact_leaf<'q>(
         &self,
         op: crate::category::sealed::ExactOp<'q, '_, LieIrrep>,
     ) -> Result<crate::category::sealed::ExactAnswer, LieError> {
-        use crate::category::sealed::{
-            ExactAnswer, ExactOp, LeafLabel, LeafRef, Query, SymbolKind, Unit, View, LEAF_A1,
-            LEAF_SIMPLE,
-        };
+        use crate::category::sealed::{ExactAnswer, ExactOp, Query, SymbolKind, Unit, View};
         let simple = self.roots.is_some();
         if !simple
             && matches!(
@@ -1397,21 +1458,7 @@ impl LieGroup {
             // Rank-one R is `±1` (`su2::r_symbol`), or absent.
             return crate::category::unit_symbol(self, op);
         }
-        let root = self.group.root_systems()[0];
-        let family = if simple { LEAF_SIMPLE } else { LEAF_A1 };
-        let leaf = |xs: &[&'q LieIrrep]| {
-            LeafRef::new(
-                family,
-                root,
-                xs.iter().map(|x| match x.simple() {
-                    Some(l) => {
-                        let l = l.label();
-                        LeafLabel::Words(l.words, l.hash)
-                    }
-                    None => LeafLabel::inline(i64::from(x.dj())),
-                }),
-            )
-        };
+        let leaf = |xs: &[&'q LieIrrep]| self.leaf_ref(xs);
         match op {
             ExactOp::Class(_) => Ok(ExactAnswer::RadicalClass { leaves: 1 }),
             ExactOp::Describe(q, buf) => {
@@ -1526,64 +1573,86 @@ impl LieGroup {
         self.label(b);
         self.label(c);
         if let Some(product) = &self.composite {
-            return Ok(LieCgc {
-                composite: Some(
-                    product
-                        .cgc(
-                            self.factor_labels(a),
-                            self.factor_labels(b),
-                            self.factor_labels(c),
-                        )
-                        .map_err(composite_error)?,
-                ),
-                dims: [0; 4],
-                entries: None,
-            });
+            return product
+                .cgc(
+                    self.factor_labels(a),
+                    self.factor_labels(b),
+                    self.factor_labels(c),
+                )
+                .map_err(composite_error);
         }
         if self.is_torus() {
-            return Ok(LieCgc {
-                composite: None,
-                dims: [
-                    1,
-                    1,
-                    1,
-                    self.__fusion_symbols_validated_nsymbol(a, b, c, Validated(()))? as usize,
-                ],
-                entries: None,
-            });
+            let n = self.__fusion_symbols_validated_nsymbol(a, b, c, Validated(()))?;
+            return Ok(LieCgc::scalar([1, 1, 1, n as usize]));
         }
-        if let (Some(a), Some(b), Some(c)) = (a.simple(), b.simple(), c.simple()) {
+        let dims = self.leaf_cgc_dims(a, b, c)?;
+        let channel = self.with_cgc_labels(a, b, c, |engine, [a, b, c]| {
+            engine.cgc_entries(a, b, c, exec)
+        })?;
+        Ok(LieCgc::sparse(dims, channel))
+    }
+
+    /// The magnetic dimensions of a simple or rank-one CGC query; rank-one
+    /// triangle-admissible labels beyond `i32` are an unsupported capability
+    /// rather than an unbounded generation.
+    fn leaf_cgc_dims(
+        &self,
+        a: &LieIrrep,
+        b: &LieIrrep,
+        c: &LieIrrep,
+    ) -> Result<[usize; 3], LieError> {
+        if let [Some(a), Some(b), Some(c)] = [a, b, c].map(LieIrrep::simple) {
             let [da, db, dc] = [a, b, c].map(|x| checked_dimension(x.dim()));
-            let channel = self
-                .engine()
-                .cgc_entries(a.label(), b.label(), c.label(), exec)?;
-            return Ok(LieCgc {
-                composite: None,
-                dims: [da?, db?, dc?, channel.mult],
-                entries: Some(channel),
-            });
+            return Ok([da?, db?, dc?]);
         }
         let (a, b, c) = (a.dj(), b.dj(), c.dj());
-        // Larger triangle-admissible labels are an unsupported capability
-        // rather than an unbounded generation.
         if su2::triangle_ok(a, b, c) && [a, b, c].iter().any(|&dj| dj > i32::MAX as u32) {
             return Err(LieError::Unsupported {
                 requires: "CGC projections beyond i32",
             });
         }
         let [da, db, dc] = [a, b, c].map(a1_dimension);
-        let [a, b, c] = [a, b, c].map(|x| [i64::from(x)]);
-        let channel = general::a1().cgc_entries(
-            crate::cache::Label::new(&a),
-            crate::cache::Label::new(&b),
-            crate::cache::Label::new(&c),
-            exec,
-        )?;
-        Ok(LieCgc {
-            composite: None,
-            dims: [da?, db?, dc?, channel.mult],
-            entries: Some(channel),
-        })
+        Ok([da?, db?, dc?])
+    }
+
+    /// `f` on the Cartan engine and labels of a simple or rank-one CGC query.
+    fn with_cgc_labels<R>(
+        &self,
+        a: &LieIrrep,
+        b: &LieIrrep,
+        c: &LieIrrep,
+        f: impl FnOnce(&general::GeneralFamily, [crate::cache::Label<'_>; 3]) -> Result<R, LieError>,
+    ) -> Result<R, LieError> {
+        if let [Some(a), Some(b), Some(c)] = [a, b, c].map(LieIrrep::simple) {
+            return f(self.engine(), [a.label(), b.label(), c.label()]);
+        }
+        let [a, b, c] = [a, b, c].map(|x| [i64::from(x.dj())]);
+        f(
+            general::a1(),
+            [&a, &b, &c].map(|x| crate::cache::Label::new(x)),
+        )
+    }
+
+    /// The cache key of a simple or rank-one factor's labels in a product
+    /// query, read in place.
+    fn leaf_ref<'q>(&self, xs: &[&'q LieIrrep]) -> crate::category::sealed::LeafRef<'q> {
+        use crate::category::sealed::{LeafLabel, LeafRef, LEAF_A1, LEAF_SIMPLE};
+        let family = if self.roots.is_some() {
+            LEAF_SIMPLE
+        } else {
+            LEAF_A1
+        };
+        LeafRef::new(
+            family,
+            self.group.root_systems()[0],
+            xs.iter().map(|x| match x.simple() {
+                Some(l) => {
+                    let l = l.label();
+                    LeafLabel::Words(l.words, l.hash)
+                }
+                None => LeafLabel::inline(i64::from(x.dj())),
+            }),
+        )
     }
 }
 
@@ -1591,6 +1660,38 @@ impl GroupRepresentations for LieGroup {
     type Cgc = LieCgc;
     fn cgc(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<LieCgc, LieError> {
         self.cgc_in(a, b, c, None)
+    }
+    #[doc(hidden)]
+    fn __fusion_symbols_exact_cgc<'q>(
+        &self,
+        [a, b, c]: [&'q LieIrrep; 3],
+        op: crate::category::sealed::CgcOp<'q, '_>,
+        t: Validated,
+    ) -> Result<bool, LieError> {
+        use crate::category::sealed::CgcOp;
+        if let Some(product) = &self.composite {
+            return product
+                .__fusion_symbols_exact_cgc([a, b, c].map(|x| self.factor_labels(x)), op, t)
+                .map_err(composite_error);
+        }
+        if self.is_torus() {
+            let n = self.__fusion_symbols_validated_nsymbol(a, b, c, t)?;
+            return Ok(crate::category::unit_cgc(n, op));
+        }
+        match op {
+            CgcOp::Describe(leaves) => {
+                leaves.times(self.leaf_cgc_dims(a, b, c)?);
+                leaves.leaf(&self.leaf_ref(&[a, b, c]));
+            }
+            CgcOp::Leaves(each) => (each.0)(self.leaf_ref(&[a, b, c])),
+            CgcOp::Fetch(buf) => {
+                buf.0.push(
+                    self.with_cgc_labels(a, b, c, |engine, [a, b, c]| engine.cgc_exact(a, b, c))?,
+                )
+            }
+            CgcOp::View(out) => *out = Some(self.cgc_in(a, b, c, None)?),
+        }
+        Ok(true)
     }
 }
 
@@ -1729,6 +1830,7 @@ fn is_spin_group(group: &GroupId) -> bool {
 mod tests {
     use super::*;
     use crate::category::SymbolBlock;
+    use malachite_q::Rational;
     use std::error::Error;
 
     #[test]
@@ -1749,6 +1851,67 @@ mod tests {
             let big = f64::rounding_from(&Natural::from(v), Nearest).0;
             assert_eq!((v as f64).to_bits(), big.to_bits(), "{v}");
         }
+    }
+
+    /// Whether `y > 0` is the nearest `f64` to the positive real `x`, given
+    /// whether `x > m` for a rational `m`: `x` lies strictly between the
+    /// midpoints to `y`'s neighbours (no tie occurs for the values below).
+    fn nearest(y: f64, above: impl Fn(&Rational) -> bool) -> bool {
+        use malachite_base::num::conversion::traits::ExactFrom;
+        let q = |k: i64| Rational::exact_from(f64::from_bits(y.to_bits().wrapping_add_signed(k)));
+        let two = Rational::from(2u32);
+        above(&((q(-1) + q(0)) / &two)) && !above(&((q(0) + q(1)) / &two))
+    }
+
+    /// `dim`, `√d`, `1/√d` and `1/d` of `a` are the nearest `f64` to the
+    /// exact values of its integer dimension `d`, by rational comparisons.
+    fn assert_dims_nearest<C: FusionCategory>(cat: &C, a: &C::Object, d: &Natural) {
+        let d = Rational::from(d);
+        assert_eq!(cat.dim(a), f64::rounding_from(&d, Nearest).0, "{d}");
+        assert!(nearest(cat.sqrt_dim(a), |m| d > m * m), "√{d}");
+        assert!(
+            nearest(cat.inv_sqrt_dim(a), |m| m * m * &d < 1u32),
+            "1/√{d}"
+        );
+        assert!(nearest(cat.inv_dim(a), |m| m * &d < 1u32), "1/{d}");
+    }
+
+    #[test]
+    fn derived_and_product_dims_round_once() {
+        let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+        let j = |dj: i64| su2.irrep(&[dj]).unwrap();
+        // 1/√2 rounded once; the reciprocal of the rounded √2 is 0x…BCC.
+        assert_eq!(su2.inv_sqrt_dim(&j(1)).to_bits(), 0x3FE6_A09E_667F_3BCD);
+        // Rank one takes the word path (`inv_sqrt_small` below 2^53).
+        for dj in (0..2_000).chain(u32::MAX - 2_000..=u32::MAX) {
+            assert_dims_nearest(&su2, &j(i64::from(dj)), &Natural::from(u64::from(dj) + 1));
+        }
+        let two = crate::lie::CU1Irrep::new(HalfInt::new(1, 2).unwrap(), 2).unwrap();
+        assert_eq!(
+            crate::lie::CU1.inv_sqrt_dim(&two).to_bits(),
+            0x3FE6_A09E_667F_3BCD
+        );
+        // √14 and 1/√14 of dims 2·7; the products of the factor values are
+        // 0x…3F4A and 0x…2429.
+        let p2 = Product::new((su2.clone(), su2.clone()));
+        let a = (j(1), j(6));
+        assert_eq!(p2.sqrt_dim(&a).to_bits(), 0x400D_EEEA_1168_3F49);
+        assert_eq!(p2.inv_sqrt_dim(&a).to_bits(), 0x3FD1_1ACE_E560_242A);
+        assert_dims_nearest(&p2, &a, &Natural::from(14u32));
+        // 424010773·279972654·491870359 > 2^53; the float product of the
+        // three dimensions is 0x…D9A6.
+        let p3 = Product::new((su2.clone(), su2.clone(), su2.clone()));
+        let dims = [424_010_773u64, 279_972_654, 491_870_359];
+        let a = (j(424_010_772), j(279_972_653), j(491_870_358));
+        assert_eq!(p3.dim(&a).to_bits(), 0x4548_2659_2EF4_D9A7);
+        let d: Natural = dims.iter().map(|&x| Natural::from(x)).product();
+        assert_dims_nearest(&p3, &a, &d);
+        let pv = Product::new(vec![su2.clone(); 3]);
+        assert_dims_nearest(&pv, &vec![a.0, a.1, a.2], &d);
+        // A composite group's dimensions: Spin(4) = SU(2) × SU(2).
+        let spin4 = LieGroup::new(GroupId::spin(4).unwrap()).unwrap();
+        let b = spin4.irrep(&[1, 6]).unwrap();
+        assert_dims_nearest(&spin4, &b, &Natural::from(14u32));
     }
 
     #[test]
@@ -1788,13 +1951,7 @@ mod tests {
                     continue; // spinor label of a non-spin group
                 };
                 let exact = a.simple().unwrap().dim().clone();
-                let want = f64::rounding_from(&exact, Nearest).0;
-                assert_eq!(cat.dim(&a).to_bits(), want.to_bits(), "{id:?} {d:?}");
-                assert_eq!(
-                    cat.sqrt_dim(&a).to_bits(),
-                    want.sqrt().to_bits(),
-                    "{id:?} {d:?}"
-                );
+                assert_dims_nearest(&cat, &a, &exact);
                 checked += 1;
                 above_2_53 += usize::from(exact > (1u64 << 53));
             }
@@ -2005,8 +2162,10 @@ mod tests {
             LieGroup::new(GroupId::cover(&[RootSystem::G2, RootSystem::A(1)], 0).unwrap()).unwrap();
         let a = composite.irrep(&[1, 0, 1]).unwrap();
         composite.cgc(&a, &a, &composite.unit()).unwrap();
-        let resident =
-            || crate::cache::cgc_channel_is_resident(RootSystem::G2, [&[1, 0], &[1, 0], &[0, 0]]);
+        // A composite reads its factors' exact channels, not their views.
+        let resident = || {
+            crate::cache::cgc_exact_channel_is_resident(RootSystem::G2, [&[1, 0], &[1, 0], &[0, 0]])
+        };
         assert!(resident());
         crate::cache::reset();
         assert!(!resident());

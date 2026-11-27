@@ -164,4 +164,13 @@ impl FusionCategory for FermionParity {
     ) -> Result<crate::category::sealed::ExactAnswer, Self::Error> {
         crate::category::unit_symbol(self, op)
     }
+    #[doc(hidden)]
+    fn __fusion_symbols_exact_dim(
+        &self,
+        a: &Self::Object,
+        d: &mut crate::category::sealed::DimAcc,
+        _: crate::category::sealed::Validated,
+    ) -> bool {
+        crate::category::small_dim(self, a, d)
+    }
 }

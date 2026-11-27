@@ -26,9 +26,31 @@ value/gauge rule noted below.
   composite view in the Product tier; with one, the factor's own value is
   returned. Products containing a table category or a category defined
   outside the crate still multiply the public values of their leaves,
-  flattened through any nesting, left to right in `f64`, as do product
-  dimensions and CGCs. A nested product therefore gives the flat product's
-  value, and each leaf N and block is evaluated once per query.
+  flattened through any nesting, left to right in `f64`. A nested product
+  therefore gives the flat product's value, and each leaf N and block is
+  evaluated once per query.
+- **Breaking (values and type):** product CGCs are exact compositions
+  rounded once: each entry of a product (tuple, `Vec`, nested, or a
+  composite `LieGroup`) of Lie groups, tori, U(1) and Z_N is the exact
+  product of the factors' exact entries, rounded once (values move by up to
+  an ulp; an exactly zero entry reads `+0.0`). Two or more Lie factors share
+  one composite channel in the Product tier, keyed by the ordered factors
+  and charged by its entries; one Lie factor returns its own block. The
+  `Cgc` type of `Product<(..)>` and `Product<Vec<_>>` is now `LieCgc` (one
+  sparse block) instead of the tuple or `Vec` of factor blocks, and the
+  tuple and `Vec` `CgcBlock` impls are removed: read a product's block
+  through `CgcBlock` as before, and a factor's own block from that factor's
+  `cgc`. A product with a factor defined outside the crate returns a
+  `LieCgc` of the left-to-right `f64` products of its factors' entries.
+- **Breaking (values):** `sqrt_dim`, `inv_sqrt_dim` and `inv_dim` of every
+  category with integer dimensions (Lie groups and their products, CU(1),
+  U(1), Z_N, fermion parity) are correctly rounded once from the exact
+  dimension: `inv_sqrt_dim` is no longer the reciprocal of the rounded root
+  (SU(2) spin ½ now gives `FRAC_1_SQRT_2`), and a value is no longer derived
+  from a dimension already rounded above `2^53`. A product of such factors
+  multiplies the exact dimensions and rounds `dim` and each derived value
+  once; a product with a table factor still multiplies the factor values
+  left to right.
 - **Breaking (values):** CU(1) A and B are formed exactly from its exact F
   and rounded once, so unit values are exactly `±1`; F and R are unchanged.
 - **Breaking (values):** F, R, A and B of every simple Lie type, and A and B

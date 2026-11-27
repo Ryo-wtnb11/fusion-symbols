@@ -15,9 +15,17 @@
 //! or a category defined outside the crate) F/R/A/B fold the leaves' public
 //! values left to right through any nesting, with scalar promotion, so nested
 //! products of the same leaves agree bit for bit there too. No
-//! cross-factor fermionic sign is added. Products of group representations
-//! provide lazy Clebsch–Gordan blocks, with the last factor fastest on every
-//! axis.
+//! cross-factor fermionic sign is added.
+//!
+//! A product of group representations returns one sparse
+//! [`crate::lie::LieCgc`], with the last factor fastest on every axis
+//! (multiplicity included). When every factor supplies exact channels (Lie
+//! groups, tori, U(1), Z_N, nested in any way), each entry is the exact
+//! product of the factors' exact entries, rounded once; two or more Lie
+//! leaves share one cached composite channel in the Product tier, keyed by
+//! the ordered leaves, and one Lie leaf returns its own block. A product with
+//! a factor defined outside the crate builds an owned block of the
+//! left-to-right `f64` products of its factors' entries.
 //!
 //! Nonzero F/R/A/B queries check each leaf's storage axes against checked N
 //! symbols and its exact row-major storage length before composition. Invalid
@@ -35,8 +43,11 @@
 //! addressable tuple, so every product index up to `u64::MAX` stays available.
 //! A product is enumerable only when every factor is
 //! ([`EnumerationError::NotEnumerable`] takes precedence over other factor
-//! errors). Derived dimensions ([`FusionCategory::sqrt_dim`] and its
-//! inverses) multiply the factor values left to right.
+//! errors). When every factor's dimensions are exact integers, a product's
+//! dimension and its derived values ([`FusionCategory::sqrt_dim`] and its
+//! inverses) are correctly rounded once from the exact product of the factor
+//! dimensions; with a numeric (table) factor they multiply the factor values
+//! left to right.
 //!
 //! Factor fusion iterators must be cloneable. The higher-ranked GAT bound on
 //! these implementations currently restricts factors to owned category types;
@@ -49,9 +60,10 @@
 //! category of this crate states its largest multiplicity without iterating;
 //! for a `FusionStyle::Generic` factor defined outside the crate, building a
 //! nonempty product iterates that factor's channels once more to find it.
+use crate::category::exact_dim;
 use crate::category::sealed::{
-    ExactAnswer, ExactBuf, ExactOp, FloatSink, InlineVec, LeafBuf, LegRows, Query, SymbolKind,
-    Unit, View,
+    CgcExact, CgcLeaves, CgcOp, DimAcc, ExactAnswer, ExactBuf, ExactOp, FloatSink, InlineVec,
+    LeafBuf, LeafVisit, LegRows, Query, SymbolKind, Unit, View,
 };
 use crate::category::{
     rank_checked, sealed::Embed, sealed::ExactCount, sealed::Ranked, sealed::Validated, unrank,
@@ -59,7 +71,11 @@ use crate::category::{
     GroupRepresentations, Promote, RBlock, Scalar, Storage, SymbolBlock,
 };
 use crate::exact::radical::RadicalBlock;
+use crate::frcore::MEntry;
+use crate::lie::LieCgc;
 use crate::rounding::blocks::{check_f_block, check_r_block, round_block};
+use crate::rounding::cgc::{compose_channel, composite_len};
+use crate::rounding::DimValue;
 use malachite_nz::integer::Integer;
 use num_complex::Complex64;
 use std::{
@@ -626,22 +642,131 @@ fn product_rank(factors: Vec<Ranked>) -> Result<Ranked, EnumerationError> {
     })
 }
 
-fn cgc_indices(
-    mut remaining: [usize; 4],
-    mut index: [usize; 4],
-) -> impl FnMut([usize; 4]) -> [usize; 4] {
-    assert!(
-        index.iter().zip(remaining).all(|(&i, n)| i < n),
-        "CGC index out of range"
-    );
-    move |dims| {
-        std::array::from_fn(|axis| {
-            remaining[axis] /= dims[axis];
-            let i = index[axis] / remaining[axis];
-            index[axis] %= remaining[axis];
-            i
-        })
+/// A product's CGC block: when every factor answers the exact protocol, the
+/// scalar of a unit product, the one Radical leaf's own block, or the
+/// composite channel of two or more leaves, composed exactly and rounded
+/// once ([`compose_channel`]) and shared through the Product tier; else
+/// `float`. A warm composite is one tier hit and an `Arc` clone, for any
+/// leaf count: the leaves are walked twice (described with the key hash,
+/// then compared against the stored key) and collected only on a miss.
+fn product_cgc<C: GroupRepresentations>(
+    cat: &C,
+    q: [&C::Object; 3],
+    overflow: impl Fn() -> C::Error,
+    float: impl FnOnce() -> Result<LieCgc, C::Error>,
+) -> Result<LieCgc, C::Error> {
+    let t = Validated(());
+    let mut leaves = CgcLeaves::new();
+    if !cat.__fusion_symbols_exact_cgc(q, CgcOp::Describe(&mut leaves), t)? {
+        return float();
     }
+    let dims = leaves.dims.ok_or_else(&overflow)?;
+    if leaves.absent {
+        return Ok(LieCgc::scalar([dims[0], dims[1], dims[2], 0]));
+    }
+    match leaves.count {
+        0 => Ok(LieCgc::scalar([1; 4])),
+        1 => {
+            let mut view = None;
+            cat.__fusion_symbols_exact_cgc(q, CgcOp::View(&mut view), t)?;
+            Ok(view.expect("the Radical leaf answers its view"))
+        }
+        n => {
+            let walk = |each: &mut dyn FnMut(_)| {
+                let walked = cat.__fusion_symbols_exact_cgc(q, CgcOp::Leaves(LeafVisit(each)), t);
+                debug_assert!(matches!(walked, Ok(true)), "a described query replays");
+            };
+            let channel = crate::cache::composed_cgc(leaves.hash, walk, || {
+                let mut exact = CgcExact(Vec::with_capacity(n));
+                cat.__fusion_symbols_exact_cgc(q, CgcOp::Fetch(&mut exact), t)?;
+                compose_channel(&exact.0)
+                    .map(std::sync::Arc::new)
+                    .ok_or_else(&overflow)
+            })?;
+            Ok(LieCgc::sparse(dims, channel))
+        }
+    }
+}
+
+/// A factor block's present entries ([`CgcBlock::__fusion_symbols_stored`]):
+/// a present entry is kept even when its rounded value is `±0.0`.
+fn stored(block: &dyn CgcBlock) -> Vec<MEntry> {
+    let mut out = Vec::new();
+    block.__fusion_symbols_stored(&mut |at, value| {
+        // Indices below a combined axis checked to fit `u32`.
+        let [m1, m2, m3, mu] = at.map(|i| i as u32);
+        out.push(MEntry {
+            m1,
+            m2,
+            m3,
+            mu,
+            value,
+        });
+    });
+    out
+}
+
+/// The float block of a product with a factor outside the exact protocol:
+/// each entry the left-to-right `f64` product of the factors' present entries, last
+/// factor fastest on every axis; `None` when an axis overflows (or, for a
+/// nonempty block, exceeds `u32`), a factor's dense scan or the entries are
+/// not allocatable ([`composite_len`]). Every bound is checked before any
+/// factor entry is read.
+// ponytail: a block outside `LieCgc` is read by a dense scan of
+// `d_a d_b d_c N` reads and reports every one, so that scan size bounds
+// each factor, sparse `LieCgc` included; a sparse-size hook would lift it
+// if such blocks grow large.
+fn float_cgc(blocks: &[&dyn CgcBlock]) -> Option<LieCgc> {
+    let dims = cgc_dims(blocks.iter().map(|b| b.dims()))?;
+    if dims[3] == 0 {
+        return Some(LieCgc::scalar(dims));
+    }
+    if dims.iter().any(|&d| d > u32::MAX as usize) {
+        return None;
+    }
+    for b in blocks {
+        composite_len(b.dims())?;
+    }
+    let factors: Vec<_> = blocks.iter().map(|b| (b.dims(), stored(*b))).collect();
+    let mut entries = Vec::with_capacity(composite_len(factors.iter().map(|f| f.1.len()))?);
+    let mut pick = vec![0usize; factors.len()];
+    'odometer: while factors.iter().all(|f| !f.1.is_empty()) {
+        let mut at = [0usize; 4];
+        let mut value = None;
+        for ((d, list), &i) in factors.iter().zip(&pick) {
+            let e = list[i];
+            for (axis, m) in [e.m1, e.m2, e.m3, e.mu].into_iter().enumerate() {
+                at[axis] = at[axis] * d[axis] + m as usize;
+            }
+            value = Some(value.map_or(e.value, |v: f64| v * e.value));
+        }
+        let [m1, m2, m3, mu] = at.map(|x| x as u32);
+        let value = value.unwrap_or(1.0);
+        entries.push(MEntry {
+            m1,
+            m2,
+            m3,
+            mu,
+            value,
+        });
+        for (i, (_, list)) in pick.iter_mut().zip(&factors).rev() {
+            *i += 1;
+            if *i < list.len() {
+                continue 'odometer;
+            }
+            *i = 0;
+        }
+        break;
+    }
+    entries.sort_unstable_by_key(|e| (e.mu, e.m3, e.m1, e.m2));
+    let channel = crate::lie::general::cgc::CgcChannel {
+        mult: dims[3],
+        entries: entries.into_boxed_slice(),
+    };
+    Some(LieCgc::sparse(
+        [dims[0], dims[1], dims[2]],
+        std::sync::Arc::new(channel),
+    ))
 }
 
 // Start at the first factor, rather than multiplying it by an identity: this
@@ -1286,16 +1411,24 @@ macro_rules! impl_product {
             // a leaf dimension may be an exact Weyl-formula evaluation, while
             // membership is O(1) by the `contains` contract.
             fn dim(&self, a: &Self::Object) -> f64 {
-                let value = self.factors.0.dim(&a.0); $(let value = value * self.factors.$i.dim(&a.$i);)+ value
+                exact_dim(self, a, DimValue::Dim).unwrap_or_else(|| {
+                    let value = self.factors.0.dim(&a.0); $(let value = value * self.factors.$i.dim(&a.$i);)+ value
+                })
             }
             fn sqrt_dim(&self, a: &Self::Object) -> f64 {
-                let value = self.factors.0.sqrt_dim(&a.0); $(let value = value * self.factors.$i.sqrt_dim(&a.$i);)+ value
+                exact_dim(self, a, DimValue::Sqrt).unwrap_or_else(|| {
+                    let value = self.factors.0.sqrt_dim(&a.0); $(let value = value * self.factors.$i.sqrt_dim(&a.$i);)+ value
+                })
             }
             fn inv_sqrt_dim(&self, a: &Self::Object) -> f64 {
-                let value = self.factors.0.inv_sqrt_dim(&a.0); $(let value = value * self.factors.$i.inv_sqrt_dim(&a.$i);)+ value
+                exact_dim(self, a, DimValue::InvSqrt).unwrap_or_else(|| {
+                    let value = self.factors.0.inv_sqrt_dim(&a.0); $(let value = value * self.factors.$i.inv_sqrt_dim(&a.$i);)+ value
+                })
             }
             fn inv_dim(&self, a: &Self::Object) -> f64 {
-                let value = self.factors.0.inv_dim(&a.0); $(let value = value * self.factors.$i.inv_dim(&a.$i);)+ value
+                exact_dim(self, a, DimValue::Inv).unwrap_or_else(|| {
+                    let value = self.factors.0.inv_dim(&a.0); $(let value = value * self.factors.$i.inv_dim(&a.$i);)+ value
+                })
             }
 
             fn __fusion_symbols_counted_object_at(&self, index: u64, count: &ExactCount, t: Validated) -> Result<Self::Object, EnumerationError> {
@@ -1377,6 +1510,10 @@ macro_rules! impl_product {
                 $(fold.step(&mut op, &self.factors.$i, |x| &x.$i, t, ProductError::$Err)?;)+
                 Ok(fold.finish(&op))
             }
+            fn __fusion_symbols_exact_dim(&self, a: &Self::Object, d: &mut DimAcc, t: Validated) -> bool {
+                self.factors.0.__fusion_symbols_exact_dim(&a.0, d, t)
+                    $(&& self.factors.$i.__fusion_symbols_exact_dim(&a.$i, d, t))+
+            }
         }
         impl<$C0, $($C, $S),+> GroupRepresentations for Product<($C0, $($C,)+)>
         where
@@ -1385,24 +1522,18 @@ macro_rules! impl_product {
             $( $C: GroupRepresentations, for<'a> $C::Fusion<'a>: Clone,
                $Prev: Promote<$C::Scalar, Output = $S>, $S: Scalar, )+
         {
-            type Cgc = ($C0::Cgc, $($C::Cgc,)+);
-            fn cgc(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<Self::Cgc, Self::Error> {
+            type Cgc = LieCgc;
+            fn cgc(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<LieCgc, Self::Error> {
                 validate(self, &[a, b, c]);
-                let blocks = (self.factors.0.cgc(&a.0, &b.0, &c.0).map_err(ProductError::Factor0)?,
-                    $(self.factors.$i.cgc(&a.$i, &b.$i, &c.$i).map_err(ProductError::$Err)?,)+);
-                cgc_dims([blocks.0.dims(), $(blocks.$i.dims()),+]).ok_or(ProductError::Overflow)?;
-                Ok(blocks)
+                product_cgc(self, [a, b, c], || ProductError::Overflow, || {
+                    float_cgc(&[&self.factors.0.cgc(&a.0, &b.0, &c.0).map_err(ProductError::Factor0)?,
+                        $(&self.factors.$i.cgc(&a.$i, &b.$i, &c.$i).map_err(ProductError::$Err)?,)+])
+                        .ok_or(ProductError::Overflow)
+                })
             }
-        }
-        impl<$C0: CgcBlock, $($C: CgcBlock),+> CgcBlock for ($C0, $($C,)+) {
-            fn dims(&self) -> [usize; 4] {
-                cgc_dims([self.0.dims(), $(self.$i.dims()),+]).expect("CGC axis overflow")
-            }
-            fn get(&self, index: [usize; 4]) -> f64 {
-                let mut entry = cgc_indices(self.dims(), index);
-                let value = self.0.get(entry(self.0.dims()));
-                $(let value = value * self.$i.get(entry(self.$i.dims()));)+
-                value
+            fn __fusion_symbols_exact_cgc<'q>(&self, [a, b, c]: [&'q Self::Object; 3], mut op: CgcOp<'q, '_>, t: Validated) -> Result<bool, Self::Error> {
+                Ok(self.factors.0.__fusion_symbols_exact_cgc([&a.0, &b.0, &c.0], op.reborrow(), t).map_err(ProductError::Factor0)?
+                    $(&& self.factors.$i.__fusion_symbols_exact_cgc([&a.$i, &b.$i, &c.$i], op.reborrow(), t).map_err(ProductError::$Err)?)+)
             }
         }
         impl<$C0: FusionCategory, $($C: FusionCategory),+> sealed::Factors for ($C0, $($C,)+) {
@@ -1515,20 +1646,23 @@ where
         self.factors.iter().all(FusionCategory::has_canonical_unit)
     }
     fn dim(&self, a: &Self::Object) -> f64 {
-        assert_eq!(a.len(), self.factors.len(), "foreign product object");
-        scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.dim(a)))
+        exact_dim(self, a, DimValue::Dim)
+            .unwrap_or_else(|| scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.dim(a))))
     }
     fn sqrt_dim(&self, a: &Self::Object) -> f64 {
-        assert_eq!(a.len(), self.factors.len(), "foreign product object");
-        scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.sqrt_dim(a)))
+        exact_dim(self, a, DimValue::Sqrt).unwrap_or_else(|| {
+            scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.sqrt_dim(a)))
+        })
     }
     fn inv_sqrt_dim(&self, a: &Self::Object) -> f64 {
-        assert_eq!(a.len(), self.factors.len(), "foreign product object");
-        scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.inv_sqrt_dim(a)))
+        exact_dim(self, a, DimValue::InvSqrt).unwrap_or_else(|| {
+            scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.inv_sqrt_dim(a)))
+        })
     }
     fn inv_dim(&self, a: &Self::Object) -> f64 {
-        assert_eq!(a.len(), self.factors.len(), "foreign product object");
-        scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.inv_dim(a)))
+        exact_dim(self, a, DimValue::Inv).unwrap_or_else(|| {
+            scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.inv_dim(a)))
+        })
     }
     fn __fusion_symbols_validated_frobenius_schur_phase(
         &self,
@@ -1768,6 +1902,15 @@ where
         }
         Ok(fold.finish(&op))
     }
+    // Dimension queries reach this hook without `validate`, also from an
+    // enclosing product, so the length check lives here rather than in `dim`.
+    fn __fusion_symbols_exact_dim(&self, a: &Self::Object, d: &mut DimAcc, t: Validated) -> bool {
+        assert_eq!(a.len(), self.factors.len(), "foreign product object");
+        self.factors
+            .iter()
+            .zip(a)
+            .all(|(c, a)| c.__fusion_symbols_exact_dim(a, d, t))
+    }
 }
 
 fn rblock<S: Scalar>([n, _]: [usize; 2], data: Storage<S>) -> RBlock<S> {
@@ -1778,34 +1921,49 @@ impl<C: GroupRepresentations> GroupRepresentations for Product<Vec<C>>
 where
     for<'a> C::Fusion<'a>: Clone,
 {
-    type Cgc = Vec<C::Cgc>;
+    type Cgc = LieCgc;
     fn cgc(
         &self,
         a: &Self::Object,
         b: &Self::Object,
         c: &Self::Object,
-    ) -> Result<Self::Cgc, Self::Error> {
+    ) -> Result<LieCgc, Self::Error> {
         validate(self, &[a, b, c]);
-        let blocks: Vec<_> = self
-            .factors
-            .iter()
-            .enumerate()
-            .map(|(index, f)| {
-                f.cgc(&a[index], &b[index], &c[index])
-                    .map_err(|source| ProductError::Factor { index, source })
-            })
-            .collect::<Result<_, _>>()?;
-        cgc_dims(blocks.iter().map(CgcBlock::dims)).ok_or(ProductError::Overflow)?;
-        Ok(blocks)
+        product_cgc(
+            self,
+            [a, b, c],
+            || ProductError::Overflow,
+            || {
+                let blocks = self
+                    .factors
+                    .iter()
+                    .enumerate()
+                    .map(|(index, f)| {
+                        f.cgc(&a[index], &b[index], &c[index])
+                            .map_err(|source| ProductError::Factor { index, source })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let blocks: Vec<&dyn CgcBlock> = blocks.iter().map(|b| b as _).collect();
+                float_cgc(&blocks).ok_or(ProductError::Overflow)
+            },
+        )
     }
-}
-impl<B: CgcBlock> CgcBlock for Vec<B> {
-    fn dims(&self) -> [usize; 4] {
-        cgc_dims(self.iter().map(CgcBlock::dims)).expect("CGC axis overflow")
-    }
-    fn get(&self, index: [usize; 4]) -> f64 {
-        let mut entry = cgc_indices(self.dims(), index);
-        scalar_product(self.iter().map(|b| b.get(entry(b.dims()))))
+    fn __fusion_symbols_exact_cgc<'q>(
+        &self,
+        [a, b, c]: [&'q Self::Object; 3],
+        mut op: CgcOp<'q, '_>,
+        t: Validated,
+    ) -> Result<bool, Self::Error> {
+        for (index, f) in self.factors.iter().enumerate() {
+            let q = [&a[index], &b[index], &c[index]];
+            if !f
+                .__fusion_symbols_exact_cgc(q, op.reborrow(), t)
+                .map_err(|source| ProductError::Factor { index, source })?
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 }
 
@@ -2456,6 +2614,45 @@ mod exact_route_tests {
 
     /// Four, five and nine leaves (past the inline buffer) round the exact
     /// product of the leaves once, with one warm search.
+    /// A composite CGC is one Product-tier entry charged at least by its
+    /// entries, served to warm calls by one search, and released by a trim.
+    #[test]
+    fn composite_cgc_is_charged_shared_and_evictable() {
+        use crate::cache::CacheCharge;
+        let _guard = lock();
+        let (g, [h, _, one]) = su2();
+        let p = Product::new((g.clone(), g));
+        let [a, b, c] = [(&h, &one), (&h, &h), (&one, &h)].map(|(x, y)| (x.clone(), y.clone()));
+        let resident = || {
+            let mut leaves = LeafBuf(InlineVec::with_capacity(0));
+            let mut each = |leaf| leaves.0.push(leaf);
+            p.__fusion_symbols_exact_cgc(
+                [&a, &b, &c],
+                CgcOp::Leaves(LeafVisit(&mut each)),
+                Validated(()),
+            )
+            .unwrap();
+            crate::cache::composed_is_resident(SymbolKind::Cgc, &leaves)
+        };
+        let cold = p.cgc(&a, &b, &c).unwrap();
+        assert!(resident());
+        let (n, warm) = searches(|| p.cgc(&a, &b, &c).unwrap());
+        assert_eq!((n, &warm), (1, &cold));
+        let mut exact = CgcExact(Vec::new());
+        p.__fusion_symbols_exact_cgc([&a, &b, &c], CgcOp::Fetch(&mut exact), Validated(()))
+            .unwrap();
+        let channel = compose_channel(&exact.0).unwrap();
+        let nnz = cold.to_dense().iter().filter(|v| **v != 0.0).count();
+        assert_eq!(channel.entries.len(), nnz);
+        let charge =
+            crate::lie::general::roots::ProductValue::CompositeCgc(std::sync::Arc::new(channel))
+                .value_bytes();
+        assert!(charge >= nnz * std::mem::size_of::<MEntry>());
+        crate::cache::trim_to(crate::cache::CoefficientCacheTier::Product, 0);
+        assert!(!resident());
+        assert_eq!(p.cgc(&a, &b, &c).unwrap(), cold);
+    }
+
     #[test]
     fn many_leaves_round_once() {
         let _guard = lock();
