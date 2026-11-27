@@ -27,7 +27,7 @@ byte-bounded and application-owned; tables keep AnyonWiki's gauge. See
 
 | Family | Provider | Feature |
 |---|---|---|
-| Rank one: SU(2), SO(3), Spin(3), Sp(2), PSU(2); exact 3j/6j/CG | `lie::LieGroup`, `lie::su2` | base |
+| Rank one: SU(2), SO(3), Spin(3), Sp(2), PSU(2); exact 6j-based F and exact CGC | `lie::LieGroup` | base |
 | D₂ forms: Spin(4), SO(4), PSO(4) | `lie::LieGroup` | base |
 | SU(N), SO(N), Spin(N), Sp(2r) of higher rank, and their central quotients | `lie::LieGroup` | `lie-generated` |
 | G₂, F₄, E₆, E₇ and E₈, with exact coefficients | `lie::LieGroup` | `lie-generated` |
@@ -85,14 +85,18 @@ Irreps are named by the Dynkin labels of their highest weight, in Bourbaki
 numbering; [Dynkin labels](docs/user-guide/labels.md) explains them and lists
 common irreps.
 
-Exact SU(2) recoupling, available without default features. Spins are
-doubled (`dj = 2j`), so `2` means spin 1:
+Exact SU(2) recoupling, available without default features. The SU(2)
+Dynkin label is `2j`, so `[2]` means spin 1:
 
 ```rust
-use fusion_symbols::lie::su2::wigner_6j;
+use fusion_symbols::category::{FusionCategory, SymbolBlock};
+use fusion_symbols::lie::{GroupId, LieGroup};
 
-let sixj = wigner_6j(2, 2, 2, 2, 2, 2);
-assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
+let su2 = LieGroup::new(GroupId::su(2)?)?;
+let one = su2.irrep(&[2])?;
+// F^{111}_1[1, 1] = 3 · {1 1 1; 1 1 1} = 3/6
+let f = su2.f_symbol(&one, &one, &one, &one, &one, &one)?;
+assert!((f.get([0, 0, 0, 0]) - 0.5).abs() < 1e-15);
 ```
 
 ## Documentation

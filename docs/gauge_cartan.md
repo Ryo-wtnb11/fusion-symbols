@@ -65,8 +65,8 @@ The gauge of a simple factor is chosen by its **presented root system**
   higher-rank simple types require the `lie-generated` feature. Feature
   selection admits or rejects a group; it never changes a value.
 - **Not covered here:** the closed-form SU(2) F, R and Frobenius–Schur
-  conventions and the free functions `lie::su2::{clebsch_gordan, wigner_3j,
-  wigner_6j}` ([`gauge.md` §1](gauge.md#1-su2-closed-forms)).
+  conventions and the internal closed forms `lie/su2.rs::{clebsch_gordan,
+  wigner_3j, wigner_6j}` ([`gauge.md` §1](gauge.md#1-su2-closed-forms)).
 
 ## 2. Inputs and conventions
 
@@ -452,8 +452,10 @@ Condon–Shortley makes the `m_1 = j_1` component positive. The a-slow pivot
 (§4.3) is the smallest admissible `m_1`, which is `J − j_2` (because
 `J ≥ j_2 − j_1`); its Condon–Shortley sign is `(−1)^{j_1+j_2−J}`. ∎
 
-The sign is exact, so the returned values equal the closed-form
-`su2::clebsch_gordan` bit for bit (both are the exact value rounded once).
+The sign is exact, so the returned values equal the exact Racah closed form
+rounded once bit for bit; the reference is the test-only crate-internal
+`lie::su2::clebsch_gordan`, checked by
+`lie_group_a1_cgc_matches_the_closed_form_bitwise` (no public SU(2) evaluator).
 F and R are unaffected: in the F contraction the four vertex signs multiply to
 `(−1)^{2(j_a+j_b+j_c−j_d)} = 1`, and in R they cancel. `A_1` F, R and `κ` use
 the closed forms anyway ([`gauge.md` §1](gauge.md#1-su2-closed-forms)).
@@ -786,7 +788,8 @@ pipeline's own descriptors to compute expected values.
    isometry before rounding; `Δ(x)Φ_μ = Φ_μ x` exactly for every `e_i`, `f_i`;
    `C = 0` unless `wt(m_a) + wt(m_b) = wt(m_c)`.
 6. **References.**
-   - SU(2): every block CGC equals `su2::clebsch_gordan` bit for bit (§4.6).
+   - SU(2): every block CGC equals the exact Racah closed form rounded once,
+     bit for bit (the test-only `lie::su2::clebsch_gordan`, §4.6).
    - SU(N): signed CGC (including the `μ` order of `SU(3) 8⊗8 → 8`), F and R
      agree with SUNRepresentations.jl v0.4.0 within `1e-12`.
 7. **Category gates.** Pentagon, hexagon and F-unitarity residuals over
@@ -838,9 +841,8 @@ column.
 
   Work is per channel and per weight space of `c`; the full product dimension
   `d_a d_b` never appears as a dense dimension.
-- **SU(2).** The closed form remains the evaluator for a single coefficient
-  (`su2::clebsch_gordan`) and for F and R (an `O(j)` Racah sum against
-  `Ω(j²)` for any four-CGC contraction).
+- **SU(2).** The closed form remains the evaluator for F and R (an `O(j)`
+  Racah sum against `Ω(j²)` for any four-CGC contraction).
 - **Retention.** Modules, exact channels, their rounded views,
   highest-weight seeds (the engine-0 column of a channel, from the
   elimination alone), norm tables (per irrep at public indices: the reduced

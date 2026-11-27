@@ -11,7 +11,7 @@ use malachite_base::num::basic::traits::{One, Zero};
 use malachite_nz::integer::Integer;
 use malachite_q::Rational;
 
-use fusion_symbols::lie::su2::{wigner_3j, wigner_6j};
+use super::{wigner_3j, wigner_6j};
 
 fn tri(a: u32, b: u32, c: u32) -> bool {
     (a + b + c).is_multiple_of(2) && c >= a.abs_diff(b) && c <= a + b

@@ -20,6 +20,10 @@ API and convention differences, not a claim of complete feature parity.
 | Fibonacci | Same gauge and braiding as TKS; exact-source rounding can differ from TKS floating arithmetic by a few ulp |
 | Ising | TKS `(I,σ,ψ)` maps to source `(1,3,2)`, with vertex gauge `u^{σσ}_ψ = −1` (R identical, six F signs differ) |
 | Resource control | Bounded coefficient caches and explicit application-owned policy |
+| Twist | `twist` returns `Result` like `r_symbol`: without braiding it is the error R returns (`TableError::NoBraiding`, `ProductError::NoBraiding { factor }`) rather than a panic; every braided category returns `Ok` |
+| CGC | `GroupRepresentations::cgc(a, b, c)` is TKS `fusiontensor`, named for its content; a `CgcBlock` with ascending projections on row-major `[m₁, m₂, m₃, μ]` axes (TKS SU(2) arrays use descending projections, [gauge](gauge_cartan.md)) |
+| Canonical unit | `has_canonical_unit` states that every F with `a`, `b` or `c` the unit is `1`; TKS has no such query (its generic code assumes it) |
+| Inverse dimension | `inv_dim(a)` has no TKS name (TKS writes `inv(dim(a))`); it sits beside `sqrt_dim`/`inv_sqrt_dim` (TKS `sqrtdim`/`invsqrtdim`) so a product can fold factor values |
 | Hexagon check | `hexagon_residual`'s second hexagon uses the adjoint of each R block for the inverse braiding; TKS `hexagon_equation` uses the elementwise `conj`, which equals the adjoint only for symmetric blocks and so rejects valid data with `N ≥ 2` vertices between different irreps |
 
 Exact SU(2) evaluators return exact zero for forbidden labels, as in
@@ -35,7 +39,7 @@ even to absent channels. See [validation](overview.md#validation-and-errors).
 | Rank-one Lie | The label is the `u32` Dynkin label `dj = 2j`; `HalfInt` spins only through `LieGroup::irrep_spin` and `LieIrrep::spin` on SU(2) and SO(3) (any rank-one presentation); projections doubled too |
 | Z_N | Runtime modulus in category and label, rather than a type parameter; `new` reduces charges like `ZNIrrep{N}(n)` |
 | U(1) | Integer `i32` charges, excluding `i32::MIN`; half-integer charges cannot be represented |
-| CU(1) | `twice_charge: u32` and validated `s`; full `u32` range, separate category provider |
+| CU(1) | `CU1Irrep::new(j: HalfInt, s)` with validated `s`; `2j` spans the full `u32` range; separate category provider |
 | Tables | Validated one-based source indices with a private catalog tag, rather than named TKS objects |
 
 ## Object enumeration
@@ -49,7 +53,7 @@ and independent of object `Ord` or fusion-iterator order.
 | `ZN(N)` | Charges `0,…,N−1` |
 | `FermionParity` | Even, odd |
 | `U1` or U(1) through `LieGroup` | `0,1,−1,2,−2,…`; integer subsequence of TKS's `0,½,−½,1,−1,…`, reindexed densely |
-| `CU1` | `0+`, `0−`, then `twice_charge = 1,2,…` |
+| `CU1` | `0+`, `0−`, then `2j = 1,2,…` |
 | Rank-one Lie | Admitted doubled spins increasing; SO(3)/PSU(2) skip odd labels |
 | SU(N), N ≥ 3, simply connected | Dynkin labels by increasing total, then lexicographic (SUNRepresentations 0.4.0 order) |
 | Tables | Source index minus one; Ising `(I,ψ,σ)`, whereas TKS uses `(I,σ,ψ)` |

@@ -165,7 +165,7 @@ fn su_n_uses_total_grade_then_lexicographic_dynkin_order() {
 #[test]
 fn other_global_forms_and_bcd_are_not_enumerable() {
     for group in [
-        GroupId::psu(3).unwrap(),
+        GroupId::su_quotient(3, 3).unwrap(),
         GroupId::so(5).unwrap(),
         GroupId::spin(5).unwrap(),
         GroupId::sp(4).unwrap(),
@@ -182,7 +182,7 @@ fn other_global_forms_and_bcd_are_not_enumerable() {
 #[cfg(feature = "lie-generated")]
 #[test]
 fn foreign_objects_panic_before_the_capability_check() {
-    let psu3 = lie(GroupId::psu(3).unwrap());
+    let psu3 = lie(GroupId::su_quotient(3, 3).unwrap());
     let su3 = lie(GroupId::su(3).unwrap());
     let foreign = su3.unit();
     assert!(panics(|| {
@@ -214,7 +214,7 @@ fn table_source_order() {
     assert_eq!(fib.object_count(), Ok(Some(2)));
     assert_eq!(
         first(&fib, 2),
-        [fib.object(1).unwrap(), fib.object(2).unwrap()]
+        [fib.object_at(0).unwrap(), fib.object_at(1).unwrap()]
     );
     assert!((fib.dim(&fib.object_at(1).unwrap()) - (1.0 + 5f64.sqrt()) / 2.0).abs() < 1e-15);
     assert_eq!(fib.object_at(2), Err(OutOfRange));
@@ -224,7 +224,7 @@ fn table_source_order() {
     let dims: Vec<f64> = first(&ising, 3).iter().map(|a| ising.dim(a)).collect();
     assert_eq!(dims[..2], [1.0, 1.0]);
     assert!((dims[2] - 2f64.sqrt()).abs() < 1e-15);
-    assert_eq!(ising.object_index(&ising.object(3).unwrap()), Ok(2));
+    assert_eq!(ising.object_index(&ising.object_at(2).unwrap()), Ok(2));
     assert_eq!(ising.object_at(3), Err(OutOfRange));
     round_trip(&ising, 3);
 }
@@ -335,7 +335,7 @@ fn counts_above_u64_keep_indices_addressable() {
 fn products_with_a_non_enumerable_factor_are_not_enumerable() {
     #[cfg(feature = "lie-generated")]
     {
-        let p = Product::new((U1, lie(GroupId::psu(3).unwrap())));
+        let p = Product::new((U1, lie(GroupId::su_quotient(3, 3).unwrap())));
         assert_eq!(p.object_count(), Err(NotEnumerable));
         assert_eq!(p.object_at(0), Err(NotEnumerable));
         assert_eq!(p.object_index(&p.unit()), Err(NotEnumerable));
@@ -343,7 +343,7 @@ fn products_with_a_non_enumerable_factor_are_not_enumerable() {
     // NotEnumerable wins over a factor's label overflow.
     #[cfg(feature = "lie-generated")]
     {
-        let p = Product::new((U1, lie(GroupId::psu(3).unwrap())));
+        let p = Product::new((U1, lie(GroupId::su_quotient(3, 3).unwrap())));
         assert_eq!(p.object_at(u64::MAX), Err(NotEnumerable));
     }
     // (0, 2^32 - 1) opens shell 2^32 - 1, at index C(2^32, 2); its second
@@ -361,7 +361,7 @@ fn derived_dimensions_multiply_factorwise() {
     let su2 = lie(GroupId::su(2).unwrap());
     let fib = TableCategory::fibonacci();
     let p = Product::new((su2.clone(), fib.clone()));
-    let a = (su2.irrep(&[1]).unwrap(), fib.object(2).unwrap());
+    let a = (su2.irrep(&[1]).unwrap(), fib.object_at(1).unwrap());
     assert_eq!(p.sqrt_dim(&a), 1.7989074399478675);
     assert_eq!(p.inv_sqrt_dim(&a), 0.5558929702514211);
     assert_eq!(p.inv_dim(&a), 0.30901699437494745);
@@ -426,7 +426,7 @@ impl<C: FusionCategory> FusionCategory for Forward<C> {
     fn frobenius_schur_indicator(&self, a: &C::Object) -> C::Scalar {
         self.0.frobenius_schur_indicator(a)
     }
-    fn twist(&self, a: &C::Object) -> C::Scalar {
+    fn twist(&self, a: &C::Object) -> Result<C::Scalar, C::Error> {
         self.0.twist(a)
     }
     fn fusion<'a>(&'a self, a: &C::Object, b: &C::Object) -> Result<C::Fusion<'a>, C::Error> {

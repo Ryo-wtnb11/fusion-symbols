@@ -66,7 +66,7 @@ fn sun_twist_matches_r_symbol_formula() {
         }
         let theta = sum / to_f64(a.dim_exact());
         assert!((theta - 1.0).abs() < TOL, "{d:?}: θ = {theta}");
-        assert_eq!(lie_test::group(&a).twist(&a), 1.0, "{d:?}");
+        assert_eq!(lie_test::group(&a).twist(&a).unwrap(), 1.0, "{d:?}");
     }
 }
 
@@ -114,6 +114,6 @@ fn bcd_twist_matches_r_symbol_formula() {
             (theta - 1.0).abs() < TOL,
             "{series:?}{rank} {d:?}: θ = {theta}"
         );
-        assert_eq!(cat.twist(&a), 1.0, "{series:?}{rank} {d:?}");
+        assert_eq!(cat.twist(&a).unwrap(), 1.0, "{series:?}{rank} {d:?}");
     }
 }

@@ -23,7 +23,7 @@ pub enum FusionStyle {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum BraidingStyle {
-    /// Braiding is absent: R returns an error and twist panics.
+    /// Braiding is absent: R and twist return an error.
     None,
     /// Symmetric braiding with trivial twists.
     Bosonic,
@@ -35,6 +35,17 @@ pub enum BraidingStyle {
 
 pub(crate) mod sealed {
     pub trait Sealed {}
+    /// The scalar embeddings behind [`super::Promote`].
+    pub trait Embed<R: super::Scalar>: Sized {
+        /// Embed the left scalar.
+        fn left(self) -> <Self as super::Promote<R>>::Output
+        where
+            Self: super::Promote<R>;
+        /// Embed the right scalar.
+        fn right(r: R) -> <Self as super::Promote<R>>::Output
+        where
+            Self: super::Promote<R>;
+    }
     /// Proof, constructible only inside this crate, that every object passed
     /// alongside it already passed the caller's validation.
     #[derive(Clone, Copy)]
@@ -414,16 +425,14 @@ impl Scalar for Complex64 {
 }
 
 /// Lossless common scalar for a pair of category scalars.
-pub trait Promote<R: Scalar>: Scalar {
+pub trait Promote<R: Scalar>: Scalar + sealed::Embed<R> {
     /// Real only when both inputs are real.
     type Output: Scalar;
-    /// Embed the left scalar.
-    fn left(self) -> <Self as Promote<R>>::Output;
-    /// Embed the right scalar.
-    fn right(r: R) -> <Self as Promote<R>>::Output;
 }
 impl Promote<f64> for f64 {
     type Output = f64;
+}
+impl sealed::Embed<f64> for f64 {
     fn left(self) -> f64 {
         self
     }
@@ -433,6 +442,8 @@ impl Promote<f64> for f64 {
 }
 impl Promote<Complex64> for f64 {
     type Output = Complex64;
+}
+impl sealed::Embed<Complex64> for f64 {
     fn left(self) -> Complex64 {
         self.into()
     }
@@ -442,6 +453,8 @@ impl Promote<Complex64> for f64 {
 }
 impl Promote<f64> for Complex64 {
     type Output = Complex64;
+}
+impl sealed::Embed<f64> for Complex64 {
     fn left(self) -> Complex64 {
         self
     }
@@ -451,6 +464,8 @@ impl Promote<f64> for Complex64 {
 }
 impl Promote<Complex64> for Complex64 {
     type Output = Complex64;
+}
+impl sealed::Embed<Complex64> for Complex64 {
     fn left(self) -> Complex64 {
         self
     }
@@ -654,21 +669,24 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// use fusion_symbols::{category::FusionCategory, lie::{U1Irrep, U1}};
     ///
     /// assert_eq!(U1.frobenius_schur_indicator(&U1Irrep::new(1)?), 0.0); // not self-dual
-    /// assert_eq!(U1.frobenius_schur_indicator(&U1Irrep::UNIT), 1.0);
+    /// assert_eq!(U1.frobenius_schur_indicator(&U1.unit()), 1.0);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     fn frobenius_schur_indicator(&self, a: &Self::Object) -> Self::Scalar;
-    /// Ribbon twist; panics on foreign objects or `BraidingStyle::None`.
+    /// Ribbon twist; error if braiding is absent, the same error
+    /// [`Self::r_symbol`] returns. Foreign objects panic before capability
+    /// checks.
     ///
     /// # Examples
     ///
     /// ```
     /// use fusion_symbols::{category::FusionCategory, fermion::{FermionParity, FermionParityIrrep}};
     ///
-    /// assert_eq!(FermionParity.twist(&FermionParityIrrep::ODD), -1.0);
-    /// assert_eq!(FermionParity.twist(&FermionParityIrrep::EVEN), 1.0);
+    /// assert_eq!(FermionParity.twist(&FermionParityIrrep::ODD)?, -1.0);
+    /// assert_eq!(FermionParity.twist(&FermionParityIrrep::EVEN)?, 1.0);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    fn twist(&self, a: &Self::Object) -> Self::Scalar;
+    fn twist(&self, a: &Self::Object) -> Result<Self::Scalar, Self::Error>;
     /// Deterministic outcomes `c` of `a ⊗ b`, each once with its multiplicity
     /// `N(a, b, c) ≥ 1`, which equals [`Self::nsymbol`]. Reading every channel
     /// with its multiplicity this way costs one decomposition lookup per
@@ -1143,7 +1161,7 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         &self,
         a: &Self::Object,
         _: sealed::Validated,
-    ) -> Self::Scalar {
+    ) -> Result<Self::Scalar, Self::Error> {
         self.twist(a)
     }
     #[doc(hidden)]

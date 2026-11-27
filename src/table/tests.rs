@@ -1,4 +1,4 @@
-use super::provenance::fnv1a64;
+use super::provenance::{fnv1a64, PROJECTION_EPOCH};
 use super::*;
 
 // Every object in the frozen enumeration order (zero-based `object_at`).
@@ -12,6 +12,15 @@ const UNITARY: bool = cfg!(feature = "anyonwiki-unitary");
 // rank 5-7 (212 braided).
 const SHIPPED_COUNT: usize = if UNITARY { 377 } else { 74 };
 const BRAIDED_COUNT: usize = if UNITARY { 270 } else { 58 };
+
+/// The entry with `anyonwiki_code` `code` in the pinned database commit.
+fn by_code(code: [u8; 7]) -> Result<TableCategory, TableError> {
+    let (uuid, _, _) = catalog::INDEX
+        .iter()
+        .find(|(_, other, _)| *other == code)
+        .ok_or(TableError::UnknownCategory)?;
+    TableCategory::by_uuid(uuid)
+}
 
 #[test]
 fn index_and_shipped_agree() {
@@ -79,30 +88,25 @@ fn every_shipped_entry_constructs() {
         assert_eq!(category.uuid(), uuid);
         assert_eq!(
             category.object_count(),
-            Ok(Some(u64::from(category.code()[0])))
+            Ok(Some(u64::from(category.entry.code[0])))
         );
-        assert_eq!(
-            TableCategory::by_code(category.code())
-                .expect("valid")
-                .uuid(),
-            uuid
-        );
+        assert_eq!(by_code(category.entry.code).expect("valid").uuid(), uuid);
         // Braiding index 0 is AnyonWiki's "unbraided".
         assert_eq!(
             (category.braiding_style() != BraidingStyle::None),
-            category.code()[5] != 0
+            category.entry.code[5] != 0
         );
         braided += usize::from(category.braiding_style() != BraidingStyle::None);
     }
     assert_eq!(braided, BRAIDED_COUNT);
     let fib = TableCategory::fibonacci();
     assert_eq!(
-        (fib.uuid(), fib.code()),
+        (fib.uuid(), fib.entry.code),
         (FIBONACCI_UUID, [2, 1, 0, 2, 1, 2, 1])
     );
     let ising = TableCategory::ising();
     assert_eq!(
-        (ising.uuid(), ising.code()),
+        (ising.uuid(), ising.entry.code),
         (ISING_UUID, [3, 1, 0, 1, 1, 1, 1])
     );
 }
@@ -114,19 +118,16 @@ fn unknown_and_unsupported_entries_are_typed_errors() {
             TableCategory::by_uuid("not-a-uuid"),
             TableError::UnknownCategory,
         ),
-        (
-            TableCategory::by_code([2, 1, 0, 2, 1, 3, 1]),
-            TableError::UnknownCategory,
-        ),
+        (by_code([2, 1, 0, 2, 1, 3, 1]), TableError::UnknownCategory),
         // Fibonacci's Yang–Lee Galois conjugate: not unitary.
         (
-            TableCategory::by_code([2, 1, 0, 2, 2, 1, 1]),
+            by_code([2, 1, 0, 2, 2, 1, 1]),
             TableError::Unsupported {
                 reason: UnsupportedReason::NonUnitary,
             },
         ),
         (
-            TableCategory::by_code([7, 1, 2, 11, 2, 1, 1]),
+            by_code([7, 1, 2, 11, 2, 1, 1]),
             TableError::Unsupported {
                 reason: UnsupportedReason::PivotalNotUnitary,
             },
@@ -140,7 +141,7 @@ fn unknown_and_unsupported_entries_are_typed_errors() {
 fn rank_above_four_is_gated_by_the_feature() {
     // A supported rank-5 entry: refused as `NotShipped` by default, shipped
     // with `anyonwiki-unitary`.
-    let rank5 = TableCategory::by_code([5, 1, 0, 1, 1, 1, 1]);
+    let rank5 = by_code([5, 1, 0, 1, 1, 1, 1]);
     if UNITARY {
         let category = rank5.expect("shipped with the feature");
         assert_eq!(category.uuid(), "37fa5126-97c6-11f1-a81f-1594c7705b4d");
@@ -590,11 +591,11 @@ fn shipped_fibonacci_braiding_is_tensorkits_not_its_mirror() {
     // has the conjugate R-symbols; TensorKitSectors' `FibonacciAnyon`
     // has R^{ττ}_𝟙 = e^{+4πi/5}.
     let fib = TableCategory::fibonacci();
-    let tau = fib.object(2).unwrap();
+    let tau = fib.object_at(1).unwrap();
     let r = fib.r_symbol(&tau, &tau, &fib.unit()).unwrap();
     assert!((r.arg() - 0.8 * std::f64::consts::PI).abs() < 1e-15, "{r}");
-    let mirror = TableCategory::by_code([2, 1, 0, 2, 1, 1, 1]).expect("shipped");
-    let tau = mirror.object(2).unwrap();
+    let mirror = by_code([2, 1, 0, 2, 1, 1, 1]).expect("shipped");
+    let tau = mirror.object_at(1).unwrap();
     assert_eq!(
         mirror.r_symbol(&tau, &tau, &mirror.unit()).unwrap(),
         r.conj()
@@ -621,7 +622,7 @@ fn category_identity_shared_clone_and_styles() {
     assert_eq!(fib.braiding_style(), BraidingStyle::Anyonic);
     // AnyonWiki badbfe2: the two symmetric Z2 braidings, R^{22}_1 = ±1.
     for (braiding, style) in [(1, BraidingStyle::Bosonic), (2, BraidingStyle::Fermionic)] {
-        let cat = TableCategory::by_code([2, 1, 0, 1, 2, braiding, 1]).unwrap();
+        let cat = by_code([2, 1, 0, 1, 2, braiding, 1]).unwrap();
         assert_eq!(cat.fusion_style(), FusionStyle::Unique);
         assert_eq!(cat.braiding_style(), style);
     }

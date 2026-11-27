@@ -47,7 +47,7 @@ pub struct U1Irrep {
 
 impl U1Irrep {
     /// The unit, charge `0`.
-    pub const UNIT: Self = Self { charge: 0 };
+    pub(crate) const UNIT: Self = Self { charge: 0 };
 
     /// The irrep of the given charge.
     ///
@@ -120,14 +120,6 @@ pub(super) fn conserves(a: &U1Irrep, b: &U1Irrep, c: &U1Irrep) -> u32 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct U1;
 
-impl U1 {
-    /// The connected compact group classified by this category.
-    /// U(1) always has a valid rank and character lattice.
-    pub fn group_id(&self) -> super::GroupId {
-        super::GroupId::u(1).expect("U(1) has a valid rank and character lattice")
-    }
-}
-
 impl FusionCategory for U1 {
     type Object = U1Irrep;
     type Scalar = f64;
@@ -160,8 +152,8 @@ impl FusionCategory for U1 {
     fn frobenius_schur_indicator(&self, a: &U1Irrep) -> f64 {
         f64::from(u8::from(*a == self.dual(a)))
     }
-    fn twist(&self, _a: &U1Irrep) -> f64 {
-        1.0
+    fn twist(&self, _a: &U1Irrep) -> Result<f64, U1Error> {
+        Ok(1.0)
     }
     fn fusion<'a>(&'a self, a: &U1Irrep, b: &U1Irrep) -> Result<Self::Fusion<'a>, Self::Error> {
         Ok(std::iter::once((

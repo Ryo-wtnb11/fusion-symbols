@@ -32,10 +32,6 @@ impl FermionParityIrrep {
     pub const EVEN: Self = Self { odd: false };
     /// Odd parity.
     pub const ODD: Self = Self { odd: true };
-    /// Construct either validated parity.
-    pub const fn new(odd: bool) -> Self {
-        Self { odd }
-    }
     /// Whether the object has odd parity.
     pub const fn is_odd(self) -> bool {
         self.odd
@@ -80,19 +76,18 @@ impl FusionCategory for FermionParity {
     fn frobenius_schur_indicator(&self, a: &FermionParityIrrep) -> f64 {
         f64::from(u8::from(*a == self.dual(a)))
     }
-    fn twist(&self, a: &FermionParityIrrep) -> f64 {
-        if a.odd {
-            -1.0
-        } else {
-            1.0
-        }
+    fn twist(&self, a: &FermionParityIrrep) -> Result<f64, Infallible> {
+        Ok(if a.odd { -1.0 } else { 1.0 })
     }
     fn fusion<'a>(
         &'a self,
         a: &FermionParityIrrep,
         b: &FermionParityIrrep,
     ) -> Result<Self::Fusion<'a>, Self::Error> {
-        Ok(std::iter::once((FermionParityIrrep::new(a.odd ^ b.odd), 1)))
+        Ok(std::iter::once((
+            FermionParityIrrep { odd: a.odd ^ b.odd },
+            1,
+        )))
     }
     fn nsymbol(
         &self,

@@ -34,7 +34,6 @@ another type is named.
 | A and B symbols | `a_symbol`, `b_symbol` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.FusionCategory.html#method.a_symbol) |
 | Read a symbol block | `SymbolBlock::{dims, get, as_slice}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.SymbolBlock.html) |
 | Clebsch–Gordan coefficients | `GroupRepresentations::cgc`, read with `CgcBlock::{dims, get, to_dense}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/category/trait.GroupRepresentations.html#tymethod.cgc) |
-| Exact SU(2) 3j, 6j, CG | `lie::su2::{wigner_3j, wigner_6j, clebsch_gordan}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/su2/index.html) |
 | U(1), Z_N, fermion parity, CU(1) | `U1` + `U1Irrep::new`, `ZN::new` + `ZNIrrep::new`, `FermionParity`, `CU1` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/lie/struct.U1.html) |
 | Fibonacci, Ising or another anyon table | `TableCategory::{fibonacci, ising, by_uuid, object}` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/table/struct.TableCategory.html) |
 | Several symmetries at once | `Product::new((a, b))`, `Product::new(vec![…])` | [docs](https://docs.rs/fusion-symbols/latest/fusion_symbols/product/struct.Product.html#method.new) |
@@ -53,7 +52,6 @@ Categories that are representation categories of groups also implement
 | You need | Use | Objects |
 |---|---|---|
 | A compact connected Lie group: SU(N), SO(N), Spin(N), Sp(2r), G₂, F₄, E₆, E₇, E₈, U(N), tori, products, quotients | `lie::LieGroup` built from a `lie::GroupId` | `LieIrrep` |
-| Exact SU(2) 3j, 6j or CG values as rationals under a square root | `lie::su2::{wigner_3j, wigner_6j, clebsch_gordan}` | doubled spins `u32` |
 | U(1) with `Copy` labels and scalar symbols | `lie::U1` | `U1Irrep` |
 | CU(1) = O(2) | `lie::CU1` | `CU1Irrep` |
 | Z_N | `finite::ZN` | `ZNIrrep` |
@@ -85,7 +83,7 @@ let su3 = LieGroup::new(GroupId::su(3)?)?;
 let so5 = LieGroup::new(GroupId::so(5)?)?;
 let spin5 = LieGroup::new(GroupId::spin(5)?)?;
 let sp4 = LieGroup::new(GroupId::sp(4)?)?; // defining dimension 4, rank 2
-let psu3 = LieGroup::new(GroupId::psu(3)?)?; // SU(3)/Z3
+let psu3 = LieGroup::new(GroupId::su_quotient(3, 3)?)?; // SU(3)/Z3
 let u2 = LieGroup::new(GroupId::u(2)?)?;
 let t2 = LieGroup::new(GroupId::torus(2)?)?;
 assert_eq!(su3.group_id().semisimple_rank(), 2);
@@ -97,7 +95,7 @@ assert_ne!(so5.group_id(), spin5.group_id());
 assert_ne!(psu3.group_id(), su3.group_id());
 ```
 
-Named constructors: `su(n)`, `su_quotient(n, k)`, `psu(n)`, `u(n)`,
+Named constructors: `su(n)`, `su_quotient(n, k)` (PSU(n) is `su_quotient(n, n)`), `u(n)`,
 `torus(t)`, `so(n)`, `spin(n)`, `pso(n)`, `sp(m)`, `psp(m)`,
 `half_spin_plus(n)`, `half_spin_minus(n)`. Orthogonal and symplectic
 arguments are the defining matrix dimension, not the rank.
@@ -196,7 +194,8 @@ assert_eq!(r.get([0, 0]), -1.0);
   multiplicity beyond `u32`.
 - `dim`, `dual`, `frobenius_schur_phase`, `frobenius_schur_indicator` and
   `twist` are per-object data. `frobenius_schur_phase` returns a `Result`:
-  a complex irrep of a generated family may need its modules built.
+  a complex irrep of a generated family may need its modules built. `twist`
+  returns a `Result` too: without braiding it is the error `r_symbol` returns.
 - `f_symbol`, `r_symbol`, `a_symbol` and `b_symbol` return blocks whose axes
   are vertex multiplicities (next section). An inadmissible vertex gives a
   zero block, not an error; errors mean a genuine failure or a missing
@@ -264,18 +263,18 @@ B, C, D and the exceptional types follow the depth order of
 highest weight first. `U1` and
 `ZN` return a scalar CGC: `1.0` for a present channel, `0.0` for an absent one.
 
-The exact SU(2) evaluators under `lie::su2` take doubled spins and doubled
-projections, in the argument order `(dj1, dm1, dj2, dm2, dj3, dm3)` for
-`clebsch_gordan`. They return `SignedSqrtRational` (`sign * sqrt(p/q)`);
-compare exactly with `signed_square()` or convert with `to_f64()`. A
-forbidden label set gives exact zero, never an error or a panic.
+SU(2) CGC are exact values rounded once to `f64`. The magnetic index is
+`m + j`, so `get([m1 + j1, m2 + j2, m3 + j3, 0])` is the Condon–Shortley
+coefficient `⟨j1 m1; j2 m2 | j3 m3⟩`:
 
 ```rust
-use fusion_symbols::lie::su2::clebsch_gordan;
+use fusion_symbols::{category::{CgcBlock, FusionCategory, GroupRepresentations}, lie::{GroupId, LieGroup}};
 
+let su2 = LieGroup::new(GroupId::su(2)?)?;
+let half = su2.irrep(&[1])?;
+let c = su2.cgc(&half, &half, &su2.unit())?;
 // <1/2 +1/2, 1/2 -1/2 | 0 0> = 1/sqrt(2)
-let cg = clebsch_gordan(1, 1, 1, -1, 0, 0);
-assert!((cg.to_f64() - 0.5f64.sqrt()).abs() < 1e-15);
+assert!((c.get([1, 0, 0, 0]) - 0.5f64.sqrt()).abs() < 1e-15);
 ```
 
 ## Abelian and finite categories
@@ -295,11 +294,11 @@ let z3 = ZN::new(3)?;
 let one = ZNIrrep::new(1, 3)?;
 assert_eq!(z3.fusion(&one, &one)?.next(), Some((ZNIrrep::new(2, 3)?, 1)));
 
-assert_eq!(FermionParity.twist(&FermionParityIrrep::ODD), -1.0);
+assert_eq!(FermionParity.twist(&FermionParityIrrep::ODD)?, -1.0);
 
 let a = CU1Irrep::new(HalfInt::new(1, 2)?, 2)?;
 let channels: Vec<_> = CU1.fusion(&a, &a)?.collect();
-assert_eq!(channels, [(CU1Irrep::VACUUM, 1), (CU1Irrep::PSEUDOSCALAR, 1), (CU1Irrep::new(HalfInt::new(2, 2)?, 2)?, 1)]);
+assert_eq!(channels, [(CU1.unit(), 1), (CU1Irrep::new(HalfInt::from_doubled(0), 1)?, 1), (CU1Irrep::new(HalfInt::new(2, 2)?, 2)?, 1)]);
 ```
 
 `U1` is the same group as `LieGroup::new(GroupId::u(1)?)`, with `Copy` labels
@@ -311,13 +310,14 @@ noncanonical input must be rejected.
 ## Tables
 
 `TableCategory` serves finite categories from the pinned AnyonWiki database.
-Symbols are `Complex64`; objects are one-based source indices.
+Symbols are `Complex64`; `object_at(i)` is the object with AnyonWiki
+label `i + 1`.
 
 ```rust
 use fusion_symbols::{category::FusionCategory, table::{TableCategory, TableError}};
 
 let fib = TableCategory::fibonacci();
-let tau = fib.object(2)?; // index 1 is the unit
+let tau = fib.object_at(1).unwrap(); // object_at(0) is the unit
 assert_eq!(fib.nsymbol(&tau, &tau, &tau)?, 1);
 let golden = (1.0 + 5f64.sqrt()) / 2.0;
 assert!((fib.dim(&tau) - golden).abs() < 1e-12);
@@ -328,12 +328,12 @@ assert!(TableCategory::shipped_uuids().len() >= 74);
 assert!(matches!(TableCategory::by_uuid("not-a-uuid"), Err(TableError::UnknownCategory)));
 ```
 
-Open a category with `fibonacci()`, `ising()`, `by_uuid(uuid)` or
-`by_code(code)`; `shipped_uuids()` lists what this build ships. 74
+Open a category with `fibonacci()`, `ising()`, or `by_uuid(uuid)`;
+`shipped_uuids()` lists what this build ships. 74
 categories of rank ≤ 4 ship by default and 303 more of rank 5–7 with the
 `anyonwiki-unitary` feature. A known but unshipped entry returns
 `TableError::Unsupported` with an `UnsupportedReason`. Fusion-only tables
-return `TableError::NoBraiding` from R and panic on `twist`. Values are in
+return `TableError::NoBraiding` from R and `twist`. Values are in
 AnyonWiki's gauge; Ising differs from TensorKitSectors' `IsingAnyon` by a
 vertex gauge and object order (see [differences](../tensorkitsectors-differences.md)).
 Provenance and pins are in [category conventions](../references_categories.md).
@@ -351,7 +351,7 @@ use fusion_symbols::{category::{CgcBlock, FusionCategory, GroupRepresentations},
 
 let cat = Product::new((U1, FermionParity));
 let odd = (U1Irrep::new(1)?, FermionParityIrrep::ODD);
-assert_eq!(cat.twist(&odd), -1.0);
+assert_eq!(cat.twist(&odd)?, -1.0);
 
 let su2 = LieGroup::new(GroupId::su(2)?)?;
 let spin_charge = Product::new((su2.clone(), U1));
@@ -361,7 +361,7 @@ let c = spin_charge.cgc(&x, &x, &y)?;
 assert_eq!(c.dims(), [2, 2, 3, 1]);
 
 let chain = Product::new(vec![U1; 4]);
-assert_eq!(chain.unit(), vec![U1Irrep::UNIT; 4]);
+assert_eq!(chain.unit(), vec![U1.unit(); 4]);
 ```
 
 Nesting is kept: `Product::new((Product::new((a, b)), c))` has objects
@@ -401,13 +401,15 @@ The full validation order is in [validation and errors](../overview.md#validatio
 
 Generated coefficients and exact SU(2) values are cached in process-global,
 byte-bounded tiers, one per data kind and shared by every group. The defaults
-are bounded (576 MiB for all tiers together), so most programs do
+are bounded (512 MiB for all tiers together), so most programs do
 nothing.
 
 ```rust
-use fusion_symbols::cache::{tier_stats, CoefficientCacheTier};
+use fusion_symbols::{cache::{tier_stats, CoefficientCacheTier}, category::FusionCategory, lie::{GroupId, LieGroup}};
 
-let _ = fusion_symbols::lie::su2::wigner_6j(2, 2, 2, 2, 2, 2);
+let su2 = LieGroup::new(GroupId::su(2)?)?;
+let one = su2.irrep(&[2])?;
+let _ = su2.f_symbol(&one, &one, &one, &one, &one, &one)?;
 let six_j = tier_stats(CoefficientCacheTier::Wigner6j);
 println!("{} entries, {} bytes, {} hits", six_j.entries, six_j.bytes, six_j.hits);
 // A sum over tiers combines independent snapshots; use it for reporting only.

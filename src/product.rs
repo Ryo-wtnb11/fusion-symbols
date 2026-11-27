@@ -54,9 +54,9 @@ use crate::category::sealed::{
     Unit, View,
 };
 use crate::category::{
-    rank_checked, sealed::ExactCount, sealed::Ranked, sealed::Validated, unrank, BraidingStyle,
-    CgcBlock, Count, EnumerationError, FBlock, FusionCategory, FusionStyle, GroupRepresentations,
-    Promote, RBlock, Scalar, Storage, SymbolBlock,
+    rank_checked, sealed::Embed, sealed::ExactCount, sealed::Ranked, sealed::Validated, unrank,
+    BraidingStyle, CgcBlock, Count, EnumerationError, FBlock, FusionCategory, FusionStyle,
+    GroupRepresentations, Promote, RBlock, Scalar, Storage, SymbolBlock,
 };
 use crate::exact::radical::RadicalBlock;
 use crate::rounding::blocks::{check_f_block, check_r_block, round_block};
@@ -89,7 +89,7 @@ impl<C> Product<C> {
     /// ```
     /// use fusion_symbols::{fermion::FermionParity, lie::U1, product::Product};
     /// let cat = Product::new((U1, FermionParity, U1));
-    /// assert_eq!(cat.into_factors(), (U1, FermionParity, U1));
+    /// assert_eq!(cat.factors(), &(U1, FermionParity, U1));
     /// let chain = Product::new(vec![U1; 3]);
     /// assert_eq!(chain.factors().len(), 3);
     /// ```
@@ -126,10 +126,6 @@ impl<C> Product<C> {
     /// The ordered immediate factors.
     pub fn factors(&self) -> &C {
         &self.factors
-    }
-    /// Recover the ordered immediate factors.
-    pub fn into_factors(self) -> C {
-        self.factors
     }
 }
 impl<C: PartialEq> PartialEq for Product<C> {
@@ -300,18 +296,91 @@ impl<E0, E1, E2, E3, E4, E5, E6, E7, E8, E9, E10, E11>
     }
 }
 
-/// Cartesian fusion iterator; resets clone initialized iterators, never query factors again.
-/// Each outcome's multiplicity is the product of its factor multiplicities.
-#[derive(Clone, Debug)]
-pub struct ProductFusion<I, O> {
-    initial: I,
-    active: I,
-    current: Option<O>,
-    // Exact largest multiplicity of the outcomes, checked against `u32` when
-    // the iterator was built; 0 for an empty product.
-    max: u32,
+/// Fusion outcomes of a [`Product`] with factors `C`: every combination of
+/// factor outcomes, each with the product of the factor multiplicities.
+pub struct ProductFusion<'a, C: sealed::Factors + 'a>(Cartesian<C::Iters<'a>, C::Current<'a>>);
+
+use sealed::Cartesian;
+
+pub(crate) mod sealed {
+    /// Cartesian fusion iterator; resets clone initialized iterators, never query factors again.
+    /// Each outcome's multiplicity is the product of its factor multiplicities.
+    #[derive(Clone, Debug)]
+    pub struct Cartesian<I, O> {
+        pub(crate) initial: I,
+        pub(crate) active: I,
+        pub(crate) current: Option<O>,
+        // Exact largest multiplicity of the outcomes, checked against `u32` when
+        // the iterator was built; 0 for an empty product.
+        pub(crate) max: u32,
+    }
+    /// The iterator state of a product's fusion, per factor container.
+    pub trait Factors {
+        type Iters<'a>
+        where
+            Self: 'a;
+        type Current<'a>
+        where
+            Self: 'a;
+    }
 }
-impl<I, O> ProductFusion<I, O> {
+
+impl<'a, C: sealed::Factors + 'a> ProductFusion<'a, C> {
+    pub(crate) fn max_multiplicity(&self) -> u32 {
+        self.0.max
+    }
+    pub(crate) fn into_cartesian(self) -> Cartesian<C::Iters<'a>, C::Current<'a>> {
+        self.0
+    }
+}
+impl<'a, C: sealed::Factors + 'a> Clone for ProductFusion<'a, C>
+where
+    Cartesian<C::Iters<'a>, C::Current<'a>>: Clone,
+{
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+impl<'a, C: sealed::Factors + 'a> core::fmt::Debug for ProductFusion<'a, C>
+where
+    Cartesian<C::Iters<'a>, C::Current<'a>>: core::fmt::Debug,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("ProductFusion").field(&self.0).finish()
+    }
+}
+impl<'a, C: sealed::Factors + 'a> Iterator for ProductFusion<'a, C>
+where
+    Cartesian<C::Iters<'a>, C::Current<'a>>: Iterator,
+{
+    type Item = <Cartesian<C::Iters<'a>, C::Current<'a>> as Iterator>::Item;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        self.0.nth(n)
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+impl<'a, C: sealed::Factors + 'a> DoubleEndedIterator for ProductFusion<'a, C>
+where
+    Cartesian<C::Iters<'a>, C::Current<'a>>: DoubleEndedIterator,
+{
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.0.next_back()
+    }
+    fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
+        self.0.nth_back(n)
+    }
+}
+impl<'a, C: sealed::Factors + 'a> ExactSizeIterator for ProductFusion<'a, C> where
+    Cartesian<C::Iters<'a>, C::Current<'a>>: ExactSizeIterator
+{
+}
+
+impl<I, O> Cartesian<I, O> {
     pub(crate) fn max_multiplicity(&self) -> u32 {
         self.max
     }
@@ -422,7 +491,7 @@ impl<S: Scalar, const R: usize> Partial<S, R> {
         }
     }
 
-    // `embed(l)` then `multiply(·, r)` is `Promote::left(l) * Promote::right(r)`.
+    // `embed(l)` then `multiply(·, r)` is `Embed::left(l) * Embed::right(r)`.
     // `Scalar` is sealed, so a step either keeps the scalar type and its buffer
     // (embed is the identity) or promotes f64 to Complex64 once: the real prefix
     // then leaves its transient f64 buffer for a complex one. The TypeId test
@@ -730,7 +799,7 @@ fn is_real<S: Scalar>() -> bool {
 fn real<S: Scalar>(x: S) -> f64 {
     cast(x).expect("a real block")
 }
-// `Promote::right` and `Promote::left` of a real into the complex scalar.
+// `Embed::right` and `Embed::left` of a real into the complex scalar.
 fn widen<S: Scalar>(x: S) -> Complex64 {
     cast::<f64, S>(x).map_or_else(|x| cast(x).expect("Scalar is sealed"), Complex64::from)
 }
@@ -1100,10 +1169,10 @@ macro_rules! product_queries {
                 validate($this, &[a]);
                 $this.__fusion_symbols_validated_frobenius_schur_indicator(a, Validated(()))
             }
-            fn twist(&$this, a: &Self::Object) -> Self::Scalar {
+            fn twist(&$this, a: &Self::Object) -> Result<Self::Scalar, Self::Error> {
                 validate($this, &[a]);
                 if let Some(factor) = ($braidings).into_iter().position(|s| s == BraidingStyle::None) {
-                    panic!("product factor {factor} has no braiding");
+                    return Err(ProductError::NoBraiding { factor });
                 }
                 $this.__fusion_symbols_validated_twist(a, Validated(()))
             }
@@ -1182,7 +1251,7 @@ macro_rules! impl_product {
             type FSymbol = FBlock<Self::Scalar>;
             type RSymbol = RBlock<Self::Scalar>;
             type Error = ProductError<$C0::Error, $($C::Error),+>;
-            type Fusion<'a> = ProductFusion<(Fuse<$C0::Fusion<'a>>, $(Fuse<$C::Fusion<'a>>,)+), (($C0::Object, u32), $(($C::Object, u32),)+)> where Self: 'a;
+            type Fusion<'a> = ProductFusion<'a, ($C0, $($C,)+)> where Self: 'a;
 
             product_queries!(self; [self.factors.0.braiding_style(), $(self.factors.$i.braiding_style()),+]);
 
@@ -1253,17 +1322,18 @@ macro_rules! impl_product {
             }
             fn __fusion_symbols_validated_frobenius_schur_phase(&self, a: &Self::Object, t: Validated) -> Result<Self::Scalar, Self::Error> {
                 let value = self.factors.0.__fusion_symbols_validated_frobenius_schur_phase(&a.0, t).map_err(ProductError::Factor0)?;
-                $(let value = <$Prev as Promote<$C::Scalar>>::left(value) * <$Prev as Promote<$C::Scalar>>::right(self.factors.$i.__fusion_symbols_validated_frobenius_schur_phase(&a.$i, t).map_err(ProductError::$Err)?);)+
+                $(let value = <$Prev as Embed<$C::Scalar>>::left(value) * <$Prev as Embed<$C::Scalar>>::right(self.factors.$i.__fusion_symbols_validated_frobenius_schur_phase(&a.$i, t).map_err(ProductError::$Err)?);)+
                 Ok(value)
             }
             fn __fusion_symbols_validated_frobenius_schur_indicator(&self, a: &Self::Object, t: Validated) -> Self::Scalar {
                 let value = self.factors.0.__fusion_symbols_validated_frobenius_schur_indicator(&a.0, t);
-                $(let value = <$Prev as Promote<$C::Scalar>>::left(value) * <$Prev as Promote<$C::Scalar>>::right(self.factors.$i.__fusion_symbols_validated_frobenius_schur_indicator(&a.$i, t));)+ value
+                $(let value = <$Prev as Embed<$C::Scalar>>::left(value) * <$Prev as Embed<$C::Scalar>>::right(self.factors.$i.__fusion_symbols_validated_frobenius_schur_indicator(&a.$i, t));)+ value
             }
             // The caller has checked that every factor braids.
-            fn __fusion_symbols_validated_twist(&self, a: &Self::Object, t: Validated) -> Self::Scalar {
-                let value = self.factors.0.__fusion_symbols_validated_twist(&a.0, t);
-                $(let value = <$Prev as Promote<$C::Scalar>>::left(value) * <$Prev as Promote<$C::Scalar>>::right(self.factors.$i.__fusion_symbols_validated_twist(&a.$i, t));)+ value
+            fn __fusion_symbols_validated_twist(&self, a: &Self::Object, t: Validated) -> Result<Self::Scalar, Self::Error> {
+                let value = self.factors.0.__fusion_symbols_validated_twist(&a.0, t).map_err(ProductError::Factor0)?;
+                $(let value = <$Prev as Embed<$C::Scalar>>::left(value) * <$Prev as Embed<$C::Scalar>>::right(self.factors.$i.__fusion_symbols_validated_twist(&a.$i, t).map_err(ProductError::$Err)?);)+
+                Ok(value)
             }
             fn __fusion_symbols_validated_fusion<'a>(&'a self, a: &Self::Object, b: &Self::Object, t: Validated) -> Result<Self::Fusion<'a>, Self::Error> {
                 let raw = (self.factors.0.__fusion_symbols_validated_fusion(&a.0, &b.0, t).map_err(ProductError::Factor0)?,
@@ -1277,10 +1347,10 @@ macro_rules! impl_product {
                     Some(maxima.0)$(.and_then(|m| m.checked_mul(maxima.$i)))+.ok_or(ProductError::Overflow)?
                 };
                 let initial = (raw.0.fuse(), $(raw.$i.fuse(),)+);
-                Ok(ProductFusion { initial, active, current, max })
+                Ok(ProductFusion(Cartesian { initial, active, current, max }))
             }
             fn __fusion_symbols_max_multiplicity<'a>(&'a self, fusion: &Self::Fusion<'a>, _: Validated) -> Option<u32> {
-                Some(fusion.max)
+                Some(fusion.max_multiplicity())
             }
             fn __fusion_symbols_validated_nsymbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, t: Validated) -> Result<u32, Self::Error> {
                 let mut n = Multiplicity::new();
@@ -1335,7 +1405,11 @@ macro_rules! impl_product {
                 value
             }
         }
-        impl<I0, O0, $($C, $S),+> Iterator for ProductFusion<(I0, $($C,)+), ((O0, u32), $(($S, u32),)+)>
+        impl<$C0: FusionCategory, $($C: FusionCategory),+> sealed::Factors for ($C0, $($C,)+) {
+            type Iters<'a> = (Fuse<$C0::Fusion<'a>>, $(Fuse<$C::Fusion<'a>>,)+) where Self: 'a;
+            type Current<'a> = (($C0::Object, u32), $(($C::Object, u32),)+) where Self: 'a;
+        }
+        impl<I0, O0, $($C, $S),+> Iterator for Cartesian<(I0, $($C,)+), ((O0, u32), $(($S, u32),)+)>
         where I0: Iterator<Item = (O0, u32)> + Clone, O0: Clone,
               $($C: Iterator<Item = ($S, u32)> + Clone, $S: Clone,)+
         {
@@ -1367,6 +1441,17 @@ impl_product!(C0; S9; (C1, 1, Factor1, C0::Scalar, S1), (C2, 2, Factor2, S1, S2)
 impl_product!(C0; S10; (C1, 1, Factor1, C0::Scalar, S1), (C2, 2, Factor2, S1, S2), (C3, 3, Factor3, S2, S3), (C4, 4, Factor4, S3, S4), (C5, 5, Factor5, S4, S5), (C6, 6, Factor6, S5, S6), (C7, 7, Factor7, S6, S7), (C8, 8, Factor8, S7, S8), (C9, 9, Factor9, S8, S9), (C10, 10, Factor10, S9, S10));
 impl_product!(C0; S11; (C1, 1, Factor1, C0::Scalar, S1), (C2, 2, Factor2, S1, S2), (C3, 3, Factor3, S2, S3), (C4, 4, Factor4, S3, S4), (C5, 5, Factor5, S4, S5), (C6, 6, Factor6, S5, S6), (C7, 7, Factor7, S6, S7), (C8, 8, Factor8, S7, S8), (C9, 9, Factor9, S8, S9), (C10, 10, Factor10, S9, S10), (C11, 11, Factor11, S10, S11));
 
+impl<C: FusionCategory> sealed::Factors for Vec<C> {
+    type Iters<'a>
+        = Vec<(C::Fusion<'a>, usize)>
+    where
+        Self: 'a;
+    type Current<'a>
+        = (usize, usize, Vec<(C::Object, u32)>)
+    where
+        Self: 'a;
+}
+
 impl<C: FusionCategory> FusionCategory for Product<Vec<C>>
 where
     for<'a> C::Fusion<'a>: Clone,
@@ -1377,7 +1462,7 @@ where
     type RSymbol = RBlock<Self::Scalar>;
     type Error = ProductError<C::Error>;
     type Fusion<'a>
-        = ProductFusion<Vec<(C::Fusion<'a>, usize)>, (usize, usize, Vec<(C::Object, u32)>)>
+        = ProductFusion<'a, Vec<C>>
     where
         Self: 'a;
 
@@ -1471,13 +1556,19 @@ where
                 .map(|(c, a)| c.__fusion_symbols_validated_frobenius_schur_indicator(a, t)),
         )
     }
-    fn __fusion_symbols_validated_twist(&self, a: &Self::Object, t: Validated) -> Self::Scalar {
-        scalar_product(
-            self.factors
-                .iter()
-                .zip(a)
-                .map(|(c, a)| c.__fusion_symbols_validated_twist(a, t)),
-        )
+    fn __fusion_symbols_validated_twist(
+        &self,
+        a: &Self::Object,
+        t: Validated,
+    ) -> Result<Self::Scalar, Self::Error> {
+        let mut value = None;
+        for (index, (c, a)) in self.factors.iter().zip(a).enumerate() {
+            let x = c
+                .__fusion_symbols_validated_twist(a, t)
+                .map_err(|source| ProductError::Factor { index, source })?;
+            value = Some(value.map_or(x, |v| v * x));
+        }
+        Ok(value.unwrap_or_else(Self::Scalar::one))
     }
     fn __fusion_symbols_validated_dual(&self, a: &Self::Object, t: Validated) -> Self::Object {
         self.factors
@@ -1607,19 +1698,19 @@ where
             }
             max.ok_or(ProductError::Overflow)?
         };
-        Ok(ProductFusion {
+        Ok(ProductFusion(Cartesian {
             initial,
             active,
             current: Some((0, len, current)),
             max,
-        })
+        }))
     }
     fn __fusion_symbols_max_multiplicity<'a>(
         &'a self,
         fusion: &Self::Fusion<'a>,
         _: Validated,
     ) -> Option<u32> {
-        Some(fusion.max)
+        Some(fusion.max_multiplicity())
     }
     fn __fusion_symbols_float_legs(
         &self,
@@ -1720,7 +1811,7 @@ impl<B: CgcBlock> CgcBlock for Vec<B> {
 
 // Runtime specialization: current stores [front, back) and the front items;
 // active holds the incremental front cursor. Each initial factor carries its radix.
-impl<I, O> ProductFusion<Vec<(I, usize)>, (usize, usize, Vec<(O, u32)>)>
+impl<I, O> Cartesian<Vec<(I, usize)>, (usize, usize, Vec<(O, u32)>)>
 where
     I: Iterator<Item = (O, u32)> + Clone,
 {
@@ -1746,7 +1837,7 @@ fn outcome<O: Clone>(items: &[(O, u32)]) -> (Vec<O>, u32) {
         .fold(1u32, |p, (_, m)| p.checked_mul(*m).expect(BOUNDED));
     (items.iter().map(|(o, _)| o.clone()).collect(), n)
 }
-impl<I, O> Iterator for ProductFusion<Vec<(I, usize)>, (usize, usize, Vec<(O, u32)>)>
+impl<I, O> Iterator for Cartesian<Vec<(I, usize)>, (usize, usize, Vec<(O, u32)>)>
 where
     I: Iterator<Item = (O, u32)> + Clone,
     O: Clone,
@@ -1799,7 +1890,7 @@ where
         (back - front, Some(back - front))
     }
 }
-impl<I, O> DoubleEndedIterator for ProductFusion<Vec<(I, usize)>, (usize, usize, Vec<(O, u32)>)>
+impl<I, O> DoubleEndedIterator for Cartesian<Vec<(I, usize)>, (usize, usize, Vec<(O, u32)>)>
 where
     I: DoubleEndedIterator<Item = (O, u32)> + Clone,
     O: Clone,
@@ -1818,7 +1909,7 @@ where
         Some(self.entry(index))
     }
 }
-impl<I, O> ExactSizeIterator for ProductFusion<Vec<(I, usize)>, (usize, usize, Vec<(O, u32)>)>
+impl<I, O> ExactSizeIterator for Cartesian<Vec<(I, usize)>, (usize, usize, Vec<(O, u32)>)>
 where
     I: ExactSizeIterator<Item = (O, u32)> + Clone,
     O: Clone,
@@ -1866,7 +1957,7 @@ mod tests {
             .iter_mut()
             .map(|(iter, _)| iter.next().unwrap())
             .collect();
-        let iter = ProductFusion {
+        let iter = Cartesian {
             initial,
             active,
             current: Some((0, len, current)),
@@ -1972,8 +2063,8 @@ mod tests {
         fn frobenius_schur_indicator(&self, _: &()) -> f64 {
             1.0
         }
-        fn twist(&self, _: &()) -> f64 {
-            1.0
+        fn twist(&self, _: &()) -> Result<f64, Infallible> {
+            Ok(1.0)
         }
         fn fusion<'a>(&'a self, _: &(), _: &()) -> Result<Self::Fusion<'a>, Infallible> {
             Ok(std::iter::once(((), self.n)))
@@ -2261,7 +2352,7 @@ mod tests {
         let c_block = Dense([2, 1], c.clone());
         let (dims, data) = Partial::new(&a_block, 16)
             .times(&b_block, 16, |l| l, |l, r| l * r)
-            .times(&c_block, 16, Promote::<Complex64>::left, |l, r| l * r)
+            .times(&c_block, 16, Embed::<Complex64>::left, |l, r| l * r)
             .finish();
         assert_eq!(dims, [4, 4]);
         let naive: Vec<(u64, u64)> = (0..16)

@@ -555,8 +555,8 @@ impl GroupId {
     ///
     /// ```
     /// use fusion_symbols::lie::GroupId;
-    /// assert!(GroupId::psu(3).unwrap().admits(&[1, 1], &[]));
-    /// assert!(!GroupId::psu(3).unwrap().admits(&[1, 0], &[]));
+    /// assert!(GroupId::su_quotient(3, 3).unwrap().admits(&[1, 1], &[]));
+    /// assert!(!GroupId::su_quotient(3, 3).unwrap().admits(&[1, 0], &[]));
     /// assert!(GroupId::u(3).unwrap().admits(&[0, 1], &[-1]));
     /// ```
     pub fn admits(&self, dynkin: &[i64], charges: &[i64]) -> bool {
@@ -626,20 +626,6 @@ impl GroupId {
             k,
             (0..n - 1).map(|i| (i, i as i128 + 1)),
         )
-    }
-    /// PSU(n), the adjoint form SU(n)/Z_n.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use fusion_symbols::lie::GroupId;
-    ///
-    /// assert_eq!(GroupId::psu(3)?, GroupId::su_quotient(3, 3)?);
-    /// assert!(GroupId::psu(3)?.admits(&[1, 1], &[])); // the adjoint 8
-    /// # Ok::<(), fusion_symbols::lie::GroupError>(())
-    /// ```
-    pub fn psu(n: usize) -> Result<Self, GroupError> {
-        Self::su_quotient(n, n)
     }
     /// Sp(m), the C(m/2) cover. Matrix dimension m must be even and ≥ 2.
     ///

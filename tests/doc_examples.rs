@@ -29,11 +29,16 @@ fn readme_1() -> Result<(), Box<dyn std::error::Error>> {
 
 /// `README.md`, Rust block 2.
 #[test]
-fn readme_2() {
-    use fusion_symbols::lie::su2::wigner_6j;
+fn readme_2() -> Result<(), Box<dyn std::error::Error>> {
+    use fusion_symbols::category::{FusionCategory, SymbolBlock};
+    use fusion_symbols::lie::{GroupId, LieGroup};
 
-    let sixj = wigner_6j(2, 2, 2, 2, 2, 2);
-    assert!((sixj.to_f64() - 1.0 / 6.0).abs() < 1e-14);
+    let su2 = LieGroup::new(GroupId::su(2)?)?;
+    let one = su2.irrep(&[2])?;
+    // F^{111}_1[1, 1] = 3 · {1 1 1; 1 1 1} = 3/6
+    let f = su2.f_symbol(&one, &one, &one, &one, &one, &one)?;
+    assert!((f.get([0, 0, 0, 0]) - 0.5).abs() < 1e-15);
+    Ok(())
 }
 
 /// `docs/user-guide/README.md#building-lie-groups`.
@@ -45,7 +50,7 @@ fn guide_building_lie_groups_1() -> Result<(), Box<dyn std::error::Error>> {
     let so5 = LieGroup::new(GroupId::so(5)?)?;
     let spin5 = LieGroup::new(GroupId::spin(5)?)?;
     let sp4 = LieGroup::new(GroupId::sp(4)?)?; // defining dimension 4, rank 2
-    let psu3 = LieGroup::new(GroupId::psu(3)?)?; // SU(3)/Z3
+    let psu3 = LieGroup::new(GroupId::su_quotient(3, 3)?)?; // SU(3)/Z3
     let u2 = LieGroup::new(GroupId::u(2)?)?;
     let t2 = LieGroup::new(GroupId::torus(2)?)?;
     assert_eq!(su3.group_id().semisimple_rank(), 2);
@@ -179,12 +184,18 @@ fn guide_clebsch_gordan_coefficients_1() -> Result<(), Box<dyn std::error::Error
 
 /// `docs/user-guide/README.md#clebschgordan-coefficients`.
 #[test]
-fn guide_clebsch_gordan_coefficients_2() {
-    use fusion_symbols::lie::su2::clebsch_gordan;
+fn guide_clebsch_gordan_coefficients_2() -> Result<(), Box<dyn std::error::Error>> {
+    use fusion_symbols::{
+        category::{CgcBlock, FusionCategory, GroupRepresentations},
+        lie::{GroupId, LieGroup},
+    };
 
+    let su2 = LieGroup::new(GroupId::su(2)?)?;
+    let half = su2.irrep(&[1])?;
+    let c = su2.cgc(&half, &half, &su2.unit())?;
     // <1/2 +1/2, 1/2 -1/2 | 0 0> = 1/sqrt(2)
-    let cg = clebsch_gordan(1, 1, 1, -1, 0, 0);
-    assert!((cg.to_f64() - 0.5f64.sqrt()).abs() < 1e-15);
+    assert!((c.get([1, 0, 0, 0]) - 0.5f64.sqrt()).abs() < 1e-15);
+    Ok(())
 }
 
 /// `docs/user-guide/README.md#abelian-and-finite-categories`.
@@ -207,15 +218,15 @@ fn guide_abelian_and_finite_categories_1() -> Result<(), Box<dyn std::error::Err
         Some((ZNIrrep::new(2, 3)?, 1))
     );
 
-    assert_eq!(FermionParity.twist(&FermionParityIrrep::ODD), -1.0);
+    assert_eq!(FermionParity.twist(&FermionParityIrrep::ODD)?, -1.0);
 
     let a = CU1Irrep::new(HalfInt::new(1, 2)?, 2)?;
     let channels: Vec<_> = CU1.fusion(&a, &a)?.collect();
     assert_eq!(
         channels,
         [
-            (CU1Irrep::VACUUM, 1),
-            (CU1Irrep::PSEUDOSCALAR, 1),
+            (CU1.unit(), 1),
+            (CU1Irrep::new(HalfInt::from_doubled(0), 1)?, 1),
             (CU1Irrep::new(HalfInt::new(2, 2)?, 2)?, 1)
         ]
     );
@@ -231,7 +242,7 @@ fn guide_tables_1() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let fib = TableCategory::fibonacci();
-    let tau = fib.object(2)?; // index 1 is the unit
+    let tau = fib.object_at(1).unwrap(); // object_at(0) is the unit
     assert_eq!(fib.nsymbol(&tau, &tau, &tau)?, 1);
     let golden = (1.0 + 5f64.sqrt()) / 2.0;
     assert!((fib.dim(&tau) - golden).abs() < 1e-12);
@@ -258,7 +269,7 @@ fn guide_products_1() -> Result<(), Box<dyn std::error::Error>> {
 
     let cat = Product::new((U1, FermionParity));
     let odd = (U1Irrep::new(1)?, FermionParityIrrep::ODD);
-    assert_eq!(cat.twist(&odd), -1.0);
+    assert_eq!(cat.twist(&odd)?, -1.0);
 
     let su2 = LieGroup::new(GroupId::su(2)?)?;
     let spin_charge = Product::new((su2.clone(), U1));
@@ -268,16 +279,22 @@ fn guide_products_1() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(c.dims(), [2, 2, 3, 1]);
 
     let chain = Product::new(vec![U1; 4]);
-    assert_eq!(chain.unit(), vec![U1Irrep::UNIT; 4]);
+    assert_eq!(chain.unit(), vec![U1.unit(); 4]);
     Ok(())
 }
 
 /// `docs/user-guide/README.md#caches`.
 #[test]
-fn guide_caches_1() {
-    use fusion_symbols::cache::{tier_stats, CoefficientCacheTier};
+fn guide_caches_1() -> Result<(), Box<dyn std::error::Error>> {
+    use fusion_symbols::{
+        cache::{tier_stats, CoefficientCacheTier},
+        category::FusionCategory,
+        lie::{GroupId, LieGroup},
+    };
 
-    let _ = fusion_symbols::lie::su2::wigner_6j(2, 2, 2, 2, 2, 2);
+    let su2 = LieGroup::new(GroupId::su(2)?)?;
+    let one = su2.irrep(&[2])?;
+    let _ = su2.f_symbol(&one, &one, &one, &one, &one, &one)?;
     let six_j = tier_stats(CoefficientCacheTier::Wigner6j);
     println!(
         "{} entries, {} bytes, {} hits",
@@ -289,6 +306,7 @@ fn guide_caches_1() {
         .map(|&t| tier_stats(t).bytes)
         .sum();
     println!("{total} bytes retained across all tiers");
+    Ok(())
 }
 
 /// `docs/user-guide/getting-started.md#groups-and-irreps`.
@@ -388,10 +406,8 @@ fn getting_started_checking_f_against_the_wigner_6j_symbol_1(
 ) -> Result<(), Box<dyn std::error::Error>> {
     use fusion_symbols::{
         category::{FusionCategory, SymbolBlock},
-        lie::{su2::wigner_6j, GroupId, HalfInt, LieGroup},
+        lie::{GroupId, HalfInt, LieGroup},
     };
-
-    assert!((wigner_6j(1, 1, 2, 1, 1, 2).to_f64() - 1.0 / 6.0).abs() < 1e-15);
 
     let su2 = LieGroup::new(GroupId::su(2)?)?;
     let h = su2.irrep_spin(HalfInt::new(1, 2)?)?;
@@ -674,8 +690,8 @@ fn contract_fusion_5() {
     assert_eq!(
         channels,
         vec![
-            (CU1Irrep::VACUUM, 1),
-            (CU1Irrep::PSEUDOSCALAR, 1),
+            (CU1.unit(), 1),
+            (CU1Irrep::new(HalfInt::from_doubled(0), 1).unwrap(), 1),
             (CU1Irrep::new(HalfInt::new(2, 2).unwrap(), 2).unwrap(), 1)
         ]
     );
@@ -692,17 +708,6 @@ fn contract_labels_su3_fundamental() {
     let fund = cat.irrep(&[1, 0]).unwrap(); // the 3 of SU(3)
     assert_eq!(fund.dim_exact(), 3u32);
     assert!(cat.dual(&fund).dynkin().eq([0, 1])); // the 3-bar
-}
-
-#[test]
-fn contract_cgc_su2_forbidden_6j_is_exact_zero() {
-    use fusion_symbols::lie::su2::wigner_6j;
-
-    // Admissible, and genuinely nonzero: {1 1 1; 1 1 1} = 1/6.
-    assert!((wigner_6j(2, 2, 2, 2, 2, 2).to_f64() - 1.0 / 6.0).abs() < 1e-14);
-
-    // Triangle violation: a forbidden label set is exact zero, not an error.
-    assert_eq!(wigner_6j(2, 2, 20, 2, 2, 2).to_f64(), 0.0);
 }
 
 #[test]
@@ -796,7 +801,7 @@ fn contract_fusion_sp4_defining_squared() {
 #[test]
 fn contract_labels_psu3_admission() {
     use fusion_symbols::lie::{GroupId, LieGroup};
-    let psu3 = GroupId::psu(3).unwrap(); // SU(3)/Z₃
+    let psu3 = GroupId::su_quotient(3, 3).unwrap(); // SU(3)/Z₃
 
     // The adjoint 8 has zero triality, so it is a genuine PSU(3) representation.
     assert!(LieGroup::new(psu3.clone()).unwrap().irrep(&[1, 1]).is_ok());
@@ -829,9 +834,8 @@ fn contract_symbols_1() {
 fn contract_symbols_2() {
     use fusion_symbols::{
         category::{FusionCategory, SymbolBlock},
-        lie::{su2::wigner_6j, GroupId, HalfInt, LieGroup},
+        lie::{GroupId, HalfInt, LieGroup},
     };
-    assert!((wigner_6j(2, 2, 2, 2, 2, 2).to_f64() - 1.0 / 6.0).abs() < 1e-14);
     let group = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
     let half = group.irrep_spin(HalfInt::new(1, 2).unwrap()).unwrap();
     let unit = group.unit();
@@ -984,8 +988,8 @@ fn contract_tables_fibonacci_object() {
     use fusion_symbols::{category::FusionCategory, table::TableCategory};
 
     let fib = TableCategory::fibonacci();
-    let tau = fib.object(2).unwrap();
-    assert_eq!(tau.index(), 2);
+    let tau = fib.object_at(1).unwrap();
+    assert_eq!(fib.object_index(&tau), Ok(1));
     assert_eq!(fib.fusion(&tau, &tau).unwrap().count(), 2);
 }
 

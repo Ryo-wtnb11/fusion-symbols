@@ -32,7 +32,11 @@ fn u1_values_and_bounds() {
         assert_eq!(a.dim_exact(), 1);
         assert_eq!(a.weight_multiplicities(), [(vec![n], 1)].into());
         assert_eq!(
-            (g.dim(&a), g.frobenius_schur_phase(&a).unwrap(), g.twist(&a)),
+            (
+                g.dim(&a),
+                g.frobenius_schur_phase(&a).unwrap(),
+                g.twist(&a).unwrap()
+            ),
             (1.0, 1.0, 1.0)
         );
         assert_eq!(
@@ -111,8 +115,7 @@ fn u1_values_and_bounds() {
 
 #[test]
 fn typed_u1_matches_liegroup_bitwise() {
-    let g = group(U1.group_id());
-    assert_eq!(U1.group_id(), GroupId::u(1).unwrap());
+    let g = group(GroupId::u(1).unwrap());
     assert_eq!(
         U1.unit().charge(),
         g.unit().charges().next().unwrap() as i32
@@ -160,7 +163,7 @@ fn typed_u1_matches_liegroup_bitwise() {
                     U1.frobenius_schur_indicator(&a),
                     g.frobenius_schur_indicator(&la),
                 ),
-                (U1.twist(&a), g.twist(&la)),
+                (U1.twist(&a).unwrap(), g.twist(&la).unwrap()),
             ] {
                 assert_eq!(typed.to_bits(), general.to_bits());
             }

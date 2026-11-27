@@ -21,7 +21,7 @@ fn a_series_nality_congruences() {
     // SU(4): κ = a₁ + 2a₂ + 3a₃.
     let su4 = GroupId::su(4).unwrap();
     let su4_z2 = GroupId::su_quotient(4, 2).unwrap();
-    let psu4 = GroupId::psu(4).unwrap();
+    let psu4 = GroupId::su_quotient(4, 4).unwrap();
 
     // (label, κ mod 4)
     let table = [
@@ -51,7 +51,7 @@ fn a_series_nality_congruences() {
     }
 
     // SU(3): only k ∈ {1, 3}; PSU(3) is triality-0, i.e. adjoint and up.
-    let psu3 = GroupId::psu(3).unwrap();
+    let psu3 = GroupId::su_quotient(3, 3).unwrap();
     assert!(psu3.admits(&[0, 0], &[])); // 1
     assert!(!psu3.admits(&[1, 0], &[])); // 3
     assert!(!psu3.admits(&[0, 1], &[])); // 3bar
@@ -502,7 +502,7 @@ mod sun_forms {
     #[test]
     fn psu_n_rejects_nonzero_nality_and_accepts_the_adjoint() {
         for n in 2..=5usize {
-            let psu = GroupId::psu(n).unwrap();
+            let psu = GroupId::su_quotient(n, n).unwrap();
             for label in sweep(n - 1, 4) {
                 let built = lie_test::irrep_in(&psu, &label);
                 let zero_nality = nality(&label).rem_euclid(n as i64) == 0;
@@ -521,7 +521,7 @@ mod sun_forms {
             assert!(lie_test::irrep_in(&psu, &adjoint).is_ok());
         }
         // The stated example: PSU(3) takes the adjoint 8, not the fundamental 3.
-        let psu3 = GroupId::psu(3).unwrap();
+        let psu3 = GroupId::su_quotient(3, 3).unwrap();
         assert!(lie_test::irrep_in(&psu3, &[1, 1]).is_ok());
         assert!(matches!(
             lie_test::irrep_in(&psu3, &[1, 0]),
@@ -589,7 +589,7 @@ mod sun_forms {
     #[test]
     fn global_form_validation_does_not_alter_gt_data() {
         let su3 = GroupId::su(3).unwrap();
-        let psu3 = GroupId::psu(3).unwrap();
+        let psu3 = GroupId::su_quotient(3, 3).unwrap();
         for label in sweep(2, 4).into_iter().filter(|l| psu3.admits(l, &[])) {
             let cover = lie_test::irrep_in(&su3, &label).unwrap();
             let quotient = lie_test::irrep_in(&psu3, &label).unwrap();
@@ -625,7 +625,7 @@ mod sun_forms {
     /// `B_1` low-rank redirect makes.
     #[test]
     fn a1_semantics_agree_with_the_su2_layer() {
-        let psu2 = GroupId::psu(2).unwrap();
+        let psu2 = GroupId::su_quotient(2, 2).unwrap();
         for dj in 0..8i64 {
             assert_eq!(
                 lie_test::irrep_in(&psu2, &[dj]).is_ok(),
@@ -732,7 +732,7 @@ mod cross_form_coefficients {
         use fusion_symbols::lie::LieGroup;
 
         let su3 = GroupId::su(3).unwrap();
-        let psu3 = GroupId::psu(3).unwrap();
+        let psu3 = GroupId::su_quotient(3, 3).unwrap();
         let adj = vec![1i64, 1];
         let ten = vec![3i64, 0];
         let tenbar = vec![0i64, 3];
@@ -830,7 +830,7 @@ mod cross_form_coefficients {
         use fusion_symbols::lie::{LieError, LieGroup};
 
         let su3 = GroupId::su(3).unwrap();
-        let psu3 = GroupId::psu(3).unwrap();
+        let psu3 = GroupId::su_quotient(3, 3).unwrap();
         let three = lie_test::irrep_in(&su3, &[1, 0]).unwrap();
         let threebar = lie_test::irrep_in(&su3, &[0, 1]).unwrap();
         let adj = lie_test::irrep_in(&su3, &[1, 1]).unwrap();
@@ -885,7 +885,7 @@ const MAX: i64 = i64::MAX; // 2^63 − 1 ≡ 1 (mod 2), ≡ 3 (mod 4), ≡ 1 (mo
 
 #[test]
 fn a_series_nality_does_not_overflow() {
-    let psu3 = GroupId::psu(3).unwrap();
+    let psu3 = GroupId::su_quotient(3, 3).unwrap();
     // κ = 1·a₁ + 2·a₂ with 2·(2^62 + 2) = 2^63 + 4 > i64::MAX.
     // 2^62 = 4^31 ≡ 1 (mod 3), so 2^62 + 2 ≡ 0 and κ ≡ 0: admitted.
     assert!(psu3.admits(&[0, (1 << 62) + 2], &[]));

@@ -31,17 +31,20 @@ fn parities() -> Vec<FermionParityIrrep> {
     vec![FermionParityIrrep::EVEN, FermionParityIrrep::ODD]
 }
 fn cu1_irreps() -> Vec<CU1Irrep> {
-    let mut objects = vec![CU1Irrep::VACUUM, CU1Irrep::PSEUDOSCALAR];
+    let mut objects = vec![
+        CU1.unit(),
+        CU1Irrep::new(HalfInt::from_doubled(0), 1).unwrap(),
+    ];
     objects.extend((1..=3).map(|n| CU1Irrep::new(HalfInt::from_doubled(n), 2).unwrap()));
     objects
 }
 fn table(
-    code: [u8; 7],
+    uuid: &str,
 ) -> (
     TableCategory,
     Vec<<TableCategory as FusionCategory>::Object>,
 ) {
-    let cat = TableCategory::by_code(code).unwrap();
+    let cat = TableCategory::by_uuid(uuid).unwrap();
     let objects = crate::common::objects(&cat).collect();
     (cat, objects)
 }
@@ -164,8 +167,14 @@ fn hand_stated_certificates() {
     assert_eq!(certificates(&TableCategory::fibonacci()), (false, true));
     assert_eq!(certificates(&TableCategory::ising()), (false, true));
     // Vec_Z2 with the nontrivial 3-cocycle (the semion fusion category).
-    assert_eq!(certificates(&table([2, 1, 0, 1, 1, 1, 1]).0), (false, true));
-    assert_eq!(certificates(&table([2, 1, 0, 1, 2, 1, 1]).0), (true, true));
+    assert_eq!(
+        certificates(&table("37fa4d16-97c6-11f1-9c13-c70bad3f9e94" /* [2, 1, 0, 1, 1, 1, 1] */).0),
+        (false, true)
+    );
+    assert_eq!(
+        certificates(&table("37fa4e38-97c6-11f1-96af-3f698e299019" /* [2, 1, 0, 1, 2, 1, 1] */).0),
+        (true, true)
+    );
 }
 
 #[cfg(feature = "lie-generated")]
@@ -244,52 +253,52 @@ fn trivial_associator_tables_are_the_untwisted_pointed_entries() {
     // Rank ≤ 4: Vec_1, Vec_Z2, Vec_Z3 and Vec_Z4 / Vec_{Z2×Z2} with the trivial
     // 3-cocycle, each with every braiding the database lists.
     #[allow(unused_mut)]
-    let mut expected: Vec<[u8; 7]> = vec![
-        [1, 1, 0, 1, 1, 1, 1],
-        [2, 1, 0, 1, 2, 1, 1],
-        [2, 1, 0, 1, 2, 2, 1],
-        [3, 1, 2, 1, 1, 1, 1],
-        [3, 1, 2, 1, 1, 2, 1],
-        [3, 1, 2, 1, 1, 3, 1],
-        [4, 1, 0, 1, 2, 4, 1],
-        [4, 1, 0, 1, 2, 5, 1],
-        [4, 1, 0, 1, 2, 5, 3],
-        [4, 1, 0, 1, 2, 6, 1],
-        [4, 1, 2, 1, 2, 1, 1],
-        [4, 1, 2, 1, 2, 2, 1],
-        [4, 1, 2, 1, 2, 3, 1],
-        [4, 1, 2, 1, 2, 4, 1],
+    let mut expected: Vec<&str> = vec![
+        "37fa4c58-97c6-11f1-a6a6-639d9c4bace6", /* [1, 1, 0, 1, 1, 1, 1] */
+        "37fa4e38-97c6-11f1-96af-3f698e299019", /* [2, 1, 0, 1, 2, 1, 1] */
+        "37fa4e38-97c6-11f1-b8da-8fa994c9232a", /* [2, 1, 0, 1, 2, 2, 1] */
+        "37fa4eba-97c6-11f1-8d6a-5dcedc1c3e4c", /* [3, 1, 2, 1, 1, 1, 1] */
+        "37fa4eba-97c6-11f1-a0ff-e77a9b67e913", /* [3, 1, 2, 1, 1, 2, 1] */
+        "37fa4ec4-97c6-11f1-bce7-a7ac649058a2", /* [3, 1, 2, 1, 1, 3, 1] */
+        "37fa4f3a-97c6-11f1-81ee-1dde08099519", /* [4, 1, 0, 1, 2, 4, 1] */
+        "37fa4f50-97c6-11f1-9cc3-cb1a5a83f8c5", /* [4, 1, 0, 1, 2, 5, 1] */
+        "37fa4f50-97c6-11f1-9b55-7b65e8ab37a1", /* [4, 1, 0, 1, 2, 5, 3] */
+        "37fa4f5a-97c6-11f1-b337-a76e2bfad4f9", /* [4, 1, 0, 1, 2, 6, 1] */
+        "37fa509a-97c6-11f1-8556-1d179383acf5", /* [4, 1, 2, 1, 2, 1, 1] */
+        "37fa50a2-97c6-11f1-9ffd-6bfab4e46a13", /* [4, 1, 2, 1, 2, 2, 1] */
+        "37fa50ae-97c6-11f1-9089-b30e985b6864", /* [4, 1, 2, 1, 2, 3, 1] */
+        "37fa50b8-97c6-11f1-8156-21c77f312f7f", /* [4, 1, 2, 1, 2, 4, 1] */
     ];
     // Rank 5–7: untwisted Vec_Z5, Vec_Z6 (one fusion-only entry) and Vec_Z7.
     #[cfg(feature = "anyonwiki-unitary")]
     expected.extend([
-        [5, 1, 4, 1, 1, 1, 1],
-        [5, 1, 4, 1, 1, 2, 1],
-        [5, 1, 4, 1, 1, 3, 1],
-        [6, 1, 2, 1, 1, 0, 1],
-        [6, 1, 4, 1, 2, 1, 1],
-        [6, 1, 4, 1, 2, 2, 1],
-        [6, 1, 4, 1, 2, 3, 1],
-        [6, 1, 4, 1, 2, 4, 1],
-        [6, 1, 4, 1, 2, 5, 1],
-        [6, 1, 4, 1, 2, 6, 1],
-        [7, 1, 6, 1, 1, 1, 1],
-        [7, 1, 6, 1, 1, 2, 1],
-        [7, 1, 6, 1, 1, 3, 1],
+        "37fa5270-97c6-11f1-a6ee-bf6b04503277", /* [5, 1, 4, 1, 1, 1, 1] */
+        "37fa527a-97c6-11f1-8c54-43f2e49f5b9e", /* [5, 1, 4, 1, 1, 2, 1] */
+        "37fa5284-97c6-11f1-8754-7bb4a3ac0aa1", /* [5, 1, 4, 1, 1, 3, 1] */
+        "37fa572a-97c6-11f1-8967-39a812324998", /* [6, 1, 2, 1, 1, 0, 1] */
+        "37fa5950-97c6-11f1-8847-e7c2376ffa58", /* [6, 1, 4, 1, 2, 1, 1] */
+        "37fa595a-97c6-11f1-8b7d-495bd41984b0", /* [6, 1, 4, 1, 2, 2, 1] */
+        "37fa596e-97c6-11f1-a085-e7d374b3d767", /* [6, 1, 4, 1, 2, 3, 1] */
+        "37fa5978-97c6-11f1-98da-730acaa680db", /* [6, 1, 4, 1, 2, 4, 1] */
+        "37fa5984-97c6-11f1-9c17-39ac91cf6d4b", /* [6, 1, 4, 1, 2, 5, 1] */
+        "37fa5996-97c6-11f1-a19f-8fa0acdb8f20", /* [6, 1, 4, 1, 2, 6, 1] */
+        "37fa5d60-97c6-11f1-adc1-97ba4dfada78", /* [7, 1, 6, 1, 1, 1, 1] */
+        "37fa5d74-97c6-11f1-a59c-1fa61dc28905", /* [7, 1, 6, 1, 1, 2, 1] */
+        "37fa5d7e-97c6-11f1-97f4-fbe16c55aadb", /* [7, 1, 6, 1, 1, 3, 1] */
     ]);
     // Every shipped entry: listed ⇒ true, unlisted ⇒ false.
     for uuid in TableCategory::shipped_uuids() {
         let cat = TableCategory::by_uuid(uuid).unwrap();
         assert_eq!(
             cat.has_trivial_associator_gauge(),
-            expected.contains(&cat.code()),
+            expected.contains(&cat.uuid()),
             "{:?}",
-            cat.code()
+            cat.uuid()
         );
     }
-    // And every listed code is shipped in this build.
-    for code in &expected {
-        assert!(TableCategory::by_code(*code).is_ok(), "{code:?}");
+    // And every listed entry is shipped in this build.
+    for uuid in &expected {
+        assert!(TableCategory::by_uuid(uuid).is_ok(), "{uuid}");
     }
 }
 
@@ -305,12 +314,12 @@ fn false_trivial_associators_have_a_non_unit_f() {
 
     // CU(1), `cu1irrep.jl:Fsymbol`: F^{jjj}_j[0+, 0+] = 1/2 for j = 1/2.
     let j = CU1Irrep::new(HalfInt::new(1, 2).unwrap(), 2).unwrap();
-    let v = CU1Irrep::VACUUM;
+    let v = CU1.unit();
     assert_eq!(CU1.f_symbol(&j, &j, &j, &j, &v, &v).unwrap(), 0.5);
 
     // Fibonacci: F^{τττ}_τ[𝟙, 𝟙] = 1/φ.
     let fib = TableCategory::fibonacci();
-    let (one, tau) = (fib.object(1).unwrap(), fib.object(2).unwrap());
+    let (one, tau) = (fib.object_at(0).unwrap(), fib.object_at(1).unwrap());
     assert_eq!(
         fib.f_symbol(&tau, &tau, &tau, &tau, &one, &one).unwrap(),
         Complex64::new(0.6180339887498949, 0.0)
@@ -319,9 +328,9 @@ fn false_trivial_associators_have_a_non_unit_f() {
     // Ising (AnyonWiki gauge): F^{σσσ}_σ[𝟙, ψ] = -1/√2.
     let ising = TableCategory::ising();
     let (one, psi, sigma) = (
-        ising.object(1).unwrap(),
-        ising.object(2).unwrap(),
-        ising.object(3).unwrap(),
+        ising.object_at(0).unwrap(),
+        ising.object_at(1).unwrap(),
+        ising.object_at(2).unwrap(),
     );
     let f = ising
         .f_symbol(&sigma, &sigma, &sigma, &sigma, &one, &psi)
@@ -329,7 +338,9 @@ fn false_trivial_associators_have_a_non_unit_f() {
     assert!((f - Complex64::new(-0.5f64.sqrt(), 0.0)).norm() < 1e-15);
 
     // Twisted Vec_Z2: F^{sss}_s[𝟙, 𝟙] = -1.
-    let (semion, objects) = table([2, 1, 0, 1, 1, 1, 1]);
+    let (semion, objects) = table(
+        "37fa4d16-97c6-11f1-9c13-c70bad3f9e94", /* [2, 1, 0, 1, 1, 1, 1] */
+    );
     let (one, s) = (&objects[0], &objects[1]);
     assert_eq!(
         semion.f_symbol(s, s, s, s, one, one).unwrap(),

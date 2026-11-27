@@ -13,20 +13,19 @@
 /// bit for bit, pairs as `re + i·im`, and absent records are exact zero".
 ///
 /// It is part of every shipped table's provenance, so a change of projection
-/// is visible in [`TableProvenance::write_canonical_bytes`].
+/// changes the provenance of every table.
 ///
 /// Minted for this crate and named for its source: the AnyonWiki tables at the
 /// pinned commit, projected to `f64` on 2026-10-16. Values are the
 /// CategoryData.jl decimals, parsed.
-pub const PROJECTION_EPOCH: &str = "fusion-symbols/tables/anyonwiki-badbfe2/projection/2026-10-16";
+pub(crate) const PROJECTION_EPOCH: &str =
+    "fusion-symbols/tables/anyonwiki-badbfe2/projection/2026-10-16";
 
 /// Immutable lineage of one shipped category table.
 ///
 /// Every field is part of the category's identity. The struct is deliberately
-/// a flat record of `&'static str`: the values are frozen at authoring time,
-/// there is nothing to configure, and the canonical serialisation
-/// ([`TableProvenance::write_canonical_bytes`]) must stay trivially
-/// auditable because it feeds `RuleIdentity`.
+/// a flat record of `&'static str`: the values are frozen at authoring time
+/// and there is nothing to configure.
 ///
 /// Why not a builder, a `Default`, or public construction: a provenance record
 /// that a caller can assemble is a provenance record that can lie. Values are
@@ -52,7 +51,7 @@ pub struct TableProvenance {
     pub object_order: &'static str,
     /// What was and was not done to the source gauge.
     pub gauge: &'static str,
-    /// The projection epoch in force, normally [`PROJECTION_EPOCH`].
+    /// The projection epoch in force (`docs/references_categories.md`).
     pub projection_epoch: &'static str,
 }
 
@@ -67,7 +66,8 @@ impl TableProvenance {
     /// Why not `Debug` or a serde encoding: `Debug` output is explicitly not a
     /// stability guarantee, and a serialisation framework would put the byte
     /// layout of an identity key behind a dependency's version policy.
-    pub fn write_canonical_bytes(&self, out: &mut Vec<u8>) {
+    #[cfg(test)]
+    pub(crate) fn write_canonical_bytes(&self, out: &mut Vec<u8>) {
         let Self {
             source_repository,
             source_commit,

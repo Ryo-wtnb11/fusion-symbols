@@ -71,15 +71,15 @@ factor are the closed forms below.
   presented value is `f64` (`lie/su2.rs::f_symbol`) it is a *presentation* of that
   same exact value, never an independent computation. This is value-fixing: a
   differently-associated float evaluation is a different (worse) value.
-- **3j.** `lie/su2.rs:wigner_3j` (`wigner_3j_uncached`): the
+- **3j.** `lie/su2.rs:wigner_3j` (a test-only closed form): the
   Condon–Shortley phase convention, evaluated by the prime-factorized Racah
   single sum (`primefactor.rs`). Non-admissible labels return exact zero, never
   an error and never a panic.
 - **6j.** `lie/su2.rs:wigner_6j` (`wigner_6j_uncached`): the
   Racah single-sum closed form, with the triangle coefficients from
   `lie/su2.rs:delta_sq_pf`.
-- **Clebsch–Gordan.** `lie/su2.rs:clebsch_gordan`, composed
-  from the 3j as
+- **Clebsch–Gordan.** `lie/su2.rs:clebsch_gordan` (a test-only closed form,
+  the oracle the public CGC blocks equal), composed from the 3j as
   $\sqrt{dj_3+1}\,(-1)^{(dj_2-dj_1-dm_3)/2}\, \begin{pmatrix} dj_1 & dj_2 & dj_3 \\ dm_1 & dm_2 & -dm_3\end{pmatrix}$.
   Both the $\sqrt{dj_3+1}$ normalization and the sign are part of the gauge:
   this is its own convention, not inherited from the 3j.
@@ -101,11 +101,10 @@ factor are the closed forms below.
 
 - The **doubled-spin label encoding** `dj = 2j`. It is input addressing / API
   shape; changing it would be an API break that leaves every value unchanged.
-- The **canonical Regge keys** (`lie/su2.rs:canonical_regge_3j`,
-  `canonical_regge_6j`, `canonicalize3j`). These canonicalize a symbol onto a
-  representative of its symmetry class *for caching*, carrying the compensating
-  phase so the returned value is identical either way. They are value-neutral by
-  construction, and pinned by the symmetry tests in `tests/properties.rs`.
+- The **canonical Regge key** (`lie/su2.rs:canonical_regge_6j`). It
+  canonicalizes a 6j symbol onto a representative of its symmetry class *for
+  caching*; the 6j is invariant on the class, so the key is value-neutral by
+  construction, and pinned by the Regge orbit tests in `lie/su2.rs`.
 
 ## 2. Semisimple products and central quotients
 

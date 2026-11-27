@@ -24,5 +24,5 @@ pub fn phase(dj: u32) -> f64 {
     group().frobenius_schur_phase(&ir(dj)).unwrap()
 }
 pub fn twist(dj: u32) -> f64 {
-    group().twist(&ir(dj))
+    group().twist(&ir(dj)).unwrap()
 }

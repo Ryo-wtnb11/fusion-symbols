@@ -56,7 +56,7 @@ fn fermionic_closed_forms_and_complex_promotion() {
         [(fu1.unit(), 1)]
     );
     assert_eq!(fu1.r_symbol(&a, &b, &fu1.unit()).unwrap().get([0, 0]), -1.0);
-    assert_eq!(fu1.twist(&a), -1.0);
+    assert_eq!(fu1.twist(&a).unwrap(), -1.0);
     assert_eq!(fu1.frobenius_schur_indicator(&a), 0.0);
     let fsu2 = Product::new((su2(), FermionParity));
     let half = (fsu2.factors().0.irrep(&[1]).unwrap(), Parity::ODD);
@@ -74,7 +74,7 @@ fn fermionic_closed_forms_and_complex_promotion() {
     );
     assert_eq!(fsu2.frobenius_schur_phase(&half).unwrap(), -1.0);
     assert_eq!(fsu2.frobenius_schur_indicator(&half), -1.0);
-    assert_eq!(fsu2.twist(&half), -1.0);
+    assert_eq!(fsu2.twist(&half).unwrap(), -1.0);
     close(
         fsu2.f_symbol(&half, &half, &half, &half, &fsu2.unit(), &fsu2.unit())
             .unwrap()
@@ -94,7 +94,7 @@ fn fermionic_closed_forms_and_complex_promotion() {
     );
 
     let fibsu2 = Product::new((TableCategory::fibonacci(), su2()));
-    let tau = fibsu2.factors().0.object(2).unwrap();
+    let tau = fibsu2.factors().0.object_at(1).unwrap();
     let h = fibsu2.factors().1.irrep(&[1]).unwrap();
     let x = (tau, h);
     // Fibonacci: R^{ττ}_1 = exp(+4πi/5), θ_τ = exp(-4πi/5), F[1,1]=1/φ.
@@ -103,7 +103,7 @@ fn fermionic_closed_forms_and_complex_promotion() {
         -Complex64::from_polar(1.0, 4.0 * std::f64::consts::PI / 5.0),
     );
     complex_close(
-        fibsu2.twist(&x),
+        fibsu2.twist(&x).unwrap(),
         Complex64::from_polar(1.0, -4.0 * std::f64::consts::PI / 5.0),
     );
     complex_close(
@@ -116,13 +116,13 @@ fn fermionic_closed_forms_and_complex_promotion() {
     // Both promotion directions, and a promoted value followed by a real factor.
     let reverse = Product::new((su2(), TableCategory::fibonacci()));
     complex_close(
-        reverse.twist(&(reverse.factors().0.unit(), tau)),
-        fibsu2.twist(&x),
+        reverse.twist(&(reverse.factors().0.unit(), tau)).unwrap(),
+        fibsu2.twist(&x).unwrap(),
     );
     let three = Product::new((U1, TableCategory::fibonacci(), FermionParity));
     complex_close(
-        three.twist(&(U1.unit(), tau, Parity::ODD)),
-        -fibsu2.twist(&x),
+        three.twist(&(U1.unit(), tau, Parity::ODD)).unwrap(),
+        -fibsu2.twist(&x).unwrap(),
     );
 }
 
@@ -152,12 +152,12 @@ fn fusion_first_factor_fastest_and_reassociation() {
         TableCategory::fibonacci(),
     ));
     let right = Product::new((s, Product::new((FermionParity, TableCategory::fibonacci()))));
-    let t = flat.factors().2.object(2).unwrap();
+    let t = flat.factors().2.object_at(1).unwrap();
     let a = (h.clone(), Parity::ODD, t);
     let l = ((h.clone(), Parity::ODD), t);
     let r = (h, (Parity::ODD, t));
-    complex_close(flat.twist(&a), left.twist(&l));
-    complex_close(flat.twist(&a), right.twist(&r));
+    complex_close(flat.twist(&a).unwrap(), left.twist(&l).unwrap());
+    complex_close(flat.twist(&a).unwrap(), right.twist(&r).unwrap());
     let f = flat
         .f_symbol(&a, &a, &a, &a, &flat.unit(), &flat.unit())
         .unwrap();
@@ -228,7 +228,7 @@ fn identity_framing_and_arity() {
     assert_eq!(max.clone(), max);
     assert_eq!(hash(&max), hash(&max.clone()));
     let repeated = Product::new((U1, U1));
-    assert_eq!(repeated.into_factors(), (U1, U1));
+    assert_eq!(repeated.factors(), &(U1, U1));
     // Trivial factors change category identity but preserve projected mathematical queries.
     let trivial = Product::new((su2(), ZN::new(1).unwrap()));
     let h = trivial.factors().0.irrep(&[1]).unwrap();
@@ -369,10 +369,10 @@ impl FusionCategory for Probe {
         self.dim(a);
         1.0
     }
-    fn twist(&self, a: &u8) -> f64 {
+    fn twist(&self, a: &u8) -> Result<f64, Self::Error> {
         self.dim(a);
         assert_ne!(self.braiding, BraidingStyle::None);
-        1.0
+        Ok(1.0)
     }
     fn fusion<'a>(&'a self, a: &u8, b: &u8) -> Result<Self::Fusion<'a>, Self::Error> {
         self.dim(a);
@@ -658,6 +658,9 @@ fn every_factor_position_obeys_validation_and_overflow_precedence() {
         assert!(
             matches!(cat.r_symbol(&zero,&zero,&zero),Err(ProductError::NoBraiding{factor}) if factor==position)
         );
+        assert!(
+            matches!(cat.twist(&zero),Err(ProductError::NoBraiding{factor}) if factor==position)
+        );
         // A later zero must also beat multiplication overflow in a nonzero prefix.
         factors.iter_mut().for_each(|c| c.n = [u32::MAX; 4]);
         factors[position].n = [0; 4];
@@ -731,7 +734,7 @@ fn every_factor_position_obeys_validation_and_overflow_precedence() {
                     cat.frobenius_schur_indicator(&bad);
                 }
                 4 => {
-                    cat.twist(&bad);
+                    cat.twist(&bad).unwrap();
                 }
                 5 => {
                     let _ = cat.fusion(&zero, &bad);
@@ -864,14 +867,18 @@ fn left_fold_and_unbraided_table_preflight() {
         .unwrap();
     let cat = Product::new((fib.clone(), unbraided.clone()));
     let a = cat.unit();
-    let c = (fib.object(2).unwrap(), unbraided.unit());
+    let c = (fib.object_at(1).unwrap(), unbraided.unit());
     assert!(matches!(
         cat.r_symbol(&a, &a, &c),
         Err(ProductError::NoBraiding { factor: 1 })
     ));
-    let foreign = (fib.unit(), fib.object(2).unwrap());
+    assert!(matches!(
+        cat.twist(&c),
+        Err(ProductError::NoBraiding { factor: 1 })
+    ));
+    let foreign = (fib.unit(), fib.object_at(1).unwrap());
     assert!(std::panic::catch_unwind(|| cat.r_symbol(&a, &a, &foreign)).is_err());
-    assert!(std::panic::catch_unwind(|| cat.twist(&foreign)).is_err());
+    assert!(std::panic::catch_unwind(|| cat.twist(&foreign).unwrap()).is_err());
 }
 
 #[cfg(feature = "lie-generated")]
@@ -1144,7 +1151,7 @@ fn runtime_checked_composition_and_initialized_iteration() {
     let cat = Product::new(vec![Probe::default(); usize::BITS as usize]);
     let z = cat.unit();
     assert!(matches!(cat.fusion(&z, &z), Err(ProductError::Overflow)));
-    let mut factors = cat.into_factors();
+    let mut factors = cat.factors().clone();
     factors.push(probe(0));
     let zero = Product::new(factors);
     let z = zero.unit();
@@ -1154,7 +1161,7 @@ fn runtime_checked_composition_and_initialized_iteration() {
 #[test]
 fn runtime_complex_scalars_and_enumeration_overflow() {
     let fib = TableCategory::fibonacci();
-    let tau = fib.object(2).unwrap();
+    let tau = fib.object_at(1).unwrap();
     let runtime = Product::new(vec![fib.clone(), fib.clone()]);
     let tuple = Product::new((fib.clone(), fib));
     let x = vec![tau, tau];
@@ -1365,7 +1372,7 @@ fn complex_real(l: &Frab<Complex64>, r: &Frab<f64>) -> Frab<(u64, u64)> {
 #[test]
 fn real_complex_product_symbols_are_bitwise_promoted_kronecker_products() {
     let fib = TableCategory::fibonacci();
-    let tau = fib.object(2).unwrap();
+    let tau = fib.object_at(1).unwrap();
     let (p1, m1, u0) = (
         U1Irrep::new(1).unwrap(),
         U1Irrep::new(-1).unwrap(),
@@ -1387,7 +1394,7 @@ fn real_complex_product_symbols_are_bitwise_promoted_kronecker_products() {
 #[test]
 fn multiplicity_real_complex_product_symbols_are_bitwise_promoted_kronecker_products() {
     let fib = TableCategory::fibonacci();
-    let tau = fib.object(2).unwrap();
+    let tau = fib.object_at(1).unwrap();
     let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
     let o = su3.irrep(&[1, 1]).unwrap();
     let real = frab_values(&su3, [&o; 3], [&o; 6]);
@@ -1562,8 +1569,8 @@ impl FusionCategory for Counted {
     fn frobenius_schur_indicator(&self, _: &u8) -> f64 {
         1.0
     }
-    fn twist(&self, _: &u8) -> f64 {
-        1.0
+    fn twist(&self, _: &u8) -> Result<f64, Self::Error> {
+        Ok(1.0)
     }
     fn fusion(&self, _: &u8, _: &u8) -> Result<CountedFusion, Infallible> {
         Ok(CountedFusion {
@@ -1636,7 +1643,7 @@ impl FusionCategory for Wrapped {
     fn frobenius_schur_indicator(&self, a: &Self::Object) -> f64 {
         self.0.frobenius_schur_indicator(a)
     }
-    fn twist(&self, a: &Self::Object) -> f64 {
+    fn twist(&self, a: &Self::Object) -> Result<f64, Self::Error> {
         self.0.twist(a)
     }
     fn fusion(&self, a: &Self::Object, b: &Self::Object) -> Result<WrappedFusion, Self::Error> {
@@ -1909,7 +1916,7 @@ fn unavailable_factor_keeps_the_overflow_precedence() {
         },
         U1,
     ));
-    let x = (0, U1Irrep::UNIT);
+    let x = (0, U1.unit());
     assert!(matches!(
         p.f_symbol(&x, &x, &x, &x, &x, &x),
         Err(ProductError::Overflow)
@@ -1966,10 +1973,10 @@ fn product_b_is_the_rounded_exact_composition() {
 fn one_leaf_absent_channel_keeps_its_axes() {
     use fusion_symbols::lie::{CU1Irrep, HalfInt, CU1};
     let p = Product::new((CU1, U1));
-    let x = (CU1Irrep::VACUUM, U1Irrep::UNIT);
+    let x = (CU1.unit(), U1.unit());
     let y = (
         CU1Irrep::new(HalfInt::from_doubled(1), 2).unwrap(),
-        U1Irrep::UNIT,
+        U1.unit(),
     );
     let f = p.f_symbol(&x, &x, &x, &x, &y, &x).unwrap();
     assert_eq!(f.dims(), [0, 0, 1, 1]);

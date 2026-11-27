@@ -37,9 +37,16 @@ value/gauge rule noted below.
   every product and sum was rounded. Values move by a few ulp; persisted F
   and R rows are exact blocks (storage schema 3), and a row whose rounded
   view fails its gate is regenerated rather than retained.
-- `BASE_CACHE_MAX_BYTES` is the sum of every tier's cap, 576 MiB
-  (Wigner 3j, 6j, F, R, Product and CGC), in every build.
-  **Breaking:** `GENERATED_CACHE_MAX_BYTES` is removed.
+- The default tier caps sum to 512 MiB (Wigner 6j, F, R, Product and CGC)
+  in every build.
+- **Breaking:** `FusionCategory::twist` returns
+  `Result<Self::Scalar, Self::Error>`. On a category without braiding it is
+  the error `r_symbol` returns (`TableError::NoBraiding`,
+  `ProductError::NoBraiding { factor }`) instead of a panic; every braided
+  category returns `Ok` with the same value. Migrate `cat.twist(&a)` to
+  `cat.twist(&a)?`; an implementor returns `Ok(value)`.
+- **Breaking:** `ProductFusion` is named by the product's factors,
+  `ProductFusion<'a, C>`, without the iterator-state parameters.
 - Every Cartan-engine CGC channel keeps its exact value as the stored
   authority: per multiplicity index, integer coordinates on one common
   denominator with the content divided out, and one vertex radicand. The
@@ -63,6 +70,40 @@ value/gauge rule noted below.
   1.06-1.87 times the cache bytes; a disk row of a large channel is
   0.67-0.88 times the size; the first view of a channel loaded from disk
   takes 1.2-3.1 times as long, because the disk now holds exact values.
+
+### Removed
+
+Each item had a second public spelling of an existing call or no consumer;
+the replacement is given.
+
+- `TableCategory::object(i)` → `object_at(u64::from(i) - 1)`;
+  `TableObject::index()` → `object_index(&a)? + 1` (both one-based before).
+  `TableError::UnknownObject` goes with them.
+- `TableCategory::by_code(code)` / `code()` → `by_uuid(uuid)` / `uuid()`;
+  codes are not stable across database versions.
+- `TableProvenance::write_canonical_bytes` and `table::PROJECTION_EPOCH`
+  (crate-private; no consumer outside the crate's tests).
+- `lie::su2::{wigner_3j, wigner_6j, clebsch_gordan}` and
+  `lie::su2::SignedSqrtRational`; `lie::su2` is no longer public. Use the
+  category traits on `LieGroup::new(GroupId::su(2)?)?`: `f_symbol(j₁, …, j₆)`
+  is `(−1)^{j₁+j₂+j₃+j₄} √((2j₅+1)(2j₆+1)) {j₁ j₂ j₅; j₃ j₄ j₆}`, and
+  `cgc(a, b, c)` gives the Clebsch–Gordan coefficients (axes
+  `[m₁, m₂, m₃, μ]`, `m` ascending), from which
+  `3j(m₁, m₂, m₃) = (−1)^{j₁−j₂−m₃} / √(2j₃+1) · ⟨j₁ m₁; j₂ m₂ | j₃ −m₃⟩`.
+- `CoefficientCacheTier::Wigner3j` (the 3j tier had no consumer left) and
+  `cache::BASE_CACHE_MAX_BYTES` (the sum of the default limits; read
+  `cache_budgets().limit(tier)` per tier).
+- `U1Irrep::UNIT` → `U1.unit()`; `CU1Irrep::VACUUM` → `CU1.unit()`;
+  `CU1Irrep::PSEUDOSCALAR` → `CU1Irrep::new(HalfInt::from_doubled(0), 1)?`;
+  `FermionParityIrrep::new(odd)` → `FermionParityIrrep::{EVEN, ODD}`.
+- `CU1Irrep::twice_charge()` → `charge().doubled()`.
+- `GroupId::psu(n)` → `GroupId::su_quotient(n, n)`.
+- `U1::group_id()` → `GroupId::u(1)`.
+- `Product::into_factors()` → `factors()` (clone what is kept).
+- `Promote::{left, right}` (now a sealed supertrait; `Promote` stays as a
+  bound with its `Output`).
+- `impl From<ProductError<LieError>> for LieError` (a composite group
+  already returns `LieError`).
 
 ### Performance
 

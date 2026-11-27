@@ -10,7 +10,7 @@ pub(crate) mod general;
 mod gt;
 pub use gt::GtPattern;
 mod group;
-pub mod su2;
+pub(crate) mod su2;
 pub use group::{GroupError, GroupId, RootSystem};
 mod half_int;
 pub use half_int::{HalfInt, HalfIntError};
@@ -296,18 +296,17 @@ impl std::error::Error for CompositeError {
     }
 }
 
-impl From<ProductError<LieError>> for LieError {
-    fn from(error: ProductError<LieError>) -> Self {
-        match error {
-            ProductError::Overflow => Self::LabelOverflow,
-            // Keep matchable leaf capability/overflow variants; generation and
-            // malformed-block diagnostics retain the complete indexed source path.
-            ProductError::Factor {
-                source: source @ (Self::LabelOverflow | Self::Unsupported { .. }),
-                ..
-            } => source,
-            error => Self::Generation(GenerationError(Arc::new(CompositeError(error)))),
-        }
+/// A composite group's product error as the group's own error.
+fn composite_error(error: ProductError<LieError>) -> LieError {
+    match error {
+        ProductError::Overflow => LieError::LabelOverflow,
+        // Keep matchable leaf capability/overflow variants; generation and
+        // malformed-block diagnostics retain the complete indexed source path.
+        ProductError::Factor {
+            source: source @ (LieError::LabelOverflow | LieError::Unsupported { .. }),
+            ..
+        } => source,
+        error => LieError::Generation(GenerationError(Arc::new(CompositeError(error)))),
     }
 }
 
@@ -980,7 +979,7 @@ impl FusionCategory for LieGroup {
         if let Some(product) = &self.composite {
             return product
                 .frobenius_schur_phase(self.factor_labels(a))
-                .map_err(LieError::from);
+                .map_err(composite_error);
         }
         if let Some(x) = a.simple() {
             if x.is_self_dual() {
@@ -1012,16 +1011,18 @@ impl FusionCategory for LieGroup {
         }
         su2::fs_phase(a.dj())
     }
-    fn twist(&self, a: &LieIrrep) -> f64 {
+    fn twist(&self, a: &LieIrrep) -> Result<f64, LieError> {
         self.label(a);
         if let Some(product) = &self.composite {
-            return product.twist(self.factor_labels(a));
+            return product
+                .twist(self.factor_labels(a))
+                .map_err(composite_error);
         }
         // Bosonic, twist one (`docs/gauge_cartan.md` §6.1).
         if a.simple().is_some() {
-            return 1.0;
+            return Ok(1.0);
         }
-        su2::twist(a.dj())
+        Ok(su2::twist(a.dj()))
     }
     fn fusion<'a>(&'a self, a: &LieIrrep, b: &LieIrrep) -> Result<Self::Fusion<'a>, LieError> {
         self.label(a);
@@ -1032,7 +1033,8 @@ impl FusionCategory for LieGroup {
                 inner: FusionInner::Composite(
                     product
                         .fusion(self.factor_labels(a), self.factor_labels(b))
-                        .map_err(LieError::from)?,
+                        .map_err(composite_error)?
+                        .into_cartesian(),
                 ),
             });
         }
@@ -1102,7 +1104,7 @@ impl FusionCategory for LieGroup {
                     self.factor_labels(c),
                     Validated(()),
                 )
-                .map_err(LieError::from);
+                .map_err(composite_error);
         }
         match (&a.payload, &b.payload, &c.payload) {
             (LiePayload::Torus(a), LiePayload::Torus(b), LiePayload::Torus(c)) => {
@@ -1140,7 +1142,7 @@ impl FusionCategory for LieGroup {
                     self.factor_labels(b),
                     self.factor_labels(c),
                 )
-                .map_err(LieError::from);
+                .map_err(composite_error);
         }
         if matches!(a.payload, LiePayload::Torus(_)) {
             return Ok(
@@ -1172,7 +1174,7 @@ impl FusionCategory for LieGroup {
         if let Some(product) = &self.composite {
             return product
                 .__fusion_symbols_exact_symbol(op.map(|x| self.factor_labels(x)), t)
-                .map_err(LieError::from);
+                .map_err(composite_error);
         }
         if self.is_torus() {
             return crate::category::unit_symbol(self, op);
@@ -1292,7 +1294,7 @@ impl LieGroup {
             } else {
                 product.a_symbol(a, b, c)
             };
-            return block.map_err(LieError::from);
+            return block.map_err(composite_error);
         }
         let labels = match [a, b, c].map(|x| x.simple()) {
             [Some(a), Some(b), Some(c)] => [a.label(), b.label(), c.label()],
@@ -1477,7 +1479,7 @@ impl LieGroup {
                     self.factor_labels(e),
                     self.factor_labels(f),
                 )
-                .map_err(LieError::from);
+                .map_err(composite_error);
         }
         if matches!(a.payload, LiePayload::Torus(_)) {
             let mut dims = [0; 4];
@@ -1532,7 +1534,7 @@ impl LieGroup {
                             self.factor_labels(b),
                             self.factor_labels(c),
                         )
-                        .map_err(LieError::from)?,
+                        .map_err(composite_error)?,
                 ),
                 dims: [0; 4],
                 entries: None,
@@ -1600,7 +1602,12 @@ pub struct LieFusion {
     group: Option<GroupId>,
     inner: FusionInner,
 }
-type CompositeFusion = <Product<Vec<LieGroup>> as FusionCategory>::Fusion<'static>;
+// The product's fusion state without the borrow of the factor list, which
+// `LieGroup`'s owned fusion does not hold.
+type CompositeFusion = crate::product::sealed::Cartesian<
+    Vec<(LieFusion, usize)>,
+    (usize, usize, Vec<(LieIrrep, u32)>),
+>;
 
 #[derive(Clone, Debug)]
 enum FusionInner {
@@ -1861,7 +1868,7 @@ mod tests {
 
     #[test]
     fn composite_error_mapping_retains_factor_path() {
-        let error = LieError::from(ProductError::Factor {
+        let error = composite_error(ProductError::Factor {
             index: 2,
             source: LieError::Generation(GenerationError(Arc::new(std::io::Error::other(
                 "test failure",
@@ -1878,28 +1885,28 @@ mod tests {
             .to_string()
             .contains("test failure"));
         assert_eq!(
-            LieError::from(ProductError::Factor {
+            composite_error(ProductError::Factor {
                 index: 2,
                 source: LieError::LabelOverflow
             }),
             LieError::LabelOverflow
         );
         assert_eq!(
-            LieError::from(ProductError::Overflow),
+            composite_error(ProductError::Overflow),
             LieError::LabelOverflow
         );
         let unsupported = LieError::Unsupported {
             requires: "test capability",
         };
         assert_eq!(
-            LieError::from(ProductError::Factor {
+            composite_error(ProductError::Factor {
                 index: 2,
                 source: unsupported.clone()
             }),
             unsupported
         );
         assert!(matches!(
-            LieError::from(ProductError::MalformedSymbolData {
+            composite_error(ProductError::MalformedSymbolData {
                 factor: 2,
                 expected: vec![1, 1],
                 actual: vec![2, 2],

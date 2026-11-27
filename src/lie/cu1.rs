@@ -56,12 +56,12 @@ impl std::error::Error for CU1Error {}
 
 impl CU1Irrep {
     /// The unit `0+`, TensorKitSectors `CU1Irrep(0, 0)`.
-    pub const VACUUM: Self = Self {
+    const VACUUM: Self = Self {
         twice_charge: 0,
         s: 0,
     };
     /// The pseudoscalar `0-`, TensorKitSectors `CU1Irrep(0, 1)`.
-    pub const PSEUDOSCALAR: Self = Self {
+    const PSEUDOSCALAR: Self = Self {
         twice_charge: 0,
         s: 1,
     };
@@ -101,11 +101,6 @@ impl CU1Irrep {
     /// The half-integer charge `j`.
     pub const fn charge(self) -> HalfInt {
         HalfInt::from_doubled(self.twice_charge)
-    }
-
-    /// `2j`.
-    pub const fn twice_charge(self) -> u32 {
-        self.twice_charge
     }
 
     /// TensorKitSectors' `s`: `0` for `0+`, `1` for `0-`, `2` for `j > 0`.
@@ -380,8 +375,8 @@ impl FusionCategory for CU1 {
     fn frobenius_schur_indicator(&self, _a: &CU1Irrep) -> f64 {
         1.0
     }
-    fn twist(&self, _a: &CU1Irrep) -> f64 {
-        1.0
+    fn twist(&self, _a: &CU1Irrep) -> Result<f64, CU1Error> {
+        Ok(1.0)
     }
     /// Fusion channels of `a ⊗ b`, each with multiplicity one, in
     /// TensorKitSectors' `CU1IrrepProdIterator` order: `0± ⊗ 0± = 0+` or `0-`
@@ -606,7 +601,7 @@ mod tests {
                 if (n == 0 && s <= 1) || (n > 0 && s == 2) {
                     let label = CU1Irrep::new(charge, s).unwrap();
                     assert_eq!(
-                        (label.charge(), label.twice_charge(), label.s()),
+                        (label.charge(), label.twice_charge, label.s()),
                         (charge, n, s)
                     );
                 } else {
@@ -687,7 +682,7 @@ mod tests {
                 .unwrap()
                 .map(|(b, _)| CU1.dim(&b) / CU1.dim(&a) * CU1.r_symbol(&a, &a, &b).unwrap())
                 .sum();
-            assert_eq!(CU1.twist(&a), twist);
+            assert_eq!(CU1.twist(&a).unwrap(), twist);
             assert_eq!(
                 CU1.frobenius_schur_phase(&a).unwrap(),
                 CU1.f_symbol(&a, &CU1.dual(&a), &a, &a, &OP, &OP)

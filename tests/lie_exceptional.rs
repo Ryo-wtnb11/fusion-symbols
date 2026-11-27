@@ -154,7 +154,7 @@ mod g2 {
                 assert_eq!(g.dual(&x), x);
                 assert_eq!(g.frobenius_schur_indicator(&x), 1.0, "{a},{b}");
                 assert_eq!(g.frobenius_schur_phase(&x).unwrap(), 1.0);
-                assert_eq!(g.twist(&x), 1.0);
+                assert_eq!(g.twist(&x).unwrap(), 1.0);
             }
         }
     }
@@ -359,7 +359,7 @@ mod self_dual {
             assert_eq!(g.dual(&a), a);
             assert_eq!(g.frobenius_schur_indicator(&a), fs, "{label:?}");
             assert_eq!(g.frobenius_schur_phase(&a).unwrap(), fs, "{label:?}");
-            assert_eq!(g.twist(&a), 1.0);
+            assert_eq!(g.twist(&a).unwrap(), 1.0);
         }
     }
 
@@ -584,7 +584,7 @@ mod e6 {
             assert_eq!(a.dim_exact(), Natural::from(dim as u64), "{label:?}");
             assert_eq!(g.dim(&a), f64::from(dim));
             assert_eq!(g.dual(&a), l(&g, dual), "{label:?}");
-            assert_eq!(g.twist(&a), 1.0);
+            assert_eq!(g.twist(&a).unwrap(), 1.0);
         }
         assert_eq!(g.unit(), l(&g, ONE));
     }

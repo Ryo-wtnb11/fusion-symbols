@@ -31,10 +31,10 @@
 //! of the database is known by uuid and code and refused with
 //! [`TableError::Unsupported`] and its [`UnsupportedReason`].
 //!
-//! A category's identity is the pair (database commit, uuid). The
-//! `anyonwiki_code` is a version-dependent label: [`TableCategory::by_code`]
-//! is valid only for the pinned commit (CategoryData.jl's codes, for example,
-//! differ for most braided entries).
+//! A category's identity is the pair (database commit, uuid), looked up with
+//! [`TableCategory::by_uuid`]. The `anyonwiki_code` quoted in these docs is a
+//! version-dependent label (CategoryData.jl's codes, for example, differ for
+//! most braided entries), so it is not a lookup key.
 //!
 //! # Gauge
 //!
@@ -64,7 +64,7 @@ mod parser;
 mod provenance;
 
 pub use parser::{TableError, TableObject, UnsupportedReason};
-pub use provenance::{TableProvenance, PROJECTION_EPOCH};
+pub use provenance::TableProvenance;
 
 use parser::MultiplicityFreeTable;
 
@@ -88,15 +88,15 @@ const ISING_UUID: &str = "37fa4e56-97c6-11f1-907a-eb6ab8e8bc11";
 /// A multiplicity-free unitary fusion category from the pinned AnyonWiki
 /// database, in the source gauge.
 ///
-/// Objects are validated by [`Self::object`] and carry a private catalog tag.
+/// Objects come from [`FusionCategory::object_at`] and carry a private catalog tag.
 /// Every object-taking query except `contains` panics on foreign objects before
 /// checking capabilities.
 /// Inadmissible symbols are exact zero. On fusion-only entries, `r_symbol`
-/// returns [`TableError::NoBraiding`] and `twist` panics.
+/// and `twist` return [`TableError::NoBraiding`].
 ///
 /// Enumeration (frozen): the source object order; the object with one-based
-/// source index `i` ([`Self::object`]) has enumeration index `i − 1`
-/// ([`FusionCategory::object_at`]), and the count is
+/// AnyonWiki label `i` is [`FusionCategory::object_at`]`(i − 1)`, its
+/// [`FusionCategory::object_index`] is `i − 1`, and the count is
 /// [`FusionCategory::object_count`]. Ising is therefore `(I, ψ, σ)`, unlike
 /// TensorKitSectors' `IsingAnyon` order `(I, σ, ψ)`.
 ///
@@ -106,13 +106,13 @@ const ISING_UUID: &str = "37fa4e56-97c6-11f1-907a-eb6ab8e8bc11";
 /// use fusion_symbols::{category::{BraidingStyle, FusionCategory}, table::TableCategory};
 ///
 /// let fib = TableCategory::fibonacci();
-/// let tau = fib.object(2)?;
+/// let tau = fib.object_at(1)?;
 /// assert_eq!(fib.fusion(&tau, &tau)?.count(), 2);
 /// assert!((fib.dim(&tau) - (1.0 + 5f64.sqrt()) / 2.0).abs() < 1e-15);
 ///
-/// let rep_s3 = TableCategory::by_code([3, 1, 0, 2, 2, 0, 1])?; // fusion-only
+/// let rep_s3 = TableCategory::by_uuid("37fa4e9c-97c6-11f1-8ce9-19309dfc597c")?; // Rep(S3), fusion-only
 /// assert_eq!(rep_s3.braiding_style(), BraidingStyle::None);
-/// # Ok::<(), fusion_symbols::table::TableError>(())
+/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Clone, Debug)]
 pub struct TableCategory {
@@ -179,25 +179,9 @@ impl TableCategory {
         Self::from_entry(table_id as u32, entry)
     }
 
-    /// The category with `anyonwiki_code` `code` = `[rank, multiplicity,
-    /// non-self-dual objects, ring, associator, braiding (0 = none),
-    /// pivotal]`, **as numbered in database commit `badbfe2`**. Codes are not
-    /// stable across database versions; [`by_uuid`](Self::by_uuid) is.
-    ///
-    /// # Errors
-    ///
-    /// As [`by_uuid`](Self::by_uuid).
-    pub fn by_code(code: [u8; 7]) -> Result<Self, TableError> {
-        let (uuid, _, _) = catalog::INDEX
-            .iter()
-            .find(|(_, other, _)| *other == code)
-            .ok_or(TableError::UnknownCategory)?;
-        Self::by_uuid(uuid)
-    }
-
     /// Fibonacci, `anyonwiki_code [2,1,0,2,1,2,1]` (uuid
-    /// `37fa4e42-97c6-11f1-9d0f-9b7fe5c504f9`): index `1` = `𝟙`,
-    /// index `2` = `τ`.
+    /// `37fa4e42-97c6-11f1-9d0f-9b7fe5c504f9`): `object_at(0)` = `𝟙`,
+    /// `object_at(1)` = `τ`.
     ///
     /// This is TensorKitSectors' `FibonacciAnyon` in its own gauge and
     /// braiding (`R^{ττ}_𝟙 = e^{+4πi/5}`; code `[2,1,0,2,1,1,1]` is the
@@ -212,7 +196,7 @@ impl TableCategory {
 
     /// Ising, `anyonwiki_code [3,1,0,1,1,1,1]` (uuid
     /// `37fa4e56-97c6-11f1-907a-eb6ab8e8bc11`), in AnyonWiki's object order:
-    /// index `1` = `𝟙`, index `2` = `ψ`, index `3` = `σ`
+    /// `object_at(0..3)` = `𝟙`, `ψ`, `σ`
     /// (TensorKitSectors' `IsingAnyon` orders `I, σ, ψ`).
     ///
     /// Its braiding is `IsingAnyon`'s (`R^{σσ}_𝟙 = e^{-iπ/8}`; code
@@ -330,29 +314,9 @@ impl TableCategory {
         self.entry.uuid
     }
 
-    /// The `anyonwiki_code` in database commit `badbfe2`.
-    pub fn code(&self) -> [u8; 7] {
-        self.entry.code
-    }
-
     /// The frozen lineage of this category's tables.
     pub fn provenance(&self) -> &'static TableProvenance {
         &self.entry.provenance
-    }
-
-    /// Validate a one-based source index.
-    ///
-    /// # Errors
-    /// Returns [`TableError::UnknownObject`] outside `1..=rank`.
-    pub fn object(&self, index: u16) -> Result<TableObject, TableError> {
-        if (1..=self.data.table.rank()).contains(&usize::from(index)) {
-            Ok(TableObject {
-                table_id: self.table_id,
-                index,
-            })
-        } else {
-            Err(TableError::UnknownObject { object: index })
-        }
     }
 
     fn index(&self, a: &TableObject) -> usize {
@@ -425,16 +389,14 @@ impl FusionCategory for TableCategory {
             Complex64::new(0.0, 0.0)
         }
     }
-    /// Twist derived from R.
-    ///
-    /// # Panics
-    /// Panics on foreign objects first, then if braiding is absent.
-    fn twist(&self, a: &TableObject) -> Complex64 {
+    /// Twist derived from R; [`TableError::NoBraiding`] without braiding.
+    /// Foreign objects panic first.
+    fn twist(&self, a: &TableObject) -> Result<Complex64, TableError> {
         let i = self.index(a);
-        self.data
-            .twists
-            .as_ref()
-            .expect("twist: the category has no braiding")[i]
+        match &self.data.twists {
+            Some(twists) => Ok(twists[i]),
+            None => Err(TableError::NoBraiding),
+        }
     }
     fn fusion<'a>(
         &'a self,

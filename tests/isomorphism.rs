@@ -68,12 +68,8 @@
 //! ## `SO(4) ≅ SU(2) × SU(2)` (`D_2 ≅ A_1 × A_1`)
 //!
 //! `SO(4)` is the excluded rank `D_2` in [`fusion_symbols::lie`] (redirected to the
-//! SU(2) machinery). The isomorphism content — an `SO(4)` tensor irrep is a
-//! pair of `SU(2)` irreps with `SO(4)` products factoring as independent
-//! `SU(2)` products — is checked in `src/lie/sun/su2_embedding_tests.rs` between the **two independent
-//! `SU(2)` code paths**: the general Gelfand–Tsetlin engine ([`fusion_symbols::lie`]
-//! at `N = 2`) and the exact closed-form base module ([`fusion_symbols::lie::su2`],
-//! reached through [`fusion_symbols::lie::su2::clebsch_gordan`]). An `SO(4)` label `(p, q)`
+//! SU(2) machinery): an `SO(4)` tensor irrep is a pair of `SU(2)` irreps with
+//! `SO(4)` products factoring as independent `SU(2)` products. An `SO(4)` label `(p, q)`
 //! carries `SU(2)` spins `(p/2, q/2)` (doubled spins `dj = p, q`), dimension
 //! `(p+1)(q+1)`, and is a tensor irrep iff `p + q` is even.
 

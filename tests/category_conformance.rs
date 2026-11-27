@@ -73,7 +73,7 @@ fn conformance<C: FusionCategory>(cat: C, labels: Vec<C::Object>) {
                         twist + C::Scalar::from_f64(cat.dim(&b) / cat.dim(a)) * block.get([mu, mu]);
                 }
             }
-            close(cat.twist(a), twist);
+            close(cat.twist(a).unwrap(), twist);
         }
         for b in &labels {
             // Consistency identity, not an oracle: each item's count is N.
@@ -187,21 +187,19 @@ fn scalar_storage_and_promotion() {
     storage(0.0);
     storage(Complex64::new(0.0, 0.0));
     storage(Complex64::new(2.0, 3.0));
-    assert_eq!(<f64 as Promote<f64>>::left(2.0), 2.0);
-    assert_eq!(<f64 as Promote<f64>>::right(3.0), 3.0);
+    // The common scalar is real only when both are.
+    fn output<L: Promote<R>, R: Scalar>() -> &'static str {
+        std::any::type_name::<<L as Promote<R>>::Output>()
+    }
+    assert_eq!(output::<f64, f64>(), "f64");
+    for complex in [
+        output::<f64, Complex64>(),
+        output::<Complex64, f64>(),
+        output::<Complex64, Complex64>(),
+    ] {
+        assert_eq!(complex, std::any::type_name::<Complex64>());
+    }
     let z = Complex64::new(2.0, 3.0);
-    assert_eq!(
-        <f64 as Promote<Complex64>>::left(2.0),
-        Complex64::new(2.0, 0.0)
-    );
-    assert_eq!(<f64 as Promote<Complex64>>::right(z), z);
-    assert_eq!(<Complex64 as Promote<f64>>::left(z), z);
-    assert_eq!(
-        <Complex64 as Promote<f64>>::right(2.0),
-        Complex64::new(2.0, 0.0)
-    );
-    assert_eq!(<Complex64 as Promote<Complex64>>::left(z), z);
-    assert_eq!(<Complex64 as Promote<Complex64>>::right(z), z);
     assert_eq!(Scalar::conj(z), Complex64::new(2.0, -3.0));
     close(Scalar::abs(z), 13.0_f64.sqrt());
 }
@@ -224,10 +222,13 @@ fn cu1_identities() {
     assert_eq!(CU1.braiding_style(), BraidingStyle::Bosonic);
     conformance(
         CU1,
-        [CU1Irrep::VACUUM, CU1Irrep::PSEUDOSCALAR]
-            .into_iter()
-            .chain((1..=4).map(|n| CU1Irrep::new(HalfInt::from_doubled(n), 2).unwrap()))
-            .collect(),
+        [
+            CU1.unit(),
+            CU1Irrep::new(HalfInt::from_doubled(0), 1).unwrap(),
+        ]
+        .into_iter()
+        .chain((1..=4).map(|n| CU1Irrep::new(HalfInt::from_doubled(n), 2).unwrap()))
+        .collect(),
     );
 }
 
@@ -355,7 +356,7 @@ fn product_identities() {
     let fsu2 = Product::new((su2.clone(), FermionParity));
     conformance(fsu2.clone(), vec![fsu2.unit(), (half.clone(), parity)]);
     let fib = TableCategory::fibonacci();
-    let tau = fib.object(2).unwrap();
+    let tau = fib.object_at(1).unwrap();
     let fibsu2 = Product::new((fib, su2.clone()));
     conformance(fibsu2.clone(), vec![fibsu2.unit(), (tau, half.clone())]);
     let ss = Product::new((su2.clone(), su2));

@@ -21,10 +21,9 @@ pub fn serial() -> std::sync::MutexGuard<'static, ()> {
     SERIAL.lock().unwrap_or_else(|poison| poison.into_inner())
 }
 
-/// Every tier, whose charge `BASE_CACHE_MAX_BYTES` bounds.
+/// Every tier, whose summed caps bound the cache charge.
 #[allow(dead_code)]
-pub const BASE_TIERS: [Tier; 6] = [
-    Tier::Wigner3j,
+pub const BASE_TIERS: [Tier; 5] = [
     Tier::Wigner6j,
     Tier::FSymbol,
     Tier::RSymbol,

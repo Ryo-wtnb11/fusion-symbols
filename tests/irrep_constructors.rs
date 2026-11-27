@@ -49,7 +49,7 @@ fn spin_round_trips_on_su2_forms() {
 fn so3_forms_admit_integer_spins_only() {
     for id in [
         GroupId::so(3).unwrap(),
-        GroupId::psu(2).unwrap(),
+        GroupId::su_quotient(2, 2).unwrap(),
         GroupId::psp(2).unwrap(),
     ] {
         let g = group(id);

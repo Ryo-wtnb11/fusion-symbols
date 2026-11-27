@@ -85,10 +85,10 @@ impl FusionCategory for Counter {
         bump(3);
         1.0
     }
-    fn twist(&self, a: &u8) -> f64 {
+    fn twist(&self, a: &u8) -> Result<f64, Self::Error> {
         check(a);
         bump(3);
-        1.0
+        Ok(1.0)
     }
     fn fusion<'a>(&'a self, a: &u8, b: &u8) -> Result<Self::Fusion<'a>, Infallible> {
         [a, b].into_iter().for_each(check);
@@ -166,7 +166,7 @@ fn costs<C: FusionCategory<Scalar = f64>>(cat: &C) -> [([usize; 4], usize); 11] 
     record(1, (cat.dual(&u) == u) as u8 as f64);
     record(2, cat.frobenius_schur_phase(&u).unwrap());
     record(3, cat.frobenius_schur_indicator(&u));
-    record(4, cat.twist(&u));
+    record(4, cat.twist(&u).unwrap());
     record(5, cat.fusion(&u, &u).unwrap().count() as f64);
     record(6, cat.nsymbol(&u, &u, &u).unwrap() as f64);
     let f = cat.f_symbol(&u, &u, &u, &u, &u, &u).unwrap();
@@ -285,7 +285,7 @@ fn nested_foreign_objects_still_panic() {
     product_panic(|| cat.dual(&bad));
     product_panic(|| cat.frobenius_schur_phase(&bad).unwrap());
     product_panic(|| cat.frobenius_schur_indicator(&bad));
-    product_panic(|| cat.twist(&bad));
+    product_panic(|| cat.twist(&bad).unwrap());
     product_panic(|| cat.fusion(&u, &bad).map(|_| ()));
     product_panic(|| cat.nsymbol(&u, &u, &bad).unwrap());
     product_panic(|| cat.f_symbol(&u, &u, &u, &u, &u, &bad).map(|_| ()));
@@ -341,8 +341,8 @@ impl FusionCategory for Malformed {
     fn frobenius_schur_indicator(&self, _: &u8) -> f64 {
         1.0
     }
-    fn twist(&self, _: &u8) -> f64 {
-        1.0
+    fn twist(&self, _: &u8) -> Result<f64, Self::Error> {
+        Ok(1.0)
     }
     fn fusion<'a>(&'a self, _: &u8, _: &u8) -> Result<Self::Fusion<'a>, Infallible> {
         Ok(std::iter::once((0, 2)))
@@ -655,8 +655,8 @@ impl FusionCategory for Ident {
     fn frobenius_schur_indicator(&self, _: &u8) -> f64 {
         1.0
     }
-    fn twist(&self, _: &u8) -> f64 {
-        1.0
+    fn twist(&self, _: &u8) -> Result<f64, Self::Error> {
+        Ok(1.0)
     }
     fn fusion<'a>(&'a self, _: &u8, _: &u8) -> Result<Self::Fusion<'a>, Infallible> {
         unimplemented!("not a fusion fixture")

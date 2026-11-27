@@ -182,7 +182,7 @@ fn compare_product(id: GroupId, roots: &[fusion_symbols::lie::RootSystem], sampl
             (cat.sqrt_dim(a), product.sqrt_dim(pa)),
             (cat.inv_dim(a), product.inv_dim(pa)),
             (cat.inv_sqrt_dim(a), product.inv_sqrt_dim(pa)),
-            (cat.twist(a), product.twist(pa)),
+            (cat.twist(a).unwrap(), product.twist(pa).unwrap()),
             (
                 cat.frobenius_schur_phase(a).unwrap(),
                 product.frobenius_schur_phase(pa).unwrap(),
