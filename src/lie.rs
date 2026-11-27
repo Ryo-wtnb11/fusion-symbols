@@ -880,6 +880,14 @@ impl CgcBlock for LieCgc {
             .binary_search_by_key(&key, |e| [e.mu, e.m3, e.m1, e.m2])
             .map_or(0.0, |i| entries[i].value)
     }
+    fn __fusion_symbols_stored(&self, each: &mut dyn FnMut([usize; 4], f64)) {
+        let Some(channel) = &self.entries else {
+            return crate::category::read_stored(self, each);
+        };
+        for e in &channel.entries {
+            each([e.m1, e.m2, e.m3, e.mu].map(|i| i as usize), e.value);
+        }
+    }
 }
 impl FusionCategory for LieGroup {
     type Object = LieIrrep;

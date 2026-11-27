@@ -180,14 +180,17 @@ pub fn fusion_symbols::category::RBlock<S>::as_slice(&self) -> &[S]
 pub fn fusion_symbols::category::RBlock<S>::dims(&self) -> [usize; 2]
 pub fn fusion_symbols::category::RBlock<S>::get(&self, [usize; 2]) -> S
 pub trait fusion_symbols::category::CgcBlock
+pub fn fusion_symbols::category::CgcBlock::__fusion_symbols_stored(&self, &mut dyn core::ops::function::FnMut([usize; 4], f64))
 pub fn fusion_symbols::category::CgcBlock::dims(&self) -> [usize; 4]
 pub fn fusion_symbols::category::CgcBlock::get(&self, [usize; 4]) -> f64
 pub fn fusion_symbols::category::CgcBlock::to_dense(&self) -> alloc::vec::Vec<f64>
 impl fusion_symbols::category::CgcBlock for f64
+pub fn f64::__fusion_symbols_stored(&self, &mut dyn core::ops::function::FnMut([usize; 4], f64))
 pub fn f64::dims(&self) -> [usize; 4]
 pub fn f64::get(&self, [usize; 4]) -> f64
 pub fn f64::to_dense(&self) -> alloc::vec::Vec<f64>
 impl fusion_symbols::category::CgcBlock for fusion_symbols::lie::LieCgc
+pub fn fusion_symbols::lie::LieCgc::__fusion_symbols_stored(&self, &mut dyn core::ops::function::FnMut([usize; 4], f64))
 pub fn fusion_symbols::lie::LieCgc::dims(&self) -> [usize; 4]
 pub fn fusion_symbols::lie::LieCgc::get(&self, [usize; 4]) -> f64
 pub fn fusion_symbols::lie::LieCgc::to_dense(&self) -> alloc::vec::Vec<f64>
@@ -1646,6 +1649,7 @@ impl core::fmt::Debug for fusion_symbols::lie::LieCgc
 pub fn fusion_symbols::lie::LieCgc::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for fusion_symbols::lie::LieCgc
 impl fusion_symbols::category::CgcBlock for fusion_symbols::lie::LieCgc
+pub fn fusion_symbols::lie::LieCgc::__fusion_symbols_stored(&self, &mut dyn core::ops::function::FnMut([usize; 4], f64))
 pub fn fusion_symbols::lie::LieCgc::dims(&self) -> [usize; 4]
 pub fn fusion_symbols::lie::LieCgc::get(&self, [usize; 4]) -> f64
 pub fn fusion_symbols::lie::LieCgc::to_dense(&self) -> alloc::vec::Vec<f64>

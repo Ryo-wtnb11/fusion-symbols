@@ -682,40 +682,30 @@ fn product_cgc<C: GroupRepresentations>(
     }
 }
 
-/// A factor block's dimensions and nonzero entries, read densely through
-/// [`CgcBlock::get`].
-// ponytail: a dense scan of `d_a d_b d_c N` reads per factor, only on the
-// float path (a factor without exact channels); a sparse reader on
-// `CgcBlock` would remove it if such products grow large.
-fn nonzeros(block: &impl CgcBlock) -> ([usize; 4], Vec<MEntry>) {
-    let dims = block.dims();
+/// A factor block's dimensions and stored entries
+/// ([`CgcBlock::__fusion_symbols_stored`]): a stored entry is kept even when
+/// its rounded value is `±0.0`.
+// ponytail: a block outside `LieCgc` is read by a dense scan of
+// `d_a d_b d_c N` reads, only on the float path; its own sparse override
+// would remove it if such blocks grow large.
+fn stored(block: &impl CgcBlock) -> ([usize; 4], Vec<MEntry>) {
     let mut out = Vec::new();
-    let [da, db, dc, n] = dims;
-    for mu in 0..n {
-        for m3 in 0..dc {
-            for m1 in 0..da {
-                for m2 in 0..db {
-                    let value = block.get([m1, m2, m3, mu]);
-                    if value != 0.0 {
-                        // Indices below a combined axis checked to fit `u32`.
-                        let [m1, m2, m3, mu] = [m1, m2, m3, mu].map(|i| i as u32);
-                        out.push(MEntry {
-                            m1,
-                            m2,
-                            m3,
-                            mu,
-                            value,
-                        });
-                    }
-                }
-            }
-        }
-    }
-    (dims, out)
+    block.__fusion_symbols_stored(&mut |at, value| {
+        // Indices below a combined axis checked to fit `u32`.
+        let [m1, m2, m3, mu] = at.map(|i| i as u32);
+        out.push(MEntry {
+            m1,
+            m2,
+            m3,
+            mu,
+            value,
+        });
+    });
+    (block.dims(), out)
 }
 
 /// The float block of a product with a factor outside the exact protocol:
-/// each entry the left-to-right `f64` product of the factors' entries, last
+/// each entry the left-to-right `f64` product of the factors' stored entries, last
 /// factor fastest on every axis; `None` when an axis overflows (or, for a
 /// nonempty block, exceeds `u32`) or the entries are not allocatable
 /// ([`composite_len`]).
@@ -1525,8 +1515,8 @@ macro_rules! impl_product {
             fn cgc(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object) -> Result<LieCgc, Self::Error> {
                 validate(self, &[a, b, c]);
                 product_cgc(self, [a, b, c], || ProductError::Overflow, || {
-                    float_cgc(vec![nonzeros(&self.factors.0.cgc(&a.0, &b.0, &c.0).map_err(ProductError::Factor0)?),
-                        $(nonzeros(&self.factors.$i.cgc(&a.$i, &b.$i, &c.$i).map_err(ProductError::$Err)?),)+])
+                    float_cgc(vec![stored(&self.factors.0.cgc(&a.0, &b.0, &c.0).map_err(ProductError::Factor0)?),
+                        $(stored(&self.factors.$i.cgc(&a.$i, &b.$i, &c.$i).map_err(ProductError::$Err)?),)+])
                         .ok_or(ProductError::Overflow)
                 })
             }
@@ -1939,7 +1929,7 @@ where
                     .enumerate()
                     .map(|(index, f)| {
                         f.cgc(&a[index], &b[index], &c[index])
-                            .map(|block| nonzeros(&block))
+                            .map(|block| stored(&block))
                             .map_err(|source| ProductError::Factor { index, source })
                     })
                     .collect::<Result<_, _>>()?;

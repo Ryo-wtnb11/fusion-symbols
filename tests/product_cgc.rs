@@ -568,10 +568,20 @@ fn flat_nested_vec_and_composite_products_agree_bitwise() {
     assert_eq!(bits(composite.cgc(&a, &b, &c).unwrap()), want);
 }
 
-/// A downstream group forwarding its CGCs, outside the exact protocol.
+/// A downstream group forwarding its CGCs, outside the exact protocol, each
+/// coefficient scaled by `2^-SHIFT` in its own opaque block.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct Forward(LieGroup);
-impl FusionCategory for Forward {
+struct Forward<const SHIFT: i32 = 0>(LieGroup);
+struct Scaled<const SHIFT: i32>(fusion_symbols::lie::LieCgc);
+impl<const SHIFT: i32> CgcBlock for Scaled<SHIFT> {
+    fn dims(&self) -> [usize; 4] {
+        self.0.dims()
+    }
+    fn get(&self, index: [usize; 4]) -> f64 {
+        self.0.get(index) * 2f64.powi(-SHIFT)
+    }
+}
+impl<const SHIFT: i32> FusionCategory for Forward<SHIFT> {
     type Object = fusion_symbols::lie::LieIrrep;
     type Scalar = f64;
     type FSymbol = <LieGroup as FusionCategory>::FSymbol;
@@ -655,16 +665,40 @@ impl FusionCategory for Forward {
         self.0.object_index(a)
     }
 }
-impl GroupRepresentations for Forward {
-    type Cgc = fusion_symbols::lie::LieCgc;
+impl<const SHIFT: i32> GroupRepresentations for Forward<SHIFT> {
+    type Cgc = Scaled<SHIFT>;
     fn cgc(
         &self,
         a: &Self::Object,
         b: &Self::Object,
         c: &Self::Object,
     ) -> Result<Self::Cgc, Self::Error> {
-        self.0.cgc(a, b, c)
+        self.0.cgc(a, b, c).map(Scaled)
     }
+}
+
+// Purpose: on the float path a factor entry that underflows to -0.0 is
+// still a present entry, so the product reads the documented float product
+// (-0.0) * 1.0 = -0.0 rather than an absent +0.0.
+#[test]
+fn an_underflowed_factor_entry_keeps_its_sign() {
+    let g = su2();
+    let (half, u) = (g.irrep(&[1]).unwrap(), g.unit());
+    let cat = Product::new((Forward::<1100>(g.clone()), g.clone()));
+    let block = cat
+        .cgc(
+            &(half.clone(), u.clone()),
+            &(half.clone(), u.clone()),
+            &(u.clone(), u.clone()),
+        )
+        .unwrap();
+    let exact = g.cgc(&half, &half, &u).unwrap();
+    let mut negative = 0;
+    for i in [[0, 1, 0, 0], [1, 0, 0, 0]] {
+        negative += usize::from(exact.get(i) < 0.0);
+        assert_eq!(block.get(i).to_bits(), (exact.get(i) * 0.0).to_bits());
+    }
+    assert_eq!(negative, 1);
 }
 
 // Purpose: a product with a factor outside the exact protocol keeps the one
@@ -675,7 +709,7 @@ impl GroupRepresentations for Forward {
 fn a_downstream_factor_keeps_the_float_product() {
     let g = su2();
     let x = |j| g.irrep(&[j]).unwrap();
-    let cat = Product::new((Forward(g.clone()), g.clone()));
+    let cat = Product::new((Forward::<0>(g.clone()), g.clone()));
     let [a, b, c] = [(x(1), x(2)), (x(1), x(1)), (x(2), x(1))];
     let block = cat.cgc(&a, &b, &c).unwrap();
     assert_eq!(block.dims(), [6, 4, 6, 1]);
@@ -711,7 +745,7 @@ fn unallocatable_composite_cgc_is_overflow() {
         exact.cgc(&a, &a, &a),
         Err(fusion_symbols::product::ProductError::Overflow)
     ));
-    let float = Product::new(vec![Forward(g); 10]);
+    let float = Product::new(vec![Forward::<0>(g); 10]);
     assert!(matches!(
         float.cgc(&a, &a, &a),
         Err(fusion_symbols::product::ProductError::Overflow)
