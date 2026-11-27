@@ -33,7 +33,8 @@ value/gauge rule noted below.
   of SU(2) and its presentations, are the exact values rounded once
   (`docs/gauge_cartan.md` §6.2), no longer binary64 contractions whose
   every product and sum was rounded. Values move by a few ulp; persisted F
-  and R rows are exact blocks (storage schema 3).
+  and R rows are exact blocks (storage schema 3), and a row whose rounded
+  view fails its gate is regenerated rather than retained.
 - `BASE_CACHE_MAX_BYTES` is the sum of every tier's cap, 576 MiB
   (Wigner 3j, 6j, F, R, Product and CGC), in every build.
   **Breaking:** `GENERATED_CACHE_MAX_BYTES` is removed.

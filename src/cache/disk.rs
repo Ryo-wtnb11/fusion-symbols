@@ -54,9 +54,11 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 
 use super::fingerprint::{fold, root_code, Label, P1, P2, P3};
 use super::Shape;
+use crate::category::{FBlock, RBlock};
 use crate::exact::radical::RadicalBlock;
 use crate::lie::general::cgc::exact::{ExactCgc, HighestColumn, NormTable};
 use crate::lie::RootSystem;
+use crate::rounding::blocks::{check_f_block, check_r_block, round_block};
 
 /// Storage format version: the key and value encodings and the table layout.
 /// Schema 3 stores exact CGC channels, seeds, norm tables without their
@@ -790,7 +792,9 @@ impl Persist for Arc<RadicalBlock<4>> {
             return None;
         };
         RadicalBlock::decode(payload)
-            .filter(|b| b.dims() == dims)
+            .filter(|b| {
+                b.dims() == dims && check_f_block(&FBlock::from_vec(dims, round_block(b))).is_ok()
+            })
             .map(Arc::new)
     }
 }
@@ -810,12 +814,16 @@ impl Persist for Arc<RadicalBlock<2>> {
             return None;
         };
         RadicalBlock::decode(payload)
-            .filter(|b| b.dims() == [n, n])
+            .filter(|b| {
+                b.dims() == [n, n] && check_r_block(&RBlock::from_vec(n, round_block(b))).is_ok()
+            })
             .map(Arc::new)
     }
 }
 
-/// The value of a stored row, if its checksum and shape hold.
+/// The value of a stored row, if its checksum and shape hold. Exact F and R
+/// rows must also pass their rounding gates (7 and 6), so a row that would
+/// fail them is regenerated rather than retained as an exact entry.
 fn decode_row<V: Persist>(key: &[u8], row: &[u8], shape: &Shape) -> Option<V> {
     let (payload, sum) = row.split_at_checked(row.len().checked_sub(8)?)?;
     if checksum(key, payload) != u64::from_le_bytes(sum.try_into().ok()?) {

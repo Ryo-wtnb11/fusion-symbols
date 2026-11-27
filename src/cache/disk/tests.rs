@@ -256,11 +256,12 @@ fn exact_f() -> Arc<RadicalBlock<4>> {
 }
 
 /// `2 × 2`: `S = (−2, 3, 3, 2)` over `ρ = 1/49` per leg pair, both axes
-/// stored.
+/// `2 × 2` orthogonal (it passes gate 6): `S = (−3, 4, 4, 3)` over
+/// `common = 1/25`, both axes stored.
 fn exact_r() -> Arc<RadicalBlock<2>> {
-    let nums = SignedInts::from_words(&[(true, 2), (false, 3), (false, 3), (false, 2)]).unwrap();
-    let axis = || -> Box<[Radicand]> { vec![rad(1, 1), rad(5, 1)].into() };
-    Arc::new(RadicalBlock::new([2, 2], nums, [axis(), axis()], rad(1, 49)).unwrap())
+    let nums = SignedInts::from_words(&[(true, 3), (false, 4), (false, 4), (false, 3)]).unwrap();
+    let axis = || -> Box<[Radicand]> { vec![rad(1, 1), rad(1, 1)].into() };
+    Arc::new(RadicalBlock::new([2, 2], nums, [axis(), axis()], rad(1, 25)).unwrap())
 }
 
 #[test]
@@ -768,4 +769,28 @@ fn slow_uncontended_setup_still_opens() {
     SETUP_BUDGET_OVERRIDE.with(|d| d.set(None));
     let opened = opened.unwrap();
     assert_eq!(owner(&opened.lock()).unwrap(), Some(Identity::CURRENT));
+}
+
+/// A structurally valid exact R row whose view fails gate 6 (`[1, 1]`,
+/// `S = 1`, `common = 1/4`, so `R = 1/2`: residual `3/4`) is rejected like a
+/// malformed one, and so regenerated; the valid rows decode.
+#[test]
+fn gate_failing_exact_rows_are_rejected() {
+    let bad = RadicalBlock::<2>::new(
+        [1, 1],
+        SignedInts::from_words(&[(false, 1)]).unwrap(),
+        [Box::default(), Box::default()],
+        rad(1, 4),
+    )
+    .unwrap();
+    let mut payload = Vec::new();
+    bad.encode(&mut payload);
+    assert!(<Arc<RadicalBlock<2>> as Persist>::decode(&payload, &Shape::R(1)).is_none());
+    let good = exact_r();
+    let mut payload = Vec::new();
+    good.encode(&mut payload);
+    assert_eq!(
+        <Arc<RadicalBlock<2>> as Persist>::decode(&payload, &Shape::R(2)),
+        Some(good)
+    );
 }
