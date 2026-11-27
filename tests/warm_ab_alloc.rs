@@ -78,7 +78,7 @@ fn check<C: FusionCategory<Scalar = f64>>(
 // layouts and are not asserted. The serial guard isolates the cache
 // lifecycle checks.
 #[test]
-fn warm_ab_allocate_only_leaf_blocks_and_one_buffer_per_product_level() {
+fn warm_leaf_and_product_ab_allocate_nothing() {
     let _serial = crate::common::counting_alloc::serial();
     let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
     let oct = su3.irrep(&[1, 1]).unwrap();

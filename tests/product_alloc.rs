@@ -144,14 +144,15 @@ fn warm_multiplicity_free_products_allocate_nothing() {
     );
 }
 
-// Purpose: a warm product symbol allocates its leaves' own blocks plus one
-// output buffer per product level whose block has more than one element, plus
-// the k-block holder of a `Vec` product nested as a factor. The allocation
-// count is derived from that structure; byte totals depend on std layouts and
-// are not asserted.
+// Purpose: a warm product symbol of exact leaves is one composite view hit
+// and allocates nothing, however nested; with a float (table) factor it
+// allocates its leaves' own blocks plus one output buffer per product level
+// whose block has more than one element. The allocation count is derived
+// from that structure; byte totals depend on std layouts and are not
+// asserted.
 #[cfg(feature = "lie-generated")]
 #[test]
-fn warm_product_symbols_allocate_one_buffer_per_product_level() {
+fn warm_product_symbols_allocate_by_route() {
     use fusion_symbols::{cache, category::SymbolBlock, product::Product, table::TableCategory};
     // A product level with a multi-element block owns one output buffer.
     fn buffer(len: usize) -> usize {
