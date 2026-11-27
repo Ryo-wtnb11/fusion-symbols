@@ -2,11 +2,22 @@
 //!
 //! Objects are tuples or vectors; explicit nesting is preserved. Fusion outcomes
 //! vary the first factor fastest. Each F/R/A/B multiplicity axis varies the last factor
-//! fastest, with row-major block storage. Scalar promotion and multiplication
-//! fold left to right. Reassociation agrees up to floating-point tolerance where
-//! intermediate queries are representable. No cross-factor fermionic sign or
-//! coefficient cache is added. Products of group representations provide lazy
-//! Clebsch–Gordan blocks, with the last factor fastest on every axis.
+//! fastest, with row-major block storage.
+//!
+//! When every factor supplies exact values (Lie groups, tori, U(1), CU(1),
+//! Z_N and fermion parity, nested in any way), F/R/A/B are the exact
+//! Kronecker product of the factors' exact values, rounded once: unit-valued
+//! factors (tori, U(1), Z_N, parity, SU(2) R, CU(1) R) contribute an exact
+//! `0`/`±1`, and two or more exact non-unit leaves share one cached composite
+//! view in the Product tier, keyed by the ordered leaves, so tuple, `Vec` and
+//! nested products of the same leaves agree bit for bit. A product with one
+//! non-unit leaf returns that leaf's own value. Otherwise (a table category
+//! or a category defined outside the crate) scalar promotion and
+//! multiplication fold left to right, and reassociation agrees up to
+//! floating-point tolerance where intermediate queries are representable. No
+//! cross-factor fermionic sign is added. Products of group representations
+//! provide lazy Clebsch–Gordan blocks, with the last factor fastest on every
+//! axis.
 //!
 //! Nonzero F/R/A/B queries check each factor's storage axes against checked N
 //! symbols and its exact row-major storage length before composition. When

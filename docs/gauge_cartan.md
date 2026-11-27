@@ -57,7 +57,9 @@ The gauge of a simple factor is chosen by its **presented root system**
   a coefficient.
 - **Products** of simple factors and tori use the ordered product rules of
   [`gauge.md` §2](gauge.md#2-semisimple-products-and-central-quotients). A
-  simple factor contributes the values defined here, unchanged. Torus factors
+  simple factor contributes the exact values defined here; a product's F, R,
+  A and B are the exact Kronecker products of its factors' exact blocks,
+  rounded once (the §6.2 rounding of the composed block, gated as in §7). Torus factors
   (U(1)) have no Cartan matrix and are outside this document.
 - **Build features.** `A_1` coefficients are available in every build;
   higher-rank simple types require the `lie-generated` feature. Feature

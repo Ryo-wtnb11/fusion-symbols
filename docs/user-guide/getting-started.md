@@ -217,7 +217,8 @@ assert_eq!(c.get([2, 1, 1, 0]), 0.0); // m₁ + m₂ ≠ m₃
 ## Products with U(1)
 
 `Product::new` combines categories; objects are tuples. Symbols are products
-of the factor symbols. `lie::U1` is U(1) with `Copy` labels; the same group
+of the factor symbols; when every factor is a Lie group, torus, U(1), CU(1),
+Z_N or fermion parity, the product is formed exactly and rounded once. `lie::U1` is U(1) with `Copy` labels; the same group
 is `LieGroup::new(GroupId::u(1)?)`, which also forms tori, U(N) and quotients.
 
 ```rust

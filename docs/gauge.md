@@ -112,8 +112,12 @@ factor are the closed forms below.
 Composite `LieGroup` coefficients use the ordered simple-cover gauges through
 `Product<Vec<LieGroup>>`. A D₂ block expands into α₁ then α₂, each in the
 `A_1` gauge. Each F/R/A/B multiplicity axis and each CGC magnetic or
-multiplicity axis has the last factor fastest. Factor coefficients multiply
-left to right. These conventions introduce no change to simple-factor values.
+multiplicity axis has the last factor fastest. Product F, R, A and B are the
+exact products of the factors' exact values, rounded once to `f64`, whenever
+every factor supplies exact values (every Lie, torus, U(1), CU(1), Z_N and
+parity factor); otherwise factor coefficients multiply left to right in
+floating point. CGCs multiply left to right. These conventions introduce no
+change to simple-factor values.
 A character lattice `Q ⊆ X ⊆ P` only restricts admitted objects; all fusion
 outcomes remain admitted because `ν−λ−μ ∈ Q`. It neither changes coefficients
 nor renormalizes them.

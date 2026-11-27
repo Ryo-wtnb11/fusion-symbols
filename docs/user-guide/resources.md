@@ -16,7 +16,7 @@ least-recently-used replacement. Default retained-entry charge caps are:
 | `FSymbol` (`"f_symbol"`) | rounded SU(2) F scalars and Cartan-engine F blocks | 64 MiB |
 | `Cgc` (`"cgc"`) | Cartan-engine irrep modules, exact CGC channels with their rounded views, highest-weight seeds, norm tables and computed Frobenius–Schur phases, every simple factor including A(1) | 256 MiB |
 | `RSymbol` (`"r_symbol"`) | Cartan-engine R blocks (SU(2) R is a closed-form sign) | 64 MiB |
-| `Product` (`"product"`) | exact simple-Lie tensor products | 64 MiB |
+| `Product` (`"product"`) | exact simple-Lie tensor products and the rounded composite F/R/A/B views of products of exact leaves | 64 MiB |
 
 `BASE_CACHE_MAX_BYTES` (576 MiB) is the sum of every tier's cap. Every
 build compiles every tier.

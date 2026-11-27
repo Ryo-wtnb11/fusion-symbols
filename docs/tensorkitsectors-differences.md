@@ -79,8 +79,11 @@ is `((1,0),0)`, while index 3 of the flat product is `(1,0,0)`.
 
 Fusion varies the first factor fastest, each F/R/A/B multiplicity axis the
 last factor fastest. Buffers are Rust row-major: compare indexed values with
-Julia arrays. Scalar promotion/multiplication and derived dimensions fold
-left to right; TKS derives square roots/inverses from the product dimension,
+Julia arrays. When every factor supplies exact values, F/R/A/B are the exact
+products of the factor values rounded once (TKS multiplies the rounded factor
+symbols, so values can differ by an ulp, e.g. SU(2)×SU(2)
+`F[½,½,½,½,0,1] = 3/4` exactly). Otherwise scalar promotion/multiplication, and
+in every case derived dimensions, fold left to right; TKS derives square roots/inverses from the product dimension,
 which may differ by rounding. Fermionic R/twist multiply factorwise without a
 cross-factor sign or imposed parity/charge relation. Products of
 `GroupRepresentations` provide lazy tuple or vector CGCs through `CgcBlock`,

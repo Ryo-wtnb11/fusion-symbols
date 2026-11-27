@@ -219,11 +219,15 @@ foreign. Nesting and trivial factors are retained;
 objects, N, dimensions, duals, Frobenius–Schur data and twists compose factorwise.
 Charge/spin and parity labels are independent, with no extra cross-factor sign.
 Fusion varies the first factor fastest; each F/R/A/B multiplicity axis varies
-the last factor fastest. Scalar promotion and multiplication fold left to right.
-Reassociation agrees to floating-point tolerance where intermediate queries are
-representable. Products of `GroupRepresentations` provide lazy tuple or vector CGCs,
+the last factor fastest. When every factor supplies exact values (Lie, torus,
+U(1), CU(1), Z_N and parity factors), F/R/A/B are the exact composition rounded
+once, identical for every nesting; otherwise scalar promotion and
+multiplication fold left to right, and reassociation agrees to floating-point
+tolerance where intermediate queries are representable. Products of `GroupRepresentations` provide lazy tuple or vector CGCs,
 with the last factor fastest on each magnetic and multiplicity axis. Combined
-axis overflow returns `ProductError::Overflow`. Products add no coefficient cache.
+axis overflow returns `ProductError::Overflow`. The only product cache is the
+rounded composite view of two or more exact non-unit leaves, in the Product
+tier.
 With label-owned dimension reads, warm single-factor A/B queries allocate only their
 returned coefficient buffer (zero for empty or inline blocks).
 Product F/R/A/B compose factor blocks on each query: beyond the factors' own
