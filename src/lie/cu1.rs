@@ -569,7 +569,7 @@ impl FusionCategory for CU1 {
                             crate::category::FBlock::one(self.f_symbol(a, b, c, d, e, f)?)
                         })
                     }
-                    Query::R([a, b, c]) => View::R(RBlock::one(self.r_symbol(a, b, c)?)),
+                    Query::R(_) => unreachable!("CU(1) R is unit-class"),
                     Query::A([a, b, c]) => View::R(self.a_symbol(a, b, c)?),
                     Query::B([a, b, c]) => View::R(self.b_symbol(a, b, c)?),
                 });
