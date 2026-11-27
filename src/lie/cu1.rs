@@ -512,9 +512,9 @@ impl FusionCategory for CU1 {
         use crate::exact::radical::RadicalBlock;
         use std::sync::Arc;
         match op {
-            ExactOp::Class(SymbolKind::R)
-            | ExactOp::Describe(Query::R(_), _)
-            | ExactOp::Dim(..) => crate::category::unit_symbol(self, op),
+            ExactOp::Class(SymbolKind::R) | ExactOp::Describe(Query::R(_), _) => {
+                crate::category::unit_symbol(self, op)
+            }
             ExactOp::Class(_) => Ok(ExactAnswer::RadicalClass { leaves: 1 }),
             ExactOp::Describe(q, buf) => {
                 buf.0.push(match q {
@@ -571,6 +571,15 @@ impl FusionCategory for CU1 {
                 Ok(ExactAnswer::Done)
             }
         }
+    }
+    #[doc(hidden)]
+    fn __fusion_symbols_exact_dim(
+        &self,
+        a: &Self::Object,
+        d: &mut crate::category::sealed::DimAcc,
+        _: crate::category::sealed::Validated,
+    ) -> bool {
+        crate::category::small_dim(self, a, d)
     }
 }
 

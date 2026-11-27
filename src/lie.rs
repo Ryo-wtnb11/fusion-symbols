@@ -1166,21 +1166,35 @@ impl FusionCategory for LieGroup {
                 .__fusion_symbols_exact_symbol(op.map(|x| self.factor_labels(x)), t)
                 .map_err(composite_error);
         }
-        use crate::category::sealed::{ExactAnswer, ExactOp};
-        if let ExactOp::Dim(a, d) = op {
-            self.label(a);
-            match &a.payload {
-                LiePayload::RankOne(dj) => d.0.mul(Factor::Words(&[u64::from(*dj) + 1])),
-                LiePayload::Torus(_) => {}
-                LiePayload::Simple(x) => d.0.mul(Factor::Natural(x.dim())),
-                LiePayload::Composite(_) => unreachable!("a composite group forwards"),
-            }
-            return Ok(ExactAnswer::Done);
-        }
         if self.is_torus() {
             return crate::category::unit_symbol(self, op);
         }
         self.exact_leaf(op)
+    }
+    #[doc(hidden)]
+    fn __fusion_symbols_exact_dim(
+        &self,
+        a: &LieIrrep,
+        d: &mut crate::category::sealed::DimAcc,
+        t: Validated,
+    ) -> bool {
+        self.label(a);
+        match &a.payload {
+            LiePayload::RankOne(dj) => d.0.mul_word(u64::from(*dj) + 1),
+            LiePayload::Torus(_) => {}
+            LiePayload::Simple(x) => match u64::try_from(x.dim()) {
+                Ok(w) => d.0.mul_word(w),
+                Err(_) => d.0.mul(Factor::Natural(x.dim())),
+            },
+            LiePayload::Composite(factors) => {
+                let product = self
+                    .composite
+                    .as_ref()
+                    .expect("composite object has a product");
+                return product.__fusion_symbols_exact_dim(factors, d, t);
+            }
+        }
+        true
     }
     fn a_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock<f64>, LieError> {
         self.ab_symbol(false, a, b, c)
@@ -1476,7 +1490,6 @@ impl LieGroup {
                 });
                 Ok(ExactAnswer::Done)
             }
-            ExactOp::Dim(..) => unreachable!("the hook answers Dim first"),
         }
     }
 

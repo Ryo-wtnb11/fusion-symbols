@@ -54,8 +54,8 @@
 //! nonempty product iterates that factor's channels once more to find it.
 use crate::category::exact_dim;
 use crate::category::sealed::{
-    ExactAnswer, ExactBuf, ExactOp, FloatSink, InlineVec, LeafBuf, LegRows, Query, SymbolKind,
-    Unit, View,
+    DimAcc, ExactAnswer, ExactBuf, ExactOp, FloatSink, InlineVec, LeafBuf, LegRows, Query,
+    SymbolKind, Unit, View,
 };
 use crate::category::{
     rank_checked, sealed::Embed, sealed::ExactCount, sealed::Ranked, sealed::Validated, unrank,
@@ -945,7 +945,7 @@ impl Fold {
                 leaves: self.leaves,
             },
             ExactOp::Describe(..) => ExactAnswer::Unit(self.unit),
-            ExactOp::Fetch(..) | ExactOp::View(..) | ExactOp::Dim(..) => ExactAnswer::Done,
+            ExactOp::Fetch(..) | ExactOp::View(..) => ExactAnswer::Done,
         }
     }
 
@@ -985,11 +985,6 @@ impl Fold {
             ExactOp::View(q, out) => {
                 if radical(q.kind())? {
                     hook(ExactOp::View(q.map(proj), out))?;
-                }
-            }
-            ExactOp::Dim(a, d) => {
-                if hook(ExactOp::Dim(proj(a), d))? != ExactAnswer::Done {
-                    self.unavailable = true;
                 }
             }
         }
@@ -1395,6 +1390,10 @@ macro_rules! impl_product {
                 $(fold.step(&mut op, &self.factors.$i, |x| &x.$i, t, ProductError::$Err)?;)+
                 Ok(fold.finish(&op))
             }
+            fn __fusion_symbols_exact_dim(&self, a: &Self::Object, d: &mut DimAcc, t: Validated) -> bool {
+                self.factors.0.__fusion_symbols_exact_dim(&a.0, d, t)
+                    $(&& self.factors.$i.__fusion_symbols_exact_dim(&a.$i, d, t))+
+            }
         }
         impl<$C0, $($C, $S),+> GroupRepresentations for Product<($C0, $($C,)+)>
         where
@@ -1792,6 +1791,12 @@ where
             )?;
         }
         Ok(fold.finish(&op))
+    }
+    fn __fusion_symbols_exact_dim(&self, a: &Self::Object, d: &mut DimAcc, t: Validated) -> bool {
+        self.factors
+            .iter()
+            .zip(a)
+            .all(|(c, a)| c.__fusion_symbols_exact_dim(a, d, t))
     }
 }
 

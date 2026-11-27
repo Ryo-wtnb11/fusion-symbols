@@ -96,12 +96,16 @@ pub(crate) fn round_dim(d: Factor<'_>, value: DimValue) -> f64 {
 /// The nearest `f64` to `1/√d` for an integer `1 ≤ d < 2^53` (an exact
 /// `x`), without big integers: the definition itself, checked exactly.
 ///
-/// `y` is the nearest value exactly when `1/√d` lies strictly between the
-/// midpoints to its neighbours, and no midpoint equals it (a midpoint `M·2^k`
-/// with `M` odd squares to `M²·2^2k`, and `M²·d = 2^j` would need `M = 1`).
-/// The start `1/(√d)` is within a few ulp; the loops step to the neighbour
-/// on the side of `1/√d` until both midpoints bracket it, so the result does
-/// not rest on that bound.
+/// Bracketing: `y` is the nearest `f64` exactly when `1/√d` lies strictly
+/// between the midpoint below `y` (to `prev(y)`) and the midpoint above it
+/// (to `next(y)`). Each midpoint is `M·2^k` with `M = 2A + 1` odd and
+/// `M > 1` (`A ≥ 2^52` the significand of the smaller neighbour), and
+/// [`above_midpoint`] decides `1/√d > M·2^k` exactly as the integer
+/// comparison `M²·d < 2^(−2k)`. Ties are impossible: `M²·d` has the odd
+/// factor `M² > 1`, so it is never a power of two. The start
+/// `1/(√d)` is within a few ulp; the loop steps one ulp toward `1/√d` until
+/// both midpoint tests bracket it, so the result does not rest on that
+/// bound, only on the two exact tests.
 fn inv_sqrt_small(x: f64) -> f64 {
     if x == 1.0 {
         return 1.0;
@@ -155,6 +159,18 @@ pub(crate) enum DimProduct {
 
 impl DimProduct {
     pub(crate) const ONE: Self = Self::Word(1);
+
+    /// `self *= w`, inline while the product stays one word.
+    #[inline]
+    pub(crate) fn mul_word(&mut self, w: u64) {
+        if let Self::Word(x) = self {
+            if let Some(y) = x.checked_mul(w) {
+                *x = y;
+                return;
+            }
+        }
+        self.mul(Factor::Words(&[w]));
+    }
 
     /// `self *= d`.
     pub(crate) fn mul(&mut self, d: Factor<'_>) {

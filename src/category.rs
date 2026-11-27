@@ -1,6 +1,6 @@
 //! Common mathematical contract for validated fusion-category objects.
 
-use crate::rounding::{DimProduct, DimValue, Factor};
+use crate::rounding::{DimProduct, DimValue};
 use num_complex::Complex64;
 use std::{
     fmt::Debug,
@@ -141,12 +141,9 @@ pub(crate) mod sealed {
         Fetch(Query<'q, O>, &'b mut ExactBuf),
         /// The one Radical leaf's rounded view (a query with one leaf).
         View(Query<'q, O>, &'b mut Option<View>),
-        /// Multiply the object's exact dimension, an integer, into the
-        /// accumulator; `Done`, or unavailable for a numeric dimension.
-        Dim(&'q O, &'b mut DimAcc),
     }
 
-    /// The exact dimension of an [`ExactOp::Dim`] query.
+    /// The exact integer dimension of a `__fusion_symbols_exact_dim` query.
     pub struct DimAcc(pub(crate) crate::rounding::DimProduct);
 
     impl<'q, 'b, O> ExactOp<'q, 'b, O> {
@@ -157,7 +154,6 @@ pub(crate) mod sealed {
                 Self::Describe(q, b) => ExactOp::Describe(q.map(f), b),
                 Self::Fetch(q, b) => ExactOp::Fetch(q.map(f), b),
                 Self::View(q, b) => ExactOp::View(q.map(f), b),
-                Self::Dim(a, d) => ExactOp::Dim(f(a), d),
             }
         }
     }
@@ -1245,11 +1241,24 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         let _ = op;
         Ok(sealed::ExactAnswer::Unavailable)
     }
+    // Multiplies the object's exact dimension, an integer, into `d` and
+    // returns `true`; `false` (leaving `d` unspecified) for a numeric
+    // dimension. Not an `ExactOp`: a product's dimension queries are per-call
+    // hot paths, so each factor is one direct call, not a protocol step.
+    #[doc(hidden)]
+    fn __fusion_symbols_exact_dim(
+        &self,
+        a: &Self::Object,
+        d: &mut sealed::DimAcc,
+        _: sealed::Validated,
+    ) -> bool {
+        let _ = (a, d);
+        false
+    }
 }
 
-/// The hook of a unit-class category: `Class` is unit for every kind,
-/// `Describe` reads the single closed-form entry, with no search, and `Dim`
-/// multiplies the category's `dim`, an exact small integer for every caller.
+/// The hook of a unit-class category: `Class` is unit for every kind, and
+/// `Describe` reads the single closed-form entry, with no search.
 pub(crate) fn unit_symbol<C: FusionCategory>(
     cat: &C,
     op: sealed::ExactOp<'_, '_, C::Object>,
@@ -1259,11 +1268,6 @@ pub(crate) fn unit_symbol<C: FusionCategory>(
         ExactOp::Class(_) => return Ok(ExactAnswer::UnitClass),
         ExactOp::Describe(q, _) => q,
         ExactOp::Fetch(..) | ExactOp::View(..) => return Ok(ExactAnswer::Unavailable),
-        ExactOp::Dim(a, d) => {
-            // Every caller's dimension is a small integer held exactly.
-            d.0.mul(Factor::Words(&[cat.dim(a) as u64]));
-            return Ok(ExactAnswer::Done);
-        }
     };
     let unit = match q {
         Query::F([a, b, c, d, e, f]) => {
@@ -1280,12 +1284,15 @@ pub(crate) fn unit_symbol<C: FusionCategory>(
 /// `None` when the category's dimensions are numeric.
 pub(crate) fn exact_dim<C: FusionCategory>(cat: &C, a: &C::Object, value: DimValue) -> Option<f64> {
     let mut d = sealed::DimAcc(DimProduct::ONE);
-    let op = sealed::ExactOp::Dim(a, &mut d);
-    matches!(
-        cat.__fusion_symbols_exact_symbol(op, sealed::Validated(())),
-        Ok(sealed::ExactAnswer::Done)
-    )
-    .then(|| d.0.round(value))
+    cat.__fusion_symbols_exact_dim(a, &mut d, sealed::Validated(()))
+        .then(|| d.0.round(value))
+}
+
+/// The exact-dimension hook of a category whose `dim` is a small integer
+/// held exactly (an abelian group, fermion parity, CU(1)).
+pub(crate) fn small_dim<C: FusionCategory>(cat: &C, a: &C::Object, d: &mut sealed::DimAcc) -> bool {
+    d.0.mul_word(cat.dim(a) as u64);
+    true
 }
 
 // `√d_a √d_b / √d_c`, the normalization shared by A and B.
