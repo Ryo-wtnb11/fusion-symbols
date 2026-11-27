@@ -452,8 +452,10 @@ Condon–Shortley makes the `m_1 = j_1` component positive. The a-slow pivot
 (§4.3) is the smallest admissible `m_1`, which is `J − j_2` (because
 `J ≥ j_2 − j_1`); its Condon–Shortley sign is `(−1)^{j_1+j_2−J}`. ∎
 
-The sign is exact, so the returned values equal the closed-form
-`su2::clebsch_gordan` bit for bit (both are the exact value rounded once).
+The sign is exact, so the returned values equal the exact Racah closed form
+rounded once bit for bit; the reference is the test-only crate-internal
+`lie::su2::clebsch_gordan`, checked by
+`lie_group_a1_cgc_matches_the_closed_form_bitwise` (no public SU(2) evaluator).
 F and R are unaffected: in the F contraction the four vertex signs multiply to
 `(−1)^{2(j_a+j_b+j_c−j_d)} = 1`, and in R they cancel. `A_1` F, R and `κ` use
 the closed forms anyway ([`gauge.md` §1](gauge.md#1-su2-closed-forms)).
@@ -786,7 +788,8 @@ pipeline's own descriptors to compute expected values.
    isometry before rounding; `Δ(x)Φ_μ = Φ_μ x` exactly for every `e_i`, `f_i`;
    `C = 0` unless `wt(m_a) + wt(m_b) = wt(m_c)`.
 6. **References.**
-   - SU(2): every block CGC equals `su2::clebsch_gordan` bit for bit (§4.6).
+   - SU(2): every block CGC equals the exact Racah closed form rounded once,
+     bit for bit (the test-only `lie::su2::clebsch_gordan`, §4.6).
    - SU(N): signed CGC (including the `μ` order of `SU(3) 8⊗8 → 8`), F and R
      agree with SUNRepresentations.jl v0.4.0 within `1e-12`.
 7. **Category gates.** Pentagon, hexagon and F-unitarity residuals over

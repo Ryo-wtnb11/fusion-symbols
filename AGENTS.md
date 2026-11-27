@@ -24,7 +24,7 @@ non-trivial change.
   `table::TableObject`, `lie::LieIrrep`, and the `lie`, `finite` and
   `fermion` irreps); sector behaviour beyond those
   symbols belongs to the consumer.
-- Base crate: `category`, exact rank-one `lie` (with `lie::su2` evaluators),
+- Base crate: `category`, exact rank-one `lie` (SU(2) values through the category traits only),
   closed-form U(1)/CU(1) in `lie`, `finite`, `fermion`, tabulated `table`, `product`, and `cache`.
   Dependencies stay minimal (big-integer arithmetic and `num-complex`).
 - `lie-generated` feature (enabled by default; opt out with

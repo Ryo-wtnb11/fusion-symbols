@@ -149,6 +149,23 @@ jobs:
           # space-separated flags compose in the one RUSTDOCFLAGS env var.
           RUSTDOCFLAGS: -D warnings --html-in-header doc/katex-header.html
 
+  # The committed api/*.txt is the reviewed public surface; a change to it is
+  # a reviewed diff, not a side effect.
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned: rustdoc JSON rendering changes between nightlies, and
+      # scripts/api-snapshot.sh uses this exact toolchain.
+      - run: rustup toolchain install nightly-2026-09-19 --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-public-api@0.52.0
+      - run: scripts/api-snapshot.sh --check
+
   msrv:
     runs-on: ubuntu-latest
     steps:
