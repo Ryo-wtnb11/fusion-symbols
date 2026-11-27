@@ -1,10 +1,13 @@
 //! The rounding layer: one conversion from an exact signed square root of a
-//! rational to the nearest `f64` ([`round_radical`]), and the gates defined on
-//! rounded CGC channels ([`cgc`]). It computes no mathematics: every value it
-//! rounds is held exactly by the exact layer, and only the rounded views it
-//! returns are floating point.
+//! rational to the nearest `f64` ([`round_radical`]), a certified accelerator
+//! for it on CGC entries ([`estimate`]: a 128-bit estimate returned only when
+//! it provably rounds like the exact value, else the exact conversion), and
+//! the gates defined on rounded CGC channels ([`cgc`]). It computes no
+//! mathematics: every value it rounds is held exactly by the exact layer, and
+//! only the rounded views it returns are floating point.
 
 pub(crate) mod cgc;
+mod estimate;
 
 use std::borrow::Cow;
 
@@ -46,54 +49,6 @@ pub(crate) fn round_radical(sign: i8, num: &[Factor<'_>], den: &[Factor<'_>]) ->
         return signed_sqrt_limbs_to_f64(sign, n, d);
     }
     signed_sqrt_to_f64(sign, &big_product(num), &big_product(den))
-}
-
-/// The factors that many conversions share, multiplied once in stack limbs:
-/// a conversion that adds its own few factors then multiplies only by those
-/// ([`Self::round_square`]).
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct SharedFactors {
-    num: Limbs<INPUT_LIMBS>,
-    den: Limbs<INPUT_LIMBS>,
-}
-
-impl SharedFactors {
-    /// `Π num` and `Π den`, when both fit the stack limbs.
-    pub(crate) fn new(num: &[Factor<'_>], den: &[Factor<'_>]) -> Option<Self> {
-        Some(Self {
-            num: stack_product(num)?,
-            den: stack_product(den)?,
-        })
-    }
-
-    /// `sign·√(r² · S_num · Π num / (S_den · Π den))` with these shared
-    /// factors `S` and the root `r` given as little-endian words: the value
-    /// [`round_radical`] gives for all the factors in one list, since both
-    /// products are the same integers and the result depends on the ratio
-    /// alone. `None` exactly when a product leaves the [`INPUT_LIMBS`] stack
-    /// limbs, as it would in [`round_radical`]; the caller then converts with
-    /// it.
-    pub(crate) fn round_square(
-        &self,
-        sign: i8,
-        root: &[u64],
-        num: [Factor<'_>; 2],
-        den: [Factor<'_>; 2],
-    ) -> Option<f64> {
-        if sign == 0 {
-            return Some(0.0);
-        }
-        let root = &root[..root.len() - root.iter().rev().take_while(|&&w| w == 0).count()];
-        let mut n = Limbs::<INPUT_LIMBS>::from_words(root)?;
-        n.checked_mul_words(root)?;
-        n.checked_mul_limbs(&self.num)?;
-        let mut d = self.den;
-        for (p, q) in num.iter().zip(&den) {
-            n.checked_mul_factor(p)?;
-            d.checked_mul_factor(q)?;
-        }
-        Some(signed_sqrt_limbs_to_f64(sign, n, d))
-    }
 }
 
 /// `Π f` in stack limbs, when every partial product fits. Every factor is at
@@ -548,17 +503,6 @@ impl<const N: usize> Limbs<N> {
         match *f {
             Factor::Natural(x) => self.checked_mul_assign(x),
             Factor::Words(w) => self.checked_mul_words(w),
-        }
-    }
-
-    /// `self *= x`, in one pass in place when `x` is a word.
-    fn checked_mul_limbs(&mut self, x: &Self) -> Option<()> {
-        match x.word() {
-            Some(w) => self.checked_mul_word(w),
-            None => {
-                *self = self.checked_mul(x)?;
-                Some(())
-            }
         }
     }
 

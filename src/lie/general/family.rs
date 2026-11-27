@@ -25,7 +25,9 @@ use crate::cache::Label;
 use crate::category::{FBlock, RBlock};
 use crate::frcore::{check_f_block, check_r_block, f_block_raw, r_block_raw};
 use crate::lie::{LieError, RootSystem};
-use crate::rounding::cgc::{check_rounded, round_channel, round_column, view_slots};
+use crate::rounding::cgc::{
+    check_rounded, round_channel, round_column, view_slots, ChannelEstimates,
+};
 
 /// The exact channel over `dims` and its rounded view from the descent's
 /// `pending` columns, in the one stage after the descent: each item, one
@@ -42,6 +44,7 @@ pub(crate) fn write_and_round(
 ) -> (ExactCgc, CgcChannel) {
     use crate::stage::{run_items, split_parts, take_part, StageBuf};
     let units = pending.units();
+    let estimates = ChannelEstimates::new(pending.vertices(), norms);
     let mut view = view_slots(pending.len());
     let signs = {
         let writer = pending.writer();
@@ -49,7 +52,7 @@ pub(crate) fn write_and_round(
         let mut buf = StageBuf::default();
         let _width = run_items(exec, &units, &mut buf, |k| {
             let column = writer.column(k);
-            round_column(&column.coords(), norms, take_part(&parts, k));
+            round_column(&column.coords(), norms, &estimates, take_part(&parts, k));
             column.into_signs()
         });
         #[cfg(test)]

@@ -1284,6 +1284,47 @@ fn rounded_gates_pass_on_exact_channels() {
     }
 }
 
+/// Every entry of the CI channel family above and of SU(3) `(4,4) ⊗ (4,4)`
+/// into `(4,4)` and `(2,2)` is certified by the fast path, with the bits of
+/// the exact conversion.
+#[test]
+fn estimated_entries_equal_the_exact_conversion() {
+    let mut channels: Vec<(RootSystem, Vec<i64>, Vec<i64>, Vec<i64>)> = Vec::new();
+    for (root, a, b) in [
+        (RootSystem::G2, G7.to_vec(), G7.to_vec()),
+        (RootSystem::G2, G7.to_vec(), G14.to_vec()),
+        (RootSystem::G2, G27.to_vec(), G27.to_vec()),
+        (RootSystem::F4, unit(4, 3), unit(4, 3)),
+        (RootSystem::E6, unit(6, 0), unit(6, 5)),
+    ] {
+        let fam = GeneralFamily::new(root);
+        for (c, _) in fam.product(&a, &b).unwrap().iter() {
+            channels.push((root, a.clone(), b.clone(), c.dynkin().to_vec()));
+        }
+    }
+    for c in [vec![4, 4], vec![2, 2]] {
+        channels.push((RootSystem::A(2), vec![4, 4], vec![4, 4], c));
+    }
+    for (root, a, b, c) in channels {
+        let data = CartanData::new(root);
+        let [ma, mb, mc] = [&a, &b, &c].map(|l| Ladders::new(&data, l).unwrap());
+        let n = data
+            .label_multiplicity(Label::new(&a), Label::new(&b), &c, None)
+            .unwrap() as usize;
+        let (exact, _) = fresh_channel(&data, &ma, &mb, &mc, n, None).unwrap();
+        let norms = [
+            NormTable::new(&ma).unwrap(),
+            NormTable::new(&mb).unwrap(),
+            NormTable::new(&mc).unwrap(),
+        ];
+        let got = crate::rounding::cgc::fast_and_exact(&exact, [&norms[0], &norms[1], &norms[2]]);
+        assert!(!got.is_empty() || n == 0);
+        for (fast, exact) in got {
+            assert_eq!(fast, Some(exact), "{root:?} {a:?} {b:?} {c:?}");
+        }
+    }
+}
+
 /// The isometry gate rejects a rescaled column, a missing column, two
 /// parallel columns within one weight block, an entry off its weight and
 /// nonfinite entries.
@@ -2828,7 +2869,7 @@ fn reset_between_view_and_exact_publication_retains_neither() {
 
 /// The view keeps an exactly nonzero coordinate that rounds to a signed zero
 /// and has no entry for an exactly zero one, which `LieCgc::get` reads as
-/// `+0.0`; on the serial token and on a team token alike.
+/// `+0.0`; serially and through a section of the rounding stage alike.
 #[test]
 fn view_keeps_rounded_zeros_and_omits_exact_zeros() {
     let r = |n: i64, d: malachite_nz::natural::Natural| {
@@ -2838,11 +2879,18 @@ fn view_keeps_rounded_zeros_and_omits_exact_zeros() {
         )) * Q::from(n.signum())
     };
     let tiny = malachite_nz::natural::Natural::from(1u32) << 1100u32;
-    // `2 ⊗ 2 → 1`, one column: `(0,0)` is `−2^-1100`, `(0,1)` and `(1,0)` are
-    // exactly zero, `(1,1)` is `1`.
-    let column = exact::Column::new(vec![(0, 0, r(-1, tiny)), (1, 1, Q::from(1))]);
+    // `2 ⊗ 2 → 2` with `N = 2`, four columns `μ·2 + m_c`: in `μ = 0, m_c = 0`
+    // `(0,0)` is `−2^-1100`, `(0,1)` and `(1,0)` are exactly zero, `(1,1)` is
+    // `1`; the other columns hold `±1`.
+    let one = || Q::from(1);
+    let columns = vec![
+        exact::Column::new(vec![(0, 0, r(-1, tiny)), (1, 1, one())]),
+        exact::Column::new(vec![(0, 1, one())]),
+        exact::Column::new(vec![(1, 0, one())]),
+        exact::Column::new(vec![(0, 0, one()), (1, 1, Q::from(-1))]),
+    ];
     let exact =
-        exact::ExactCgc::from_columns([2, 2, 1], vec![column], &[Q::from(1)], false, None).unwrap();
+        exact::ExactCgc::from_columns([2, 2, 2], columns, &[one(), one()], false, None).unwrap();
     let unit = |dim: usize| NormTable {
         norm: vec![Q::from(1); dim].into_boxed_slice(),
         nu: crate::exact::radical::SignedInts::from_words(&vec![(false, 1); dim]).unwrap(),
@@ -2852,23 +2900,33 @@ fn view_keeps_rounded_zeros_and_omits_exact_zeros() {
         slots: 1,
         top: 0,
     };
-    let (two, one) = (unit(2), unit(1));
+    let two = unit(2);
+    let (p, m) = (1.0f64.to_bits(), (-1.0f64).to_bits());
     let check = |view: CgcChannel, token: &str| {
         let got: Vec<_> = view
             .iter()
-            .map(|e| (e.m1, e.m2, e.value.to_bits()))
+            .map(|e| (e.m1, e.m2, e.m3, e.mu, e.value.to_bits()))
             .collect();
         assert_eq!(
             got,
-            [(0u32, 0u32, (-0.0f64).to_bits()), (1, 1, 1.0f64.to_bits())],
+            [
+                (0u32, 0u32, 0u32, 0u32, (-0.0f64).to_bits()),
+                (1, 1, 0, 0, p),
+                (0, 1, 1, 0, p),
+                (1, 0, 0, 1, p),
+                (0, 0, 1, 1, p),
+                (1, 1, 1, 1, m),
+            ],
             "{token}"
         );
     };
-    check(round_channel(&exact, [&two, &two, &one], None), "serial");
+    check(round_channel(&exact, [&two, &two, &two], None), "serial");
     let team = layer_team(2);
     let _force = crate::stage::force_width(2);
+    crate::rounding::cgc::ROUND_SECTIONS.with(|s| s.set(0));
     check(
-        round_channel(&exact, [&two, &two, &one], Some(&mut team.exec(2))),
+        round_channel(&exact, [&two, &two, &two], Some(&mut team.exec(2))),
         "team",
     );
+    assert!(crate::rounding::cgc::ROUND_SECTIONS.with(std::cell::Cell::get) > 0);
 }

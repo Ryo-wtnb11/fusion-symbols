@@ -32,6 +32,10 @@ value/gauge rule noted below.
 
 ### Performance
 
+- A CGC view entry is converted from a 128-bit fixed-point estimate built
+  from exact integer square roots and multiplies, accepted only when its
+  error bound keeps it clear of every rounding boundary; any other entry
+  takes the exact conversion as before. Values are unchanged.
 - Hashing a `GroupId`, and therefore a `LieIrrep` or `LieGroup`, writes
   one stored `u64` instead of walking the root blocks, the torus rank and
   the lattice basis. The value is computed once by the fixed crate hasher
