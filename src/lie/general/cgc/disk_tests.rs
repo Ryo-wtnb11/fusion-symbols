@@ -8,7 +8,8 @@ use crate::cache::{
     disk_cache_stats, reset, Label, DISK_CHANNEL, DISK_F, DISK_NORMS, DISK_PHASE, DISK_SEEDS,
 };
 use crate::category::{FBlock, RBlock, SymbolBlock};
-use crate::lie::general::{GeneralFamily, RequestModules};
+use crate::lie::general::family::RequestModules;
+use crate::lie::general::GeneralFamily;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 

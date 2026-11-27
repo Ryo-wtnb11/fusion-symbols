@@ -3034,13 +3034,14 @@ mod exact_fr {
             out
         };
         let a_full = full(&ca);
-        let mut c_by: HashMap<(usize, usize), Vec<(usize, usize, Rational)>> = HashMap::new();
+        type Legs = Vec<(usize, usize, Rational)>;
+        let mut c_by: HashMap<(usize, usize), Legs> = HashMap::new();
         for (pb, pc, pf, kappa, x) in full(&cc) {
             c_by.entry((pb, pc)).or_default().push((pf, kappa, x));
         }
         let len = dims.iter().product();
         let mut first: Option<Vec<Rational>> = None;
-        for md in 0..ld.norm.len() {
+        for (md, nd_m) in nd.iter().enumerate() {
             let (bs, ds) = (at(&cb, md), at(&cd, md));
             let mut b_by: HashMap<usize, Vec<(usize, usize, &Rational)>> = HashMap::new();
             for ((pe, pc, nu), x) in &bs {
@@ -3055,8 +3056,7 @@ mod exact_fr {
                                 continue;
                             };
                             let i = ((mu * dims[1] + nu) * dims[2] + kappa) * dims[3] + lambda;
-                            sums[i] +=
-                                xa * *xb * xc * xd * &na[*pa] * &nb[*pb] * &nc[*pc] / &nd[md];
+                            sums[i] += xa * *xb * xc * xd * &na[*pa] * &nb[*pb] * &nc[*pc] / nd_m;
                         }
                     }
                 }
@@ -3093,13 +3093,13 @@ mod exact_fr {
         let n = cab.mult;
         let [na, nb, nc] = [&la, &lb, &lc].map(|m| norms(m.as_ref()));
         let mut first: Option<Vec<Rational>> = None;
-        for mc in 0..lc.norm.len() {
+        for (mc, nc_m) in nc.iter().enumerate() {
             let (xs, ys) = (at(&cab, mc), at(&cba, mc));
             let mut sums = vec![Rational::from(0); n * n];
             for ((pa, pb, mu), x) in &xs {
                 for nu in 0..n {
                     if let Some(y) = ys.get(&(*pb, *pa, nu)) {
-                        sums[mu * n + nu] += x * y * &na[*pa] * &nb[*pb] / &nc[mc];
+                        sums[mu * n + nu] += x * y * &na[*pa] * &nb[*pb] / nc_m;
                     }
                 }
             }
