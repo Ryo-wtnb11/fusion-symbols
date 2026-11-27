@@ -219,8 +219,9 @@ objects, N, dimensions, duals, Frobenius–Schur data and twists compose factorw
 Charge/spin and parity labels are independent, with no extra cross-factor sign.
 Fusion varies the first factor fastest; each F/R/A/B multiplicity axis varies
 the last factor fastest. When every factor supplies exact values (Lie, torus,
-U(1), CU(1), Z_N and parity factors), F/R/A/B are the exact composition rounded
-once, identical for every nesting; otherwise scalar promotion and
+U(1), CU(1), Z_N and parity factors), F/R/A/B and the dimension with its roots
+and inverses are the exact composition rounded once, identical for every
+nesting; otherwise scalar promotion and
 multiplication fold left to right, and reassociation agrees to floating-point
 tolerance where intermediate queries are representable. Products of `GroupRepresentations` provide lazy tuple or vector CGCs,
 with the last factor fastest on each magnetic and multiplicity axis. Combined

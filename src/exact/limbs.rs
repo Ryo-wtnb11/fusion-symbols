@@ -70,7 +70,8 @@ impl<const N: usize> Limbs<N> {
             .fold(Natural::ZERO, |acc, &w| (acc << 64u32) + Natural::from(w))
     }
 
-    fn used(&self) -> &[u64] {
+    /// The little-endian words up to the highest nonzero one.
+    pub(crate) fn used(&self) -> &[u64] {
         &self.limbs[..self.len]
     }
 

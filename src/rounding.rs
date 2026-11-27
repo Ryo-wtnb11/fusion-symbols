@@ -53,6 +53,85 @@ pub(crate) fn round_radical(sign: i8, num: &[Factor<'_>], den: &[Factor<'_>]) ->
     signed_sqrt_to_f64(sign, &big_product(num), &big_product(den))
 }
 
+/// A value derived from a dimension `d`, a positive integer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DimValue {
+    Dim,
+    Sqrt,
+    InvSqrt,
+    Inv,
+}
+
+/// `d`, `√d`, `1/√d` or `1/d` of the integer `d ≥ 1`, correctly rounded
+/// once: [`round_radical`] with `d` passed once or as its root twice. Below
+/// `2^53` the integer is an exact `f64`, so the value, its square root and
+/// its reciprocal are IEEE 754 correctly rounded single operations, and
+/// `1/√1` is exact; only `1/√d` for `d > 1` takes the conversion there.
+pub(crate) fn round_dim(d: Factor<'_>, value: DimValue) -> f64 {
+    let small = match d {
+        Factor::Natural(x) => u64::try_from(x).ok(),
+        Factor::Words(w) => match crate::exact::limbs::trimmed_words(w) {
+            [] => Some(0),
+            &[x] => Some(x),
+            _ => None,
+        },
+    };
+    if let Some(x) = small.filter(|&x| x < 1 << 53) {
+        let x = x as f64;
+        match value {
+            DimValue::Dim => return x,
+            DimValue::Sqrt => return x.sqrt(),
+            DimValue::Inv => return x.recip(),
+            DimValue::InvSqrt if x == 1.0 => return 1.0,
+            DimValue::InvSqrt => {}
+        }
+    }
+    match value {
+        DimValue::Dim => round_radical(1, &[d, d], &[]),
+        DimValue::Sqrt => round_radical(1, &[d], &[]),
+        DimValue::InvSqrt => round_radical(1, &[], &[d]),
+        DimValue::Inv => round_radical(1, &[], &[d, d]),
+    }
+}
+
+/// The exact product of a product object's leaf dimensions, on the stack
+/// while it fits [`INPUT_LIMBS`] (allocating nothing), else a big integer.
+#[derive(Clone, Debug)]
+pub(crate) enum DimProduct {
+    Stack(Limbs<INPUT_LIMBS>),
+    Big(Natural),
+}
+
+impl DimProduct {
+    pub(crate) const ONE: Self = Self::Stack(Limbs::ONE);
+
+    /// `self *= d`.
+    pub(crate) fn mul(&mut self, d: Factor<'_>) {
+        if let Self::Stack(x) = self {
+            let mut y = *x;
+            if y.checked_mul_factor(&d).is_some() {
+                *x = y;
+                return;
+            }
+            *self = Self::Big(x.to_natural());
+        }
+        if let Self::Big(x) = self {
+            match d {
+                Factor::Natural(d) => *x *= d,
+                Factor::Words(w) => *x *= words_natural(w),
+            }
+        }
+    }
+
+    /// [`round_dim`] of the product.
+    pub(crate) fn round(&self, value: DimValue) -> f64 {
+        match self {
+            Self::Stack(x) => round_dim(Factor::Words(x.used()), value),
+            Self::Big(x) => round_dim(Factor::Natural(x), value),
+        }
+    }
+}
+
 impl SignedSqrtRational {
     /// Correctly-rounded conversion to `f64` — the single rounding point.
     ///

@@ -22,6 +22,7 @@ use crate::category::{
     FusionStyle, GroupRepresentations, RBlock,
 };
 use crate::product::{Product, ProductError};
+use crate::rounding::{DimValue, Factor};
 use malachite_base::{
     num::conversion::traits::RoundingFrom, rounding_modes::RoundingMode::Nearest,
 };
@@ -949,26 +950,15 @@ impl FusionCategory for LieGroup {
             LiePayload::Simple(x) => x.dim_f64(),
         }
     }
+    // Lie dimensions are integers: no numeric fallback.
     fn sqrt_dim(&self, a: &LieIrrep) -> f64 {
-        if let Some(product) = &self.composite {
-            self.label(a);
-            return product.sqrt_dim(self.factor_labels(a));
-        }
-        self.dim(a).sqrt()
+        self.derived_dim(a, DimValue::Sqrt)
     }
     fn inv_sqrt_dim(&self, a: &LieIrrep) -> f64 {
-        if let Some(product) = &self.composite {
-            self.label(a);
-            return product.inv_sqrt_dim(self.factor_labels(a));
-        }
-        self.sqrt_dim(a).recip()
+        self.derived_dim(a, DimValue::InvSqrt)
     }
     fn inv_dim(&self, a: &LieIrrep) -> f64 {
-        if let Some(product) = &self.composite {
-            self.label(a);
-            return product.inv_dim(self.factor_labels(a));
-        }
-        self.dim(a).recip()
+        self.derived_dim(a, DimValue::Inv)
     }
     /// A complex A-series label has the closed form; a complex D(r) (r odd)
     /// or E6 label generates σ_a σ_ā (`docs/gauge_cartan.md` §5.3), and a
@@ -1377,6 +1367,10 @@ impl LieGroup {
             .ok_or(LieError::LabelOverflow)
     }
 
+    fn derived_dim(&self, a: &LieIrrep, value: DimValue) -> f64 {
+        crate::category::exact_dim(self, a, value).expect("a Lie dimension is exact")
+    }
+
     /// The exact product hook of a simple or rank-one group (a torus is
     /// unit-class; a composite delegates to its product).
     fn exact_leaf<'q>(
@@ -1454,6 +1448,14 @@ impl LieGroup {
                     Query::A([a, b, c]) => View::R(self.a_symbol(a, b, c)?),
                     Query::B([a, b, c]) => View::R(self.b_symbol(a, b, c)?),
                 });
+                Ok(ExactAnswer::Done)
+            }
+            ExactOp::Dim(a, d) => {
+                self.label(a);
+                match a.simple() {
+                    Some(x) => d.0.mul(Factor::Natural(x.dim())),
+                    None => d.0.mul(Factor::Words(&[u64::from(a.dj()) + 1])),
+                }
                 Ok(ExactAnswer::Done)
             }
         }
@@ -1729,6 +1731,7 @@ fn is_spin_group(group: &GroupId) -> bool {
 mod tests {
     use super::*;
     use crate::category::SymbolBlock;
+    use malachite_q::Rational;
     use std::error::Error;
 
     #[test]
@@ -1749,6 +1752,63 @@ mod tests {
             let big = f64::rounding_from(&Natural::from(v), Nearest).0;
             assert_eq!((v as f64).to_bits(), big.to_bits(), "{v}");
         }
+    }
+
+    /// Whether `y > 0` is the nearest `f64` to the positive real `x`, given
+    /// whether `x > m` for a rational `m`: `x` lies strictly between the
+    /// midpoints to `y`'s neighbours (no tie occurs for the values below).
+    fn nearest(y: f64, above: impl Fn(&Rational) -> bool) -> bool {
+        use malachite_base::num::conversion::traits::ExactFrom;
+        let q = |k: i64| Rational::exact_from(f64::from_bits(y.to_bits().wrapping_add_signed(k)));
+        let two = Rational::from(2u32);
+        above(&((q(-1) + q(0)) / &two)) && !above(&((q(0) + q(1)) / &two))
+    }
+
+    /// `dim`, `√d`, `1/√d` and `1/d` of `a` are the nearest `f64` to the
+    /// exact values of its integer dimension `d`, by rational comparisons.
+    fn assert_dims_nearest<C: FusionCategory>(cat: &C, a: &C::Object, d: &Natural) {
+        let d = Rational::from(d);
+        assert_eq!(cat.dim(a), f64::rounding_from(&d, Nearest).0, "{d}");
+        assert!(nearest(cat.sqrt_dim(a), |m| d > m * m), "√{d}");
+        assert!(
+            nearest(cat.inv_sqrt_dim(a), |m| m * m * &d < 1u32),
+            "1/√{d}"
+        );
+        assert!(nearest(cat.inv_dim(a), |m| m * &d < 1u32), "1/{d}");
+    }
+
+    #[test]
+    fn derived_and_product_dims_round_once() {
+        let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+        let j = |dj: i64| su2.irrep(&[dj]).unwrap();
+        // 1/√2 rounded once; the reciprocal of the rounded √2 is 0x…BCC.
+        assert_eq!(su2.inv_sqrt_dim(&j(1)).to_bits(), 0x3FE6_A09E_667F_3BCD);
+        let two = crate::lie::CU1Irrep::new(HalfInt::new(1, 2).unwrap(), 2).unwrap();
+        assert_eq!(
+            crate::lie::CU1.inv_sqrt_dim(&two).to_bits(),
+            0x3FE6_A09E_667F_3BCD
+        );
+        // √14 and 1/√14 of dims 2·7; the products of the factor values are
+        // 0x…3F4A and 0x…2429.
+        let p2 = Product::new((su2.clone(), su2.clone()));
+        let a = (j(1), j(6));
+        assert_eq!(p2.sqrt_dim(&a).to_bits(), 0x400D_EEEA_1168_3F49);
+        assert_eq!(p2.inv_sqrt_dim(&a).to_bits(), 0x3FD1_1ACE_E560_242A);
+        assert_dims_nearest(&p2, &a, &Natural::from(14u32));
+        // 424010773·279972654·491870359 > 2^53; the float product of the
+        // three dimensions is 0x…D9A6.
+        let p3 = Product::new((su2.clone(), su2.clone(), su2.clone()));
+        let dims = [424_010_773u64, 279_972_654, 491_870_359];
+        let a = (j(424_010_772), j(279_972_653), j(491_870_358));
+        assert_eq!(p3.dim(&a).to_bits(), 0x4548_2659_2EF4_D9A7);
+        let d: Natural = dims.iter().map(|&x| Natural::from(x)).product();
+        assert_dims_nearest(&p3, &a, &d);
+        let pv = Product::new(vec![su2.clone(); 3]);
+        assert_dims_nearest(&pv, &vec![a.0, a.1, a.2], &d);
+        // A composite group's dimensions: Spin(4) = SU(2) × SU(2).
+        let spin4 = LieGroup::new(GroupId::spin(4).unwrap()).unwrap();
+        let b = spin4.irrep(&[1, 6]).unwrap();
+        assert_dims_nearest(&spin4, &b, &Natural::from(14u32));
     }
 
     #[test]
@@ -1788,13 +1848,7 @@ mod tests {
                     continue; // spinor label of a non-spin group
                 };
                 let exact = a.simple().unwrap().dim().clone();
-                let want = f64::rounding_from(&exact, Nearest).0;
-                assert_eq!(cat.dim(&a).to_bits(), want.to_bits(), "{id:?} {d:?}");
-                assert_eq!(
-                    cat.sqrt_dim(&a).to_bits(),
-                    want.sqrt().to_bits(),
-                    "{id:?} {d:?}"
-                );
+                assert_dims_nearest(&cat, &a, &exact);
                 checked += 1;
                 above_2_53 += usize::from(exact > (1u64 << 53));
             }

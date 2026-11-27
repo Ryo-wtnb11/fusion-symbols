@@ -27,8 +27,17 @@ value/gauge rule noted below.
   returned. Products containing a table category or a category defined
   outside the crate still multiply the public values of their leaves,
   flattened through any nesting, left to right in `f64`, as do product
-  dimensions and CGCs. A nested product therefore gives the flat product's
-  value, and each leaf N and block is evaluated once per query.
+  CGCs. A nested product therefore gives the flat product's value, and each
+  leaf N and block is evaluated once per query.
+- **Breaking (values):** `sqrt_dim`, `inv_sqrt_dim` and `inv_dim` of every
+  category with integer dimensions (Lie groups and their products, CU(1),
+  U(1), Z_N, fermion parity) are correctly rounded once from the exact
+  dimension: `inv_sqrt_dim` is no longer the reciprocal of the rounded root
+  (SU(2) spin ½ now gives `FRAC_1_SQRT_2`), and a value is no longer derived
+  from a dimension already rounded above `2^53`. A product of such factors
+  multiplies the exact dimensions and rounds `dim` and each derived value
+  once; a product with a table factor still multiplies the factor values
+  left to right.
 - **Breaking (values):** CU(1) A and B are formed exactly from its exact F
   and rounded once, so unit values are exactly `±1`; F and R are unchanged.
 - **Breaking (values):** F, R, A and B of every simple Lie type, and A and B

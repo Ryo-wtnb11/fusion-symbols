@@ -1,5 +1,6 @@
 //! Common mathematical contract for validated fusion-category objects.
 
+use crate::rounding::{DimProduct, DimValue, Factor};
 use num_complex::Complex64;
 use std::{
     fmt::Debug,
@@ -140,7 +141,13 @@ pub(crate) mod sealed {
         Fetch(Query<'q, O>, &'b mut ExactBuf),
         /// The one Radical leaf's rounded view (a query with one leaf).
         View(Query<'q, O>, &'b mut Option<View>),
+        /// Multiply the object's exact dimension, an integer, into the
+        /// accumulator; `Done`, or unavailable for a numeric dimension.
+        Dim(&'q O, &'b mut DimAcc),
     }
+
+    /// The exact dimension of an [`ExactOp::Dim`] query.
+    pub struct DimAcc(pub(crate) crate::rounding::DimProduct);
 
     impl<'q, 'b, O> ExactOp<'q, 'b, O> {
         /// The same operation on a composite's product objects.
@@ -150,6 +157,7 @@ pub(crate) mod sealed {
                 Self::Describe(q, b) => ExactOp::Describe(q.map(f), b),
                 Self::Fetch(q, b) => ExactOp::Fetch(q.map(f), b),
                 Self::View(q, b) => ExactOp::View(q.map(f), b),
+                Self::Dim(a, d) => ExactOp::Dim(f(a), d),
             }
         }
     }
@@ -958,8 +966,9 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     }
     /// `√d_a`; foreign objects panic.
     ///
-    /// The default is `self.dim(a).sqrt()`. A product multiplies its factors'
-    /// values left to right instead of taking the root of the product.
+    /// An exact (integer) dimension gives the correctly rounded root; a
+    /// numeric one, as of a table category, `self.dim(a).sqrt()`. A product
+    /// with a numeric factor multiplies its factors' values left to right.
     ///
     /// # Examples
     ///
@@ -971,12 +980,13 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     fn sqrt_dim(&self, a: &Self::Object) -> f64 {
-        self.dim(a).sqrt()
+        exact_dim(self, a, DimValue::Sqrt).unwrap_or_else(|| self.dim(a).sqrt())
     }
     /// `1 / √d_a`; foreign objects panic.
     ///
-    /// The default is `self.sqrt_dim(a).recip()`; a product multiplies its
-    /// factors' values left to right.
+    /// Correctly rounded once from an exact dimension; from a numeric one
+    /// `self.sqrt_dim(a).recip()`, and a product with a numeric factor
+    /// multiplies its factors' values left to right.
     ///
     /// # Examples
     ///
@@ -988,12 +998,13 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     fn inv_sqrt_dim(&self, a: &Self::Object) -> f64 {
-        self.sqrt_dim(a).recip()
+        exact_dim(self, a, DimValue::InvSqrt).unwrap_or_else(|| self.sqrt_dim(a).recip())
     }
     /// `1 / d_a`; foreign objects panic.
     ///
-    /// The default is `self.dim(a).recip()`; a product multiplies its
-    /// factors' values left to right.
+    /// Correctly rounded once from an exact dimension; from a numeric one
+    /// `self.dim(a).recip()`, and a product with a numeric factor multiplies
+    /// its factors' values left to right.
     ///
     /// # Examples
     ///
@@ -1006,7 +1017,7 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     fn inv_dim(&self, a: &Self::Object) -> f64 {
-        self.dim(a).recip()
+        exact_dim(self, a, DimValue::Inv).unwrap_or_else(|| self.dim(a).recip())
     }
     /// Exact number of objects, `Ok(None)` for a mathematically infinite
     /// category.
@@ -1236,8 +1247,9 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     }
 }
 
-/// The hook of a unit-class category: `Class` is unit for every kind, and
-/// `Describe` reads the single closed-form entry, with no search.
+/// The hook of a unit-class category: `Class` is unit for every kind,
+/// `Describe` reads the single closed-form entry, with no search, and `Dim`
+/// multiplies the category's `dim`, an exact small integer for every caller.
 pub(crate) fn unit_symbol<C: FusionCategory>(
     cat: &C,
     op: sealed::ExactOp<'_, '_, C::Object>,
@@ -1247,6 +1259,11 @@ pub(crate) fn unit_symbol<C: FusionCategory>(
         ExactOp::Class(_) => return Ok(ExactAnswer::UnitClass),
         ExactOp::Describe(q, _) => q,
         ExactOp::Fetch(..) | ExactOp::View(..) => return Ok(ExactAnswer::Unavailable),
+        ExactOp::Dim(a, d) => {
+            // Every caller's dimension is a small integer held exactly.
+            d.0.mul(Factor::Words(&[cat.dim(a) as u64]));
+            return Ok(ExactAnswer::Done);
+        }
     };
     let unit = match q {
         Query::F([a, b, c, d, e, f]) => {
@@ -1257,6 +1274,18 @@ pub(crate) fn unit_symbol<C: FusionCategory>(
         Query::B([a, b, c]) => sealed::Unit::of(cat.b_symbol(a, b, c)?.as_slice()),
     };
     Ok(unit.map_or(ExactAnswer::Unavailable, ExactAnswer::Unit))
+}
+
+/// The object's `value` correctly rounded once from its exact dimension,
+/// `None` when the category's dimensions are numeric.
+pub(crate) fn exact_dim<C: FusionCategory>(cat: &C, a: &C::Object, value: DimValue) -> Option<f64> {
+    let mut d = sealed::DimAcc(DimProduct::ONE);
+    let op = sealed::ExactOp::Dim(a, &mut d);
+    matches!(
+        cat.__fusion_symbols_exact_symbol(op, sealed::Validated(())),
+        Ok(sealed::ExactAnswer::Done)
+    )
+    .then(|| d.0.round(value))
 }
 
 // `√d_a √d_b / √d_c`, the normalization shared by A and B.

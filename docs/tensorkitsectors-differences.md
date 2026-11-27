@@ -86,9 +86,11 @@ last factor fastest. Buffers are Rust row-major: compare indexed values with
 Julia arrays. When every factor supplies exact values, F/R/A/B are the exact
 products of the factor values rounded once (TKS multiplies the rounded factor
 symbols, so values can differ by an ulp, e.g. SU(2)×SU(2)
-`F[½,½,½,½,0,1] = 3/4` exactly). Otherwise scalar promotion/multiplication, and
-in every case derived dimensions, fold left to right; TKS derives square roots/inverses from the product dimension,
-which may differ by rounding. Fermionic R/twist multiply factorwise without a
+`F[½,½,½,½,0,1] = 3/4` exactly). Integer dimensions and their roots and
+inverses are likewise rounded once from the exact product dimension. Otherwise
+scalar promotion/multiplication and derived dimensions fold left to right; TKS
+derives square roots/inverses from the rounded product dimension, which may
+differ by rounding. Fermionic R/twist multiply factorwise without a
 cross-factor sign or imposed parity/charge relation. Products of
 `GroupRepresentations` provide lazy tuple or vector CGCs through `CgcBlock`,
 with the last factor fastest on all four axes; they add no coefficient cache.

@@ -35,8 +35,11 @@
 //! addressable tuple, so every product index up to `u64::MAX` stays available.
 //! A product is enumerable only when every factor is
 //! ([`EnumerationError::NotEnumerable`] takes precedence over other factor
-//! errors). Derived dimensions ([`FusionCategory::sqrt_dim`] and its
-//! inverses) multiply the factor values left to right.
+//! errors). When every factor's dimensions are exact integers, a product's
+//! dimension and its derived values ([`FusionCategory::sqrt_dim`] and its
+//! inverses) are correctly rounded once from the exact product of the factor
+//! dimensions; with a numeric (table) factor they multiply the factor values
+//! left to right.
 //!
 //! Factor fusion iterators must be cloneable. The higher-ranked GAT bound on
 //! these implementations currently restricts factors to owned category types;
@@ -49,6 +52,7 @@
 //! category of this crate states its largest multiplicity without iterating;
 //! for a `FusionStyle::Generic` factor defined outside the crate, building a
 //! nonempty product iterates that factor's channels once more to find it.
+use crate::category::exact_dim;
 use crate::category::sealed::{
     ExactAnswer, ExactBuf, ExactOp, FloatSink, InlineVec, LeafBuf, LegRows, Query, SymbolKind,
     Unit, View,
@@ -60,6 +64,7 @@ use crate::category::{
 };
 use crate::exact::radical::RadicalBlock;
 use crate::rounding::blocks::{check_f_block, check_r_block, round_block};
+use crate::rounding::DimValue;
 use malachite_nz::integer::Integer;
 use num_complex::Complex64;
 use std::{
@@ -940,7 +945,7 @@ impl Fold {
                 leaves: self.leaves,
             },
             ExactOp::Describe(..) => ExactAnswer::Unit(self.unit),
-            ExactOp::Fetch(..) | ExactOp::View(..) => ExactAnswer::Done,
+            ExactOp::Fetch(..) | ExactOp::View(..) | ExactOp::Dim(..) => ExactAnswer::Done,
         }
     }
 
@@ -980,6 +985,11 @@ impl Fold {
             ExactOp::View(q, out) => {
                 if radical(q.kind())? {
                     hook(ExactOp::View(q.map(proj), out))?;
+                }
+            }
+            ExactOp::Dim(a, d) => {
+                if hook(ExactOp::Dim(proj(a), d))? != ExactAnswer::Done {
+                    self.unavailable = true;
                 }
             }
         }
@@ -1286,16 +1296,24 @@ macro_rules! impl_product {
             // a leaf dimension may be an exact Weyl-formula evaluation, while
             // membership is O(1) by the `contains` contract.
             fn dim(&self, a: &Self::Object) -> f64 {
-                let value = self.factors.0.dim(&a.0); $(let value = value * self.factors.$i.dim(&a.$i);)+ value
+                exact_dim(self, a, DimValue::Dim).unwrap_or_else(|| {
+                    let value = self.factors.0.dim(&a.0); $(let value = value * self.factors.$i.dim(&a.$i);)+ value
+                })
             }
             fn sqrt_dim(&self, a: &Self::Object) -> f64 {
-                let value = self.factors.0.sqrt_dim(&a.0); $(let value = value * self.factors.$i.sqrt_dim(&a.$i);)+ value
+                exact_dim(self, a, DimValue::Sqrt).unwrap_or_else(|| {
+                    let value = self.factors.0.sqrt_dim(&a.0); $(let value = value * self.factors.$i.sqrt_dim(&a.$i);)+ value
+                })
             }
             fn inv_sqrt_dim(&self, a: &Self::Object) -> f64 {
-                let value = self.factors.0.inv_sqrt_dim(&a.0); $(let value = value * self.factors.$i.inv_sqrt_dim(&a.$i);)+ value
+                exact_dim(self, a, DimValue::InvSqrt).unwrap_or_else(|| {
+                    let value = self.factors.0.inv_sqrt_dim(&a.0); $(let value = value * self.factors.$i.inv_sqrt_dim(&a.$i);)+ value
+                })
             }
             fn inv_dim(&self, a: &Self::Object) -> f64 {
-                let value = self.factors.0.inv_dim(&a.0); $(let value = value * self.factors.$i.inv_dim(&a.$i);)+ value
+                exact_dim(self, a, DimValue::Inv).unwrap_or_else(|| {
+                    let value = self.factors.0.inv_dim(&a.0); $(let value = value * self.factors.$i.inv_dim(&a.$i);)+ value
+                })
             }
 
             fn __fusion_symbols_counted_object_at(&self, index: u64, count: &ExactCount, t: Validated) -> Result<Self::Object, EnumerationError> {
@@ -1516,19 +1534,26 @@ where
     }
     fn dim(&self, a: &Self::Object) -> f64 {
         assert_eq!(a.len(), self.factors.len(), "foreign product object");
-        scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.dim(a)))
+        exact_dim(self, a, DimValue::Dim)
+            .unwrap_or_else(|| scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.dim(a))))
     }
     fn sqrt_dim(&self, a: &Self::Object) -> f64 {
         assert_eq!(a.len(), self.factors.len(), "foreign product object");
-        scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.sqrt_dim(a)))
+        exact_dim(self, a, DimValue::Sqrt).unwrap_or_else(|| {
+            scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.sqrt_dim(a)))
+        })
     }
     fn inv_sqrt_dim(&self, a: &Self::Object) -> f64 {
         assert_eq!(a.len(), self.factors.len(), "foreign product object");
-        scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.inv_sqrt_dim(a)))
+        exact_dim(self, a, DimValue::InvSqrt).unwrap_or_else(|| {
+            scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.inv_sqrt_dim(a)))
+        })
     }
     fn inv_dim(&self, a: &Self::Object) -> f64 {
         assert_eq!(a.len(), self.factors.len(), "foreign product object");
-        scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.inv_dim(a)))
+        exact_dim(self, a, DimValue::Inv).unwrap_or_else(|| {
+            scalar_product(self.factors.iter().zip(a).map(|(c, a)| c.inv_dim(a)))
+        })
     }
     fn __fusion_symbols_validated_frobenius_schur_phase(
         &self,
