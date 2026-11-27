@@ -3147,8 +3147,10 @@ mod exact_fr {
     fn check_r(root: RootSystem, l: [&[i64]; 3]) -> Vec<Rational> {
         let want = oracle_r(root, l);
         let fam = GeneralFamily::new(root);
+        let exact = fam.r_exact(l.map(Label::new)).unwrap();
         let view = fam.r_symbol(l.map(Label::new)).unwrap();
         for (i, w) in want.iter().enumerate() {
+            assert!(exact.entry(i).signed_square() == *w, "{l:?} entry {i}");
             let sign = if *w < 0 { -1 } else { i8::from(*w != 0) };
             let bits = SignedSqrtRational::from_radicand(sign, if *w < 0 { -w } else { w.clone() })
                 .to_f64()
@@ -3176,8 +3178,8 @@ mod exact_fr {
         let f = check_f(RootSystem::A(2), [o; 6]);
         assert_eq!(f.len(), 16);
         assert_eq!(f[0], q(36, 49));
-        // `[1,1,0,0]` is entry `((1·2 + 1)·2 + 0)·2 + 0 = 6`.
-        assert_eq!(f[6], q(-1, 49));
+        // `[1,1,0,0]` is entry `((1·2 + 1)·2 + 0)·2 + 0 = 12`: `−1/7`.
+        assert_eq!(f[12], q(-1, 49));
     }
 
     /// G2 and Sp(4) F, against the oracle only.
@@ -3203,40 +3205,48 @@ mod exact_fr {
 
     /// One generation per distinct key of a cold request: a cold `R^{ab}_c`
     /// eliminates the seeds of `(a,b,c)` and `(b,a,c)` (one when `a = b`)
-    /// and descends no channel; a cold `F` of six octets descends `(8,8,8)`
-    /// once for its two full legs and eliminates its seeds once for its two
-    /// seed legs. Concurrent tests can only turn a build into a hit, hence
-    /// `≤`; a repeated key would exceed the bound.
-    #[test]
-    fn cold_requests_generate_each_distinct_key_once() {
+    /// and descends no channel; a cold `F` with six equal labels descends
+    /// `(a,a,a)` once for its two full legs and eliminates its seeds once for
+    /// its two seed legs. The labels (SU(3) `6`, `3̄`, `15`, `15'`; the Sp(4)
+    /// adjoint for F) are used together by no other in-crate test and the cache lock is held, so no other thread
+    /// generates or resets them and the counts are exact.
+    fn generations(root: RootSystem, request: &dyn Fn(&GeneralFamily)) -> [usize; 2] {
         let _guard = crate::cache::TEST_CACHE_LOCK
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let fam = GeneralFamily::new(RootSystem::A(2));
-        let (t, tb, o) = (&[1i64, 0][..], &[0i64, 1][..], &[1i64, 1][..]);
-        let six = &[2i64, 0][..];
-        let count = |request: &dyn Fn()| {
-            crate::cache::reset();
-            let before = BUILDS.with(std::cell::Cell::get);
-            request();
-            let after = BUILDS.with(std::cell::Cell::get);
-            [after[1] - before[1], after[2] - before[2]]
+        let fam = GeneralFamily::new(root);
+        crate::cache::reset();
+        let before = BUILDS.with(std::cell::Cell::get);
+        request(&fam);
+        let after = BUILDS.with(std::cell::Cell::get);
+        crate::cache::reset();
+        [after[1] - before[1], after[2] - before[2]]
+    }
+
+    #[test]
+    fn cold_r_with_distinct_labels_eliminates_twice() {
+        let (six, tb, fifteen) = (&[2i64, 0][..], &[0i64, 1][..], &[2i64, 1][..]);
+        let r = |fam: &GeneralFamily| {
+            fam.r_exact([six, tb, fifteen].map(Label::new)).unwrap();
         };
-        let r = |l: [&[i64]; 3]| {
-            fam.r_exact(l.map(Label::new)).unwrap();
+        assert_eq!(generations(RootSystem::A(2), &r), [0, 2]);
+    }
+
+    #[test]
+    fn cold_r_with_equal_labels_eliminates_once() {
+        let (six, fifteen) = (&[2i64, 0][..], &[4i64, 0][..]);
+        let r = |fam: &GeneralFamily| {
+            fam.r_exact([six, six, fifteen].map(Label::new)).unwrap();
         };
-        let [descents, seeds] = count(&|| r([t, tb, o]));
-        assert_eq!(descents, 0, "R descends no channel");
-        assert!(seeds <= 2, "R with a ≠ b: {seeds} eliminations");
-        let [descents, seeds] = count(&|| r([t, t, six]));
-        assert_eq!(descents, 0, "R descends no channel");
-        assert!(seeds <= 1, "R with a = b: {seeds} eliminations");
-        let [descents, seeds] = count(&|| {
-            fam.f_exact([o; 6].map(Label::new)).unwrap();
-        });
-        assert!(
-            descents <= 1 && seeds <= 1,
-            "F of octets: {descents} descents, {seeds} eliminations"
-        );
+        assert_eq!(generations(RootSystem::A(2), &r), [0, 1]);
+    }
+
+    #[test]
+    fn cold_f_with_equal_labels_generates_each_key_once() {
+        let adjoint = &[2i64, 0][..];
+        let f = |fam: &GeneralFamily| {
+            fam.f_exact([adjoint; 6].map(Label::new)).unwrap();
+        };
+        assert_eq!(generations(RootSystem::C(2), &f), [1, 1]);
     }
 }

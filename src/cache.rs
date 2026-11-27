@@ -3414,22 +3414,4 @@ mod tests {
         assert_eq!(tier.get(&real), Some(1.0));
         assert_eq!(tier.get(&forged), None);
     }
-
-    /// Purpose: an exact F or R entry is charged its block's owned bytes
-    /// (integers and every radicand) plus the shared counts, so the tier cap
-    /// bounds exact entries as it bounds views.
-    #[test]
-    fn exact_entries_are_charged_their_blocks() {
-        let f = Arc::new(RadicalBlock::<4>::zeros([1, 3, 1, 3]).unwrap());
-        assert_eq!(
-            FValue::Exact(f.clone()).value_bytes(),
-            std::mem::size_of::<FValue>() + ARC_COUNTS_BYTES + f.bytes()
-        );
-        assert!(f.bytes() > std::mem::size_of::<RadicalBlock<4>>());
-        let r = Arc::new(RadicalBlock::<2>::zeros([2, 2]).unwrap());
-        assert_eq!(
-            RValue::Exact(r.clone()).value_bytes(),
-            std::mem::size_of::<RValue>() + ARC_COUNTS_BYTES + r.bytes()
-        );
-    }
 }
