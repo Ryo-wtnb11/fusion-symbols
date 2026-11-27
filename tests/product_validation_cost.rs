@@ -714,41 +714,35 @@ fn ident_costs<C: FusionCategory>(cat: &C, x: &C::Object, leaves: usize) -> [Vec
     out
 }
 
-// Purpose: when every product axis is 1, each leaf N is evaluated once per
-// vertex: F 4 and R 2 times per leaf, A and B 2 times plus the one N that the
-// leaf's own default A/B evaluates. As soon as one vertex has N = 2 every leaf
-// evaluates N again for its block check, as before: F 8, R 4, A and B 5.
+// Purpose: whatever the multiplicities and the nesting, each leaf N is
+// evaluated once per vertex per query: F 4 and R 2 times, A and B 2 times
+// plus the one N of the leaf's own default A/B.
 #[test]
-fn leaf_n_is_evaluated_once_per_vertex_when_every_product_axis_is_one() {
+fn leaf_n_is_evaluated_once_per_query() {
     let i = |id, n| Ident { id, n };
     let once = |k: usize| [vec![4; k], vec![2; k], vec![3; k], vec![3; k]];
-    let twice = |k: usize| [vec![8; k], vec![4; k], vec![5; k], vec![5; k]];
-    let flat = |n| Product::new((i(0, 1), i(1, n), i(2, 1)));
-    assert_eq!(ident_costs(&flat(1), &(1, 1, 1), 3), once(3), "flat");
-    assert_eq!(
-        ident_costs(&flat(2), &(1, 1, 1), 3),
-        twice(3),
-        "flat, N = 2"
-    );
-    let nested = |n| Product::new((Product::new((i(0, 1), i(1, 1))), i(2, n)));
-    assert_eq!(ident_costs(&nested(1), &((1, 1), 1), 3), once(3), "nested");
-    assert_eq!(
-        ident_costs(&nested(3), &((1, 1), 1), 3),
-        twice(3),
-        "nested, N = 3"
-    );
-    let vec = |n| Product::new(vec![i(0, 1), i(1, n), i(2, 1)]);
-    assert_eq!(ident_costs(&vec(1), &vec![1; 3], 3), once(3), "vec");
-    assert_eq!(ident_costs(&vec(2), &vec![1; 3], 3), twice(3), "vec, N = 2");
-    let held = |n| Product::new((Product::new(vec![i(0, 1), i(1, n)]), i(2, 1)));
-    assert_eq!(
-        ident_costs(&held(1), &(vec![1; 2], 1), 3),
-        once(3),
-        "vec in tuple"
-    );
-    assert_eq!(
-        ident_costs(&held(2), &(vec![1; 2], 1), 3),
-        twice(3),
-        "vec in tuple, N = 2"
-    );
+    for n in [1, 2] {
+        let flat = Product::new((i(0, 1), i(1, n), i(2, 1)));
+        assert_eq!(ident_costs(&flat, &(1, 1, 1), 3), once(3), "flat, N = {n}");
+        let vec = Product::new(vec![i(0, 1), i(1, n), i(2, 1)]);
+        assert_eq!(ident_costs(&vec, &vec![1; 3], 3), once(3), "vec, N = {n}");
+        let nested = Product::new((Product::new((i(0, 1), i(1, 1))), i(2, n)));
+        assert_eq!(
+            ident_costs(&nested, &((1, 1), 1), 3),
+            once(3),
+            "nested, N = {n}"
+        );
+        let deep = Product::new((
+            Product::new((Product::new((i(0, 1), i(1, n))), i(2, 1))),
+            i(3, 1),
+        ));
+        let x = (((1, 1), 1), 1);
+        assert_eq!(ident_costs(&deep, &x, 4), once(4), "depth 3, N = {n}");
+        let held = Product::new((Product::new(vec![i(0, 1), i(1, n)]), i(2, 1)));
+        assert_eq!(
+            ident_costs(&held, &(vec![1; 2], 1), 3),
+            once(3),
+            "vec in tuple, N = {n}"
+        );
+    }
 }

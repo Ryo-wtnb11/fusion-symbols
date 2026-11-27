@@ -1269,6 +1269,8 @@ impl crate::cache::CacheCharge for Multiplicities {
 pub(crate) enum ProductValue {
     Multiplicities(Multiplicities),
     Labels(Product),
+    /// A product query's composite view (`cache::composed`).
+    Composite(crate::category::sealed::View),
 }
 impl crate::cache::CacheCharge for ProductValue {
     fn value_bytes(&self) -> usize {
@@ -1276,6 +1278,7 @@ impl crate::cache::CacheCharge for ProductValue {
             + match self {
                 Self::Multiplicities(x) => x.value_bytes(),
                 Self::Labels(x) => x.value_bytes(),
+                Self::Composite(x) => x.value_bytes(),
             }
     }
 }

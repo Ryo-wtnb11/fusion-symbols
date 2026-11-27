@@ -18,11 +18,10 @@ mod prefill;
 pub use prefill::{prefill, PrefillRequest};
 
 use crate::category::{
-    sealed::{SymbolWithAxes, Validated},
-    BraidingStyle, CgcBlock, EnumerationError, FBlock, FusionCategory, FusionStyle,
-    GroupRepresentations, RBlock, SymbolBlock,
+    sealed::Validated, BraidingStyle, CgcBlock, EnumerationError, FBlock, FusionCategory,
+    FusionStyle, GroupRepresentations, RBlock,
 };
-use crate::product::{Product, ProductError, Shaped};
+use crate::product::{Product, ProductError};
 use malachite_base::{
     num::conversion::traits::RoundingFrom, rounding_modes::RoundingMode::Nearest,
 };
@@ -870,9 +869,6 @@ impl CgcBlock for LieCgc {
             .map_or(0.0, |i| entries[i].value)
     }
 }
-// When every product axis is 1, a composite's flat leaves have block length 1
-// and are composed directly with that length. Not its public query: that
-// re-evaluates its N and, for A/B, builds its product dual again.
 impl FusionCategory for LieGroup {
     type Object = LieIrrep;
     type Scalar = f64;
@@ -1133,137 +1129,61 @@ impl FusionCategory for LieGroup {
     ) -> Result<FBlock<f64>, LieError> {
         self.f_symbol_in([a, b, c, d, e, f], None)
     }
-    fn __fusion_symbols_validated_f_symbol(
-        &self,
-        a: &LieIrrep,
-        b: &LieIrrep,
-        c: &LieIrrep,
-        d: &LieIrrep,
-        e: &LieIrrep,
-        f: &LieIrrep,
-        ones: Option<[u32; 4]>,
-        t: Validated,
-    ) -> Result<SymbolWithAxes<FBlock<f64>, 4>, LieError> {
-        if let (Some(product), Some(_)) = (&self.composite, ones) {
-            let labels = [a, b, c, d, e, f].map(|x| self.factor_labels(x));
-            return product
-                .shaped_f(labels, Some(1), ones, t)
-                .map_err(LieError::from);
-        }
-        let block = self.f_symbol(a, b, c, d, e, f)?;
-        if let Some(n) = ones {
-            return Ok((block, n));
-        }
-        // Keep Product's independent N-axis gate without validating each label again.
-        let n = |x, y, z| self.__fusion_symbols_validated_nsymbol(x, y, z, t);
-        Ok((block, [n(a, b, e)?, n(e, c, d)?, n(b, c, f)?, n(a, f, d)?]))
-    }
-    fn __fusion_symbols_validated_r_symbol(
-        &self,
-        a: &LieIrrep,
-        b: &LieIrrep,
-        c: &LieIrrep,
-        ones: Option<[u32; 2]>,
-        t: Validated,
-    ) -> Result<SymbolWithAxes<RBlock<f64>, 2>, LieError> {
-        if let (Some(product), Some(_)) = (&self.composite, ones) {
-            let labels = [a, b, c].map(|x| self.factor_labels(x));
-            return product
-                .shaped_r(labels, Some(1), ones, t)
-                .map_err(LieError::from);
-        }
-        let block = self.r_symbol(a, b, c)?;
-        let n = match ones {
-            Some(n) => n,
-            None => [self.nsymbol(a, b, c)?, self.nsymbol(b, a, c)?],
-        };
-        Ok((block, n))
-    }
-    fn __fusion_symbols_validated_a_symbol(
-        &self,
-        a: &LieIrrep,
-        b: &LieIrrep,
-        c: &LieIrrep,
-        ones: Option<[u32; 2]>,
-        t: Validated,
-    ) -> Result<SymbolWithAxes<RBlock<f64>, 2>, LieError> {
-        if let (Some(product), Some(_)) = (&self.composite, ones) {
-            let labels = [a, b, c].map(|x| self.factor_labels(x));
-            return product
-                .shaped_a(labels, Some(1), ones, t)
-                .map_err(LieError::from);
-        }
-        let block = self.a_symbol(a, b, c)?;
-        let n = match ones {
-            Some(n) => n,
-            None => [self.nsymbol(a, b, c)?, self.nsymbol(&self.dual(a), c, b)?],
-        };
-        Ok((block, n))
-    }
-    fn __fusion_symbols_validated_b_symbol(
-        &self,
-        a: &LieIrrep,
-        b: &LieIrrep,
-        c: &LieIrrep,
-        ones: Option<[u32; 2]>,
-        t: Validated,
-    ) -> Result<SymbolWithAxes<RBlock<f64>, 2>, LieError> {
-        if let (Some(product), Some(_)) = (&self.composite, ones) {
-            let labels = [a, b, c].map(|x| self.factor_labels(x));
-            return product
-                .shaped_b(labels, Some(1), ones, t)
-                .map_err(LieError::from);
-        }
-        let block = self.b_symbol(a, b, c)?;
-        let n = match ones {
-            Some(n) => n,
-            None => [self.nsymbol(a, b, c)?, self.nsymbol(c, &self.dual(b), a)?],
-        };
-        Ok((block, n))
-    }
     fn r_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock<f64>, LieError> {
-        self.r_symbol_in(a, b, c, None)
+        self.label(a);
+        self.label(b);
+        self.label(c);
+        if let Some(product) = &self.composite {
+            return product
+                .r_symbol(
+                    self.factor_labels(a),
+                    self.factor_labels(b),
+                    self.factor_labels(c),
+                )
+                .map_err(LieError::from);
+        }
+        if matches!(a.payload, LiePayload::Torus(_)) {
+            return Ok(
+                if self.__fusion_symbols_validated_nsymbol(a, b, c, Validated(()))? == 0 {
+                    RBlock::zeros(0)
+                } else {
+                    RBlock::one(1.0)
+                },
+            );
+        }
+        if matches!(a.payload, LiePayload::RankOne(_)) {
+            return Ok(if su2::triangle_ok(a.dj(), b.dj(), c.dj()) {
+                RBlock::one(su2::r_symbol(a.dj(), b.dj(), c.dj()))
+            } else {
+                RBlock::zeros(0)
+            });
+        }
+        if let (Some(a), Some(b), Some(c)) = (a.simple(), b.simple(), c.simple()) {
+            return self.engine().r_symbol([a.label(), b.label(), c.label()]);
+        }
+        unreachable!("higher-rank labels have a generated payload")
+    }
+    #[doc(hidden)]
+    fn __fusion_symbols_exact_symbol(
+        &self,
+        op: crate::category::sealed::ExactOp<'_, '_, LieIrrep>,
+        t: Validated,
+    ) -> Result<crate::category::sealed::ExactAnswer, LieError> {
+        if let Some(product) = &self.composite {
+            return product
+                .__fusion_symbols_exact_symbol(op.map(|x| self.factor_labels(x)), t)
+                .map_err(LieError::from);
+        }
+        if self.is_torus() {
+            return crate::category::unit_symbol(self, op);
+        }
+        self.exact_leaf(op)
     }
     fn a_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock<f64>, LieError> {
-        if let Some(product) = &self.composite {
-            let [a, b, c] = [a, b, c].map(|x| {
-                self.label(x);
-                self.factor_labels(x)
-            });
-            return product.a_symbol(a, b, c).map_err(LieError::from);
-        }
-        let n = checked_dimension(self.nsymbol(a, b, c)?)?;
-        checked_size([n, n])?;
-        if n == 0 {
-            return Ok(RBlock::zeros(0));
-        }
-        let f = self.f_symbol(&self.dual(a), a, b, b, &self.unit(), c)?;
-        let kappa = self.frobenius_schur_phase(a)?;
-        let scale = self.sqrt_dim(a) * self.sqrt_dim(b) / self.sqrt_dim(c);
-        Ok(crate::category::rank2_block(
-            n,
-            f.as_slice().iter().map(|&x| scale * (kappa * x)),
-        ))
+        self.ab_symbol(false, a, b, c)
     }
     fn b_symbol(&self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> Result<RBlock<f64>, LieError> {
-        if let Some(product) = &self.composite {
-            let [a, b, c] = [a, b, c].map(|x| {
-                self.label(x);
-                self.factor_labels(x)
-            });
-            return product.b_symbol(a, b, c).map_err(LieError::from);
-        }
-        let n = checked_dimension(self.nsymbol(a, b, c)?)?;
-        checked_size([n, n])?;
-        if n == 0 {
-            return Ok(RBlock::zeros(0));
-        }
-        let f = self.f_symbol(a, b, &self.dual(b), a, c, &self.unit())?;
-        let scale = self.sqrt_dim(a) * self.sqrt_dim(b) / self.sqrt_dim(c);
-        Ok(crate::category::rank2_block(
-            n,
-            f.as_slice().iter().map(|&x| scale * x),
-        ))
+        self.ab_symbol(true, a, b, c)
     }
     /// Tori and the trivial group certify a trivial associator. Semisimple
     /// factors have an irrep of dimension d > 1 with `|F^{a ā a}_a[𝟙,𝟙]| = 1/d`.
@@ -1277,11 +1197,11 @@ impl FusionCategory for LieGroup {
     // `𝟙 ⊗ a = a ⊗ 𝟙 = a` once. SU(2): the exact 6j closed form gives
     // `F^{𝟙bc}_d = F^{a𝟙c}_d = F^{ab𝟙}_d = (-1)^{2(j_1+j_2+j_3)} = 1` (integer
     // triangle sum), rounded exactly. Higher-rank groups contract four CGC
-    // (`frcore::f_block_raw`); with a unit leg two of them are the exact
+    // exactly (`frcore::f_exact`); with a unit leg two of them are the exact
     // identity embeddings of `𝟙 ⊗ s → s` / `s ⊗ 𝟙 → s`
     // (`docs/gauge_cartan.md` §4.5) and the other two are the same isometry
     // `x ⊗ y → z`, so the block is its column orthonormality
-    // `Σ C_κ C_ν = δ_{κν}`: the identity, up to rounding.
+    // `Σ C_κ C_ν = δ_{κν}`: the identity, exactly.
     fn has_canonical_unit(&self) -> bool {
         if let Some(product) = &self.composite {
             return product.has_canonical_unit();
@@ -1350,6 +1270,193 @@ impl FusionCategory for LieGroup {
 /// descent and isometry gate on `exec`; the entries pass `None`, the serial
 /// token, so a warm query never builds a token.
 impl LieGroup {
+    /// `A^{ab}_c` (`is_b = false`) or `B^{ab}_c` of a simple or rank-one
+    /// group (`docs/gauge_cartan.md` §6.1): the rounded view of
+    /// `√(d_a d_b/d_c)·κ_a·F^{ā a b}_b[𝟙, c]` (A) or
+    /// `√(d_a d_b/d_c)·F^{a b b̄}_a[c, 𝟙]` (B), formed exactly from the exact F
+    /// of the unit-leg sextet and rounded once. A torus has the closed form
+    /// `1` (or `0 × 0`); a composite group is its product's.
+    fn ab_symbol(
+        &self,
+        is_b: bool,
+        a: &LieIrrep,
+        b: &LieIrrep,
+        c: &LieIrrep,
+    ) -> Result<RBlock<f64>, LieError> {
+        // Validates every object before the lookup: a hit must not bypass it.
+        let words = [a, b, c].map(|x| [i64::from(self.label(x))]);
+        if let Some(product) = &self.composite {
+            let [a, b, c] = [a, b, c].map(|x| self.factor_labels(x));
+            let block = if is_b {
+                product.b_symbol(a, b, c)
+            } else {
+                product.a_symbol(a, b, c)
+            };
+            return block.map_err(LieError::from);
+        }
+        let labels = match [a, b, c].map(|x| x.simple()) {
+            [Some(a), Some(b), Some(c)] => [a.label(), b.label(), c.label()],
+            _ if matches!(a.payload, LiePayload::RankOne(_)) => {
+                words.each_ref().map(|w| crate::cache::Label::new(w))
+            }
+            _ => {
+                let n = self.__fusion_symbols_validated_nsymbol(a, b, c, Validated(()))?;
+                return Ok(if n == 0 {
+                    RBlock::zeros(0)
+                } else {
+                    RBlock::one(1.0)
+                });
+            }
+        };
+        let root = self.group.root_systems()[0];
+        crate::cache::ab_block(is_b, root, labels, || {
+            let block = self.ab_exact(is_b, a, b, c)?;
+            Ok(RBlock::from_vec(
+                block.dims()[0],
+                crate::rounding::blocks::round_block(&block),
+            ))
+        })
+    }
+
+    /// The exact A (`is_b = false`) or B of a simple or rank-one group, from
+    /// the exact F of its unit-leg sextet; `0 × 0` when absent.
+    fn ab_exact(
+        &self,
+        is_b: bool,
+        a: &LieIrrep,
+        b: &LieIrrep,
+        c: &LieIrrep,
+    ) -> Result<crate::exact::radical::RadicalBlock<2>, LieError> {
+        use crate::exact::radical::RadicalBlock;
+        let n = checked_dimension(self.nsymbol(a, b, c)?)?;
+        checked_size([n, n])?;
+        if n == 0 {
+            return RadicalBlock::zeros([0, 0]).ok_or(LieError::LabelOverflow);
+        }
+        let (f, dims) = match [a, b, c].map(|x| x.simple()) {
+            [Some(xa), Some(xb), Some(xc)] => {
+                let fam = self.engine();
+                let (unit, bar) = (self.unit(), self.dual(if is_b { b } else { a }));
+                let [unit, bar] = [&unit, &bar].map(|x| x.simple().map(general::Irrep::label));
+                let (Some(unit), Some(bar)) = (unit, bar) else {
+                    unreachable!("a simple group's unit and duals are simple")
+                };
+                let [la, lb, lc] = [xa.label(), xb.label(), xc.label()];
+                let sextet = if is_b {
+                    [la, lb, bar, la, lc, unit]
+                } else {
+                    [bar, la, lb, lb, unit, lc]
+                };
+                let [da, db, dc] = [la, lb, lc].map(|l| fam.dimension(l));
+                (fam.f_exact(sextet)?, [da?, db?, dc?])
+            }
+            _ => {
+                let [ja, jb, jc] = [a, b, c].map(LieIrrep::dj);
+                // Rank-one irreps are self-dual and the unit is spin 0.
+                let x = if is_b {
+                    su2::f_symbol_exact(ja, jb, jb, ja, jc, 0)
+                } else {
+                    su2::f_symbol_exact(ja, ja, jb, jb, 0, jc)
+                };
+                let dims = [ja, jb, jc].map(|j| j as usize + 1);
+                (Arc::new(RadicalBlock::from_signed_sqrt(&x)), dims)
+            }
+        };
+        let negate = !is_b && self.frobenius_schur_phase(a)? < 0.0;
+        let ratio = crate::exact::radical::Radicand::new(
+            Natural::from(dims[0] as u64) * Natural::from(dims[1] as u64),
+            Natural::from(dims[2] as u64),
+        )
+        .ok_or(LieError::LabelOverflow)?;
+        let (rows, cols) = if is_b { (0, 1) } else { (2, 3) };
+        f.scaled(negate, &ratio)
+            .matrix(rows, cols)
+            .filter(|m| m.dims() == [n, n])
+            .ok_or(LieError::LabelOverflow)
+    }
+
+    /// The exact product hook of a simple or rank-one group (a torus is
+    /// unit-class; a composite delegates to its product).
+    fn exact_leaf<'q>(
+        &self,
+        op: crate::category::sealed::ExactOp<'q, '_, LieIrrep>,
+    ) -> Result<crate::category::sealed::ExactAnswer, LieError> {
+        use crate::category::sealed::{
+            ExactAnswer, ExactOp, LeafLabel, LeafRef, Query, SymbolKind, Unit, View, LEAF_A1,
+            LEAF_SIMPLE,
+        };
+        let simple = self.roots.is_some();
+        if !simple
+            && matches!(
+                op,
+                ExactOp::Class(SymbolKind::R) | ExactOp::Describe(Query::R(_), _)
+            )
+        {
+            // Rank-one R is `±1` (`su2::r_symbol`), or absent.
+            return crate::category::unit_symbol(self, op);
+        }
+        let root = self.group.root_systems()[0];
+        let family = if simple { LEAF_SIMPLE } else { LEAF_A1 };
+        let leaf = |xs: &[&'q LieIrrep]| {
+            LeafRef::new(
+                family,
+                root,
+                xs.iter().map(|x| match x.simple() {
+                    Some(l) => {
+                        let l = l.label();
+                        LeafLabel::Words(l.words, l.hash)
+                    }
+                    None => LeafLabel::inline(i64::from(x.dj())),
+                }),
+            )
+        };
+        match op {
+            ExactOp::Class(_) => Ok(ExactAnswer::RadicalClass { leaves: 1 }),
+            ExactOp::Describe(q, buf) => {
+                buf.0.push(match q {
+                    Query::F(x) => leaf(&x),
+                    Query::R(x) | Query::A(x) | Query::B(x) => leaf(&x),
+                });
+                Ok(ExactAnswer::Unit(Unit::PlusOne))
+            }
+            ExactOp::Fetch(q, buf) => {
+                match q {
+                    Query::F([a, b, c, d, e, f]) => {
+                        buf.f.push(match [a, b, c, d, e, f].map(|x| x.simple()) {
+                            [Some(a), Some(b), Some(c), Some(d), Some(e), Some(f)] => self
+                                .engine()
+                                .f_exact([a, b, c, d, e, f].map(general::Irrep::label))?,
+                            _ => {
+                                let [a, b, c, d, e, f] = [a, b, c, d, e, f].map(LieIrrep::dj);
+                                let x = su2::f_symbol_exact(a, b, c, d, e, f);
+                                Arc::new(crate::exact::radical::RadicalBlock::from_signed_sqrt(&x))
+                            }
+                        })
+                    }
+                    Query::R([a, b, c]) => match [a, b, c].map(|x| x.simple()) {
+                        [Some(a), Some(b), Some(c)] => buf.r2.push(
+                            self.engine()
+                                .r_exact([a, b, c].map(general::Irrep::label))?,
+                        ),
+                        _ => unreachable!("rank-one R is unit-class"),
+                    },
+                    Query::A([a, b, c]) => buf.r2.push(Arc::new(self.ab_exact(false, a, b, c)?)),
+                    Query::B([a, b, c]) => buf.r2.push(Arc::new(self.ab_exact(true, a, b, c)?)),
+                }
+                Ok(ExactAnswer::Done)
+            }
+            ExactOp::View(q, out) => {
+                *out = Some(match q {
+                    Query::F([a, b, c, d, e, f]) => View::F(self.f_symbol(a, b, c, d, e, f)?),
+                    Query::R([a, b, c]) => View::R(self.r_symbol(a, b, c)?),
+                    Query::A([a, b, c]) => View::R(self.a_symbol(a, b, c)?),
+                    Query::B([a, b, c]) => View::R(self.b_symbol(a, b, c)?),
+                });
+                Ok(ExactAnswer::Done)
+            }
+        }
+    }
+
     #[inline]
     pub(crate) fn f_symbol_in(
         &self,
@@ -1401,50 +1508,6 @@ impl LieGroup {
             return self
                 .engine()
                 .f_symbol([a, b, c, d, e, f].map(|x| x.label()), exec);
-        }
-        unreachable!("higher-rank labels have a generated payload")
-    }
-
-    #[inline]
-    pub(crate) fn r_symbol_in(
-        &self,
-        a: &LieIrrep,
-        b: &LieIrrep,
-        c: &LieIrrep,
-        exec: Option<&mut Exec<'_>>,
-    ) -> Result<RBlock<f64>, LieError> {
-        self.label(a);
-        self.label(b);
-        self.label(c);
-        if let Some(product) = &self.composite {
-            return product
-                .r_symbol(
-                    self.factor_labels(a),
-                    self.factor_labels(b),
-                    self.factor_labels(c),
-                )
-                .map_err(LieError::from);
-        }
-        if matches!(a.payload, LiePayload::Torus(_)) {
-            return Ok(
-                if self.__fusion_symbols_validated_nsymbol(a, b, c, Validated(()))? == 0 {
-                    RBlock::zeros(0)
-                } else {
-                    RBlock::one(1.0)
-                },
-            );
-        }
-        if matches!(a.payload, LiePayload::RankOne(_)) {
-            return Ok(if su2::triangle_ok(a.dj(), b.dj(), c.dj()) {
-                RBlock::one(su2::r_symbol(a.dj(), b.dj(), c.dj()))
-            } else {
-                RBlock::zeros(0)
-            });
-        }
-        if let (Some(a), Some(b), Some(c)) = (a.simple(), b.simple(), c.simple()) {
-            return self
-                .engine()
-                .r_symbol([a.label(), b.label(), c.label()], exec);
         }
         unreachable!("higher-rank labels have a generated payload")
     }
@@ -1658,6 +1721,7 @@ fn is_spin_group(group: &GroupId) -> bool {
 #[cfg(all(test, feature = "lie-generated"))]
 mod tests {
     use super::*;
+    use crate::category::SymbolBlock;
     use std::error::Error;
 
     #[test]
@@ -1849,17 +1913,19 @@ mod tests {
     #[test]
     fn exceptional_values_are_the_engine_values() {
         use crate::cache::Label;
-        use crate::frcore::f_block_raw;
         let g = LieGroup::new(GroupId::g2()).unwrap();
         let fam = general::GeneralFamily::new(RootSystem::G2);
         let (v, adj) = (vec![1, 0], vec![0, 1]);
         let [lv, ladj] = [&v, &adj].map(|x| g.irrep(x).unwrap());
         let got = g.f_symbol(&lv, &lv, &lv, &lv, &ladj, &ladj).unwrap();
         let (v, adj) = (Label::new(&v), Label::new(&adj));
-        let want = f_block_raw(&fam, [v, v, v, v, adj, adj], None).unwrap();
+        let want = fam.f_exact([v, v, v, v, adj, adj]).unwrap();
         assert_eq!(got.dims(), want.dims());
         let bits = |x: &[f64]| x.iter().map(|y| y.to_bits()).collect::<Vec<_>>();
-        assert_eq!(bits(got.as_slice()), bits(want.as_slice()));
+        assert_eq!(
+            bits(got.as_slice()),
+            bits(&crate::rounding::blocks::round_block(&want))
+        );
         let cgc = g.cgc(&lv, &lv, &ladj).unwrap();
         let entries = fam.cgc_entries(v, v, adj, None).unwrap();
         for e in entries.iter() {
@@ -2043,12 +2109,14 @@ mod tests {
 
     /// A reset that completes on another thread after an outer CGC, F or R
     /// placeholder is acquired but before its generation starts leaves none
-    /// of that generation's modules, channels or products retained.
+    /// of that generation's modules, channels or products retained. The
+    /// channel `(a, b, e)` each query builds first is its rounded view (CGC),
+    /// its exact channel (F) or its seeds (R).
     #[test]
     fn reset_between_guard_and_generation_retains_no_child() {
         use crate::cache::{
-            cgc_channel_is_resident, cgc_module_is_resident, product_multiplicities_are_resident,
-            AFTER_GUARD,
+            cgc_channel_is_resident, cgc_exact_channel_is_resident, cgc_module_is_resident,
+            cgc_seeds_are_resident, product_multiplicities_are_resident, AFTER_GUARD,
         };
         fn hook() {
             std::thread::spawn(crate::cache::reset).join().unwrap();
@@ -2066,35 +2134,36 @@ mod tests {
             .map(|(d, _)| d)
             .find(|d| g2.nsymbol(&la, &lf, d).unwrap() > 0)
             .unwrap();
-        let resident = || {
+        type Probe = fn(RootSystem, [&[i64]; 3]) -> bool;
+        let resident = |channel: Probe| {
             [
-                cgc_channel_is_resident(RootSystem::G2, [&a, &b, &e]),
+                channel(RootSystem::G2, [&a, &b, &e]),
                 cgc_module_is_resident(RootSystem::G2, &a),
                 cgc_module_is_resident(RootSystem::G2, &e),
                 product_multiplicities_are_resident(RootSystem::G2, &a, &b),
             ]
         };
-        let queries: [(&str, &dyn Fn()); 3] = [
-            ("cgc", &|| {
+        let queries: [(&str, Probe, &dyn Fn()); 3] = [
+            ("cgc", cgc_channel_is_resident, &|| {
                 g2.cgc(&la, &lb, &le).unwrap();
             }),
-            ("f", &|| {
+            ("f", cgc_exact_channel_is_resident, &|| {
                 g2.f_symbol(&la, &lb, &lb, &ld, &le, &lf).unwrap();
             }),
-            ("r", &|| {
+            ("r", cgc_seeds_are_resident, &|| {
                 g2.r_symbol(&la, &lb, &le).unwrap();
             }),
         ];
-        for (name, query) in queries {
+        for (name, channel, query) in queries {
             crate::cache::reset();
             AFTER_GUARD.with(|h| h.set(Some(hook)));
             query();
             assert!(AFTER_GUARD.with(std::cell::Cell::get).is_none(), "{name}");
-            assert_eq!(resident(), [false; 4], "{name}");
+            assert_eq!(resident(channel), [false; 4], "{name}");
             // Without the reset the same query retains them.
             crate::cache::reset();
             query();
-            assert_eq!(resident(), [true; 4], "{name}: control");
+            assert_eq!(resident(channel), [true; 4], "{name}: control");
         }
     }
 
@@ -2380,6 +2449,151 @@ mod root_payload_tests {
             result.unwrap(),
             expected,
             "dim must finish before any cache publication lock is released"
+        );
+    }
+}
+
+/// The exact-composition oracle of products (design §g.4, case 2): every
+/// product entry is the correct rounding of the product of its leaves' exact
+/// entries, composed here by rational signed squares in mixed radix (last
+/// factor fastest on every axis), never by the production composer.
+#[cfg(test)]
+mod product_oracle {
+    use super::*;
+    use crate::category::sealed::{ExactBuf, ExactOp, Query, Validated};
+    use crate::category::SymbolBlock;
+    use crate::exact::SignedSqrtRational;
+    use malachite_q::Rational;
+
+    type Exact<const R: usize> = ([usize; R], Vec<Rational>);
+
+    fn fetch(g: &LieGroup, q: Query<'_, LieIrrep>) -> ExactBuf {
+        let mut buf = ExactBuf::with_capacity(1);
+        g.__fusion_symbols_exact_symbol(ExactOp::Fetch(q, &mut buf), Validated(()))
+            .unwrap();
+        buf
+    }
+
+    fn squares<const R: usize>(x: &crate::exact::radical::RadicalBlock<R>) -> Exact<R> {
+        let len = x.dims().iter().product();
+        (
+            x.dims(),
+            (0..len).map(|i| x.entry(i).signed_square()).collect(),
+        )
+    }
+
+    fn kron<const R: usize>((ld, l): &Exact<R>, (rd, r): &Exact<R>) -> Exact<R> {
+        let dims: [usize; R] = std::array::from_fn(|k| ld[k] * rd[k]);
+        let flat = |d: &[usize; R], i: [usize; R]| (0..R).fold(0, |n, k| n * d[k] + i[k]);
+        let len = dims.iter().product();
+        let out = (0..len)
+            .map(|mut i| {
+                let mut digits = [0; R];
+                for k in (0..R).rev() {
+                    digits[k] = i % dims[k];
+                    i /= dims[k];
+                }
+                let li = flat(ld, std::array::from_fn(|k| digits[k] / rd[k]));
+                let ri = flat(rd, std::array::from_fn(|k| digits[k] % rd[k]));
+                &l[li] * &r[ri]
+            })
+            .collect();
+        (dims, out)
+    }
+
+    fn rounded(square: &Rational) -> u64 {
+        let sign = if *square < 0 {
+            -1
+        } else {
+            i8::from(*square > 0)
+        };
+        let magnitude = if *square < 0 { -square } else { square.clone() };
+        SignedSqrtRational::from_radicand(sign, magnitude)
+            .to_f64()
+            .to_bits()
+    }
+
+    fn bits(x: &[f64]) -> Vec<u64> {
+        x.iter().map(|x| x.to_bits()).collect()
+    }
+
+    /// Product F/R/A/B of two copies of `g` against the oracle, at `f` (six
+    /// labels per factor) and `r` (three per factor, for R, A and B).
+    fn check(g: &LieGroup, f: [[&LieIrrep; 6]; 2], r: [[&LieIrrep; 3]; 2], with_r: bool) {
+        let p = crate::product::Product::new((g.clone(), g.clone()));
+        let pf: [_; 6] = std::array::from_fn(|i| (f[0][i].clone(), f[1][i].clone()));
+        let pr: [_; 3] = std::array::from_fn(|i| (r[0][i].clone(), r[1][i].clone()));
+        let leaves = f.map(|q| squares(fetch(g, Query::F(q)).f.iter().next().unwrap()));
+        let [a, b, c, d, e, x] = pf.each_ref();
+        let (dims, expected) = kron(&leaves[0], &leaves[1]);
+        let got = p.f_symbol(a, b, c, d, e, x).unwrap();
+        assert_eq!(got.dims(), dims);
+        assert_eq!(
+            bits(got.as_slice()),
+            expected.iter().map(rounded).collect::<Vec<_>>()
+        );
+        let [a, b, c] = pr.each_ref();
+        use crate::category::sealed::SymbolKind as K;
+        let kinds: &[K] = if with_r {
+            &[K::R, K::A, K::B]
+        } else {
+            &[K::A, K::B]
+        };
+        for &k in kinds {
+            let query = |q| match k {
+                K::R => Query::R(q),
+                K::A => Query::A(q),
+                _ => Query::B(q),
+            };
+            let leaves = r.map(|q| squares(fetch(g, query(q)).r2.iter().next().unwrap()));
+            let (dims, expected) = kron(&leaves[0], &leaves[1]);
+            let got = match k {
+                K::R => p.r_symbol(a, b, c),
+                K::A => p.a_symbol(a, b, c),
+                _ => p.b_symbol(a, b, c),
+            }
+            .unwrap();
+            assert_eq!(got.dims(), dims, "{k:?}");
+            assert_eq!(
+                bits(got.as_slice()),
+                expected.iter().map(rounded).collect::<Vec<_>>(),
+                "{k:?}"
+            );
+        }
+    }
+
+    /// SU(2)×SU(2) (R is a unit for SU(2), so only F, A and B compose).
+    #[test]
+    fn su2_products_round_the_exact_composition() {
+        let g = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+        let [s0, h, s1, t] = [0, 1, 2, 3].map(|j| g.irrep(&[j]).unwrap());
+        check(
+            &g,
+            [[&h, &h, &h, &h, &s0, &s1]; 2],
+            [[&h, &h, &s1]; 2],
+            false,
+        );
+        check(
+            &g,
+            [[&h, &s1, &h, &s1, &h, &h], [&t, &h, &h, &t, &s1, &s0]],
+            [[&h, &s1, &t], [&t, &h, &s1]],
+            false,
+        );
+    }
+
+    /// SU(3)×SU(3) octets: every axis has multiplicity two, so R composes too.
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn su3_products_round_the_exact_composition() {
+        let g = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+        let [o, t, tb] = [[1, 1], [1, 0], [0, 1]].map(|l| g.irrep(&l).unwrap());
+        check(&g, [[&o; 6]; 2], [[&o; 3]; 2], true);
+        let one = g.unit();
+        check(
+            &g,
+            [[&t, &tb, &t, &t, &one, &one], [&o; 6]],
+            [[&t, &t, &tb], [&o; 3]],
+            true,
         );
     }
 }

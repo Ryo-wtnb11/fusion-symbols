@@ -16,12 +16,10 @@ least-recently-used replacement. Default retained-entry charge caps are:
 | `FSymbol` (`"f_symbol"`) | rounded SU(2) F scalars and Cartan-engine F blocks | 64 MiB |
 | `Cgc` (`"cgc"`) | Cartan-engine irrep modules, exact CGC channels with their rounded views, highest-weight seeds, norm tables and computed Frobenius–Schur phases, every simple factor including A(1) | 256 MiB |
 | `RSymbol` (`"r_symbol"`) | Cartan-engine R blocks (SU(2) R is a closed-form sign) | 64 MiB |
-| `Product` (`"product"`) | exact simple-Lie tensor products | 64 MiB |
+| `Product` (`"product"`) | exact simple-Lie tensor products and the rounded composite F/R/A/B views of products of exact leaves | 64 MiB |
 
-`BASE_CACHE_MAX_BYTES` (448 MiB) is the sum of the four tiers a build
-without `lie-generated` can fill; `GENERATED_CACHE_MAX_BYTES` (128 MiB)
-adds Product and R, which only higher-rank groups fill. Every build
-compiles every tier.
+`BASE_CACHE_MAX_BYTES` (576 MiB) is the sum of every tier's cap. Every
+build compiles every tier.
 
 The CGC tier holds the construction data of one operation under one limit. A
 channel is kept twice, as separate entries: its exact channel (integer
@@ -180,15 +178,13 @@ eviction and reset.
 ### Warming the cache in one call
 
 `lie::prefill(&request, exec)` evaluates every item of a `PrefillRequest`
-(CGC channels, F and R blocks, tensor products, Frobenius–Schur phases) as
-its serial entry would, so later queries are warm hits. Retention follows
+(CGC channels, F, R, A and B blocks, tensor products, Frobenius–Schur
+phases) as its serial entry would, so later queries are warm hits. Retention follows
 the tier budgets above: `Ok(())` does not mean every value is still
 resident. Every item is attempted; a failure does not roll back successful
 items, and the lowest-index item's error is returned. The call runs in one
 reset epoch, read before its first cache access, so a reset at any point
-during the call retains nothing it generates afterwards. `A^{ab}_c` and
-`B^{ab}_c` are warmed by requesting the F block and phase their definitions
-read (see the `PrefillRequest` docs).
+during the call retains nothing it generates afterwards.
 
 `exec` is the caller's `threadteam` token; this crate creates no thread
 pool. A library passes the token it was given, and a caller without threads

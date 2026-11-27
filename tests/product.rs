@@ -1277,8 +1277,8 @@ fn naive_product(leaves: &[Frab]) -> Frab {
         .fold(first.clone(), |acc, leaf| real_kron(&acc, leaf))
 }
 
-// Validation must not perturb values: product F/R/A/B equal, bit for bit, the
-// left-folded Kronecker product of the leaves' public symbols.
+// Validation must not perturb values: a product with one non-unit leaf
+// equals, bit for bit, the Kronecker product of the leaves' public symbols.
 // SU(3) octets carry fusion multiplicity two, so every axis is nontrivial.
 #[cfg(feature = "lie-generated")]
 #[test]
@@ -1287,21 +1287,8 @@ fn product_symbols_are_bitwise_leaf_kronecker_products() {
     let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
     let o = su3.irrep(&[1, 1]).unwrap();
     let leaf = frab(&su3, [&o; 3], [&o; 6]);
-
-    let p = Product::new((su3.clone(), su3.clone()));
-    let x = (o.clone(), o.clone());
-    assert_eq!(
-        frab(&p, [&x; 3], [&x; 6]),
-        naive_product(&[leaf.clone(), leaf.clone()])
-    );
-
-    let q = Product::new((p, su3.clone()));
-    let y = (x, o.clone());
-    assert_eq!(
-        frab(&q, [&y; 3], [&y; 6]),
-        naive_product(&[leaf.clone(), leaf.clone(), leaf.clone()])
-    );
-
+    // Two or more exact leaves round their exact composition once: the
+    // in-crate oracle (`lie.rs`) checks those values.
     let z3 = ZN::new(3).unwrap();
     let [z0, z1, z2] = [0, 1, 2].map(|k| ZNIrrep::new(k, 3).unwrap());
     let w = Product::new((z3, su3.clone()));
@@ -1338,31 +1325,30 @@ fn multiplicity_free_product_symbols_are_bitwise_leaf_kronecker_products() {
     );
 }
 
-// Composition order must not perturb values either: a right-nested product
-// multiplies each element as `l * (m * r)`, a `Vec` product (also nested as a
-// factor) folds left like a tuple.
+// Nesting must not perturb values: tuple, `Vec` and nested products of the
+// same leaves are one exact composition, rounded once, so F/R/A/B agree bit
+// for bit with the flat product.
 #[cfg(feature = "lie-generated")]
 #[test]
-fn nested_and_vec_product_symbols_are_bitwise_leaf_kronecker_products() {
+fn nested_and_vec_product_symbols_are_bitwise_the_flat_product() {
     let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
     let o = su3.irrep(&[1, 1]).unwrap();
-    let leaf = frab(&su3, [&o; 3], [&o; 6]);
-    let pair = real_kron(&leaf, &leaf);
+    let flat3 = Product::new(vec![su3.clone(); 3]);
+    let x = vec![o.clone(); 3];
+    let flat = frab(&flat3, [&x; 3], [&x; 6]);
 
     let right = Product::new((su3.clone(), Product::new((su3.clone(), su3.clone()))));
     let x = (o.clone(), (o.clone(), o.clone()));
-    assert_eq!(frab(&right, [&x; 3], [&x; 6]), real_kron(&leaf, &pair));
-
-    let flat3 = Product::new(vec![su3.clone(); 3]);
-    let x = vec![o.clone(); 3];
-    assert_eq!(frab(&flat3, [&x; 3], [&x; 6]), real_kron(&pair, &leaf));
-
+    assert_eq!(frab(&right, [&x; 3], [&x; 6]), flat);
+    let left = Product::new((Product::new((su3.clone(), su3.clone())), su3.clone()));
+    let x = ((o.clone(), o.clone()), o.clone());
+    assert_eq!(frab(&left, [&x; 3], [&x; 6]), flat);
     let held = Product::new((Product::new(vec![su3.clone(); 2]), su3.clone()));
     let x = (vec![o.clone(); 2], o.clone());
-    assert_eq!(frab(&held, [&x; 3], [&x; 6]), real_kron(&pair, &leaf));
+    assert_eq!(frab(&held, [&x; 3], [&x; 6]), flat);
     let held = Product::new((su3.clone(), Product::new(vec![su3.clone(); 2])));
     let x = (o.clone(), vec![o.clone(); 2]);
-    assert_eq!(frab(&held, [&x; 3], [&x; 6]), real_kron(&leaf, &pair));
+    assert_eq!(frab(&held, [&x; 3], [&x; 6]), flat);
 }
 
 /// Real-by-complex F/R/A/B products, promoting each real entry as `Promote` does.
@@ -1910,26 +1896,82 @@ fn an_empty_factor_stops_maximum_preparation() {
     ));
 }
 
-// A composite Lie group used as a factor, with every product axis 1, composes
-// its own leaves directly: F/R/A/B equal, bit for bit, the indexed Kronecker
-// product of the composite's direct query with the other leaf.
+// Precedence on the outer boundary: an unavailable factor (Probe) keeps the
+// float path, whose overflow check comes before any factor symbol, even with
+// a failing factor and a unit-class partner.
 #[test]
-fn composite_factor_symbols_are_bitwise_kronecker_products() {
+fn unavailable_factor_keeps_the_overflow_precedence() {
+    let p = Product::new((
+        Probe {
+            n: [65536; 4],
+            fail: true,
+            ..Probe::default()
+        },
+        U1,
+    ));
+    let x = (0, U1Irrep::UNIT);
+    assert!(matches!(
+        p.f_symbol(&x, &x, &x, &x, &x, &x),
+        Err(ProductError::Overflow)
+    ));
+}
+
+// Witness: a product of exact leaves is its exact value rounded once. SU(2)
+// `F^{½½½}_½[0, 1] = ±√3/2`, so the product (as a tuple and as the composite
+// cover A1×A1) is exactly `3/4`; the rounded leaves multiplied in f64 are not.
+#[test]
+fn product_f_is_the_rounded_exact_composition() {
     let s = su2();
-    let u2 = LieGroup::new(GroupId::u(2).unwrap()).unwrap();
-    let (a, b, one) = (
-        u2.irrep_with_charges(&[1], &[1]).unwrap(),
-        u2.irrep_with_charges(&[1], &[-1]).unwrap(),
-        u2.unit(),
+    let [h, z, one] = [1, 0, 2].map(|j| s.irrep(&[j]).unwrap());
+    let p = Product::new((s.clone(), s.clone()));
+    let [hh, zz, oo] = [&h, &z, &one].map(|x| (x.clone(), x.clone()));
+    let tuple = p
+        .f_symbol(&hh, &hh, &hh, &hh, &zz, &oo)
+        .unwrap()
+        .get([0; 4]);
+    use fusion_symbols::lie::RootSystem;
+    let cover = LieGroup::new(GroupId::cover(&[RootSystem::A(1); 2], 0).unwrap()).unwrap();
+    let [ch, cz, co] = [1, 0, 2].map(|j| cover.irrep(&[j, j]).unwrap());
+    let composite = cover
+        .f_symbol(&ch, &ch, &ch, &ch, &cz, &co)
+        .unwrap()
+        .get([0; 4]);
+    for x in [tuple, composite] {
+        assert_eq!(x.to_bits(), 0x3fe8000000000000);
+    }
+    let leaf = s.f_symbol(&h, &h, &h, &h, &z, &one).unwrap().get([0; 4]);
+    assert_eq!(leaf.abs(), 3f64.sqrt() / 2.0);
+    assert_eq!((leaf * leaf).to_bits(), 0x3fe7ffffffffffff);
+}
+
+// Witness: SU(3)×SU(3) `B^{15⊠15, 15̄⊠15̄}_{27⊠27}[0, 0]` is the square of the
+// leaf entry `−1/(2√2)`, exactly `1/8`; the rounded leaf squared is not.
+#[cfg(feature = "lie-generated")]
+#[test]
+fn product_b_is_the_rounded_exact_composition() {
+    let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+    let [a, b, c] = [[2, 1], [1, 2], [2, 2]].map(|l| su3.irrep(&l).unwrap());
+    let p = Product::new((su3.clone(), su3.clone()));
+    let [pa, pb, pc] = [&a, &b, &c].map(|x| (x.clone(), x.clone()));
+    let x = p.b_symbol(&pa, &pb, &pc).unwrap().get([0, 0]);
+    assert_eq!(x.to_bits(), 0x3fc0000000000000);
+    let leaf = su3.b_symbol(&a, &b, &c).unwrap().get([0, 0]);
+    assert_eq!(leaf, -0.5 * std::f64::consts::FRAC_1_SQRT_2);
+    assert_eq!((leaf * leaf).to_bits(), 0x3fc0000000000001);
+}
+
+// A product with one exact leaf returns that leaf's view; an absent CU(1) F
+// channel keeps its vertex multiplicities as axes, as the float path does.
+#[test]
+fn one_leaf_absent_channel_keeps_its_axes() {
+    use fusion_symbols::lie::{CU1Irrep, HalfInt, CU1};
+    let p = Product::new((CU1, U1));
+    let x = (CU1Irrep::VACUUM, U1Irrep::UNIT);
+    let y = (
+        CU1Irrep::new(HalfInt::from_doubled(1), 2).unwrap(),
+        U1Irrep::UNIT,
     );
-    let h = s.irrep(&[2]).unwrap();
-    let p = Product::new((u2.clone(), s.clone()));
-    let [pa, pb, pone] = [&a, &b, &one].map(|x| (x.clone(), h.clone()));
-    assert_eq!(
-        frab(&p, [&pa, &pb, &pone], [&pa, &pb, &pa, &pa, &pone, &pone]),
-        real_kron(
-            &frab(&u2, [&a, &b, &one], [&a, &b, &a, &a, &one, &one]),
-            &frab(&s, [&h; 3], [&h; 6]),
-        )
-    );
+    let f = p.f_symbol(&x, &x, &x, &x, &y, &x).unwrap();
+    assert_eq!(f.dims(), [0, 0, 1, 1]);
+    assert!(f.as_slice().is_empty());
 }

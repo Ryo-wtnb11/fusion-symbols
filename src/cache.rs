@@ -14,9 +14,9 @@
 //!
 //! # What a consumer needs from this module
 //!
-//! - **A ceiling.** [`BASE_CACHE_MAX_BYTES`] and, with `lie-generated`,
-//!   [`GENERATED_CACHE_MAX_BYTES`] are the documented sums of the per-tier
-//!   retained-entry charge caps. They bound *cache-owned entry charge*, not RSS.
+//! - **A ceiling.** [`BASE_CACHE_MAX_BYTES`] is the documented sum of the
+//!   per-tier retained-entry charge caps. It bounds *cache-owned entry
+//!   charge*, not RSS.
 //! - **A smaller ceiling, if you want one.** [`configure_cache_budgets`],
 //!   once, before first use. Shrink-only.
 //! - **Observation.** [`tier_stats`] for one tier; iterate
@@ -73,8 +73,8 @@
 //! irreps' norm tables, computed Frobenius–Schur phases, and Cartan F and R
 //! blocks. Only exact CGC data is persisted: a rounded channel is derived
 //! from its exact row after a load as after a generation, and is never
-//! stored. F and R rows hold their rounded blocks, which are their only
-//! authority until exact F and R. Loading those costs far less than
+//! stored. F and R rows hold their exact blocks, the authority of their
+//! rounded views. Loading those costs far less than
 //! generating them. The exact SU(2) 3j/6j symbols and the SU(2) F scalar are
 //! never persisted, because computing them is cheaper than loading them
 //! (about 1 µs against about 10 µs). Irrep modules and products are
@@ -109,7 +109,9 @@ use std::hash::{BuildHasher, Hash};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, OnceLock};
 
+use crate::category::sealed::{LeafBuf, LeafLabel, LeafRef, SymbolKind, View};
 use crate::category::{FBlock, RBlock, SymbolBlock};
+use crate::exact::radical::RadicalBlock;
 use crate::exact::SignedSqrtRational;
 use crate::lie::general::cgc::exact::{ExactCgc, HighestColumn, NormTable};
 use crate::lie::general::cgc::{CgcChannel, Ladders};
@@ -120,7 +122,7 @@ use crate::lie::RootSystem;
 mod clock;
 #[cfg(test)]
 use clock::Equivalent;
-#[cfg(all(test, feature = "lie-generated"))]
+#[cfg(test)]
 pub(crate) use clock::SEARCHES;
 #[cfg(feature = "disk-cache")]
 pub(crate) mod disk;
@@ -131,7 +133,7 @@ pub use disk::{
     clear_disk_cache, disk_cache_stats, enable_disk_cache, DiskCacheError, DiskCacheStats,
 };
 mod fingerprint;
-use fingerprint::key_hash;
+use fingerprint::{fold, key_hash, P1, P2, P3};
 pub(crate) use fingerprint::{label_hash, FoldBuild, Label};
 
 /// Default entry cap of the Wigner and F tiers. Matches the reference order of
@@ -426,42 +428,19 @@ fn validate_budgets(b: CoefficientCacheBudgets) -> Result<(), CacheBudgetError> 
     Ok(())
 }
 
-/// Aggregate conservative retained-charge cap of the tiers a build without
-/// `lie-generated` can fill: Wigner 3j, Wigner 6j, F and CGC,
-/// `448 MiB` = `64 + 64 + 64 + 256 MiB`.
+/// Aggregate conservative retained-charge cap of every tier: Wigner 3j,
+/// Wigner 6j, F, R, Product and CGC, `576 MiB` = `64 + 64 + 64 + 64 + 64 +
+/// 256 MiB`, in every build: every tier is compiled in every build.
 ///
 /// This is a **documented static partition**, not a shared budget: each tier is
 /// bounded independently by its own per-tier charged-entry cap. The aggregate
 /// is therefore a provable corollary — `Σ tier bytes ≤ Σ tier caps` — rather
 /// than an enforced global limit.
-///
-/// The whole-process cap is `BASE_CACHE_MAX_BYTES + GENERATED_CACHE_MAX_BYTES`
-/// with `lie-generated`, and `BASE_CACHE_MAX_BYTES` without it, whose groups
-/// never fill the Product and R tiers.
-pub const BASE_CACHE_MAX_BYTES: usize = 448 << 20;
+pub const BASE_CACHE_MAX_BYTES: usize = 576 << 20;
 
 // Compile-time tie: if a per-tier retained-charge cap changes, the aggregate
 // must be reconciled in the same edit or the crate stops building.
-const _: () = assert!(BASE_CACHE_MAX_BYTES == 3 * DEFAULT_MAX_BYTES + CGC_MAX_BYTES);
-
-/// Aggregate conservative retained-charge cap of the two tiers only
-/// higher-rank (`lie-generated`) groups fill, Product and R:
-/// `128 MiB` = `64 + 64 MiB`. Added to [`BASE_CACHE_MAX_BYTES`] it is the
-/// whole-process cap.
-///
-/// **Unstable: shape may change.** There is no Cargo-feature way to express an
-/// instability tier, so this doc label is the marker.
-///
-/// Like the base cap this is a **static partition, not a shared pool**:
-/// `Σ tier charged bytes ≤ Σ tier caps` holds as a corollary without global
-/// enforcement.
-#[cfg(feature = "lie-generated")]
-pub const GENERATED_CACHE_MAX_BYTES: usize = 128 << 20;
-
-// Compile-time tie, as for the base cap: R and Product each default to
-// `DEFAULT_MAX_BYTES`.
-#[cfg(feature = "lie-generated")]
-const _: () = assert!(GENERATED_CACHE_MAX_BYTES == 2 * DEFAULT_MAX_BYTES);
+const _: () = assert!(BASE_CACHE_MAX_BYTES == 5 * DEFAULT_MAX_BYTES + CGC_MAX_BYTES);
 
 /// Snapshot of one coefficient-cache tier, returned by [`tier_stats`].
 ///
@@ -989,7 +968,6 @@ pub(crate) const DISK_CHANNEL: u8 = 1;
 pub(crate) const DISK_PHASE: u8 = 2;
 pub(crate) const DISK_F: u8 = 3;
 pub(crate) const DISK_R: u8 = 4;
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) const DISK_SEEDS: u8 = 5;
 pub(crate) const DISK_NORMS: u8 = 6;
 
@@ -1000,7 +978,6 @@ pub(crate) enum Shape {
     /// Weyl dimensions of the three labels and `N^c_{ab}`.
     Channel { dims: [usize; 3], mult: usize },
     /// Weyl dimensions of the two factors and `N^c_{ab}`.
-    #[cfg_attr(not(test), allow(dead_code))]
     Seeds { dims: [usize; 2], mult: usize },
     /// The Weyl dimension of the irrep.
     Norms { dim: usize },
@@ -1105,6 +1082,111 @@ impl<const N: usize> clock::Equivalent<LabelKey> for LabelRef<'_, N> {
     }
 }
 
+/// The key of a composite view: the symbol and the product's Radical
+/// leaves in depth-first order, each an owned [`LabelKey`] whose `kind` is
+/// the leaf family. Equality compares every leaf's family, root and words.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ComposedKey {
+    symbol: SymbolKind,
+    leaves: Box<[LabelKey]>,
+}
+
+/// Key form of a composite view in the Product tier.
+const COMPOSED: u64 = 0x400;
+
+/// The symbol tag, then each leaf's [`LabelKey::key_hash`], in order.
+fn composed_hash(symbol: SymbolKind, leaves: impl IntoIterator<Item = u64>) -> u64 {
+    leaves
+        .into_iter()
+        .fold(fold(COMPOSED ^ symbol as u64 ^ P2, P3), |h, f| {
+            fold(h ^ f, P1)
+        })
+}
+
+impl Hash for ComposedKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_u64(composed_hash(
+            self.symbol,
+            self.leaves.iter().map(|l| l.key_hash(0)),
+        ));
+    }
+}
+
+impl CacheKeyCharge for ComposedKey {
+    fn key_bytes(&self) -> usize {
+        self.leaves
+            .iter()
+            .map(CacheKeyCharge::key_bytes)
+            .fold(std::mem::size_of::<Self>(), usize::saturating_add)
+    }
+}
+
+/// [`ComposedKey`] borrowed from a query's leaf buffer: hashed from the
+/// stored fingerprints, with no label buffer.
+pub(crate) struct ComposedRef<'a, 'q> {
+    pub(crate) symbol: SymbolKind,
+    pub(crate) leaves: &'a LeafBuf<'q>,
+}
+
+impl ComposedRef<'_, '_> {
+    fn labels<'s>(&self, leaf: &'s LeafRef<'_>) -> &'s [LeafLabel<'s>] {
+        &leaf.labels[..self.symbol.labels()]
+    }
+
+    fn to_key(&self) -> ComposedKey {
+        ComposedKey {
+            symbol: self.symbol,
+            leaves: self
+                .leaves
+                .0
+                .iter()
+                .map(|leaf| LabelKey {
+                    kind: leaf.family,
+                    root: leaf.root,
+                    labels: self
+                        .labels(leaf)
+                        .iter()
+                        .flat_map(|l| l.words())
+                        .copied()
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
+}
+
+impl Hash for ComposedRef<'_, '_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let leaf = |leaf: &LeafRef<'_>| {
+            key_hash(
+                u64::from(leaf.family),
+                leaf.root,
+                self.labels(leaf).iter().map(LeafLabel::hash),
+            )
+        };
+        state.write_u64(composed_hash(self.symbol, self.leaves.0.iter().map(leaf)));
+    }
+}
+
+impl clock::Equivalent<ComposedKey> for ComposedRef<'_, '_> {
+    fn equivalent(&self, key: &ComposedKey) -> bool {
+        let mut owned = key.leaves.iter();
+        self.symbol == key.symbol
+            && self.leaves.0.iter().all(|leaf| {
+                owned.next().is_some_and(|k| {
+                    k.kind == leaf.family
+                        && k.root == leaf.root
+                        && self
+                            .labels(leaf)
+                            .iter()
+                            .flat_map(|l| l.words())
+                            .eq(k.labels.iter())
+                })
+            })
+            && owned.next().is_none()
+    }
+}
+
 impl CacheCharge for FBlock<f64> {
     fn value_bytes(&self) -> usize {
         std::mem::size_of::<FBlock<f64>>()
@@ -1204,17 +1286,28 @@ enum FValue {
     /// A rounded SU(2) F symbol: a *presentation* of the exact 6j tier's
     /// value, never an independent value source.
     Scalar(f64),
+    /// A rounded Cartan block: a view of its exact block (kind 1).
     Block(FBlock<f64>),
+    /// The exact Cartan block, the stored authority.
+    Exact(Arc<RadicalBlock<4>>),
 }
 
 impl CacheCharge for FValue {
     fn value_bytes(&self) -> usize {
-        match self {
-            Self::Scalar(_) => std::mem::size_of::<Self>(),
-            Self::Block(block) => std::mem::size_of::<Self>().saturating_add(block.value_bytes()),
-        }
+        std::mem::size_of::<Self>().saturating_add(match self {
+            Self::Scalar(_) => 0,
+            Self::Block(block) => block.value_bytes(),
+            Self::Exact(x) => ARC_COUNTS_BYTES.saturating_add(x.bytes()),
+        })
     }
 }
+
+/// Key kinds of the Cartan F and R tiers: a rounded view and the exact
+/// block below it; A and B views share the R tier.
+const VIEW: u8 = 0;
+const EXACT: u8 = 1;
+const A_VIEW: u8 = 2;
+const B_VIEW: u8 = 3;
 
 /// The F tier. A warm SU(2) hit returns a `Copy` scalar without re-running the
 /// big-integer `sqrt` of [`SignedSqrtRational::to_f64`]; a warm Cartan hit
@@ -1231,14 +1324,16 @@ pub(crate) fn su2_f<E>(key: FKey, compute: impl FnOnce() -> Result<f64, E>) -> R
         &key,
         |value| match value {
             FValue::Scalar(x) => *x,
-            FValue::Block(_) => unreachable!("an SU(2) key stores a scalar"),
+            _ => unreachable!("an SU(2) key stores a scalar"),
         },
         || key.clone(),
         |_| compute().map(FValue::Scalar),
     )
 }
 
-/// Cartan-engine F block of the six labels as given, in presented root `root`.
+/// The rounded Cartan-engine F block of the six labels as given, in
+/// presented root `root`: a view, whose miss gets or generates the exact
+/// block ([`f_exact`]) below it.
 #[inline]
 pub(crate) fn f_block<E>(
     root: RootSystem,
@@ -1246,7 +1341,7 @@ pub(crate) fn f_block<E>(
     compute: impl FnOnce() -> Result<FBlock<f64>, E>,
 ) -> Result<FBlock<f64>, E> {
     let key = FCartanRef(LabelRef {
-        kind: 0,
+        kind: VIEW,
         root,
         parts,
     });
@@ -1254,32 +1349,121 @@ pub(crate) fn f_block<E>(
         &key,
         |value| match value {
             FValue::Block(block) => block.clone(),
-            FValue::Scalar(_) => unreachable!("a Cartan key stores a block"),
+            _ => unreachable!("a view key stores a block"),
         },
         || FSymbolKey::Cartan(key.0.to_key()),
         |_| compute().map(FValue::Block),
     )
 }
 
+/// The exact Cartan-engine F block of the six labels. Loaded inside a view
+/// miss, it inherits that generation's reset epoch; its generation never
+/// claims a view.
+pub(crate) fn f_exact<E>(
+    root: RootSystem,
+    parts: [Label<'_>; 6],
+    compute: impl FnOnce() -> Result<Arc<RadicalBlock<4>>, E>,
+) -> Result<Arc<RadicalBlock<4>>, E> {
+    let key = FCartanRef(LabelRef {
+        kind: EXACT,
+        root,
+        parts,
+    });
+    CACHE_F.get_or_try_sweep(
+        &key,
+        |value| match value {
+            FValue::Exact(x) => x.clone(),
+            _ => unreachable!("an exact key stores an exact block"),
+        },
+        || FSymbolKey::Cartan(key.0.to_key()),
+        |_| compute().map(FValue::Exact),
+    )
+}
+
+/// A value of the R tier: a rounded R, A or B view, or an exact R block.
+#[derive(Clone, Debug)]
+enum RValue {
+    View(RBlock<f64>),
+    Exact(Arc<RadicalBlock<2>>),
+}
+
+impl CacheCharge for RValue {
+    fn value_bytes(&self) -> usize {
+        std::mem::size_of::<Self>().saturating_add(match self {
+            Self::View(block) => block.value_bytes(),
+            Self::Exact(x) => ARC_COUNTS_BYTES.saturating_add(x.bytes()),
+        })
+    }
+}
+
 /// The R tier: Cartan-engine blocks keyed by the ordered triple, since
 /// `R^{ab}_c` and `R^{ba}_c` are different blocks. SUNRepresentations
-/// (`sector.jl:Rsymbol`, `RCACHE`) caches R blocks for the same reason.
-static CACHE_R: LazyLock<CoefficientCache<LabelKey, RBlock<f64>, FoldBuild>> =
+/// (`sector.jl:Rsymbol`, `RCACHE`) caches R blocks for the same reason. The
+/// A and B views of a triple share it.
+static CACHE_R: LazyLock<CoefficientCache<LabelKey, RValue, FoldBuild>> =
     LazyLock::new(|| CoefficientCache::shared(R_MAX_ENTRIES, effective_budgets().r_symbol_bytes));
 
-/// Cartan-engine R block of the three labels as given.
+fn r_view<E>(
+    kind: u8,
+    root: RootSystem,
+    parts: [Label<'_>; 3],
+    compute: impl FnOnce() -> Result<RBlock<f64>, E>,
+) -> Result<RBlock<f64>, E> {
+    let key = LabelRef { kind, root, parts };
+    CACHE_R.get_or_try_sweep(
+        &key,
+        |value| match value {
+            RValue::View(block) => block.clone(),
+            RValue::Exact(_) => unreachable!("a view key stores a view"),
+        },
+        || key.to_key(),
+        |_| compute().map(RValue::View),
+    )
+}
+
+/// The rounded Cartan-engine R block of the three labels as given: a view
+/// over [`r_exact`].
 #[inline]
 pub(crate) fn r_block<E>(
     root: RootSystem,
     parts: [Label<'_>; 3],
     compute: impl FnOnce() -> Result<RBlock<f64>, E>,
 ) -> Result<RBlock<f64>, E> {
+    r_view(VIEW, root, parts, compute)
+}
+
+/// The rounded `A^{ab}_c` (`b = false`) or `B^{ab}_c` (`b = true`) of the
+/// three labels as given, every rank-one presentation included: a view over
+/// the exact F of its unit-leg sextet.
+pub(crate) fn ab_block<E>(
+    b: bool,
+    root: RootSystem,
+    parts: [Label<'_>; 3],
+    compute: impl FnOnce() -> Result<RBlock<f64>, E>,
+) -> Result<RBlock<f64>, E> {
+    r_view(if b { B_VIEW } else { A_VIEW }, root, parts, compute)
+}
+
+/// The exact Cartan-engine R block of the three labels.
+pub(crate) fn r_exact<E>(
+    root: RootSystem,
+    parts: [Label<'_>; 3],
+    compute: impl FnOnce() -> Result<Arc<RadicalBlock<2>>, E>,
+) -> Result<Arc<RadicalBlock<2>>, E> {
     let key = LabelRef {
-        kind: 0,
+        kind: EXACT,
         root,
         parts,
     };
-    CACHE_R.get_or_try_compute(&key, || key.to_key(), compute)
+    CACHE_R.get_or_try_sweep(
+        &key,
+        |value| match value {
+            RValue::Exact(x) => x.clone(),
+            RValue::View(_) => unreachable!("an exact key stores an exact block"),
+        },
+        || key.to_key(),
+        |_| compute().map(RValue::Exact),
+    )
 }
 
 /// One retained Cartan-engine value. Modules, exact channels with their
@@ -1294,8 +1478,6 @@ enum CgcValue {
     Channel(Arc<CgcChannel>),
     Phase(i8),
     ExactChannel(Arc<ExactCgc>),
-    // Read by exact F and R; until then only tests.
-    #[cfg_attr(not(test), allow(dead_code))]
     Seeds(Arc<HighestColumn>),
     Norms(Arc<NormTable>),
 }
@@ -1321,7 +1503,6 @@ const MODULE: u8 = 0;
 const CHANNEL: u8 = 1;
 const PHASE: u8 = 2;
 const EXACT_CHANNEL: u8 = 3;
-#[cfg_attr(not(test), allow(dead_code))]
 const SEEDS: u8 = 4;
 const NORMS: u8 = 5;
 
@@ -1415,7 +1596,6 @@ pub(crate) fn cgc_exact_channel<E>(
 }
 
 /// The highest-weight column of the ordered triple.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn cgc_seeds<E>(
     root: RootSystem,
     parts: [Label<'_>; 3],
@@ -1470,8 +1650,40 @@ impl Hash for ProductRef<'_> {
         state.write_u64(key_hash(PRODUCT | u64::from(self.3), self.0, parts));
     }
 }
-impl clock::Equivalent<ProductKey> for ProductRef<'_> {
-    fn equivalent(&self, k: &ProductKey) -> bool {
+/// A Product-tier key: an exact simple-Lie product or a composite view.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ProductTierKey {
+    Fusion(ProductKey),
+    Composed(ComposedKey),
+}
+impl Hash for ProductTierKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Self::Fusion(k) => k.hash(state),
+            Self::Composed(k) => k.hash(state),
+        }
+    }
+}
+impl CacheKeyCharge for ProductTierKey {
+    fn key_bytes(&self) -> usize {
+        match self {
+            Self::Fusion(k) => k.key_bytes(),
+            Self::Composed(k) => k.key_bytes(),
+        }
+    }
+}
+impl clock::Equivalent<ProductTierKey> for ProductRef<'_> {
+    fn equivalent(&self, k: &ProductTierKey) -> bool {
+        matches!(k, ProductTierKey::Fusion(k) if self.equivalent_fusion(k))
+    }
+}
+impl clock::Equivalent<ProductTierKey> for ComposedRef<'_, '_> {
+    fn equivalent(&self, k: &ProductTierKey) -> bool {
+        matches!(k, ProductTierKey::Composed(k) if self.equivalent(k))
+    }
+}
+impl ProductRef<'_> {
+    fn equivalent_fusion(&self, k: &ProductKey) -> bool {
         self.0 == k.0
             && self.1.words == k.1.as_ref()
             && self.2.words == k.2.as_ref()
@@ -1485,7 +1697,7 @@ impl CacheKeyCharge for ProductKey {
             .saturating_add(std::mem::size_of_val(self.2.as_ref()))
     }
 }
-static CACHE_PRODUCT: LazyLock<CoefficientCache<ProductKey, ProductValue, FoldBuild>> =
+static CACHE_PRODUCT: LazyLock<CoefficientCache<ProductTierKey, ProductValue, FoldBuild>> =
     LazyLock::new(|| {
         CoefficientCache::shared(PRODUCT_MAX_ENTRIES, effective_budgets().product_bytes)
     });
@@ -1505,12 +1717,12 @@ pub(crate) fn product<E>(
             ProductValue::Labels(x) => x.clone(),
             _ => unreachable!("projection is part of the key"),
         },
-        || ProductKey(root, a.words.into(), b.words.into(), false),
+        || ProductTierKey::Fusion(ProductKey(root, a.words.into(), b.words.into(), false)),
         |publisher| {
             // The child inherits the label loader's reset epoch, including before its own claim.
             let raw = publisher.get_or_try_compute(
                 &ProductRef(root, a, b, true),
-                || ProductKey(root, a.words.into(), b.words.into(), true),
+                || ProductTierKey::Fusion(ProductKey(root, a.words.into(), b.words.into(), true)),
                 || compute().map(ProductValue::Multiplicities),
             )?;
             match raw {
@@ -1538,9 +1750,39 @@ pub(crate) fn product_multiplicity<E>(
             ProductValue::Multiplicities(x) => x.multiplicity(c),
             _ => unreachable!("projection is part of the key"),
         },
-        || ProductKey(root, a.words.into(), b.words.into(), true),
+        || ProductTierKey::Fusion(ProductKey(root, a.words.into(), b.words.into(), true)),
         |_| compute().map(ProductValue::Multiplicities),
     )
+}
+
+/// The rounded unit-(+1) composite view of a product query's Radical
+/// leaves (two or more), in the Product tier. Its authority is the leaves'
+/// exact blocks and the deterministic composition: no composite exact entry
+/// is stored, and `compute` claims no view.
+pub(crate) fn composed<E>(
+    symbol: SymbolKind,
+    leaves: &LeafBuf<'_>,
+    compute: impl FnOnce() -> Result<View, E>,
+) -> Result<View, E> {
+    let key = ComposedRef { symbol, leaves };
+    CACHE_PRODUCT.get_or_try_sweep(
+        &key,
+        |value| match value {
+            ProductValue::Composite(view) => view.clone(),
+            _ => unreachable!("a composite key stores a view"),
+        },
+        || ProductTierKey::Composed(key.to_key()),
+        |_| compute().map(ProductValue::Composite),
+    )
+}
+
+impl CacheCharge for View {
+    fn value_bytes(&self) -> usize {
+        match self {
+            Self::F(block) => block.value_bytes(),
+            Self::R(block) => block.value_bytes(),
+        }
+    }
 }
 
 fn control(tier: CoefficientCacheTier) -> &'static dyn TierControl {
@@ -1706,6 +1948,30 @@ pub(crate) fn product_multiplicities_are_resident(root: RootSystem, a: &[i64], b
         .is_some()
 }
 
+/// Whether the composite view of a product query's leaves is retained.
+#[cfg(test)]
+pub(crate) fn composed_is_resident(symbol: SymbolKind, leaves: &LeafBuf<'_>) -> bool {
+    assert_cache_access_allowed();
+    CACHE_PRODUCT
+        .inner
+        .peek(&ComposedRef { symbol, leaves })
+        .is_some()
+}
+
+/// Whether the exact Cartan F block of the six labels is retained.
+#[cfg(all(test, feature = "lie-generated"))]
+pub(crate) fn f_exact_is_resident(root: RootSystem, parts: [&[i64]; 6]) -> bool {
+    assert_cache_access_allowed();
+    CACHE_F
+        .inner
+        .peek(&FCartanRef(LabelRef {
+            kind: EXACT,
+            root,
+            parts: parts.map(Label::new),
+        }))
+        .is_some()
+}
+
 /// Whether the completed channel of the ordered triple is retained.
 #[cfg(test)]
 pub(crate) fn cgc_channel_is_resident(root: RootSystem, parts: [&[i64]; 3]) -> bool {
@@ -1728,6 +1994,20 @@ pub(crate) fn cgc_exact_channel_is_resident(root: RootSystem, parts: [&[i64]; 3]
         .inner
         .peek(&LabelRef {
             kind: EXACT_CHANNEL,
+            root,
+            parts: parts.map(Label::new),
+        })
+        .is_some()
+}
+
+/// Whether the highest-weight seeds of the ordered triple are retained.
+#[cfg(all(test, feature = "lie-generated"))]
+pub(crate) fn cgc_seeds_are_resident(root: RootSystem, parts: [&[i64]; 3]) -> bool {
+    assert_cache_access_allowed();
+    CACHE_CGC
+        .inner
+        .peek(&LabelRef {
+            kind: SEEDS,
             root,
             parts: parts.map(Label::new),
         })
@@ -2345,8 +2625,8 @@ mod tests {
         let fam = crate::lie::general::GeneralFamily::new(RootSystem::A(2));
         let [e8, three, bar] = [&[1, 1], &[1, 0], &[0, 1]].map(|x| Label::new(x));
         // The 2×2 octet block shares an Arc; a 1×1 block is inline.
-        let a = fam.r_symbol([e8, e8, e8], None).unwrap();
-        let b = fam.r_symbol([three, bar, e8], None).unwrap();
+        let a = fam.r_symbol([e8, e8, e8]).unwrap();
+        let b = fam.r_symbol([three, bar, e8]).unwrap();
         // Purpose: a block charge covers its coefficient payload and grows with it.
         assert!(a.value_bytes() >= std::mem::size_of_val(a.as_slice()));
         assert!(a.value_bytes() > b.value_bytes());
@@ -2633,7 +2913,7 @@ mod tests {
         };
         hit(FSymbolKey::Cartan(six.to_key()), &FCartanRef(six));
         hit(
-            ProductKey(root, a.words.into(), b.words.into(), false),
+            ProductTierKey::Fusion(ProductKey(root, a.words.into(), b.words.into(), false)),
             &ProductRef(root, a, b, false),
         );
         // Different kinds and root presentations never collide.
@@ -3014,7 +3294,7 @@ mod tests {
             agree(&FSymbolKey::Cartan(six.0.to_key()), &six, root);
             for flag in [false, true] {
                 agree(
-                    &ProductKey(root, a.words.into(), b.words.into(), flag),
+                    &ProductTierKey::Fusion(ProductKey(root, a.words.into(), b.words.into(), flag)),
                     &ProductRef(root, a, b, flag),
                     root,
                 );
@@ -3034,7 +3314,8 @@ mod tests {
             assert_eq!(FoldBuild.hash_one(&forged), FoldBuild.hash_one(&owned));
             assert!(!forged.equivalent(&owned), "{root:?}");
             let forged = ProductRef(root, Label { hash: a.hash, ..c }, b, true);
-            let owned = ProductKey(root, a.words.into(), b.words.into(), true);
+            let owned =
+                ProductTierKey::Fusion(ProductKey(root, a.words.into(), b.words.into(), true));
             assert_eq!(FoldBuild.hash_one(&forged), FoldBuild.hash_one(&owned));
             assert!(!forged.equivalent(&owned), "{root:?}");
         }
@@ -3045,5 +3326,92 @@ mod tests {
             .map(|(dim, phase)| FSymbolKey::Su2(FKey::new(regge, dim, phase)));
         let hashes = keys.each_ref().map(|k| FoldBuild.hash_one(k));
         assert!(hashes[0] != hashes[1] && hashes[0] != hashes[2] && hashes[1] != hashes[2]);
+    }
+
+    /// Purpose: a composite query borrowed from its leaf buffer hashes like
+    /// its owned key and is equivalent to it, for simple, A(1)/B(1)/C(1) and
+    /// CU(1) leaves; keys that differ in the symbol, a root, a CU(1) word
+    /// (`0+` against `0−`, charge `1` against `1 + 2^30`) or the leaf count
+    /// differ; a forced-equal fingerprint never makes unequal keys equal.
+    #[test]
+    fn composed_keys_hash_alike_and_compare_exactly() {
+        use crate::category::sealed::{InlineVec, LEAF_A1, LEAF_CU1, LEAF_SIMPLE};
+        fn buf<'q>(leaves: &[LeafRef<'q>]) -> LeafBuf<'q> {
+            let mut b = InlineVec::with_capacity(leaves.len());
+            for &l in leaves {
+                b.push(l);
+            }
+            LeafBuf(b)
+        }
+        fn inline(w: [i64; 3], root: RootSystem, family: u8) -> LeafRef<'static> {
+            LeafRef {
+                family,
+                root,
+                labels: [w[0], w[1], w[2], 0, 0, 0].map(LeafLabel::inline),
+            }
+        }
+        let cu1 = |twice_charge: u32, s: u8| {
+            inline(
+                [(i64::from(twice_charge) << 2) | i64::from(s); 3],
+                RootSystem::A(1),
+                LEAF_CU1,
+            )
+        };
+        let a1 = |root| inline([1, 1, 0], root, LEAF_A1);
+        let su3 = [[1i64, 0], [0, 1], [1, 1]];
+        let simple = LeafRef {
+            family: LEAF_SIMPLE,
+            root: RootSystem::A(2),
+            labels: [0, 1, 2, 0, 1, 2].map(|i| LeafLabel::Words(&su3[i], label_hash(&su3[i]))),
+        };
+        let (a, b, c) = (RootSystem::A(1), RootSystem::B(1), RootSystem::C(1));
+        let queries = [
+            (SymbolKind::F, buf(&[simple, a1(a)])),
+            (SymbolKind::R, buf(&[a1(b), simple])),
+            (SymbolKind::A, buf(&[a1(c), cu1(1, 2)])),
+            // Five leaves: one past the inline four.
+            (SymbolKind::B, buf(&[simple, simple, simple, simple, a1(a)])),
+            (SymbolKind::A, buf(&[cu1(0, 0)])),
+            (SymbolKind::B, buf(&[cu1(0, 0)])),
+            (SymbolKind::A, buf(&[cu1(0, 1)])),
+            (SymbolKind::B, buf(&[cu1(1, 2)])),
+            (SymbolKind::B, buf(&[cu1(1 + (1 << 30), 2)])),
+            (SymbolKind::R, buf(&[a1(a)])),
+            (SymbolKind::R, buf(&[a1(b)])),
+            (SymbolKind::R, buf(&[a1(c)])),
+            (SymbolKind::R, buf(&[a1(a), a1(a)])),
+        ];
+        let refs: Vec<_> = queries
+            .iter()
+            .map(|(symbol, leaves)| ComposedRef {
+                symbol: *symbol,
+                leaves,
+            })
+            .collect();
+        let keys: Vec<_> = refs.iter().map(ComposedRef::to_key).collect();
+        for (i, r) in refs.iter().enumerate() {
+            assert_eq!(FoldBuild.hash_one(r), FoldBuild.hash_one(&keys[i]), "{i}");
+            for (j, k) in keys.iter().enumerate() {
+                assert_eq!(r.equivalent(k), i == j, "{i} against {j}");
+            }
+        }
+        // Unequal words forced to one fingerprint miss a tier holding the
+        // other key.
+        let mut forged = simple;
+        forged.labels[5] = LeafLabel::Words(&su3[0], label_hash(&su3[2]));
+        let (forged, real) = (buf(&[forged]), buf(&[simple]));
+        let forged = ComposedRef {
+            symbol: SymbolKind::F,
+            leaves: &forged,
+        };
+        let real = ComposedRef {
+            symbol: SymbolKind::F,
+            leaves: &real,
+        };
+        assert_eq!(FoldBuild.hash_one(&forged), FoldBuild.hash_one(&real));
+        let tier: CoefficientCache<ComposedKey, f64> = CoefficientCache::new(16, 1 << 20);
+        tier.get_or_compute(real.to_key(), || 1.0);
+        assert_eq!(tier.get(&real), Some(1.0));
+        assert_eq!(tier.get(&forged), None);
     }
 }

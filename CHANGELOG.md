@@ -7,8 +7,39 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Added
+
+- `PrefillRequest::{a_symbol, b_symbol}`: A and B are retained as their own
+  rounded blocks, so warming the F block and phase they read no longer
+  warms them.
+- `ProductError::Gate`: a composed product F or R whose rounding fails its
+  gate (finite entries, unitarity).
+
 ### Changed
 
+- **Breaking (values):** products of Lie categories are exact when every
+  factor supplies exact values: F, R, A and B of a product (tuple, `Vec`,
+  nested, or a composite `LieGroup`) whose factors are Lie groups, tori,
+  U(1), CU(1), Z_N or fermion parity are the exact products of the factors'
+  exact values, rounded once, and identical for every nesting of the same
+  factors. With two or more non-unit factors they are cached as one
+  composite view in the Product tier; with one, the factor's own value is
+  returned. Products containing a table category or a category defined
+  outside the crate still multiply the public values of their leaves,
+  flattened through any nesting, left to right in `f64`, as do product
+  dimensions and CGCs. A nested product therefore gives the flat product's
+  value, and each leaf N and block is evaluated once per query.
+- **Breaking (values):** CU(1) A and B are formed exactly from its exact F
+  and rounded once, so unit values are exactly `±1`; F and R are unchanged.
+- **Breaking (values):** F, R, A and B of every simple Lie type, and A and B
+  of SU(2) and its presentations, are the exact values rounded once
+  (`docs/gauge_cartan.md` §6.2), no longer binary64 contractions whose
+  every product and sum was rounded. Values move by a few ulp; persisted F
+  and R rows are exact blocks (storage schema 3), and a row whose rounded
+  view fails its gate is regenerated rather than retained.
+- `BASE_CACHE_MAX_BYTES` is the sum of every tier's cap, 576 MiB
+  (Wigner 3j, 6j, F, R, Product and CGC), in every build.
+  **Breaking:** `GENERATED_CACHE_MAX_BYTES` is removed.
 - Every Cartan-engine CGC channel keeps its exact value as the stored
   authority: per multiplicity index, integer coordinates on one common
   denominator with the content divided out, and one vertex radicand. The
@@ -17,9 +48,9 @@ value/gauge rule noted below.
   coefficient value changes. The CGC tier also retains highest-weight seeds
   and irrep norm tables, and a view evicted while its exact channel is
   resident is rounded again without a descent.
-- The disk cache stores exact CGC rows only (storage schema 2): exact
-  channels, seeds and norm tables, checked by structural decoders before any
-  arithmetic. A loaded channel is rounded into its view as after a
+- The disk cache stores exact CGC rows only (storage schema 3): exact
+  channels, seeds and norm tables (the norms only; their integer form is
+  rebuilt on load), checked by structural decoders before any arithmetic. A loaded channel is rounded into its view as after a
   generation, building no irrep module when its norm tables are stored:
   the first view of a loaded channel costs one conversion per entry
   (in team sections under `prefill` with a team, on the calling thread

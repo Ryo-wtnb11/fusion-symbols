@@ -39,8 +39,6 @@ pub(crate) mod sealed {
     /// alongside it already passed the caller's validation.
     #[derive(Clone, Copy)]
     pub struct Validated(pub(crate) ());
-    /// A returned block and the independently checked N axes to validate it against.
-    pub type SymbolWithAxes<B, const R: usize> = (B, [u32; R]);
     /// Object count, unbounded by `u64` so that a product nested in another
     /// still bounds its coordinates, with a product's per-factor counts so
     /// that unranking visits each leaf once.
@@ -56,6 +54,302 @@ pub(crate) mod sealed {
     }
     impl Sealed for f64 {}
     impl Sealed for num_complex::Complex64 {}
+
+    /// The kind of a categorical symbol query.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum SymbolKind {
+        /// `F^{abc}_d[e, f]`.
+        F,
+        /// `R^{ab}_c`.
+        R,
+        /// `A^{ab}_c`.
+        A,
+        /// `B^{ab}_c`.
+        B,
+    }
+
+    impl SymbolKind {
+        /// Labels per query: six for F, three otherwise.
+        pub(crate) fn labels(self) -> usize {
+            match self {
+                Self::F => 6,
+                _ => 3,
+            }
+        }
+    }
+
+    /// One symbol query over validated objects.
+    pub enum Query<'q, O> {
+        /// `F^{abc}_d[e, f]` as `[a, b, c, d, e, f]`.
+        F([&'q O; 6]),
+        /// `R^{ab}_c`.
+        R([&'q O; 3]),
+        /// `A^{ab}_c`.
+        A([&'q O; 3]),
+        /// `B^{ab}_c`.
+        B([&'q O; 3]),
+    }
+
+    impl<O> Clone for Query<'_, O> {
+        fn clone(&self) -> Self {
+            *self
+        }
+    }
+    impl<O> Copy for Query<'_, O> {}
+
+    impl<'q, O> Query<'q, O> {
+        pub(crate) fn kind(&self) -> SymbolKind {
+            match self {
+                Self::F(_) => SymbolKind::F,
+                Self::R(_) => SymbolKind::R,
+                Self::A(_) => SymbolKind::A,
+                Self::B(_) => SymbolKind::B,
+            }
+        }
+
+        /// The same query on a factor's (or a composite's) objects.
+        pub(crate) fn map<P>(self, f: impl Fn(&'q O) -> &'q P) -> Query<'q, P> {
+            match self {
+                Self::F(x) => Query::F(x.map(f)),
+                Self::R(x) => Query::R(x.map(f)),
+                Self::A(x) => Query::A(x.map(f)),
+                Self::B(x) => Query::B(x.map(f)),
+            }
+        }
+    }
+
+    /// An operation of the exact product protocol (§e of the design).
+    pub enum ExactOp<'q, 'b, O> {
+        /// Label-free class of a symbol kind; no cache.
+        Class(SymbolKind),
+        /// Append this query's Radical leaves and return its aggregate unit;
+        /// no cache.
+        Describe(Query<'q, O>, &'b mut LeafBuf<'q>),
+        /// Append each own Radical leaf's exact block, in leaf order.
+        Fetch(Query<'q, O>, &'b mut ExactBuf),
+        /// The one Radical leaf's rounded view (a query with one leaf).
+        View(Query<'q, O>, &'b mut Option<View>),
+    }
+
+    impl<'q, 'b, O> ExactOp<'q, 'b, O> {
+        /// The same operation on a composite's product objects.
+        pub(crate) fn map<P>(self, f: impl Fn(&'q O) -> &'q P) -> ExactOp<'q, 'b, P> {
+            match self {
+                Self::Class(k) => ExactOp::Class(k),
+                Self::Describe(q, b) => ExactOp::Describe(q.map(f), b),
+                Self::Fetch(q, b) => ExactOp::Fetch(q.map(f), b),
+                Self::View(q, b) => ExactOp::View(q.map(f), b),
+            }
+        }
+    }
+
+    /// The answer to an [`ExactOp`].
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum ExactAnswer {
+        /// No exact values: the caller takes the float path.
+        Unavailable,
+        /// Every admissible query of the kind is a single unit entry.
+        UnitClass,
+        /// Exact values with this many Radical leaves.
+        RadicalClass { leaves: usize },
+        /// The aggregate unit of a described query.
+        Unit(Unit),
+        /// A fetched or viewed query.
+        Done,
+    }
+
+    /// A unit value: multiplying a correctly rounded value by it is exact.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Unit {
+        Zero,
+        PlusOne,
+        MinusOne,
+    }
+
+    impl Unit {
+        pub(crate) fn times(self, other: Self) -> Self {
+            match (self, other) {
+                (Self::Zero, _) | (_, Self::Zero) => Self::Zero,
+                (a, b) if a == b => Self::PlusOne,
+                _ => Self::MinusOne,
+            }
+        }
+
+        /// `self · x`, exact: `−1` negates both parts of a complex value.
+        pub(crate) fn apply<S: super::Scalar>(self, x: S) -> S {
+            match self {
+                Self::Zero => S::zero(),
+                Self::PlusOne => x,
+                Self::MinusOne => -x,
+            }
+        }
+
+        /// The unit of a unit-class block: empty is an absent channel.
+        pub(crate) fn of<S: super::Scalar>(entries: &[S]) -> Option<Self> {
+            match entries {
+                [] => Some(Self::Zero),
+                &[x] if x == S::zero() => Some(Self::Zero),
+                &[x] if x == S::one() => Some(Self::PlusOne),
+                &[x] if x == -S::one() => Some(Self::MinusOne),
+                _ => None,
+            }
+        }
+    }
+
+    /// The rounded view of one Radical leaf or of a composite: real `f64`.
+    #[derive(Clone, Debug)]
+    pub enum View {
+        F(super::FBlock<f64>),
+        /// R, A or B.
+        R(super::RBlock<f64>),
+    }
+
+    /// The exact blocks of a query's Radical leaves, in leaf order.
+    pub struct ExactBuf {
+        pub(crate) f: InlineVec<std::sync::Arc<crate::exact::radical::RadicalBlock<4>>, 4>,
+        pub(crate) r2: InlineVec<std::sync::Arc<crate::exact::radical::RadicalBlock<2>>, 4>,
+    }
+
+    impl ExactBuf {
+        pub(crate) fn with_capacity(n: usize) -> Self {
+            Self {
+                f: InlineVec::with_capacity(n),
+                r2: InlineVec::with_capacity(n),
+            }
+        }
+    }
+
+    /// Family tags of a Radical leaf: its owned key's `kind`.
+    pub(crate) const LEAF_SIMPLE: u8 = 0;
+    pub(crate) const LEAF_A1: u8 = 1;
+    pub(crate) const LEAF_CU1: u8 = 2;
+
+    /// One label of a Radical leaf, read in place with its fingerprint.
+    #[derive(Clone, Copy, Debug)]
+    pub(crate) enum LeafLabel<'q> {
+        /// A simple factor's rank-length words and their stored fingerprint.
+        Words(&'q [i64], u64),
+        /// A rank-one label's single word and `label_hash(&[w])`.
+        Inline(i64, u64),
+    }
+
+    impl LeafLabel<'_> {
+        /// The rank-one label `w`.
+        pub(crate) fn inline(w: i64) -> Self {
+            Self::Inline(w, crate::cache::label_hash(&[w]))
+        }
+
+        pub(crate) fn words(&self) -> &[i64] {
+            match self {
+                Self::Words(w, _) => w,
+                Self::Inline(w, _) => std::slice::from_ref(w),
+            }
+        }
+
+        pub(crate) fn hash(&self) -> u64 {
+            match *self {
+                Self::Words(_, h) | Self::Inline(_, h) => h,
+            }
+        }
+    }
+
+    /// A Radical leaf of a product query, borrowed: its family tag, its
+    /// presented root (`A(1)` for rank-one families without one) and the
+    /// query's labels in that factor, of which the symbol kind's
+    /// [`SymbolKind::labels`] are read.
+    #[derive(Clone, Copy, Debug)]
+    pub(crate) struct LeafRef<'q> {
+        pub(crate) family: u8,
+        pub(crate) root: crate::lie::RootSystem,
+        pub(crate) labels: [LeafLabel<'q>; 6],
+    }
+
+    impl<'q> LeafRef<'q> {
+        /// The leaf of `labels` (three for R/A/B; the unread rest padded).
+        pub(crate) fn new(
+            family: u8,
+            root: crate::lie::RootSystem,
+            labels: impl IntoIterator<Item = LeafLabel<'q>>,
+        ) -> Self {
+            let mut out = [LeafLabel::Inline(0, 0); 6];
+            for (o, l) in out.iter_mut().zip(labels) {
+                *o = l;
+            }
+            Self {
+                family,
+                root,
+                labels: out,
+            }
+        }
+    }
+
+    /// Up to `N` values inline, the rest in one spill vector.
+    pub(crate) struct InlineVec<T, const N: usize> {
+        len: usize,
+        inline: [Option<T>; N],
+        spill: Vec<T>,
+    }
+
+    impl<T, const N: usize> InlineVec<T, N> {
+        /// Room for `n` values: the spill is reserved once, only past `N`.
+        pub(crate) fn with_capacity(n: usize) -> Self {
+            Self {
+                len: 0,
+                inline: std::array::from_fn(|_| None),
+                spill: Vec::with_capacity(n.saturating_sub(N)),
+            }
+        }
+
+        pub(crate) fn push(&mut self, x: T) {
+            match self.inline.get_mut(self.len) {
+                Some(slot) => *slot = Some(x),
+                None => self.spill.push(x),
+            }
+            self.len += 1;
+        }
+
+        pub(crate) fn iter(&self) -> impl Iterator<Item = &T> {
+            self.inline.iter().flatten().chain(&self.spill)
+        }
+
+        pub(crate) fn get(&self, i: usize) -> Option<&T> {
+            match self.inline.get(i) {
+                Some(slot) => slot.as_ref(),
+                None => self.spill.get(i - N),
+            }
+        }
+    }
+
+    /// Every leaf's leg N of one float-route query, depth-first, read back
+    /// in the same order for the block checks.
+    pub struct LegRows {
+        rows: InlineVec<[u32; 4], 4>,
+        next: usize,
+    }
+    impl Default for LegRows {
+        fn default() -> Self {
+            Self {
+                rows: InlineVec::with_capacity(0),
+                next: 0,
+            }
+        }
+    }
+    impl LegRows {
+        pub(crate) fn push(&mut self, row: [u32; 4]) {
+            self.rows.push(row);
+        }
+        pub(crate) fn next(&mut self) -> [u32; 4] {
+            let row = self.rows.get(self.next).copied().unwrap_or_default();
+            self.next += 1;
+            row
+        }
+    }
+
+    /// The float-route fold of one query's leaf blocks.
+    pub struct FloatSink(pub(crate) crate::product::FloatState);
+
+    /// The Radical leaves of one product query, depth-first.
+    pub struct LeafBuf<'q>(pub(crate) InlineVec<LeafRef<'q>, 4>);
 }
 
 /// Closed scalar set (`f64`, `Complex64`) with arithmetic preserving the type.
@@ -559,8 +853,9 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     /// `1 × 1` block is stored inline without allocation. The default
     /// evaluates that F; a category may override it with the same values.
     /// With warm Lie caches and inline dimension arithmetic, only the returned
-    /// coefficient buffer allocates (nothing for an inline block). Products also
-    /// allocate factor blocks and their per-query Kronecker composition buffers.
+    /// coefficient buffer allocates (nothing for an inline block). Products of
+    /// exact factors return a cached view; other products also allocate factor
+    /// blocks and their per-query Kronecker composition buffers.
     /// Errors are those of N, the phase and F.
     ///
     /// # Panics
@@ -774,29 +1069,11 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
 
     // Crate-internal `__fusion_symbols_validated_*` entry points, not part of
     // the public API. A product calls them after validating every leaf object
-    // with `contains` (and, for F/R/A/B, establishing nonzero representable
-    // shapes); a nested product overrides them to skip re-validation and shape
-    // recomputation, which would otherwise repeat at every nesting level. Symbol
-    // hooks return the block with its checked N axes; Product checks storage
-    // before indexing. The token is unnameable outside the crate, so they can be
-    // neither called nor overridden there; the prefix keeps them from colliding
-    // with downstream extension-trait methods.
-    #[doc(hidden)]
-    fn __fusion_symbols_validated_sqrt_dim(&self, a: &Self::Object, _: sealed::Validated) -> f64 {
-        self.sqrt_dim(a)
-    }
-    #[doc(hidden)]
-    fn __fusion_symbols_validated_inv_sqrt_dim(
-        &self,
-        a: &Self::Object,
-        _: sealed::Validated,
-    ) -> f64 {
-        self.inv_sqrt_dim(a)
-    }
-    #[doc(hidden)]
-    fn __fusion_symbols_validated_inv_dim(&self, a: &Self::Object, _: sealed::Validated) -> f64 {
-        self.inv_dim(a)
-    }
+    // with `contains`; a nested product overrides them to skip re-validation,
+    // which would otherwise repeat at every nesting level. The token is
+    // unnameable outside the crate, so they can be neither called nor
+    // overridden there; the prefix keeps them from colliding with downstream
+    // extension-trait methods.
     #[doc(hidden)]
     fn __fusion_symbols_validated_object_index(
         &self,
@@ -904,82 +1181,64 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
     ) -> Result<u32, Self::Error> {
         self.nsymbol(a, b, c)
     }
-    // The block with the axes its product checks it against. `ones` is given
-    // when every product axis is 1: each leaf N is then 1 (a product of positive
-    // multiplicities), so it is not evaluated again.
+    // The float route of a product query: a leaf's leg N, which a product
+    // overrides to visit its factors depth-first and fold their legs, so
+    // that each leaf is asked once whatever the nesting.
     #[doc(hidden)]
-    #[allow(clippy::too_many_arguments)]
-    fn __fusion_symbols_validated_f_symbol(
+    fn __fusion_symbols_float_legs(
         &self,
-        a: &Self::Object,
-        b: &Self::Object,
-        c: &Self::Object,
-        d: &Self::Object,
-        e: &Self::Object,
-        f: &Self::Object,
-        ones: Option<[u32; 4]>,
-        _: sealed::Validated,
-    ) -> Result<sealed::SymbolWithAxes<Self::FSymbol, 4>, Self::Error> {
-        let block = self.f_symbol(a, b, c, d, e, f)?;
-        let n = match ones {
-            Some(n) => n,
-            None => [
-                self.nsymbol(a, b, e)?,
-                self.nsymbol(e, c, d)?,
-                self.nsymbol(b, c, f)?,
-                self.nsymbol(a, f, d)?,
-            ],
-        };
-        Ok((block, n))
+        q: sealed::Query<'_, Self::Object>,
+        rows: &mut sealed::LegRows,
+        t: sealed::Validated,
+    ) -> [Result<u32, Self::Error>; 4] {
+        crate::product::leaf_legs(self, q, rows, t)
     }
+    // Then each leaf's public block, in the same order.
     #[doc(hidden)]
-    fn __fusion_symbols_validated_r_symbol(
+    fn __fusion_symbols_float_blocks(
         &self,
-        a: &Self::Object,
-        b: &Self::Object,
-        c: &Self::Object,
-        ones: Option<[u32; 2]>,
+        q: sealed::Query<'_, Self::Object>,
+        rows: &mut sealed::LegRows,
+        sink: &mut sealed::FloatSink,
         _: sealed::Validated,
-    ) -> Result<sealed::SymbolWithAxes<Self::RSymbol, 2>, Self::Error> {
-        let block = self.r_symbol(a, b, c)?;
-        let n = match ones {
-            Some(n) => n,
-            None => [self.nsymbol(a, b, c)?, self.nsymbol(b, a, c)?],
-        };
-        Ok((block, n))
+    ) -> Result<(), Self::Error> {
+        crate::product::leaf_block(self, q, rows, sink)
     }
+    // The exact product protocol: a product's F/R/A/B are the rounding of
+    // the exact composition of its leaves' exact values when every factor
+    // answers. The default is unavailable, which keeps the float path.
     #[doc(hidden)]
-    fn __fusion_symbols_validated_a_symbol(
+    fn __fusion_symbols_exact_symbol(
         &self,
-        a: &Self::Object,
-        b: &Self::Object,
-        c: &Self::Object,
-        ones: Option<[u32; 2]>,
+        op: sealed::ExactOp<'_, '_, Self::Object>,
         _: sealed::Validated,
-    ) -> Result<sealed::SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
-        let block = self.a_symbol(a, b, c)?;
-        let n = match ones {
-            Some(n) => n,
-            None => [self.nsymbol(a, b, c)?, self.nsymbol(&self.dual(a), c, b)?],
-        };
-        Ok((block, n))
+    ) -> Result<sealed::ExactAnswer, Self::Error> {
+        let _ = op;
+        Ok(sealed::ExactAnswer::Unavailable)
     }
-    #[doc(hidden)]
-    fn __fusion_symbols_validated_b_symbol(
-        &self,
-        a: &Self::Object,
-        b: &Self::Object,
-        c: &Self::Object,
-        ones: Option<[u32; 2]>,
-        _: sealed::Validated,
-    ) -> Result<sealed::SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
-        let block = self.b_symbol(a, b, c)?;
-        let n = match ones {
-            Some(n) => n,
-            None => [self.nsymbol(a, b, c)?, self.nsymbol(c, &self.dual(b), a)?],
-        };
-        Ok((block, n))
-    }
+}
+
+/// The hook of a unit-class category: `Class` is unit for every kind, and
+/// `Describe` reads the single closed-form entry, with no search.
+pub(crate) fn unit_symbol<C: FusionCategory>(
+    cat: &C,
+    op: sealed::ExactOp<'_, '_, C::Object>,
+) -> Result<sealed::ExactAnswer, C::Error> {
+    use sealed::{ExactAnswer, ExactOp, Query};
+    let q = match op {
+        ExactOp::Class(_) => return Ok(ExactAnswer::UnitClass),
+        ExactOp::Describe(q, _) => q,
+        ExactOp::Fetch(..) | ExactOp::View(..) => return Ok(ExactAnswer::Unavailable),
+    };
+    let unit = match q {
+        Query::F([a, b, c, d, e, f]) => {
+            sealed::Unit::of(cat.f_symbol(a, b, c, d, e, f)?.as_slice())
+        }
+        Query::R([a, b, c]) => sealed::Unit::of(cat.r_symbol(a, b, c)?.as_slice()),
+        Query::A([a, b, c]) => sealed::Unit::of(cat.a_symbol(a, b, c)?.as_slice()),
+        Query::B([a, b, c]) => sealed::Unit::of(cat.b_symbol(a, b, c)?.as_slice()),
+    };
+    Ok(unit.map_or(ExactAnswer::Unavailable, ExactAnswer::Unit))
 }
 
 // `√d_a √d_b / √d_c`, the normalization shared by A and B.
@@ -990,6 +1249,16 @@ fn vertex_scale<C: FusionCategory>(
     c: &C::Object,
 ) -> C::Scalar {
     C::Scalar::from_f64(cat.sqrt_dim(a) * cat.sqrt_dim(b) / cat.sqrt_dim(c))
+}
+
+// The A or B block of an Abelian category, whose admissible F and dimensions
+// are all one: `N(a, b, c)` as a `1 × 1` or empty block.
+pub(crate) fn abelian_vertex(n: u32) -> RBlock<f64> {
+    if n == 0 {
+        RBlock::zeros(0)
+    } else {
+        RBlock::one(1.0)
+    }
 }
 
 // The square `n × n` A or B block from row-major data (`N(a,b,c)` equals

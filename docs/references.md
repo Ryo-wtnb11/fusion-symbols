@@ -11,6 +11,7 @@ provenance is in [category conventions](references_categories.md).
 | Local authority (`file::symbol`, paths relative to `src/`) | Pinned reference | Contract or intentional difference |
 |---|---|---|
 | `lie/su2.rs::{wigner_3j,wigner_6j,clebsch_gordan}`; `exact.rs::SignedSqrtRational`; `primefactor.rs` | [WignerSymbols.jl 2.0.0](https://github.com/Jutho/WignerSymbols.jl/tree/v2.0.0), `src/WignerSymbols.jl::{_wigner3j,_wigner6j,compute6jseries}` and `src/primefactorization.jl` | Exact Racah sums; one final rounding |
+| `product.rs::exact_route`; `category.rs::sealed::{ExactOp,ExactAnswer}`; `cache.rs::composed` | [TensorKitSectors.jl](https://github.com/QuantumKitHub/TensorKitSectors.jl) `src/product.jl::{Fsymbol,Rsymbol,Asymbol,Bsymbol}` (Kronecker products of the factor symbols, last factor fastest) | Same layout and values up to rounding: the composition of exact factor values is rounded once when every factor supplies them, rather than multiplying rounded factor symbols |
 | `lie/su2.rs::{canonical_regge_3j,canonical_regge_6j}`; `cache.rs::CoefficientCache` | WignerSymbols.jl `reorder3j`, per-kind Wigner caches | Complete deterministic tie-breaking; byte-weighted CLOCK with lock-free hits (MemoizationKit `containers/clock.jl::ClockCache`) rather than LRU |
 | `lie/su2.rs::{f_symbol_exact,r_symbol,fs_phase}` | TensorKitSectors `src/irreps/su2irrep.jl::{Fsymbol,Rsymbol}` | Phase, normalization and argument order fixed in [gauge §1](gauge.md#1-su2-closed-forms) |
 | `lie/general/roots.rs::CartanData::gt_product`; `lie/gt.rs::gt_enumerate`; `lie/general/gt.rs::module` | [SUNRepresentations.jl 0.4.0](https://github.com/QuantumKitHub/SUNRepresentations.jl/tree/v0.4.0), `src/gtpatterns.jl::{GTPatternIterator,creation,directproduct}`; Molev, arXiv:math/0211289, Theorem 2.3 and Proposition 2.4 | Exact structure and index-for-index GT basis order; ladder entries equal `creation` in square and sign |
@@ -26,7 +27,7 @@ algorithms that preceded it.
 
 ## F/R contraction and gates
 
-`src/frcore.rs::{f_block_raw,r_block_raw}` implements the contraction wiring
+`src/frcore.rs::{f_exact,r_exact}` implements the contraction wiring
 of every Cartan-engine F and R block, and `rounding::blocks::{check_f_block,
 check_r_block}` the block gates. The references are
 SUNRepresentations.jl 0.4.0 `src/sector.jl::{_Fsymbol,_Rsymbol}` and

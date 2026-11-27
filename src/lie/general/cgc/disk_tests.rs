@@ -8,7 +8,8 @@ use crate::cache::{
     disk_cache_stats, reset, Label, DISK_CHANNEL, DISK_F, DISK_NORMS, DISK_PHASE, DISK_SEEDS,
 };
 use crate::category::{FBlock, RBlock, SymbolBlock};
-use crate::lie::general::{GeneralFamily, RequestModules};
+use crate::lie::general::family::RequestModules;
+use crate::lie::general::GeneralFamily;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -30,7 +31,7 @@ fn octet_f(fam: &GeneralFamily) -> Result<FBlock<f64>, LieError> {
 
 fn octet_r(fam: &GeneralFamily) -> RBlock<f64> {
     let o = Label::new(&OCTET);
-    fam.r_symbol([o; 3], None).unwrap()
+    fam.r_symbol([o; 3]).unwrap()
 }
 
 fn bits(c: &CgcChannel) -> Vec<(u32, u32, u32, u32, u64)> {

@@ -21,16 +21,20 @@ pub fn serial() -> std::sync::MutexGuard<'static, ()> {
     SERIAL.lock().unwrap_or_else(|poison| poison.into_inner())
 }
 
-/// The tiers a build without `lie-generated` fills, whose charge
-/// `BASE_CACHE_MAX_BYTES` bounds.
+/// Every tier, whose charge `BASE_CACHE_MAX_BYTES` bounds.
 #[allow(dead_code)]
-pub const BASE_TIERS: [Tier; 4] = [Tier::Wigner3j, Tier::Wigner6j, Tier::FSymbol, Tier::Cgc];
+pub const BASE_TIERS: [Tier; 6] = [
+    Tier::Wigner3j,
+    Tier::Wigner6j,
+    Tier::FSymbol,
+    Tier::RSymbol,
+    Tier::Product,
+    Tier::Cgc,
+];
 
-/// The tiers only higher-rank groups fill.
+/// The tiers of higher-rank R and of products.
 #[allow(dead_code)]
-pub fn generated_tiers() -> impl Iterator<Item = &'static Tier> {
-    Tier::ALL.iter().filter(|tier| !BASE_TIERS.contains(tier))
-}
+pub const PRODUCT_AND_R: [Tier; 2] = [Tier::Product, Tier::RSymbol];
 
 /// Field-wise sum of independent per-tier snapshots.
 #[allow(dead_code)]

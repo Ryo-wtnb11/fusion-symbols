@@ -170,8 +170,8 @@ multiplicities are exact. SU(2) coefficients use signed square-rooted rationals
 and round once to `f64`. The CGC of every simple factor is computed in exact
 rationals, held in machine words when the reduced value fits and in the same
 required Malachite 0.14 arithmetic family as the rest of the crate otherwise,
-and rounded once to `f64`; F, R, A and B follow a fixed floating-point
-evaluation order, so all are bit-identical across builds and platforms.
+and rounded once to `f64`, as are its F, R, A and B, so all are
+bit-identical across builds and platforms.
 Public exact rationals are `malachite_q::Rational`; there are no arithmetic
 backend conversions. Tables are offline projections of exact AnyonWiki data
 to `Complex64`.
@@ -219,19 +219,25 @@ foreign. Nesting and trivial factors are retained;
 objects, N, dimensions, duals, Frobenius–Schur data and twists compose factorwise.
 Charge/spin and parity labels are independent, with no extra cross-factor sign.
 Fusion varies the first factor fastest; each F/R/A/B multiplicity axis varies
-the last factor fastest. Scalar promotion and multiplication fold left to right.
-Reassociation agrees to floating-point tolerance where intermediate queries are
-representable. Products of `GroupRepresentations` provide lazy tuple or vector CGCs,
+the last factor fastest. When every factor supplies exact values (Lie, torus,
+U(1), CU(1), Z_N and parity factors), F/R/A/B are the exact composition rounded
+once, identical for every nesting; otherwise scalar promotion and
+multiplication fold left to right, and reassociation agrees to floating-point
+tolerance where intermediate queries are representable. Products of `GroupRepresentations` provide lazy tuple or vector CGCs,
 with the last factor fastest on each magnetic and multiplicity axis. Combined
-axis overflow returns `ProductError::Overflow`. Products add no coefficient cache.
-With label-owned dimension reads, warm single-factor A/B queries allocate only their
-returned coefficient buffer (zero for empty or inline blocks).
-Product F/R/A/B compose factor blocks on each query: beyond the factors' own
-allocations, a warm query allocates one buffer per product level whose block
-has more than one coefficient, and nothing when every level is a single one.
-A `Vec` product nested as a factor also holds its factor blocks in one `Vec`,
-and a real prefix of more than one coefficient meeting a complex factor costs
-one transient real buffer.
+axis overflow returns `ProductError::Overflow`. The only product cache is the
+rounded composite view of two or more exact non-unit leaves, in the Product
+tier.
+Warm Lie A/B queries are cached views and allocate nothing.
+A warm product F/R/A/B of exact factors is one search (the composite view,
+or the one non-unit factor's view) and allocates nothing, except one copy for
+a `−1` unit or a complex promotion of a multi-entry block and one leaf buffer
+past four exact leaves. A product with a table or external factor composes
+factor blocks on each query: beyond the factors' own allocations, it
+allocates one buffer per product level whose block has more than one
+coefficient; a `Vec` product nested as a factor also holds its factor blocks
+in one `Vec`, and a real prefix of more than one coefficient meeting a
+complex factor costs one transient real buffer.
 
 All factors' objects are validated before capability or shape checks. R reports
 `ProductError::NoBraiding { factor }` even when N = 0; twist panics on absent

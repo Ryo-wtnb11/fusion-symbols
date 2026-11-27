@@ -1055,7 +1055,6 @@ pub(super) fn exact_channel(
 /// The highest-weight column of `a ⊗ b → c` (engine index 0 of `c`): the
 /// exact certificates and seeds of §4.2–§4.3, integralized per `μ`, with no
 /// descent.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn highest_column(
     data: &CartanData,
     a: &Ladders,
@@ -1270,7 +1269,7 @@ thread_local! {
     pub(super) static CONSTRUCTION_SECTIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// Live exact slots of [`descend`] on this thread: `[current, maximum]`.
     pub(super) static LIVE_EXACT: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
-    /// Modules held by the live [`super::RequestModules`] of this thread:
+    /// Modules held by the live [`super::family::RequestModules`] of this thread:
     /// `[current, maximum]`.
     pub(crate) static REQUEST_MODULES: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
     /// Modules held by this thread when an F or R contraction last began.

@@ -23,9 +23,7 @@ use crate::common::lie as lie_test;
 use crate::common::bcd as bcd_test;
 use bcd_test::Series;
 
-use fusion_symbols::cache::{
-    self, tier_stats, CoefficientCacheTier as Tier, TierStats, GENERATED_CACHE_MAX_BYTES,
-};
+use fusion_symbols::cache::{self, tier_stats, CoefficientCacheTier as Tier, TierStats};
 
 fn sun_irr(d: &[i64]) -> fusion_symbols::lie::LieIrrep {
     lie_test::irrep(d).unwrap()
@@ -42,24 +40,21 @@ fn generated_cache_resource_contract() {
     // these pin the human-facing values.)
     let default = fusion_symbols::cache::CoefficientCacheBudgets::default();
     assert_eq!(
-        GENERATED_CACHE_MAX_BYTES,
         default.limit(Tier::RSymbol) + default.limit(Tier::Product),
+        128 << 20,
         "R + Product"
     );
     assert_eq!(default.limit(Tier::RSymbol), 64 << 20, "64 MiB of R");
     assert_eq!(
         fusion_symbols::cache::BASE_CACHE_MAX_BYTES,
-        (64 + 64 + 64 + 256) << 20,
-        "448 MiB = Wigner 3j + 6j + F + CGC"
+        (64 * 5 + 256) << 20,
+        "576 MiB = Wigner 3j + 6j + F + R + Product + CGC"
     );
     let all: usize = Tier::ALL
         .iter()
         .map(|&t| fusion_symbols::cache::cache_budgets().limit(t))
         .sum();
-    assert_eq!(
-        all,
-        fusion_symbols::cache::BASE_CACHE_MAX_BYTES + GENERATED_CACHE_MAX_BYTES
-    );
+    assert_eq!(all, fusion_symbols::cache::BASE_CACHE_MAX_BYTES);
 
     // ---- per-tier hit/miss accounting on deterministic accesses ----
     cache::reset();
@@ -163,11 +158,14 @@ fn generated_cache_resource_contract() {
             "warm runtime product re-swept a factor"
         );
         assert_eq!(cold.entries, warm.entries);
-        assert!(warm.hits > cold.hits);
     }
+    // F, A and B hit their composite views (two Radical leaves) in Product;
+    // R has one Radical leaf (SU(2) R is a unit), whose view is in RSymbol.
+    let [product, _, _, r] = [0, 1, 2, 3].map(|i| warm[i].hits > cold[i].hits);
+    assert!(product && r, "warm runtime product hits its views");
 
     // ---- aggregate retained-charge cap ----
-    let total = common::stats_sum(common::generated_tiers());
+    let total = common::stats_sum(&common::PRODUCT_AND_R);
     // Each tier's conservative charged-entry cap and the aggregate corollary.
     assert!(
         tier_stats(Tier::Product).bytes
@@ -186,11 +184,12 @@ fn generated_cache_resource_contract() {
         tier_stats(Tier::RSymbol).bytes <= (64 << 20),
         "the R tier is over its 64 MiB cap"
     );
+    let product_and_r = default.limit(Tier::RSymbol) + default.limit(Tier::Product);
     assert!(
-        total.bytes <= GENERATED_CACHE_MAX_BYTES,
-        "aggregate over GENERATED_CACHE_MAX_BYTES: {} > {}",
+        total.bytes <= product_and_r,
+        "aggregate over the R and Product caps: {} > {}",
         total.bytes,
-        GENERATED_CACHE_MAX_BYTES
+        product_and_r
     );
     assert!(total.entries > 0, "the accesses retained entries");
 

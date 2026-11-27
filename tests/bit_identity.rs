@@ -110,8 +110,8 @@ fn requests() -> Vec<PrefillRequest> {
             for x in [&one, &a, &b] {
                 let d = g.dual(x);
                 r.frobenius_schur_phase(x)
-                    .f_symbol(&d, x, &d, &d, &one, &one)
-                    .f_symbol(x, &d, x, x, &one, &one);
+                    .a_symbol(x, &d, &one)
+                    .b_symbol(x, &d, &one);
             }
             r.fusion(&a, &b);
             for (c, _) in g.fusion(&a, &b).unwrap() {

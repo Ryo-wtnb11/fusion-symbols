@@ -22,7 +22,9 @@ use malachite_q::Rational;
 use threadteam::Exec;
 
 use super::Ladders;
-use crate::exact::radical::{compact, natural_bytes, put_u32, write_natural, Radicand, SignedInts};
+#[cfg(feature = "disk-cache")]
+use crate::exact::radical::put_u32;
+use crate::exact::radical::{compact, natural_bytes, write_natural, Radicand, SignedInts};
 #[cfg(feature = "disk-cache")]
 use crate::exact::radical::{decode_natural, encode_natural, natural_encoded_len, read_u32};
 use crate::exact::{div as wide_div, gcd as wide_gcd, rem as wide_rem};
@@ -59,10 +61,6 @@ impl Column {
 /// vertex factor `ρ_μ`, reduced once.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct MuCoords {
-    /// The largest `|X|` width in bits over the `μ` range (recomputed on
-    /// decode): width metadata for exact F and R and the width reports.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) bits: u64,
     pub(crate) x: SignedInts,
     pub(crate) vertex: Radicand,
 }
@@ -333,15 +331,14 @@ impl Scale {
 }
 
 /// The integers of one run (a `μ`, or a norm table): `D` and `g`, also in
-/// two words when the run's scale was, the widest `|X|` in bits and its
-/// word count, the canonical stride.
+/// two words when the run's scale was, and the canonical stride (the word
+/// count of the widest `|X|`).
 #[derive(Debug)]
 struct Integers {
     den: Natural,
     content: Natural,
     wide: Option<(u128, u128)>,
     stride: usize,
-    bits: u64,
 }
 
 impl Integers {
@@ -380,7 +377,6 @@ impl Integers {
             wide,
             // A word count of a width in bits.
             stride: bits.div_ceil(64) as usize,
-            bits,
         }
     }
 
@@ -646,7 +642,6 @@ impl Pending {
                     }
                 }
                 MuCoords {
-                    bits: plan.ints.bits,
                     x: SignedInts::from_raw(len, plan.ints.stride, neg, mag),
                     vertex: plan.vertex,
                 }
@@ -833,7 +828,7 @@ impl Coords {
             .saturating_add(self.per_mu.iter().map(MuCoords::bytes).sum())
     }
 
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+    #[cfg(feature = "disk-cache")]
     fn encoded_len(&self) -> Option<usize> {
         u32::try_from(self.m_ab.len()).ok()?;
         let mut n = self
@@ -852,7 +847,7 @@ impl Coords {
 
     /// `u32 count`, `count × (u32 m_a, u32 m_b)`, the column ends as `u32`,
     /// then per `μ` its slab and its radicand.
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+    #[cfg(feature = "disk-cache")]
     fn encode(&self, out: &mut Vec<u8>) {
         put_u32(out, self.m_ab.len());
         for &(ma, mb) in self.m_ab.iter() {
@@ -934,11 +929,7 @@ impl Coords {
             if x.len() != coords.mu_range(mu, width).len() || !x.all_nonzero() {
                 return None;
             }
-            per_mu.push(MuCoords {
-                bits: x.max_bits(),
-                x,
-                vertex,
-            });
+            per_mu.push(MuCoords { x, vertex });
         }
         coords.per_mu = per_mu.into_boxed_slice();
         Some(coords)
@@ -1055,7 +1046,7 @@ impl ExactCgc {
     }
 
     /// Payload bytes, or `None` when a count does not fit its `u32` field.
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+    #[cfg(feature = "disk-cache")]
     pub(crate) fn encoded_len(&self) -> Option<usize> {
         for x in [self.mult, self.dims[0], self.dims[1], self.dims[2]] {
             u32::try_from(x).ok()?;
@@ -1064,7 +1055,7 @@ impl ExactCgc {
     }
 
     /// `u32 mult`, `3 × u32` dims, then the coordinates ([`Coords::encode`]).
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+    #[cfg(feature = "disk-cache")]
     pub(crate) fn encode(&self, out: &mut Vec<u8>) {
         put_u32(out, self.mult);
         for d in self.dims {
@@ -1098,7 +1089,6 @@ impl ExactCgc {
 /// The highest-weight column (engine index 0 of `c`) of `a ⊗ b → c`: per
 /// `μ` the coordinates of `√N_μ Φ_μ(v_λ)` over `P`, with their own
 /// integral scale.
-#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct HighestColumn {
     mult: usize,
@@ -1106,8 +1096,6 @@ pub(crate) struct HighestColumn {
     coords: Coords,
 }
 
-// Read by exact F and R; until then only tests and the disk tier.
-#[cfg_attr(not(test), allow(dead_code))]
 impl HighestColumn {
     pub(crate) fn empty() -> Self {
         Self {
@@ -1132,6 +1120,24 @@ impl HighestColumn {
         std::mem::size_of::<Self>().saturating_add(self.coords.bytes())
     }
 
+    /// The seed column of multiplicity `mu` (engine index 0 of `c`), read in
+    /// place: its public `(m_a, m_b)` pairs, `|X|` words, signs and vertex
+    /// `ρ_μ`. Its `mc()` is 0, the column's index within the seed set.
+    pub(crate) fn column_coords(&self, mu: usize) -> ColumnCoords<'_> {
+        let range = self.coords.column(mu);
+        let MuCoords { x, vertex, .. } = &self.coords.per_mu[mu];
+        ColumnCoords {
+            mu,
+            mc: 0,
+            pairs: &self.coords.m_ab[range.clone()],
+            mag: x.words(0, range.len()),
+            stride: x.stride(),
+            neg: x.sign_words(),
+            neg_at: 0,
+            vertex,
+        }
+    }
+
     /// `(m_a, m_b, μ, sign(X)·X²·ρ_μ)` per entry, in order.
     #[cfg(test)]
     pub(crate) fn signed_squares(&self) -> Vec<(u32, u32, u32, malachite_q::Rational)> {
@@ -1147,14 +1153,14 @@ impl HighestColumn {
         out
     }
 
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+    #[cfg(feature = "disk-cache")]
     pub(crate) fn encoded_len(&self) -> Option<usize> {
         u32::try_from(self.mult).ok()?;
         self.coords.encoded_len()?.checked_add(4)
     }
 
     /// `u32 mult`, then the coordinates with one column per `μ`.
-    #[cfg_attr(not(feature = "disk-cache"), allow(dead_code))]
+    #[cfg(feature = "disk-cache")]
     pub(crate) fn encode(&self, out: &mut Vec<u8>) {
         put_u32(out, self.mult);
         self.coords.encode(out);
@@ -1174,22 +1180,17 @@ impl HighestColumn {
 }
 
 /// The norm data of one irrep, indexed by **public** magnetic index: the
-/// reduced `n_m` (read by the rounding layer), the integral `ν_m` with
+/// reduced `n_m` (read by the rounding layer), and the integral `ν_m` with
 /// `n_m = ν_m g/Δ` for the whole-table denominator lcm `Δ` and the content
-/// `g` of the scaled norms (read by exact F and R), and each index's
-/// position within its weight space.
-// `ν`, `Δ`, `g`, ranks, slots and top are read by exact F and R;
-// until then only by the disk tier and tests.
-#[cfg_attr(not(any(test, feature = "disk-cache")), allow(dead_code))]
+/// `g` of the scaled norms (read by exact F and R).
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct NormTable {
+    /// The authority: every other field but the top is derived from it by
+    /// [`NormTable::from_parts`].
     pub(crate) norm: Box<[Q]>,
-    pub(crate) nu: SignedInts,
-    pub(crate) den: Natural,
-    pub(crate) content: Natural,
-    pub(crate) rank: Box<[u32]>,
-    /// The largest weight multiplicity; every rank is below it.
-    pub(crate) slots: u32,
+    nu: SignedInts,
+    den: Natural,
+    content: Natural,
     /// The public index of engine index 0, the highest weight.
     pub(crate) top: u32,
 }
@@ -1200,7 +1201,6 @@ impl NormTable {
         let dim = l.dim();
         let mut seen = vec![false; dim];
         let mut norm = vec![Q::from(0); dim];
-        let mut rank = vec![0u32; dim];
         for (m, &p) in l.public.iter().enumerate() {
             let p = p as usize;
             assert!(
@@ -1209,30 +1209,56 @@ impl NormTable {
             );
             norm[p] = l.norm[m].clone();
             norm[p].compact();
-            rank[p] = l.rank[m];
         }
+        Self::from_parts(norm.into(), l.public[0])
+    }
+
+    /// The table of the public-indexed `norm` and `top`:
+    /// `ν`, `Δ` and `g` derived as `integral(norm)`, the one path every table
+    /// is built by, so `n_m = ν_m g/Δ` on every path.
+    pub(crate) fn from_parts(norm: Box<[Q]>, top: u32) -> Result<Self, LieError> {
         let Integral {
             x: nu,
             den,
             content,
         } = integral(norm.iter(), false)?;
-        let slots = l
-            .module
-            .weights
-            .iter()
-            .map(|s| s.norms.len())
-            .max()
-            .unwrap_or(0);
-        Ok(Self {
-            norm: norm.into_boxed_slice(),
+        let table = Self {
+            norm,
             nu,
             den,
             content,
-            rank: rank.into_boxed_slice(),
-            // A weight multiplicity is at most the dimension, a `u32`.
-            slots: slots as u32,
-            top: l.public[0],
-        })
+            top,
+        };
+        #[cfg(test)]
+        table.assert_identity();
+        Ok(table)
+    }
+
+    /// `p_m·Δ == ν_m·g·q_m` for every `m`, on every table the tests build.
+    #[cfg(test)]
+    fn assert_identity(&self) {
+        for (m, q) in self.norm.iter().enumerate() {
+            let (p, d) = q.magnitudes();
+            let lhs = &*p * &self.den;
+            let rhs =
+                crate::exact::radical::words_natural(self.nu.magnitude(m)) * &self.content * &*d;
+            assert!(lhs == rhs && !self.nu.is_negative(m), "n_{m} = ν_{m} g/Δ");
+        }
+    }
+
+    /// `ν_m` with `n_m = ν_m g/Δ`, every entry at least 1.
+    pub(crate) fn nu(&self) -> &SignedInts {
+        &self.nu
+    }
+
+    /// `Δ`, the lcm of the norms' denominators.
+    pub(crate) fn den(&self) -> &Natural {
+        &self.den
+    }
+
+    /// `g`, the content of the norms times `Δ`.
+    pub(crate) fn content(&self) -> &Natural {
+        &self.content
     }
 
     /// Bytes owned, with every rational and limb vector compacted.
@@ -1247,7 +1273,6 @@ impl NormTable {
             .saturating_add(self.nu.heap_bytes())
             .saturating_add(natural_bytes(&self.den))
             .saturating_add(natural_bytes(&self.content))
-            .saturating_add(std::mem::size_of_val(self.rank.as_ref()))
     }
 
     #[cfg(feature = "disk-cache")]
@@ -1260,15 +1285,11 @@ impl NormTable {
                 .checked_add(natural_encoded_len(&p)?)?
                 .checked_add(natural_encoded_len(&d)?)?;
         }
-        n.checked_add(self.nu.encoded_len()?)?
-            .checked_add(natural_encoded_len(&self.den)?)?
-            .checked_add(natural_encoded_len(&self.content)?)?
-            .checked_add(self.rank.len().checked_mul(4)?)?
-            .checked_add(8)
+        n.checked_add(4)
     }
 
-    /// `u32 dim`, `dim × (n_m numerator, denominator)`, the slab `ν`, `Δ`,
-    /// `g`, `dim × u32 rank`, `u32 slots`, `u32 top`.
+    /// `u32 dim`, `dim × (n_m numerator, denominator)`, `u32 top`. The
+    /// derived `ν`, `Δ` and `g` are not stored.
     #[cfg(feature = "disk-cache")]
     pub(crate) fn encode(&self, out: &mut Vec<u8>) {
         put_u32(out, self.norm.len());
@@ -1277,20 +1298,13 @@ impl NormTable {
             encode_natural(&p, out);
             encode_natural(&d, out);
         }
-        self.nu.encode(out);
-        encode_natural(&self.den, out);
-        encode_natural(&self.content, out);
-        for &r in self.rank.iter() {
-            out.extend_from_slice(&r.to_le_bytes());
-        }
-        out.extend_from_slice(&self.slots.to_le_bytes());
         out.extend_from_slice(&self.top.to_le_bytes());
     }
 
     /// The table of `payload` for an irrep of dimension `dim`, checked before
-    /// any arithmetic or indexing: every norm positive, `ν` a canonical slab
-    /// of `dim` entries `≥ 1`, `Δ, g ≥ 1`, `dim` ranks below `slots ≥ 1`,
-    /// `top < dim`, and no trailing bytes. A truncated table fails.
+    /// any arithmetic or indexing: every norm positive, `top < dim`, and no
+    /// trailing bytes; then built by
+    /// [`Self::from_parts`]. A truncated table fails.
     #[cfg(feature = "disk-cache")]
     pub(crate) fn decode(payload: &[u8], dim: usize) -> Option<Self> {
         let at = &mut 0;
@@ -1309,37 +1323,11 @@ impl NormTable {
             q.compact();
             norm.push(q);
         }
-        let nu = SignedInts::decode(payload, at)?;
-        if nu.len() != dim || !nu.all_nonzero() || (0..dim).any(|i| nu.is_negative(i)) {
-            return None;
-        }
-        let den = decode_natural(payload, at)?;
-        let content = decode_natural(payload, at)?;
-        if den == Natural::ZERO || content == Natural::ZERO {
-            return None;
-        }
-        let raw = payload.get(*at..at.checked_add(dim.checked_mul(4)?)?)?;
-        *at += raw.len();
-        let rank: Box<[u32]> = raw
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|r| u32::from_le_bytes(*r))
-            .collect();
-        let slots = read_u32(payload, at)?;
         let top = read_u32(payload, at)?;
-        if slots == 0 || rank.iter().any(|&r| r >= slots) || top as usize >= dim {
+        if top as usize >= dim || *at != payload.len() {
             return None;
         }
-        (*at == payload.len()).then_some(Self {
-            norm: norm.into_boxed_slice(),
-            nu,
-            den,
-            content,
-            rank,
-            slots,
-            top,
-        })
+        Self::from_parts(norm.into(), top).ok()
     }
 }
 

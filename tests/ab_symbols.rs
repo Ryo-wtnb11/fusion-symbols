@@ -13,6 +13,7 @@
 use fusion_symbols::category::SymbolBlock;
 use fusion_symbols::{
     category::{BraidingStyle, FusionCategory, RBlock, Scalar},
+    fermion::{FermionParity, FermionParityIrrep},
     finite::{ZNIrrep, ZN},
     lie::{CU1Irrep, GroupId, HalfInt, LieGroup, U1Irrep, CU1, U1},
     product::Product,
@@ -131,11 +132,24 @@ fn cu1_charged_sectors_match_tensorkitsectors() {
 
 #[test]
 fn abelian_groups_return_n() {
-    // TensorKitSectors `irreps.jl` (AbelianIrrep): A = B = N.
+    // TensorKitSectors `irreps.jl` (AbelianIrrep): A = B = N, also for fermion parity.
     let q = |c| U1Irrep::new(c).unwrap();
     assert_eq!(entry(U1.a_symbol(&q(2), &q(-3), &q(-1)).unwrap()), 1.0);
     assert_eq!(entry(U1.b_symbol(&q(2), &q(-3), &q(-1)).unwrap()), 1.0);
     assert_eq!(U1.a_symbol(&q(2), &q(-3), &q(1)).unwrap().dims()[0], 0);
+    let (even, odd) = (FermionParityIrrep::EVEN, FermionParityIrrep::ODD);
+    assert_eq!(
+        entry(FermionParity.a_symbol(&odd, &odd, &even).unwrap()),
+        1.0
+    );
+    assert_eq!(
+        entry(FermionParity.b_symbol(&odd, &even, &odd).unwrap()),
+        1.0
+    );
+    assert_eq!(
+        FermionParity.b_symbol(&odd, &odd, &odd).unwrap().dims()[0],
+        0
+    );
     let z3 = ZN::new(3).unwrap();
     let objects: Vec<_> = (0..3).map(|k| ZNIrrep::new(k, 3).unwrap()).collect();
     assert_unitary(&z3, &objects);
@@ -245,6 +259,19 @@ fn absent_channels_and_foreign_objects() {
     assert!(std::panic::catch_unwind(|| fib.a_symbol(&foreign, &tau, &tau)).is_err());
     assert!(std::panic::catch_unwind(|| fib.b_symbol(&tau, &tau, &foreign)).is_err());
     let z4 = ZNIrrep::new(1, 4).unwrap();
+    let (even, odd) = (FermionParityIrrep::EVEN, FermionParityIrrep::ODD);
+    assert_eq!(
+        entry(FermionParity.a_symbol(&odd, &odd, &even).unwrap()),
+        1.0
+    );
+    assert_eq!(
+        entry(FermionParity.b_symbol(&odd, &even, &odd).unwrap()),
+        1.0
+    );
+    assert_eq!(
+        FermionParity.b_symbol(&odd, &odd, &odd).unwrap().dims()[0],
+        0
+    );
     let z3 = ZN::new(3).unwrap();
     let u = z3.unit();
     assert!(std::panic::catch_unwind(|| z3.a_symbol(&z4, &u, &u)).is_err());
@@ -585,4 +612,40 @@ mod su3 {
             .unwrap();
         assert_block(b.as_slice(), &B_15, "B (15,1)");
     }
+}
+
+/// Rounded once from the exact F of the unit-leg sextet, A and B of unit
+/// magnitude are exactly `±1`: SU(2) `½ ⊗ ½ → 0` (`κ = −1`) gives `A = +1`
+/// and `B = −1`, and SU(4) `4 ⊗ 4̄ → 1` (`κ = −1` while the indicator is 0,
+/// both scalar F entries `−1/4`) gives the same.
+#[test]
+fn unit_a_and_b_are_exactly_plus_and_minus_one() {
+    let g = su2();
+    let (half, zero) = (g.irrep(&[1]).unwrap(), g.irrep(&[0]).unwrap());
+    assert_eq!(entry(g.a_symbol(&half, &half, &zero).unwrap()), 1.0);
+    assert_eq!(entry(g.b_symbol(&half, &half, &zero).unwrap()), -1.0);
+    #[cfg(feature = "lie-generated")]
+    {
+        let g = LieGroup::new(GroupId::su(4).unwrap()).unwrap();
+        let (four, bar, one) = (
+            g.irrep(&[1, 0, 0]).unwrap(),
+            g.irrep(&[0, 0, 1]).unwrap(),
+            g.irrep(&[0, 0, 0]).unwrap(),
+        );
+        assert_eq!(entry(g.a_symbol(&four, &bar, &one).unwrap()), 1.0);
+        assert_eq!(entry(g.b_symbol(&four, &bar, &one).unwrap()), -1.0);
+    }
+}
+
+// A warm A or B view does not bypass foreign-object validation: SO(3)'s
+// spin-1 irrep has the same doubled spin as SU(2)'s, but is foreign to SU(2).
+#[test]
+#[should_panic(expected = "foreign Lie object")]
+fn warm_ab_still_reject_foreign_objects() {
+    let s = su2();
+    let one = s.irrep(&[2]).unwrap();
+    s.a_symbol(&one, &one, &one).unwrap();
+    let so3 = LieGroup::new(GroupId::so(3).unwrap()).unwrap();
+    let foreign = so3.irrep(&[2]).unwrap();
+    let _ = s.a_symbol(&one, &one, &foreign);
 }

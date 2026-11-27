@@ -199,18 +199,10 @@ impl FusionCategory for ZN {
     // TensorKitSectors `irreps.jl` (AbelianIrrep): A and B are N, since every
     // admissible F and every dimension is one.
     fn a_symbol(&self, a: &ZNIrrep, b: &ZNIrrep, c: &ZNIrrep) -> Result<RBlock<f64>, Self::Error> {
-        Ok(if self.n(a, b, c) == 0 {
-            RBlock::zeros(0)
-        } else {
-            RBlock::one(1.0)
-        })
+        Ok(crate::category::abelian_vertex(self.n(a, b, c)))
     }
     fn b_symbol(&self, a: &ZNIrrep, b: &ZNIrrep, c: &ZNIrrep) -> Result<RBlock<f64>, Self::Error> {
-        Ok(if self.n(a, b, c) == 0 {
-            RBlock::zeros(0)
-        } else {
-            RBlock::one(1.0)
-        })
+        Ok(crate::category::abelian_vertex(self.n(a, b, c)))
     }
     // F is the product of the four vertex N, so exactly `1` when admissible;
     // the unit is the self-dual identity charge.
@@ -235,6 +227,14 @@ impl FusionCategory for ZN {
     fn object_index(&self, a: &ZNIrrep) -> Result<u64, EnumerationError> {
         self.validate(&[a]);
         Ok(u64::from(a.charge))
+    }
+    #[doc(hidden)]
+    fn __fusion_symbols_exact_symbol(
+        &self,
+        op: crate::category::sealed::ExactOp<'_, '_, Self::Object>,
+        _: crate::category::sealed::Validated,
+    ) -> Result<crate::category::sealed::ExactAnswer, Self::Error> {
+        crate::category::unit_symbol(self, op)
     }
 }
 

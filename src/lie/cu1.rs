@@ -1,7 +1,10 @@
 //! Closed-form CU(1) coefficients.
 
 use super::HalfInt;
-use crate::category::{BraidingStyle, EnumerationError, FusionCategory, FusionStyle};
+use crate::category::{BraidingStyle, EnumerationError, FusionCategory, FusionStyle, RBlock};
+use crate::exact::SignedSqrtRational;
+use malachite_base::num::basic::traits::One;
+use malachite_q::Rational;
 
 /// An irrep of `CU(1)`, TensorKitSectors' `CU1Irrep(j, s)`, stored as
 /// `twice_charge = 2j` and `s`.
@@ -186,6 +189,162 @@ fn n(a: &CU1Irrep, b: &CU1Irrep, c: &CU1Irrep) -> u32 {
     u32::from(admissible)
 }
 
+/// A CU(1) F value: `0`, `±1`, `±1/2` or `±√2/2` (`±√(1/2)`).
+#[derive(Clone, Copy)]
+enum Exact {
+    Zero,
+    One(bool),
+    Half(bool),
+    Root(bool),
+}
+
+impl Exact {
+    fn value(self) -> SignedSqrtRational {
+        let (negative, radicand) = match self {
+            Self::Zero => return SignedSqrtRational::zero(),
+            Self::One(n) => (n, Rational::ONE),
+            Self::Half(n) => (n, Rational::from_signeds(1, 4)),
+            Self::Root(n) => (n, Rational::from_signeds(1, 2)),
+        };
+        let s = if negative {
+            -Rational::ONE
+        } else {
+            Rational::ONE
+        };
+        SignedSqrtRational::from_prefactor_radical(s, radicand)
+    }
+}
+
+/// The exact F-symbol `F^{abc}_d[e, f]`, the one authority of the CU(1) F,
+/// A and B values; exact `0` when a vertex is inadmissible.
+///
+/// `cu1irrep.jl:Fsymbol`, branch for branch: `1` when `a`, `b` or `c` is
+/// `0+` or two of them are `0-`; `±1` when one is `0-`; then entries `±1`,
+/// `±1/2`, `±√2/2` or `0` for charged `a`, `b`, `c`.
+pub(crate) fn exact_f(
+    a: &CU1Irrep,
+    b: &CU1Irrep,
+    c: &CU1Irrep,
+    d: &CU1Irrep,
+    e: &CU1Irrep,
+    f: &CU1Irrep,
+) -> SignedSqrtRational {
+    if [(a, b, e), (e, c, d), (b, c, f), (a, f, d)]
+        .iter()
+        .any(|&(a, b, c)| n(a, b, c) == 0)
+    {
+        return Exact::Zero.value();
+    }
+    let (a, b, c, d, e, f) = (*a, *b, *c, *d, *e, *f);
+    let (op, om) = (CU1Irrep::VACUUM, CU1Irrep::PSEUDOSCALAR);
+    let q = |x: CU1Irrep| i64::from(x.twice_charge);
+    if a == op || b == op || c == op {
+        return Exact::One(false).value();
+    }
+    // `(a == b == om) || (a == c == om) || (b == c == om)`.
+    if [a, b, c].iter().filter(|&&x| x == om).count() >= 2 {
+        return Exact::One(false).value();
+    }
+    let sign = Exact::One;
+    if a == om {
+        return Exact::value(sign(q(d) != 0 && q(d) == q(c) - q(b)));
+    }
+    if b == om {
+        return Exact::value(sign(q(d) == (q(a) - q(c)).abs()));
+    }
+    if c == om {
+        return Exact::value(sign(q(d) == q(a) - q(b)));
+    }
+    // From here on a, b, c are charged. `T(sqrt(2) / 2)` in TensorKitSectors.
+    let s = Exact::Root(false);
+    let m = Exact::Root(true);
+    if a == b && b == c {
+        return Exact::value(if d == a {
+            if q(e) == 0 {
+                if q(f) == 0 {
+                    if f.s == 1 {
+                        Exact::Half(true)
+                    } else {
+                        Exact::Half(false)
+                    }
+                } else if e.s == 1 {
+                    m
+                } else {
+                    s
+                }
+            } else if q(f) == 0 {
+                s
+            } else {
+                Exact::Zero
+            }
+        } else {
+            Exact::One(false)
+        });
+    }
+    if a == b {
+        return Exact::value(if d == c {
+            if q(f) == q(b) + q(c) && e.s == 1 {
+                m
+            } else {
+                s
+            }
+        } else {
+            Exact::One(false)
+        });
+    }
+    if b == c {
+        return Exact::value(if d == a {
+            if q(e) != q(a) + q(b) && f.s == 1 {
+                m
+            } else {
+                s
+            }
+        } else {
+            Exact::One(false)
+        });
+    }
+    if a == c {
+        return Exact::value(if d == b {
+            if q(e) == q(f) {
+                Exact::Zero
+            } else {
+                Exact::One(false)
+            }
+        } else {
+            sign(d.s == 1)
+        });
+    }
+    sign(d == om && q(b) == q(a) + q(c)).value()
+}
+
+/// `A^{ab}_c` (`is_b = false`) or `B^{ab}_c`: `√(d_a d_b/d_c)` times the F of
+/// the unit-leg sextet, under one root, rounded once; `0 × 0` when absent.
+fn ab_symbol(is_b: bool, a: &CU1Irrep, b: &CU1Irrep, c: &CU1Irrep) -> RBlock<f64> {
+    if n(a, b, c) == 0 {
+        return RBlock::zeros(0);
+    }
+    RBlock::one(ab_exact(is_b, a, b, c).to_f64())
+}
+
+/// The exact value of an admissible [`ab_symbol`].
+fn ab_exact(is_b: bool, a: &CU1Irrep, b: &CU1Irrep, c: &CU1Irrep) -> SignedSqrtRational {
+    let one = CU1Irrep::VACUUM;
+    let f = if is_b {
+        exact_f(a, b, b, a, c, &one)
+    } else {
+        exact_f(a, a, b, b, &one, c)
+    };
+    let d = |x: &CU1Irrep| if x.twice_charge == 0 { 1 } else { 2 };
+    let ratio = Rational::from_signeds(d(a) * d(b), d(c));
+    SignedSqrtRational::from_prefactor_radical(Rational::from(f.sign()), f.radicand() * ratio)
+}
+
+/// The CU(1) leaf word `(twice_charge << 2) | s`, widened before the shift:
+/// injective, as `s ∈ {0, 1}` at charge 0 and `s = 2` when charged.
+fn leaf_word(x: &CU1Irrep) -> i64 {
+    (i64::from(x.twice_charge) << 2) | i64::from(x.s)
+}
+
 impl FusionCategory for CU1 {
     type Object = CU1Irrep;
     type Scalar = f64;
@@ -297,91 +456,19 @@ impl FusionCategory for CU1 {
         e: &CU1Irrep,
         f: &CU1Irrep,
     ) -> Result<f64, CU1Error> {
-        if [(a, b, e), (e, c, d), (b, c, f), (a, f, d)]
-            .iter()
-            .any(|&(a, b, c)| n(a, b, c) == 0)
-        {
-            return Ok(0.0);
-        }
-        let (a, b, c, d, e, f) = (*a, *b, *c, *d, *e, *f);
-        let (op, om) = (CU1Irrep::VACUUM, CU1Irrep::PSEUDOSCALAR);
-        let q = |x: CU1Irrep| i64::from(x.twice_charge);
-        if a == op || b == op || c == op {
-            return Ok(1.0);
-        }
-        // `(a == b == om) || (a == c == om) || (b == c == om)`.
-        if [a, b, c].iter().filter(|&&x| x == om).count() >= 2 {
-            return Ok(1.0);
-        }
-        let sign = |negative: bool| if negative { -1.0 } else { 1.0 };
-        if a == om {
-            return Ok(sign(q(d) != 0 && q(d) == q(c) - q(b)));
-        }
-        if b == om {
-            return Ok(sign(q(d) == (q(a) - q(c)).abs()));
-        }
-        if c == om {
-            return Ok(sign(q(d) == q(a) - q(b)));
-        }
-        // From here on a, b, c are charged. `T(sqrt(2) / 2)` in TensorKitSectors.
-        let s = 2.0_f64.sqrt() / 2.0;
-        if a == b && b == c {
-            return Ok(if d == a {
-                if q(e) == 0 {
-                    if q(f) == 0 {
-                        if f.s == 1 {
-                            -0.5
-                        } else {
-                            0.5
-                        }
-                    } else if e.s == 1 {
-                        -s
-                    } else {
-                        s
-                    }
-                } else if q(f) == 0 {
-                    s
-                } else {
-                    0.0
-                }
-            } else {
-                1.0
-            });
-        }
-        if a == b {
-            return Ok(if d == c {
-                if q(f) == q(b) + q(c) && e.s == 1 {
-                    -s
-                } else {
-                    s
-                }
-            } else {
-                1.0
-            });
-        }
-        if b == c {
-            return Ok(if d == a {
-                if q(e) != q(a) + q(b) && f.s == 1 {
-                    -s
-                } else {
-                    s
-                }
-            } else {
-                1.0
-            });
-        }
-        if a == c {
-            return Ok(if d == b {
-                if q(e) == q(f) {
-                    0.0
-                } else {
-                    1.0
-                }
-            } else {
-                sign(d.s == 1)
-            });
-        }
-        Ok(sign(d == om && q(b) == q(a) + q(c)))
+        Ok(exact_f(a, b, c, d, e, f).to_f64())
+    }
+
+    /// `A^{ab}_c = √(d_a d_b/d_c)·F^{a a b}_b[0+, c]` (every irrep is
+    /// self-dual with `κ = 1`), formed exactly and rounded once.
+    fn a_symbol(&self, a: &CU1Irrep, b: &CU1Irrep, c: &CU1Irrep) -> Result<RBlock<f64>, CU1Error> {
+        Ok(ab_symbol(false, a, b, c))
+    }
+
+    /// `B^{ab}_c = √(d_a d_b/d_c)·F^{a b b}_a[c, 0+]`, formed exactly and
+    /// rounded once.
+    fn b_symbol(&self, a: &CU1Irrep, b: &CU1Irrep, c: &CU1Irrep) -> Result<RBlock<f64>, CU1Error> {
+        Ok(ab_symbol(true, a, b, c))
     }
 
     /// R-symbol `R^{ab}_c`: `-1.0` when admissible with `c = 0-` and `a`
@@ -416,6 +503,79 @@ impl FusionCategory for CU1 {
             0 => u64::from(a.s),
             q => u64::from(q) + 1,
         })
+    }
+    /// F, A and B are exact Radical leaves; R is `±1` or absent.
+    #[doc(hidden)]
+    fn __fusion_symbols_exact_symbol(
+        &self,
+        op: crate::category::sealed::ExactOp<'_, '_, CU1Irrep>,
+        _: crate::category::sealed::Validated,
+    ) -> Result<crate::category::sealed::ExactAnswer, CU1Error> {
+        use crate::category::sealed::{
+            ExactAnswer, ExactOp, LeafLabel, LeafRef, Query, SymbolKind, Unit, View, LEAF_CU1,
+        };
+        use crate::exact::radical::RadicalBlock;
+        use std::sync::Arc;
+        match op {
+            ExactOp::Class(SymbolKind::R) | ExactOp::Describe(Query::R(_), _) => {
+                crate::category::unit_symbol(self, op)
+            }
+            ExactOp::Class(_) => Ok(ExactAnswer::RadicalClass { leaves: 1 }),
+            ExactOp::Describe(q, buf) => {
+                buf.0.push(match q {
+                    Query::F(x) => LeafRef::new(
+                        LEAF_CU1,
+                        crate::lie::RootSystem::A(1),
+                        x.map(|x| LeafLabel::inline(leaf_word(x))),
+                    ),
+                    Query::R(x) | Query::A(x) | Query::B(x) => LeafRef::new(
+                        LEAF_CU1,
+                        crate::lie::RootSystem::A(1),
+                        x.map(|x| LeafLabel::inline(leaf_word(x))),
+                    ),
+                });
+                Ok(ExactAnswer::Unit(Unit::PlusOne))
+            }
+            ExactOp::Fetch(q, buf) => {
+                match q {
+                    Query::F([a, b, c, d, e, f]) => buf.f.push(Arc::new(
+                        RadicalBlock::from_signed_sqrt(&exact_f(a, b, c, d, e, f)),
+                    )),
+                    Query::A([a, b, c]) => {
+                        buf.r2
+                            .push(Arc::new(RadicalBlock::from_signed_sqrt(&ab_exact(
+                                false, a, b, c,
+                            ))))
+                    }
+                    Query::B([a, b, c]) => {
+                        buf.r2
+                            .push(Arc::new(RadicalBlock::from_signed_sqrt(&ab_exact(
+                                true, a, b, c,
+                            ))))
+                    }
+                    Query::R(_) => unreachable!("CU(1) R is unit-class"),
+                }
+                Ok(ExactAnswer::Done)
+            }
+            ExactOp::View(q, out) => {
+                *out = Some(match q {
+                    // An absent channel keeps its vertex multiplicities as axes.
+                    Query::F([a, b, c, d, e, f]) => {
+                        let dims = [(a, b, e), (e, c, d), (b, c, f), (a, f, d)]
+                            .map(|(x, y, z)| n(x, y, z) as usize);
+                        View::F(if dims.contains(&0) {
+                            crate::category::FBlock::zeros(dims)
+                        } else {
+                            crate::category::FBlock::one(self.f_symbol(a, b, c, d, e, f)?)
+                        })
+                    }
+                    Query::R(_) => unreachable!("CU(1) R is unit-class"),
+                    Query::A([a, b, c]) => View::R(self.a_symbol(a, b, c)?),
+                    Query::B([a, b, c]) => View::R(self.b_symbol(a, b, c)?),
+                });
+                Ok(ExactAnswer::Done)
+            }
+        }
     }
 }
 
@@ -573,5 +733,31 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Witness: charged `a = b` (dimension 2), `c = 0+`. The selected F
+    /// entry is exactly `+1/2`, so `A = B = √(2·2/1)·(1/2) = +1` exactly,
+    /// at the leaf and through a product of two leaves; the rounded factors
+    /// multiplied in f64 are not.
+    #[test]
+    fn charged_ab_are_exactly_one() {
+        use crate::category::SymbolBlock;
+        let a = CU1Irrep::new(HalfInt::from_doubled(1), 2).unwrap();
+        let c = CU1Irrep::VACUUM;
+        let quarter = Rational::from_signeds(1, 4);
+        // A's `F(ā, a, b, b, 0+, c)` and B's `F(a, b, b̄, a, c, 0+)` coincide here.
+        assert_eq!(exact_f(&a, &a, &a, &a, &c, &c).signed_square(), quarter);
+        let p = crate::product::Product::new((CU1, CU1));
+        let [pa, pc] = [a, c].map(|x| (x, x));
+        for x in [
+            CU1.a_symbol(&a, &a, &c).unwrap().get([0, 0]),
+            CU1.b_symbol(&a, &a, &c).unwrap().get([0, 0]),
+            p.a_symbol(&pa, &pa, &pc).unwrap().get([0, 0]),
+            p.b_symbol(&pa, &pa, &pc).unwrap().get([0, 0]),
+        ] {
+            assert_eq!(x.to_bits(), 0x3ff0000000000000);
+        }
+        let float = (2f64.sqrt() * 2f64.sqrt()) * 0.5;
+        assert_eq!(float.to_bits(), 0x3ff0000000000001);
     }
 }

@@ -11,9 +11,7 @@ pub(crate) mod roots;
 
 use std::sync::LazyLock;
 
-#[cfg(test)]
-pub(crate) use self::family::observe_contraction;
-pub(crate) use self::family::{GeneralFamily, RequestModules};
+pub(crate) use self::family::GeneralFamily;
 use self::roots::CartanData;
 use crate::lie::RootSystem;
 
@@ -63,7 +61,7 @@ mod tests {
         for n in 1..=600 {
             // Absent R channels request no CGC and build no module.
             assert!(fam
-                .r_symbol([one, crate::cache::Label::new(&[n, 0]), one], None)
+                .r_symbol([one, crate::cache::Label::new(&[n, 0]), one])
                 .unwrap()
                 .as_slice()
                 .is_empty());
@@ -74,7 +72,7 @@ mod tests {
         assert_eq!(bits(), expected);
         let symbols = || {
             let f = fam.f_symbol([a, a, a, a, b, b], None).unwrap();
-            let r = fam.r_symbol([a, a, b], None).unwrap();
+            let r = fam.r_symbol([a, a, b]).unwrap();
             f.as_slice()
                 .iter()
                 .chain(r.as_slice())

@@ -23,9 +23,10 @@ use super::cgc::{AFTER_EXACT, BEFORE_LOAD, CORRUPT, CORRUPT_BLOCK, FAIL_PHASE};
 use super::roots::CartanData;
 use crate::cache::Label;
 use crate::category::{FBlock, RBlock};
-use crate::frcore::{f_block_raw, r_block_raw};
+use crate::exact::radical::RadicalBlock;
+use crate::frcore::{f_exact, r_exact, FInputs, RInputs};
 use crate::lie::{LieError, RootSystem};
-use crate::rounding::blocks::{check_f_block, check_r_block};
+use crate::rounding::blocks::{check_f_block, check_r_block, round_block};
 use crate::rounding::cgc::{
     check_rounded, round_channel, round_column, view_slots, ChannelEstimates,
 };
@@ -147,7 +148,7 @@ impl<'l> RequestModules<'l> {
 
 /// Records the modules held as an F or R contraction begins.
 #[cfg(test)]
-pub(crate) fn observe_contraction() {
+fn observe_contraction() {
     AT_CONTRACTION.with(|c| c.set(Some(REQUEST_MODULES.with(std::cell::Cell::get)[0])));
 }
 
@@ -234,7 +235,7 @@ impl GeneralFamily {
     }
 
     /// The Weyl dimension of `l` as an index bound.
-    fn dimension(&self, l: Label<'_>) -> Result<usize, LieError> {
+    pub(crate) fn dimension(&self, l: Label<'_>) -> Result<usize, LieError> {
         usize::try_from(&self.data.weyl_dimension(l.words)?).map_err(|_| LieError::LabelOverflow)
     }
 
@@ -433,7 +434,6 @@ impl GeneralFamily {
     /// The highest-weight column of `a ⊗ b → c` (engine index 0 of `c`) for a
     /// root system of rank two or more, shared through the CGC tier and the
     /// disk tier. Rank-one F and R never read seeds, so `A_1` is refused.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn cgc_seeds_in<'l>(
         &self,
         a: Label<'l>,
@@ -540,13 +540,40 @@ impl GeneralFamily {
         })
     }
 
-    /// `F^{abc}_d[e, f]` (§6), gated by gate 7 before it is retained.
+    /// `F^{abc}_d[e, f]` (§6): the rounded view of the exact block, gated by
+    /// gate 7. A view miss reuses the view an exact generation it led
+    /// produced, and otherwise rounds the resident or disk-loaded exact block.
     pub(crate) fn f_symbol(
         &self,
         labels: [Label<'_>; 6],
         exec: Option<&mut Exec<'_>>,
     ) -> Result<FBlock<f64>, LieError> {
         crate::cache::f_block(self.root(), labels, || {
+            let mut fresh = None;
+            let exact = self.f_exact_in(labels, exec, &mut fresh)?;
+            match fresh {
+                Some(view) => Ok(view),
+                None => f_view(&exact),
+            }
+        })
+    }
+
+    /// The exact F block of the six labels, shared through the F tier and the
+    /// disk tier.
+    pub(crate) fn f_exact(&self, labels: [Label<'_>; 6]) -> Result<Arc<RadicalBlock<4>>, LieError> {
+        self.f_exact_in(labels, None, &mut None)
+    }
+
+    /// [`Self::f_exact`]; `fresh` receives the gated view when this call
+    /// generated the block. A generation is retained only once its view
+    /// passed gate 7, and never claims, publishes or waits on a view.
+    fn f_exact_in(
+        &self,
+        labels: [Label<'_>; 6],
+        exec: Option<&mut Exec<'_>>,
+        fresh: &mut Option<FBlock<f64>>,
+    ) -> Result<Arc<RadicalBlock<4>>, LieError> {
+        crate::cache::f_exact(self.root(), labels, || {
             let [a, b, c, d, e, f] = labels;
             crate::cache::through(
                 crate::cache::DISK_F,
@@ -560,74 +587,190 @@ impl GeneralFamily {
                         self.mult(a, f, d)?,
                     ]))
                 },
-                || self.generate_f(labels, exec),
+                || {
+                    let exact = Arc::new(self.generate_f(labels, exec)?);
+                    *fresh = Some(f_view_generated(&exact)?);
+                    Ok(exact)
+                },
             )
         })
     }
 
-    /// The gated contraction behind [`Self::f_symbol`].
+    /// The exact contraction behind [`Self::f_exact`] (§6, §9), loading its
+    /// inputs in the order that keeps at most five of the six labels'
+    /// modules live and none during the contraction.
     fn generate_f(
         &self,
         labels: [Label<'_>; 6],
-        exec: Option<&mut Exec<'_>>,
-    ) -> Result<FBlock<f64>, LieError> {
-        {
-            let block = f_block_raw(self, labels, exec)?;
-            #[cfg(test)]
-            let block = match CORRUPT_BLOCK.with(std::cell::Cell::get) {
-                Some(fault) => {
-                    use crate::category::SymbolBlock;
-                    FBlock::from_vec(
-                        block.dims(),
-                        block.as_slice().iter().map(|&x| fault(x)).collect(),
-                    )
-                }
-                None => block,
-            };
-            check_f_block(&block)?;
-            Ok(block)
+        mut exec: Option<&mut Exec<'_>>,
+    ) -> Result<RadicalBlock<4>, LieError> {
+        let [a, b, c, d, e, f] = labels;
+        let dims = [
+            self.mult(a, b, e)?,
+            self.mult(e, c, d)?,
+            self.mult(b, c, f)?,
+            self.mult(a, f, d)?,
+        ];
+        if dims.contains(&0) {
+            return RadicalBlock::zeros(dims).ok_or(LieError::LabelOverflow);
         }
+        crate::lie::checked_size(dims)?;
+        let mut modules = RequestModules::default();
+        #[cfg(test)]
+        before_load();
+        let ca = self.exact_channel_in(a, b, e, &mut modules, exec.as_deref_mut(), &mut None)?;
+        let [na, nb] = [a, b].map(|l| self.norm_table_in(l, &mut modules));
+        let (na, nb) = (na?, nb?);
+        #[cfg(test)]
+        before_load();
+        let sb = self.cgc_seeds_in(e, c, d, &mut modules)?;
+        let (nc, nd) = (
+            self.norm_table_in(c, &mut modules)?,
+            self.norm_table_in(d, &mut modules)?,
+        );
+        modules.retain(&[b, c, f, a, d]);
+        #[cfg(test)]
+        before_load();
+        let cc = self.exact_channel_in(b, c, f, &mut modules, exec, &mut None)?;
+        modules.retain(&[a, f, d]);
+        #[cfg(test)]
+        modules.observe_before_fourth();
+        #[cfg(test)]
+        before_load();
+        let sd = self.cgc_seeds_in(a, f, d, &mut modules)?;
+        drop(modules);
+        #[cfg(test)]
+        observe_contraction();
+        f_exact(&FInputs {
+            a: &ca,
+            cb: &cc,
+            b: &sb,
+            d: &sd,
+            norms: [&na, &nb, &nc, &nd],
+            dims,
+        })
     }
 
-    /// `R^{ab}_c` (§6), gated by gate 6 before it is retained.
-    pub(crate) fn r_symbol(
+    /// `R^{ab}_c` (§6): the rounded view of the exact block, gated by gate 6.
+    pub(crate) fn r_symbol(&self, labels: [Label<'_>; 3]) -> Result<RBlock<f64>, LieError> {
+        crate::cache::r_block(self.root(), labels, || {
+            let mut fresh = None;
+            let exact = self.r_exact_in(labels, &mut fresh)?;
+            match fresh {
+                Some(view) => Ok(view),
+                None => r_view(&exact),
+            }
+        })
+    }
+
+    /// The exact R block of the three labels, shared through the R tier and
+    /// the disk tier.
+    pub(crate) fn r_exact(&self, labels: [Label<'_>; 3]) -> Result<Arc<RadicalBlock<2>>, LieError> {
+        self.r_exact_in(labels, &mut None)
+    }
+
+    /// The exact R block of the three labels, shared through the R tier and
+    /// the disk tier; as [`Self::f_exact_in`], retained only once its view
+    /// passed gate 6.
+    fn r_exact_in(
         &self,
         labels: [Label<'_>; 3],
-        exec: Option<&mut Exec<'_>>,
-    ) -> Result<RBlock<f64>, LieError> {
-        crate::cache::r_block(self.root(), labels, || {
+        fresh: &mut Option<RBlock<f64>>,
+    ) -> Result<Arc<RadicalBlock<2>>, LieError> {
+        crate::cache::r_exact(self.root(), labels, || {
             let [a, b, c] = labels;
             crate::cache::through(
                 crate::cache::DISK_R,
                 self.root(),
                 labels,
                 || Ok(crate::cache::Shape::R(self.mult(a, b, c)?)),
-                || self.generate_r(labels, exec),
+                || {
+                    let exact = Arc::new(self.generate_r(labels)?);
+                    *fresh = Some(r_view_generated(&exact)?);
+                    Ok(exact)
+                },
             )
         })
     }
 
-    /// The gated contraction behind [`Self::r_symbol`].
-    fn generate_r(
-        &self,
-        labels: [Label<'_>; 3],
-        exec: Option<&mut Exec<'_>>,
-    ) -> Result<RBlock<f64>, LieError> {
-        {
-            let block = r_block_raw(self, labels, exec)?;
-            #[cfg(test)]
-            let block = match CORRUPT_BLOCK.with(std::cell::Cell::get) {
-                Some(fault) => {
-                    use crate::category::SymbolBlock;
-                    RBlock::from_vec(
-                        block.dims()[0],
-                        block.as_slice().iter().map(|&x| fault(x)).collect(),
-                    )
-                }
-                None => block,
-            };
-            check_r_block(&block)?;
-            Ok(block)
+    /// The exact contraction behind [`Self::r_exact_in`]: two seed columns
+    /// and three norm tables, no descent.
+    fn generate_r(&self, [a, b, c]: [Label<'_>; 3]) -> Result<RadicalBlock<2>, LieError> {
+        let n = self.mult(a, b, c)?;
+        if n == 0 {
+            return RadicalBlock::zeros([0, 0]).ok_or(LieError::LabelOverflow);
         }
+        crate::lie::checked_size([n, n])?;
+        let mut modules = RequestModules::default();
+        #[cfg(test)]
+        before_load();
+        let ab = self.cgc_seeds_in(a, b, c, &mut modules)?;
+        let na = self.norm_table_in(a, &mut modules)?;
+        let nb = self.norm_table_in(b, &mut modules)?;
+        let nc = self.norm_table_in(c, &mut modules)?;
+        #[cfg(test)]
+        before_load();
+        let ba = self.cgc_seeds_in(b, a, c, &mut modules)?;
+        drop(modules);
+        #[cfg(test)]
+        observe_contraction();
+        r_exact(&RInputs {
+            ab: &ab,
+            ba: &ba,
+            norms: [&na, &nb, &nc],
+            n,
+        })
+    }
+}
+
+/// The rounded F view of `exact`, gated by gate 7.
+fn f_view(exact: &RadicalBlock<4>) -> Result<FBlock<f64>, LieError> {
+    let view = FBlock::from_vec(exact.dims(), round_block(exact));
+    check_f_block(&view)?;
+    Ok(view)
+}
+
+/// [`f_view`] of a freshly generated block, where a test may corrupt the
+/// rounding before the gate; a disk-loaded block is never corrupted.
+fn f_view_generated(exact: &RadicalBlock<4>) -> Result<FBlock<f64>, LieError> {
+    #[cfg(test)]
+    if let Some(fault) = CORRUPT_BLOCK.with(std::cell::Cell::get) {
+        let view = FBlock::from_vec(
+            exact.dims(),
+            round_block(exact).into_iter().map(fault).collect(),
+        );
+        check_f_block(&view)?;
+        return Ok(view);
+    }
+    f_view(exact)
+}
+
+/// The rounded R view of `exact`, gated by gate 6.
+fn r_view(exact: &RadicalBlock<2>) -> Result<RBlock<f64>, LieError> {
+    let view = RBlock::from_vec(exact.dims()[0], round_block(exact));
+    check_r_block(&view)?;
+    Ok(view)
+}
+
+/// [`r_view`] of a freshly generated block (see [`f_view_generated`]).
+fn r_view_generated(exact: &RadicalBlock<2>) -> Result<RBlock<f64>, LieError> {
+    #[cfg(test)]
+    if let Some(fault) = CORRUPT_BLOCK.with(std::cell::Cell::get) {
+        let view = RBlock::from_vec(
+            exact.dims()[0],
+            round_block(exact).into_iter().map(fault).collect(),
+        );
+        check_r_block(&view)?;
+        return Ok(view);
+    }
+    r_view(exact)
+}
+
+/// The test hook run before each channel or seed load of an F or R
+/// generation.
+#[cfg(test)]
+fn before_load() {
+    if let Some(hook) = BEFORE_LOAD.with(std::cell::Cell::get) {
+        hook();
     }
 }

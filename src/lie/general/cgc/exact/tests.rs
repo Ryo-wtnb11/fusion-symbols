@@ -204,7 +204,6 @@ fn column_stage_gives_the_serial_run_at_every_width() {
         for (mu, coords) in serial.per_mu.iter().enumerate() {
             let run = integral(rationals(&cols[4 * mu..4 * mu + 4]).iter(), negate).unwrap();
             assert_eq!(coords.x, run.x, "μ {mu}");
-            assert_eq!(coords.bits, run.x.max_bits(), "μ {mu}");
             assert_eq!(coords.vertex, vertex(&norms[mu], &run.den, &run.content));
         }
         let strides: Vec<usize> = serial.per_mu.iter().map(|m| m.x.stride()).collect();

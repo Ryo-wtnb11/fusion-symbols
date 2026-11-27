@@ -57,7 +57,9 @@ The gauge of a simple factor is chosen by its **presented root system**
   a coefficient.
 - **Products** of simple factors and tori use the ordered product rules of
   [`gauge.md` §2](gauge.md#2-semisimple-products-and-central-quotients). A
-  simple factor contributes the values defined here, unchanged. Torus factors
+  simple factor contributes the exact values defined here; a product's F, R,
+  A and B are the exact Kronecker products of its factors' exact blocks,
+  rounded once (the §6.2 rounding of the composed block, gated as in §7). Torus factors
   (U(1)) have no Cartan matrix and are outside this document.
 - **Build features.** `A_1` coefficients are available in every build;
   higher-rank simple types require the `lie-generated` feature. Feature
@@ -323,9 +325,9 @@ therefore exactly an `exact.rs::SignedSqrtRational`.
   Gram–Schmidt on it gives rational `b_k = Σ_t r_{kt} c_t` and rational `n_k`,
   and `F[a, b] = ⟨f_j b_b, b_a⟩/n_a` is rational. ∎
 
-Implementations store `(F, n)` exactly and never add two square roots. The
-claim does not extend to F and R symbols, which are sums of products of four
-CGC (§6).
+Implementations store `(F, n)` exactly and never add two square roots. F and
+R entries are likewise single signed square roots of rationals: their sums of
+four CGC products share one radical, so only rationals are added (§6.2).
 
 ## 4. Tensor products and CGC
 
@@ -503,8 +505,8 @@ The public block `GroupRepresentations::cgc(a, b, c)` has axes
 The **entry list** of a channel is its exactly nonzero entries
 `(m_a, m_b, m_c, μ, value)` in the order: `μ` ascending (outer), then the
 public `m_c` ascending, then `(m_a, m_b)` in the §4.1 order. This order is
-normative: the floating-point contractions of §6.2 consume entry lists in
-this order, and their bits depend on the order within each bucket.
+the public order of `cgc`; F, R, A and B are exact (§6.2) and do not depend
+on it.
 
 ## 5. Duality and Frobenius–Schur phase
 
@@ -643,9 +645,9 @@ CGC (TensorKitSectors `Fsymbol_from_fusiontensor`, SUNRepresentations
   ```
 
   The block has axes `[μ, ν, κ, λ]` with lengths
-  `[N(a,b,e), N(e,c,d), N(b,c,f), N(a,f,d)]`. F does not depend on the slice;
-  the bits do, so the slice is part of the gauge (it is the highest weight for
-  §3.2 bases and the lowest for §3.1).
+  `[N(a,b,e), N(e,c,d), N(b,c,f), N(a,f,d)]`. F does not depend on the slice,
+  and since it is evaluated exactly (§6.2) neither do its bits; the
+  implementation reads the highest weight of `d` (engine index 0).
 - **R.** `R^{ab}_c[μ,ν] = Σ_{m_a,m_b} C(a,b,c)[m_a,m_b,0,μ] · C(b,a,c)[m_b,m_a,0,ν]`,
   axes `[μ, ν]`. The CGC are real, so conjugation is the identity.
 - **A, B.** The TensorKitSectors forms, for every simple type including `A_1`:
@@ -658,52 +660,44 @@ CGC (TensorKitSectors `Fsymbol_from_fusiontensor`, SUNRepresentations
 - **`A_1`**: F, R and `κ` are the closed forms of
   [`gauge.md` §1](gauge.md#1-su2-closed-forms), not contractions.
 
-### 6.2 Floating-point evaluation (normative)
+### 6.2 Exact values and rounding (normative)
 
-Every operation below is one IEEE 754 binary64 operation rounded to nearest,
-ties to even. No operation is fused (no FMA), reassociated or reordered.
-Accumulators start at `+0.0`. Inputs are the CGC entry lists of §4.7 in their
-normative order; "in list order" below means that order, restricted by the
-stated filter.
+Every F, R, A and B entry is computed **exactly** and rounded **once**,
+correctly to nearest (§4.7), like every CGC entry. Revisions before 0.13
+evaluated these contractions in binary64 with a normative operation order;
+that rounded every product and partial sum, so a returned value could
+differ from the correctly rounded exact value by several ulp, and that
+order was part of the gauge. It is not any more: the value is the exact
+contraction, and its bits are those of its one rounding.
 
-**F** (`frcore::f_block_raw` implements this recipe):
+**Exact form.** A CGC entry is `X·√(ρ_μ n^a_{m_a} n^b_{m_b}/n^c_{m_c})`
+with the integer coordinate `X` and vertex `ρ_μ` of the exact channel (§4.7)
+and the norms `n_m = ν_m g/Δ` of the irreps' norm tables. In the
+contraction the norms of the summed internal labels cancel pairwise, so
 
-1. `Bl[m_e]`: the entries of `B = C(e,c,d)` with `m_d = 0`, in list order, grouped by their first index `m_e`; each item is `(m_c, ν, v_B)`.
-2. `Al[m_e]`: the entries of `A` whose coupled index `m_e` has a nonempty
-   `Bl[m_e]`, in list order, grouped by `m_e`; each item is `(m_a, m_b, μ, v_A)`.
-3. `AB`: for `m_e` ascending, for each item of `Al[m_e]` in order, for each
-   item of `Bl[m_e]` in order, append `(μ, ν, v_A ⊗ v_B)` to the list keyed
-   `(m_a, m_b, m_c)` (`⊗` is the rounded product).
-4. `Dl[m_f]`: the entries of `D` at coupled index `0`, in list order, grouped
-   by their second index `m_f`; each item is `(m_a, λ, v_D)`.
-5. `Cl[m_f]`: the entries of `Cb` whose coupled index `m_f` has a nonempty
-   `Dl[m_f]`, in list order; each item is `(m_b, m_c, κ, v_C)`.
-6. `CD`: for `m_f` ascending, for each item of `Cl[m_f]` in order, for each
-   item of `Dl[m_f]` in order, if the key `(m_a, m_b, m_c)` exists in `AB`,
-   append `(κ, λ, v_C ⊗ v_D)` to the list keyed `(m_a, m_b, m_c)`.
-7. For the keys of `AB` in ascending lexicographic `(m_a, m_b, m_c)` order
-   that also exist in `CD`, for each `(μ, ν, x)` of `AB[key]` in order, for each
-   `(κ, λ, y)` of `CD[key]` in order:
-   `F[μ,ν,κ,λ] ← F[μ,ν,κ,λ] ⊕ (x ⊗ y)`.
+```
+F[μ,ν,κ,λ] = sign(S)·√(S²·ρ_common·ρ_A[μ]ρ_B[ν]ρ_C[κ]ρ_D[λ]),
+S          = Σ_{(m_a,m_b,m_c)} ν_a ν_b ν_c · AB[μ,ν] · CD[κ,λ],
+AB         = Σ_{m_e} X_A[m_a,m_b,m_e,μ]·X_B[m_e,m_c,ν],
+CD         = Σ_{m_f} X_C[m_b,m_c,m_f,κ]·X_D[m_a,m_f,λ],
+ρ_common   = (g_a g_b g_c / (Δ_a Δ_b Δ_c · n^d_top))²,
+```
 
-**R** (`frcore::r_block_raw`): group the entries of `C(a,b,c)` at coupled
-index `0` by `(m_a, m_b)` and those of `C(b,a,c)` at coupled index `0` by
-`(m_a, m_b) = (its m_2, its m_1)`, each in list order. For keys ascending,
-for each `(μ, x)` of the first group in order and each `(ν, y)` of the second
-in order: `R[μ,ν] ← R[μ,ν] ⊕ (x ⊗ y)`.
+with `B` and `D` the highest-weight columns of `d`. R is the same with
+`T[μ,ν] = Σ_{(m_a,m_b)} ν_a ν_b X_{ab}[m_a,m_b,μ]·X_{ba}[m_b,m_a,ν]` and
+`ρ_common = (g_a g_b / (Δ_a Δ_b · n^c_top))²`. The integer sums are formed
+in fixed-width split-limb integers when bounds computed before the sum
+allow, otherwise in big integers (§9); both are exact.
 
-**A and B.** `d_x` as binary64 is the exact dimension rounded to nearest;
-`s_x = sqrt(d_x)` (correctly rounded); the scale is `(s_a ⊗ s_b) ⊘ s_c`, in
-that association. Each entry is `scale ⊗ (κ_a ⊗ F)` for A and `scale ⊗ F`
-for B, in the row-major order of the F block. For `A_1`, `F` is the closed
-form of [`gauge.md` §1](gauge.md#1-su2-closed-forms). (For example
-`(√8·√8)/√1` and `√(8·8/1)` give different binary64 scales; only the first is
-this gauge.)
+**A and B.** `A^{ab}_c = κ_a·√(d_a d_b/d_c)·F^{ā a b}_b[𝟙, c]` and
+`B^{ab}_c = √(d_a d_b/d_c)·F^{a b b̄}_a[c, 𝟙]`, with the exact Weyl
+dimensions under one root, formed from the exact F and rounded once. For
+`A_1` the exact F is the closed form of
+[`gauge.md` §1](gauge.md#1-su2-closed-forms).
 
-**Contract.** All CGC values are exact until one correctly rounded conversion
-per entry (§4.7), and F, R, A and B follow this evaluation, so every build
-returns **bit-identical CGC, F, R, A and B values** for every simple type. No
-dense linear-algebra backend enters any value.
+**Contract.** Every build returns **bit-identical CGC, F, R, A and B values**
+for every simple type, each the correctly rounded exact value. No dense
+linear-algebra backend enters any value.
 
 ## 7. Generation gates (normative)
 
@@ -850,8 +844,8 @@ column.
 - **Retention.** Modules, exact channels, their rounded views,
   highest-weight seeds (the engine-0 column of a channel, from the
   elimination alone), norm tables (per irrep at public indices: the reduced
-  norms, the integers `ν_m = n_m Δ/g` on the table's denominator lcm `Δ`
-  with content `g`, and the within-weight ranks) and computed dual-pair
+  norms, from which the integers `ν_m = n_m Δ/g` on the table's denominator
+  lcm `Δ` with content `g` are derived) and computed dual-pair
   phases are retained only by the process-wide CGC tier of
   [`cache`](user-guide/resources.md). Its configured charged-byte and entry
   limits apply in aggregate across presented roots and groups; after a query,

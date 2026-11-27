@@ -159,7 +159,7 @@ No numerical generator or reference coefficient routine is ported for composites
 | Restartable product iterators | `src/product.rs::{advance,restarted}` clone initialized iterators; changed replay is a documented loud-panic invariant |
 | Machine integer representability | Product overflow maps to `LieError::LabelOverflow`; infallible weight multiplicities panic on checked `u64` multiplication overflow |
 | Root datum has Q contained in X | `src/lie/group.rs::GroupId::new` typed lattice validation; admission precedes engine label construction |
-| Numerical generation/verification | Simple-factor gates run as for single factors, including special cases; Kronecker orthogonality and identities follow from the factor identities, verified by `tests/category_conformance.rs::composite_lie_identities` |
+| Numerical generation/verification | Simple-factor gates run as for single factors, including special cases; a composite F or R view of exact leaves is rounded once from the exact Kronecker product (`src/product.rs::exact_route`) and gated again (finite F, unitary R); Kronecker orthogonality and identities follow from the factor identities, verified by `tests/category_conformance.rs::composite_lie_identities` and the exact-composition oracle `src/lie.rs::product_oracle` |
 | CU1 constructor, SUN UInt8 labels, and new dimension/generator ports | N/A: no such constructor or numerical routine is ported here |
 
 D₂'s convention is α₁ then α₂ in the exact A₁ gauge. N/F/R/A/B and CGCs use
