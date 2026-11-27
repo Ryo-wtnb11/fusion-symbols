@@ -15,12 +15,6 @@ pub struct TableObject {
     pub(super) table_id: u32,
     pub(super) index: u16,
 }
-impl TableObject {
-    /// The one-based index in the pinned source files.
-    pub const fn index(self) -> u16 {
-        self.index
-    }
-}
 impl core::fmt::Display for TableObject {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "object {}", self.index)
@@ -137,11 +131,6 @@ pub enum TableError {
     },
     /// An R-symbol or twist was requested from a category without a braiding.
     NoBraiding,
-    /// A query named a label outside `1..=rank`.
-    UnknownObject {
-        /// The offending label.
-        object: u16,
-    },
 }
 
 impl core::fmt::Display for TableError {
@@ -183,7 +172,6 @@ impl core::fmt::Display for TableError {
             }
             Self::Unsupported { reason } => write!(formatter, "unsupported category: {reason}"),
             Self::NoBraiding => formatter.write_str("the category has no braiding"),
-            Self::UnknownObject { object } => write!(formatter, "{object} is not in the category"),
         }
     }
 }

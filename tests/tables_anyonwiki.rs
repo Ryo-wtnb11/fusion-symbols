@@ -78,7 +78,7 @@ fn check_symbols(category: &TableCategory, symbols: &[Symbol]) {
     for &(kind, labels, poly, re, im) in symbols {
         let l: Vec<TableObject> = labels
             .iter()
-            .map(|&x| category.object(x).unwrap())
+            .map(|&x| category.object_at(u64::from(x) - 1).unwrap())
             .collect();
         let got = match kind {
             'F' => category.f_symbol(&l[0], &l[1], &l[2], &l[3], &l[4], &l[5]),
@@ -112,7 +112,9 @@ fn rank_three_symbols_are_the_exact_anyonwiki_symbols() {
     // `d = 2cos(π/7), 1 + 2cos(2π/7)` (AnyonWiki `numeric_*` of R^{22}_3 has
     // imaginary part 0.9749279121818235, one ulp below the correctly rounded
     // value shipped here).
-    let p = TableCategory::by_code([3, 1, 0, 3, 1, 1, 1]).expect("shipped");
+    let p =
+        TableCategory::by_uuid("37fa4ea8-97c6-11f1-8b25-ad9b74351a3e") /* [3, 1, 0, 3, 1, 1, 1] */
+            .expect("shipped");
     assert_eq!(p.uuid(), "37fa4ea8-97c6-11f1-8b25-ad9b74351a3e");
     check_symbols(
         &p,
@@ -166,7 +168,9 @@ fn rank_three_symbols_are_the_exact_anyonwiki_symbols() {
     // Checked against AnyonWiki badbfe2: an admissible F-symbol that is
     // exactly zero (`qqb_id` `0_1`), in the rank-3 entry with
     // `σ ⊗ σ = 1 ⊕ ψ ⊕ σ`.
-    let p = TableCategory::by_code([3, 1, 0, 2, 1, 1, 1]).expect("shipped");
+    let p =
+        TableCategory::by_uuid("37fa4e92-97c6-11f1-a160-09d79d636553") /* [3, 1, 0, 2, 1, 1, 1] */
+            .expect("shipped");
     check_symbols(&p, &[('F', &[3, 3, 3, 3, 3, 3], &[0, 1], 0.0, 0.0)]);
 }
 
@@ -176,7 +180,9 @@ fn rank_five_symbols_are_the_exact_anyonwiki_symbols() {
     // Checked against AnyonWiki badbfe2: the rank-5 entry with
     // `d = 1, 1, √3, √3, 2`. `1/√3` correctly rounded is 0.5773502691896257
     // (`1.0 / 3f64.sqrt()` gives ...258).
-    let p = TableCategory::by_code([5, 1, 0, 3, 1, 1, 1]).expect("shipped");
+    let p =
+        TableCategory::by_uuid("37fa51e4-97c6-11f1-8e38-175327b017ad") /* [5, 1, 0, 3, 1, 1, 1] */
+            .expect("shipped");
     assert_eq!(p.uuid(), "37fa51e4-97c6-11f1-8e38-175327b017ad");
     check_symbols(
         &p,

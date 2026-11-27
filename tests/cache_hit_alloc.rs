@@ -149,7 +149,7 @@ fn cache_free_fusion_multiplicities_allocate_nothing() {
     let one = ZNIrrep::new(1, 3).unwrap();
     zero(&z3, &one, &one);
     let fib = TableCategory::fibonacci();
-    let tau = fib.object(2).unwrap();
+    let tau = fib.object_at(1).unwrap();
     zero(&fib, &tau, &tau);
     let torus = crate::common::lie::torus();
     let q = torus.irrep_with_charges(&[], &[3]).unwrap();

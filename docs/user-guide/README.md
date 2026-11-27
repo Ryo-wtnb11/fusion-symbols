@@ -311,13 +311,14 @@ noncanonical input must be rejected.
 ## Tables
 
 `TableCategory` serves finite categories from the pinned AnyonWiki database.
-Symbols are `Complex64`; objects are one-based source indices.
+Symbols are `Complex64`; `object_at(i)` is the object with AnyonWiki
+label `i + 1`.
 
 ```rust
 use fusion_symbols::{category::FusionCategory, table::{TableCategory, TableError}};
 
 let fib = TableCategory::fibonacci();
-let tau = fib.object(2)?; // index 1 is the unit
+let tau = fib.object_at(1).unwrap(); // object_at(0) is the unit
 assert_eq!(fib.nsymbol(&tau, &tau, &tau)?, 1);
 let golden = (1.0 + 5f64.sqrt()) / 2.0;
 assert!((fib.dim(&tau) - golden).abs() < 1e-12);
@@ -328,8 +329,8 @@ assert!(TableCategory::shipped_uuids().len() >= 74);
 assert!(matches!(TableCategory::by_uuid("not-a-uuid"), Err(TableError::UnknownCategory)));
 ```
 
-Open a category with `fibonacci()`, `ising()`, `by_uuid(uuid)` or
-`by_code(code)`; `shipped_uuids()` lists what this build ships. 74
+Open a category with `fibonacci()`, `ising()`, or `by_uuid(uuid)`;
+`shipped_uuids()` lists what this build ships. 74
 categories of rank ≤ 4 ship by default and 303 more of rank 5–7 with the
 `anyonwiki-unitary` feature. A known but unshipped entry returns
 `TableError::Unsupported` with an `UnsupportedReason`. Fusion-only tables

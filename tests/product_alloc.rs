@@ -242,7 +242,7 @@ fn warm_product_symbols_allocate_by_route() {
     let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
     let o = su3.irrep(&[1, 1]).unwrap();
     let fib = TableCategory::fibonacci();
-    let tau = fib.object(2).unwrap();
+    let tau = fib.object_at(1).unwrap();
     let (n, m) = (
         su3.f_symbol(&o, &o, &o, &o, &o, &o)
             .unwrap()

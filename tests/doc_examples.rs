@@ -231,7 +231,7 @@ fn guide_tables_1() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let fib = TableCategory::fibonacci();
-    let tau = fib.object(2)?; // index 1 is the unit
+    let tau = fib.object_at(1).unwrap(); // object_at(0) is the unit
     assert_eq!(fib.nsymbol(&tau, &tau, &tau)?, 1);
     let golden = (1.0 + 5f64.sqrt()) / 2.0;
     assert!((fib.dim(&tau) - golden).abs() < 1e-12);
@@ -984,8 +984,8 @@ fn contract_tables_fibonacci_object() {
     use fusion_symbols::{category::FusionCategory, table::TableCategory};
 
     let fib = TableCategory::fibonacci();
-    let tau = fib.object(2).unwrap();
-    assert_eq!(tau.index(), 2);
+    let tau = fib.object_at(1).unwrap();
+    assert_eq!(fib.object_index(&tau), Ok(1));
     assert_eq!(fib.fusion(&tau, &tau).unwrap().count(), 2);
 }
 

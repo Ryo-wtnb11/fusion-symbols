@@ -57,7 +57,7 @@ are recorded in each entry's provenance (`src/table/provenance.rs::TableProvenan
 | License | MIT, Copyright (c) 2026 AnyonWiki — copied to `data/anyonwiki-badbfe2/LICENSE` |
 | Category file | `AlgebraicStructures/FusionCategories/MultFreeFusionCategories/Rank1-7.json`, SHA-256 `383cb2db58ae839f73c3d67ad79186e6ee44d69c32fd8fb202d1a4089ca7e859` (64.7 MB, 989 categories; not committed) |
 | Fusion-ring file | `AlgebraicStructures/FusionRings/mult1.json`, SHA-256 `66117d72d204a5359ef43e584ed46cfe503240558aa8b9c381922b4861aa1153` (not committed) |
-| Identity | (commit, `uuid`). The `anyonwiki_code` `[rank, multiplicity, non-self-dual, ring, associator f, braiding b (0 = none), pivotal p]` is accepted by `TableCategory::by_code` for this commit only: codes are not stable across database versions (CategoryData.jl's differ for most braided entries, Fibonacci's chirality index among them) |
+| Identity | (commit, `uuid`). The `anyonwiki_code` `[rank, multiplicity, non-self-dual, ring, associator f, braiding b (0 = none), pivotal p]` labels an entry in this commit only and is not a lookup key: codes are not stable across database versions (CategoryData.jl's differ for most braided entries, Fibonacci's chirality index among them) |
 
 A qqb_id `a0_a1_…_an__i` is the `i`-th root of `a0 + a1 x + … + an x^n`, roots
 ordered real first (ascending), then conjugate pairs by real part, then
@@ -97,7 +97,7 @@ the source numeric data. It writes shortest round-trip decimals to
 Perron–Frobenius dimensions and pins representative exact algebraic symbols.
 `tests/tables_reference.rs` checks structural identities over every shipped entry.
 
-### The `Complex64` projection epoch (`PROJECTION_EPOCH`)
+### The `Complex64` projection epoch
 
 Projection epoch:
 **`fusion-symbols/tables/anyonwiki-badbfe2/projection/2026-10-16`**. The
@@ -117,7 +117,7 @@ Changing any step is a new projection epoch.
 
 | Field | Value |
 | --- | --- |
-| Object ordering | Validated by `TableCategory::object(index)`, with a private catalog tag; `TableObject::index()` returns the source index. Fusion-ring element order, one-based, `1` = unit. Frozen; not re-sorted |
+| Object ordering | `FusionCategory::object_at(i)` is the object with one-based source label `i + 1` and `object_index` its inverse; objects carry a private catalog tag. Fusion-ring element order, `object_at(0)` = unit. Frozen; not re-sorted |
 | Gauge | Source gauge, loaded verbatim (unitary), named constructors included. No conversion to TensorKitSectors' gauge |
 | Provenance | One generated `TableProvenance` per entry (uuid and fusion-ring uuid in `source_entry`, code in `category_key`) |
 | Braiding | `FusionCategory::braiding_style` (`BraidingStyle::None` on fusion-only entries); `FusionCategory::r_symbol` returns `TableError::NoBraiding` on fusion-only entries; `twist` panics. Foreign objects panic before either capability check |

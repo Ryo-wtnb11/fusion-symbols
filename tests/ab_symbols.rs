@@ -158,7 +158,7 @@ fn abelian_groups_return_n() {
 #[test]
 fn fibonacci_matches_tensorkitsectors_in_the_same_gauge() {
     let fib = TableCategory::fibonacci();
-    let (one, tau) = (fib.object(1).unwrap(), fib.object(2).unwrap());
+    let (one, tau) = (fib.object_at(0).unwrap(), fib.object_at(1).unwrap());
     for (a, b, c) in [
         (tau, tau, one),
         (tau, tau, tau),
@@ -180,8 +180,8 @@ fn ising_matches_tensorkitsectors_up_to_the_documented_vertex_gauge() {
     // A_here = A_TKS · u^{ā a}_𝟙 u^{𝟙 b}_b / (u^{ab}_c u^{ā c}_b) and
     // B_here = B_TKS · u^{ab}_c u^{c b̄}_a / (u^{b b̄}_𝟙 u^{a 𝟙}_a).
     let ising = TableCategory::ising();
-    let o = |i| ising.object(i).unwrap();
-    let (one, psi, sigma) = (o(1), o(2), o(3));
+    let o = |i| ising.object_at(i).unwrap();
+    let (one, psi, sigma) = (o(0), o(1), o(2));
     let u = |a, b, c| {
         if (a, b, c) == (sigma, sigma, psi) {
             -1.0
@@ -233,7 +233,7 @@ fn fibonacci_times_su2_promotes_to_complex() {
     // (τ,½) ⊗ (τ,½) → (τ,1) (the reference prints ±1.0000000000000002).
     let (fib, su2) = (TableCategory::fibonacci(), su2());
     let cat = Product::new((fib.clone(), su2.clone()));
-    let tau = fib.object(2).unwrap();
+    let tau = fib.object_at(1).unwrap();
     let (half, one) = (su2.irrep(&[1]).unwrap(), su2.irrep(&[2]).unwrap());
     let (x, y) = ((tau, half.clone()), (tau, one));
     let a = cat.a_symbol(&x, &x, &y).unwrap();
@@ -247,7 +247,7 @@ fn fibonacci_times_su2_promotes_to_complex() {
 fn absent_channels_and_foreign_objects() {
     let (fib, su2) = (TableCategory::fibonacci(), su2());
     let cat = Product::new((fib.clone(), su2.clone()));
-    let (one, tau) = (fib.object(1).unwrap(), fib.object(2).unwrap());
+    let (one, tau) = (fib.object_at(0).unwrap(), fib.object_at(1).unwrap());
     let half = su2.irrep(&[1]).unwrap();
     let x = (tau, half.clone());
     let absent = (one, half.clone());
@@ -255,7 +255,7 @@ fn absent_channels_and_foreign_objects() {
     assert!(cat.b_symbol(&x, &x, &absent).unwrap().as_slice().is_empty());
 
     let ising = TableCategory::ising();
-    let foreign = ising.object(3).unwrap();
+    let foreign = ising.object_at(2).unwrap();
     assert!(std::panic::catch_unwind(|| fib.a_symbol(&foreign, &tau, &tau)).is_err());
     assert!(std::panic::catch_unwind(|| fib.b_symbol(&tau, &tau, &foreign)).is_err());
     let z4 = ZNIrrep::new(1, 4).unwrap();

@@ -203,7 +203,11 @@ fn gauge_equivalent(
 ) -> Result<(), String> {
     assert_eq!(category.object_count(), Ok(Some(u64::from(tks.rank))));
     let labels: Vec<u16> = (1..=tks.rank).collect();
-    let here = |a: u16| category.object(map[usize::from(a) - 1]).unwrap();
+    let here = |a: u16| {
+        category
+            .object_at(u64::from(map[usize::from(a) - 1]) - 1)
+            .unwrap()
+    };
     let close = |what: String, got: Complex64, want: Complex64| {
         if (got - want).norm() <= FP_BOUND {
             Ok(())
@@ -278,9 +282,11 @@ fn fibonacci_is_tensorkitsectors_fibonacci_in_the_same_gauge() {
     let tks = tks_fibonacci();
     gauge_equivalent(&fib, &tks, &[1, 2], |_, _, _| 1.0).expect("identity gauge");
     // Negative control: the mirror braiding is not TensorKitSectors'.
-    let mirror = TableCategory::by_code([2, 1, 0, 2, 1, 1, 1]).expect("shipped");
+    let mirror =
+        TableCategory::by_uuid("37fa4e42-97c6-11f1-9e48-17415817148b") /* [2, 1, 0, 2, 1, 1, 1] */
+            .expect("shipped");
     assert!(gauge_equivalent(&mirror, &tks, &[1, 2], |_, _, _| 1.0).is_err());
-    for a in [fib.object(1).unwrap(), fib.object(2).unwrap()] {
+    for a in [fib.object_at(0).unwrap(), fib.object_at(1).unwrap()] {
         assert_eq!(fib.dual(&a), a);
     }
 }
@@ -291,8 +297,8 @@ fn fibonacci_entries_are_the_correctly_rounded_exact_values() {
     // `e^{4πi/5}`, `e^{-3πi/5}`) and a 60-digit decimal evaluation: the
     // nearest binary64 values. `1.0 / PHI` in f64 is one ulp below the first.
     let fib = table();
-    let tau = fib.object(2).unwrap();
-    let unit = fib.object(1).unwrap();
+    let tau = fib.object_at(1).unwrap();
+    let unit = fib.object_at(0).unwrap();
     let real = |re| Complex64::new(re, 0.0);
     assert_bits(
         fib.f_symbol(&tau, &tau, &tau, &tau, &unit, &unit).unwrap(),
@@ -340,7 +346,9 @@ fn ising_is_tensorkitsectors_ising_up_to_the_documented_vertex_gauge() {
     // Negative controls: not entrywise equal, and the mirror braiding is not
     // equivalent under the same witness.
     assert!(gauge_equivalent(&ising, &tks, &map, |_, _, _| 1.0).is_err());
-    let mirror = TableCategory::by_code([3, 1, 0, 1, 1, 4, 1]).expect("shipped");
+    let mirror =
+        TableCategory::by_uuid("37fa4e6a-97c6-11f1-8b07-33a13543ef72") /* [3, 1, 0, 1, 1, 4, 1] */
+            .expect("shipped");
     assert!(gauge_equivalent(&mirror, &tks, &map, documented).is_err());
 }
 
@@ -353,13 +361,13 @@ fn ising_is_tensorkitsectors_ising_up_to_the_documented_vertex_gauge() {
 #[test]
 fn fusion_items_are_the_shipped_simple_decompositions() {
     let fib = TableCategory::fibonacci();
-    let [unit, tau] = [1, 2].map(|i| fib.object(i).unwrap());
+    let [unit, tau] = [0, 1].map(|i| fib.object_at(i).unwrap());
     assert_eq!(
         fib.fusion(&tau, &tau).unwrap().collect::<Vec<_>>(),
         [(unit, 1), (tau, 1)]
     );
     let ising = TableCategory::ising();
-    let [unit, psi, sigma] = [1, 2, 3].map(|i| ising.object(i).unwrap());
+    let [unit, psi, sigma] = [0, 1, 2].map(|i| ising.object_at(i).unwrap());
     assert_eq!(
         ising.fusion(&sigma, &sigma).unwrap().collect::<Vec<_>>(),
         [(unit, 1), (psi, 1)]
@@ -611,21 +619,18 @@ fn ribbon_relation_ties_twists_to_the_braid() {
 // -------------------------------------------------------------------------
 #[test]
 fn objects_are_validated_and_symbols_on_absent_channels_are_zero() {
-    use fusion_symbols::table::TableError;
+    use fusion_symbols::category::EnumerationError;
     let fib = table();
-    for index in [0, 3, u16::MAX] {
-        assert_eq!(
-            fib.object(index),
-            Err(TableError::UnknownObject { object: index })
-        );
+    for index in [2, u64::MAX] {
+        assert_eq!(fib.object_at(index), Err(EnumerationError::OutOfRange));
     }
     assert_eq!(
         crate::common::objects(&fib)
-            .map(|a| a.index())
+            .map(|a| fib.object_index(&a).unwrap())
             .collect::<Vec<_>>(),
-        vec![1, 2]
+        vec![0, 1]
     );
-    let (unit, tau) = (fib.unit(), fib.object(2).unwrap());
+    let (unit, tau) = (fib.unit(), fib.object_at(1).unwrap());
     assert_eq!(
         fib.f_symbol(&tau, &tau, &unit, &unit, &tau, &tau).unwrap(),
         Complex64::new(0.0, 0.0)
@@ -641,7 +646,9 @@ fn foreign_objects_panic_before_capability_checks_in_every_argument() {
     use std::panic::{catch_unwind, AssertUnwindSafe};
     let fib = table();
     let foreign = fib.unit();
-    let fusion_only = TableCategory::by_code([3, 1, 0, 2, 2, 0, 1]).unwrap();
+    let fusion_only =
+        TableCategory::by_uuid("37fa4e9c-97c6-11f1-8ce9-19309dfc597c") /* [3, 1, 0, 2, 2, 0, 1] */
+            .unwrap();
     for cat in [TableCategory::ising(), fusion_only] {
         let ok = cat.unit();
         let rejects = |call: &dyn Fn()| {

@@ -39,10 +39,10 @@ impl Damaged {
         }
     }
     fn one(&self) -> O {
-        self.inner.object(1).unwrap()
+        self.inner.object_at(0).unwrap()
     }
     fn tau(&self) -> O {
-        self.inner.object(2).unwrap()
+        self.inner.object_at(1).unwrap()
     }
 }
 

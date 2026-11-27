@@ -94,7 +94,7 @@ fn fermionic_closed_forms_and_complex_promotion() {
     );
 
     let fibsu2 = Product::new((TableCategory::fibonacci(), su2()));
-    let tau = fibsu2.factors().0.object(2).unwrap();
+    let tau = fibsu2.factors().0.object_at(1).unwrap();
     let h = fibsu2.factors().1.irrep(&[1]).unwrap();
     let x = (tau, h);
     // Fibonacci: R^{ττ}_1 = exp(+4πi/5), θ_τ = exp(-4πi/5), F[1,1]=1/φ.
@@ -152,7 +152,7 @@ fn fusion_first_factor_fastest_and_reassociation() {
         TableCategory::fibonacci(),
     ));
     let right = Product::new((s, Product::new((FermionParity, TableCategory::fibonacci()))));
-    let t = flat.factors().2.object(2).unwrap();
+    let t = flat.factors().2.object_at(1).unwrap();
     let a = (h.clone(), Parity::ODD, t);
     let l = ((h.clone(), Parity::ODD), t);
     let r = (h, (Parity::ODD, t));
@@ -864,12 +864,12 @@ fn left_fold_and_unbraided_table_preflight() {
         .unwrap();
     let cat = Product::new((fib.clone(), unbraided.clone()));
     let a = cat.unit();
-    let c = (fib.object(2).unwrap(), unbraided.unit());
+    let c = (fib.object_at(1).unwrap(), unbraided.unit());
     assert!(matches!(
         cat.r_symbol(&a, &a, &c),
         Err(ProductError::NoBraiding { factor: 1 })
     ));
-    let foreign = (fib.unit(), fib.object(2).unwrap());
+    let foreign = (fib.unit(), fib.object_at(1).unwrap());
     assert!(std::panic::catch_unwind(|| cat.r_symbol(&a, &a, &foreign)).is_err());
     assert!(std::panic::catch_unwind(|| cat.twist(&foreign)).is_err());
 }
@@ -1154,7 +1154,7 @@ fn runtime_checked_composition_and_initialized_iteration() {
 #[test]
 fn runtime_complex_scalars_and_enumeration_overflow() {
     let fib = TableCategory::fibonacci();
-    let tau = fib.object(2).unwrap();
+    let tau = fib.object_at(1).unwrap();
     let runtime = Product::new(vec![fib.clone(), fib.clone()]);
     let tuple = Product::new((fib.clone(), fib));
     let x = vec![tau, tau];
@@ -1365,7 +1365,7 @@ fn complex_real(l: &Frab<Complex64>, r: &Frab<f64>) -> Frab<(u64, u64)> {
 #[test]
 fn real_complex_product_symbols_are_bitwise_promoted_kronecker_products() {
     let fib = TableCategory::fibonacci();
-    let tau = fib.object(2).unwrap();
+    let tau = fib.object_at(1).unwrap();
     let (p1, m1, u0) = (
         U1Irrep::new(1).unwrap(),
         U1Irrep::new(-1).unwrap(),
@@ -1387,7 +1387,7 @@ fn real_complex_product_symbols_are_bitwise_promoted_kronecker_products() {
 #[test]
 fn multiplicity_real_complex_product_symbols_are_bitwise_promoted_kronecker_products() {
     let fib = TableCategory::fibonacci();
-    let tau = fib.object(2).unwrap();
+    let tau = fib.object_at(1).unwrap();
     let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
     let o = su3.irrep(&[1, 1]).unwrap();
     let real = frab_values(&su3, [&o; 3], [&o; 6]);

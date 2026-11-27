@@ -214,7 +214,7 @@ fn table_source_order() {
     assert_eq!(fib.object_count(), Ok(Some(2)));
     assert_eq!(
         first(&fib, 2),
-        [fib.object(1).unwrap(), fib.object(2).unwrap()]
+        [fib.object_at(0).unwrap(), fib.object_at(1).unwrap()]
     );
     assert!((fib.dim(&fib.object_at(1).unwrap()) - (1.0 + 5f64.sqrt()) / 2.0).abs() < 1e-15);
     assert_eq!(fib.object_at(2), Err(OutOfRange));
@@ -224,7 +224,7 @@ fn table_source_order() {
     let dims: Vec<f64> = first(&ising, 3).iter().map(|a| ising.dim(a)).collect();
     assert_eq!(dims[..2], [1.0, 1.0]);
     assert!((dims[2] - 2f64.sqrt()).abs() < 1e-15);
-    assert_eq!(ising.object_index(&ising.object(3).unwrap()), Ok(2));
+    assert_eq!(ising.object_index(&ising.object_at(2).unwrap()), Ok(2));
     assert_eq!(ising.object_at(3), Err(OutOfRange));
     round_trip(&ising, 3);
 }
@@ -361,7 +361,7 @@ fn derived_dimensions_multiply_factorwise() {
     let su2 = lie(GroupId::su(2).unwrap());
     let fib = TableCategory::fibonacci();
     let p = Product::new((su2.clone(), fib.clone()));
-    let a = (su2.irrep(&[1]).unwrap(), fib.object(2).unwrap());
+    let a = (su2.irrep(&[1]).unwrap(), fib.object_at(1).unwrap());
     assert_eq!(p.sqrt_dim(&a), 1.7989074399478675);
     assert_eq!(p.inv_sqrt_dim(&a), 0.5558929702514211);
     assert_eq!(p.inv_dim(&a), 0.30901699437494745);

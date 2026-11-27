@@ -355,7 +355,7 @@ fn product_identities() {
     let fsu2 = Product::new((su2.clone(), FermionParity));
     conformance(fsu2.clone(), vec![fsu2.unit(), (half.clone(), parity)]);
     let fib = TableCategory::fibonacci();
-    let tau = fib.object(2).unwrap();
+    let tau = fib.object_at(1).unwrap();
     let fibsu2 = Product::new((fib, su2.clone()));
     conformance(fibsu2.clone(), vec![fibsu2.unit(), (tau, half.clone())]);
     let ss = Product::new((su2.clone(), su2));

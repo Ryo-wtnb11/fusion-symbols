@@ -147,7 +147,7 @@ fn rows(r: &mut Runner) {
 
     // Control: table categories enter no coefficient tier.
     let fib = TableCategory::fibonacci();
-    let tau = fib.object(2).unwrap();
+    let tau = fib.object_at(1).unwrap();
     r.row("Fibonacci/N", || fib.nsymbol(&tau, &tau, &tau).unwrap());
     r.row("Fibonacci/R", || fib.r_symbol(&tau, &tau, &tau).unwrap());
     r.row("Fibonacci/F", || {
