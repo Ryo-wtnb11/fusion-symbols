@@ -1158,6 +1158,8 @@ fn sparse_nullspace_matches_dense_channels() {
         (RootSystem::G2, G7.to_vec(), G14.to_vec()),
         (RootSystem::G2, G14.to_vec(), G14.to_vec()),
         (RootSystem::G2, G27.to_vec(), G27.to_vec()),
+        (RootSystem::G2, G7.to_vec(), G27.to_vec()),
+        (RootSystem::G2, G27.to_vec(), G7.to_vec()),
         (RootSystem::F4, unit(4, 3), unit(4, 3)),
         (RootSystem::F4, unit(4, 3), unit(4, 0)),
         (RootSystem::E6, unit(6, 0), unit(6, 0)),
@@ -1284,9 +1286,12 @@ fn rounded_gates_pass_on_exact_channels() {
     }
 }
 
-/// Every entry of the CI channel family above and of SU(3) `(4,4) ⊗ (4,4)`
-/// into `(4,4)` and `(2,2)` is certified by the fast path, with the bits of
-/// the exact conversion.
+/// Every entry of the CI channel family above, of G2 `7 ⊗ 27` and `27 ⊗ 7`
+/// (whose `27` couplings repeat the right and the left label) and of SU(3)
+/// `(4,4) ⊗ (4,4)` into `(4,4)` and `(2,2)` is certified by the fast path,
+/// with the bits of the exact conversion. A repeated label passes one norm
+/// table, as the CGC tier shares it, so a coupled label equal to a factor's
+/// takes its reciprocal roots from that factor's table.
 #[test]
 fn estimated_entries_equal_the_exact_conversion() {
     // `(root, a, b, c)`.
@@ -1314,12 +1319,13 @@ fn estimated_entries_equal_the_exact_conversion() {
             .label_multiplicity(Label::new(&a), Label::new(&b), &c, None)
             .unwrap() as usize;
         let (exact, _) = fresh_channel(&data, &ma, &mb, &mc, n, None).unwrap();
-        let norms = [
-            NormTable::new(&ma).unwrap(),
-            NormTable::new(&mb).unwrap(),
-            NormTable::new(&mc).unwrap(),
-        ];
-        let got = crate::rounding::cgc::fast_and_exact(&exact, [&norms[0], &norms[1], &norms[2]]);
+        // One table per distinct label, shared by every place it occurs.
+        let ta = NormTable::new(&ma).unwrap();
+        let tb = (b != a).then(|| NormTable::new(&mb).unwrap());
+        let tc = (c != a && c != b).then(|| NormTable::new(&mc).unwrap());
+        let nb = tb.as_ref().unwrap_or(&ta);
+        let nc = tc.as_ref().unwrap_or(if c == a { &ta } else { nb });
+        let got = crate::rounding::cgc::fast_and_exact(&exact, [&ta, nb, nc]);
         assert!(!got.is_empty() || n == 0);
         for (fast, exact) in got {
             assert_eq!(fast, Some(exact), "{root:?} {a:?} {b:?} {c:?}");
