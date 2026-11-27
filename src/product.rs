@@ -39,11 +39,16 @@
 //! category of this crate states its largest multiplicity without iterating;
 //! for a `FusionStyle::Generic` factor defined outside the crate, building a
 //! nonempty product iterates that factor's channels once more to find it.
+use crate::category::sealed::{
+    ExactAnswer, ExactBuf, ExactOp, InlineVec, LeafBuf, Query, SymbolKind, Unit, View,
+};
 use crate::category::{
     rank_checked, sealed::ExactCount, sealed::Ranked, sealed::SymbolWithAxes, sealed::Validated,
     unrank, BraidingStyle, CgcBlock, Count, EnumerationError, FBlock, FusionCategory, FusionStyle,
     GroupRepresentations, Promote, RBlock, Scalar, Storage, SymbolBlock,
 };
+use crate::exact::radical::RadicalBlock;
+use crate::rounding::blocks::{check_f_block, check_r_block, round_block};
 use malachite_nz::integer::Integer;
 use std::{
     any::Any,
@@ -609,6 +614,230 @@ fn all_ones<const R: usize>(dims: [usize; R]) -> Option<[u32; R]> {
     dims.iter().all(|&n| n == 1).then_some([1; R])
 }
 
+// One product level's exact hook, folded factor by factor: the class of a
+// kind (unit only if every factor is; unavailable if any factor is; else the
+// summed Radical leaves), the aggregate unit of `Describe` with every leaf
+// appended depth-first to the caller's one buffer, or `Fetch`/`View`
+// forwarded to the Radical factors only.
+struct Fold {
+    leaves: usize,
+    unit: Unit,
+    unavailable: bool,
+}
+
+impl Fold {
+    fn new() -> Self {
+        Self {
+            leaves: 0,
+            unit: Unit::PlusOne,
+            unavailable: false,
+        }
+    }
+
+    fn finish<O>(self, op: &ExactOp<'_, '_, O>) -> ExactAnswer {
+        match op {
+            _ if self.unavailable => ExactAnswer::Unavailable,
+            ExactOp::Class(_) if self.leaves == 0 => ExactAnswer::UnitClass,
+            ExactOp::Class(_) => ExactAnswer::RadicalClass {
+                leaves: self.leaves,
+            },
+            ExactOp::Describe(..) => ExactAnswer::Unit(self.unit),
+            ExactOp::Fetch(..) | ExactOp::View(..) => ExactAnswer::Done,
+        }
+    }
+
+    fn step<'q, O, C: FusionCategory, E>(
+        &mut self,
+        op: &mut ExactOp<'q, '_, O>,
+        cat: &C,
+        proj: impl Fn(&'q O) -> &'q C::Object,
+        t: Validated,
+        wrap: impl Fn(C::Error) -> E,
+    ) -> Result<(), E>
+    where
+        C::Object: 'q,
+    {
+        let hook = |op| cat.__fusion_symbols_exact_symbol(op, t).map_err(&wrap);
+        let radical = |kind| {
+            hook(ExactOp::Class(kind)).map(|c| matches!(c, ExactAnswer::RadicalClass { .. }))
+        };
+        if self.unavailable {
+            return Ok(());
+        }
+        match op {
+            ExactOp::Class(kind) => match hook(ExactOp::Class(*kind))? {
+                ExactAnswer::UnitClass => {}
+                ExactAnswer::RadicalClass { leaves } => self.leaves += leaves,
+                _ => self.unavailable = true,
+            },
+            ExactOp::Describe(q, buf) => match hook(ExactOp::Describe(q.map(proj), buf))? {
+                ExactAnswer::Unit(u) => self.unit = self.unit.times(u),
+                _ => self.unavailable = true,
+            },
+            ExactOp::Fetch(q, buf) => {
+                if radical(q.kind())? {
+                    hook(ExactOp::Fetch(q.map(proj), buf))?;
+                }
+            }
+            ExactOp::View(q, out) => {
+                if radical(q.kind())? {
+                    hook(ExactOp::View(q.map(proj), out))?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Runs between a composite's leaf fetch and its publication.
+    static AFTER_FETCH: std::cell::Cell<Option<fn()>> = const { std::cell::Cell::new(None) };
+    /// Makes the next composite rounding non-finite, for the gate tests.
+    static CORRUPT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+// The outer boundary's exact route (design §e.2): `None` takes the float
+// path, which is the route of an unavailable factor and of a zero aggregate
+// unit. No leaf: the unit itself. One Radical leaf: its own view. More: the
+// composite view, whose miss first runs `precheck` (today's multiplicities,
+// overflow and zero channels, in today's order), then composes the leaves'
+// exact blocks and rounds once. The unit and any promotion are applied by
+// the caller, after publication.
+fn exact_route<P: FusionCategory>(
+    p: &P,
+    q: Query<'_, P::Object>,
+    t: Validated,
+    precheck: impl FnOnce() -> Result<Option<View>, P::Error>,
+    overflow: impl FnOnce() -> P::Error,
+    gate: impl FnOnce(&'static str) -> P::Error,
+) -> Result<Option<(Unit, View)>, P::Error> {
+    let kind = q.kind();
+    let leaves = match p.__fusion_symbols_exact_symbol(ExactOp::Class(kind), t)? {
+        ExactAnswer::UnitClass => 0,
+        ExactAnswer::RadicalClass { leaves } => leaves,
+        _ => return Ok(None),
+    };
+    let mut buf = LeafBuf(InlineVec::with_capacity(leaves));
+    let unit = match p.__fusion_symbols_exact_symbol(ExactOp::Describe(q, &mut buf), t)? {
+        ExactAnswer::Unit(u) if u != Unit::Zero => u,
+        _ => return Ok(None),
+    };
+    let view = match leaves {
+        0 if kind == SymbolKind::F => View::F(FBlock::one(1.0)),
+        0 => View::R(RBlock::one(1.0)),
+        1 => {
+            let mut out = None;
+            p.__fusion_symbols_exact_symbol(ExactOp::View(q, &mut out), t)?;
+            out.expect("a one-leaf query views its leaf")
+        }
+        _ => crate::cache::composed(kind, &buf, || {
+            if let Some(zero) = precheck()? {
+                return Ok(zero);
+            }
+            let mut exact = ExactBuf::with_capacity(leaves);
+            p.__fusion_symbols_exact_symbol(ExactOp::Fetch(q, &mut exact), t)?;
+            #[cfg(test)]
+            if let Some(f) = AFTER_FETCH.with(std::cell::Cell::get) {
+                f();
+            }
+            compose(kind, &exact).ok_or_else(overflow)?.map_err(gate)
+        })?,
+    };
+    Ok(Some((unit, view)))
+}
+
+// The leaves' Kronecker product in leaf order, rounded once and gated (7 for
+// F, 6 for R; A and B as their leaf views). `None` on a dimension overflow.
+fn compose(kind: SymbolKind, exact: &ExactBuf) -> Option<Result<View, &'static str>> {
+    fn kron<const R: usize>(
+        blocks: &InlineVec<Arc<RadicalBlock<R>>, 4>,
+    ) -> Option<RadicalBlock<R>> {
+        let mut blocks = blocks.iter();
+        let first = RadicalBlock::clone(blocks.next()?);
+        blocks.try_fold(first, |acc, b| acc.kron(b))
+    }
+    Some(if kind == SymbolKind::F {
+        let x = kron(&exact.f)?;
+        let data = round_block(&x);
+        #[cfg(test)]
+        let data = corrupted(data);
+        let view = FBlock::from_vec(x.dims(), data);
+        check_f_block(&view)
+            .map(|()| View::F(view))
+            .map_err(|_| "F")
+    } else {
+        let x = kron(&exact.r2)?;
+        let data = round_block(&x);
+        #[cfg(test)]
+        let data = corrupted(data);
+        let view = RBlock::from_vec(x.dims()[0], data);
+        match kind {
+            SymbolKind::R => check_r_block(&view)
+                .map(|()| View::R(view))
+                .map_err(|_| "R"),
+            _ => Ok(View::R(view)),
+        }
+    })
+}
+
+#[cfg(test)]
+fn corrupted(mut x: Vec<f64>) -> Vec<f64> {
+    if CORRUPT.with(|c| c.replace(false)) {
+        x[0] = f64::NAN;
+    }
+    x
+}
+
+// `Some(x)` when `S` is `T`: a view passes through without a copy.
+fn cast<S: 'static, T: 'static>(x: T) -> Result<S, T> {
+    let mut slot = Some(x);
+    match (&mut slot as &mut dyn Any)
+        .downcast_mut::<Option<S>>()
+        .and_then(Option::take)
+    {
+        Some(same) => Ok(same),
+        None => Err(slot.expect("a failed downcast leaves the value")),
+    }
+}
+
+// The unit applied to the stored real entries, embedded as `(x, +0.0)`.
+fn remap<T: Copy, S: Scalar>(data: &[T], f: impl Fn(T) -> S) -> Storage<S> {
+    match data {
+        [] => Storage::Empty,
+        &[x] => Storage::One(f(x)),
+        _ => Storage::Shared(data.iter().map(|&x| f(x)).collect()),
+    }
+}
+
+fn f_out<S: Scalar>(unit: Unit, view: View) -> FBlock<S> {
+    let View::F(view) = view else {
+        unreachable!("an F query views an F block")
+    };
+    match cast::<FBlock<S>, _>(view) {
+        Ok(same) if unit == Unit::PlusOne => same,
+        Ok(same) => FBlock::from_storage(same.dims(), remap(same.as_slice(), |x| unit.apply(x))),
+        Err(view) => FBlock::from_storage(
+            view.dims(),
+            remap(view.as_slice(), |x| unit.apply(S::from_f64(x))),
+        ),
+    }
+}
+
+fn r_out<S: Scalar>(unit: Unit, view: View) -> RBlock<S> {
+    let View::R(view) = view else {
+        unreachable!("an R, A or B query views a square block")
+    };
+    match cast::<RBlock<S>, _>(view) {
+        Ok(same) if unit == Unit::PlusOne => same,
+        Ok(same) => RBlock::from_storage(same.dims()[0], remap(same.as_slice(), |x| unit.apply(x))),
+        Err(view) => RBlock::from_storage(
+            view.dims()[0],
+            remap(view.as_slice(), |x| unit.apply(S::from_f64(x))),
+        ),
+    }
+}
+
 // A top-level query, or a composite Lie group whose axes are all 1, knows the
 // product length; a nested one does not. Only `Vec` products use it, to stream
 // their factor blocks; a tuple holds its blocks on the stack either way.
@@ -707,7 +936,12 @@ macro_rules! product_queries {
                 validate($this, &[a, b, c, d, e, f]);
                 let t = Validated(());
                 let n = |x, y, z| $this.__fusion_symbols_validated_nsymbol(x, y, z, t);
-                let dims = shape::<Self::Scalar, 4>([n(a, b, e)?, n(e, c, d)?, n(b, c, f)?, n(a, f, d)?]).ok_or(ProductError::Overflow)?;
+                let dims = || -> Result<_, Self::Error> { shape::<Self::Scalar, 4>([n(a, b, e)?, n(e, c, d)?, n(b, c, f)?, n(a, f, d)?]).ok_or(ProductError::Overflow) };
+                let zero = |dims: [usize; 4]| dims.contains(&0).then(|| View::F(FBlock::from_storage(dims, Storage::Empty)));
+                if let Some((u, view)) = exact_route($this, Query::F([a, b, c, d, e, f]), t, || dims().map(zero), || ProductError::Overflow, |gate| ProductError::Gate { gate })? {
+                    return Ok(f_out(u, view));
+                }
+                let dims = dims()?;
                 if dims.contains(&0) { return Ok(FBlock::from_storage(dims, Storage::Empty)); }
                 let (block, _) = $this.shaped_f([a, b, c, d, e, f], Some(dims.iter().product()), all_ones(dims), t)?;
                 debug_assert_eq!(block.dims(), dims);
@@ -720,7 +954,12 @@ macro_rules! product_queries {
                 }
                 let t = Validated(());
                 let n = |x, y, z| $this.__fusion_symbols_validated_nsymbol(x, y, z, t);
-                let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(b, a, c)?]).ok_or(ProductError::Overflow)?;
+                let dims = || -> Result<_, Self::Error> { shape::<Self::Scalar, 2>([n(a, b, c)?, n(b, a, c)?]).ok_or(ProductError::Overflow) };
+                let zero = |dims: [usize; 2]| dims.contains(&0).then(|| View::R(RBlock::from_storage(dims[0], Storage::Empty)));
+                if let Some((u, view)) = exact_route($this, Query::R([a, b, c]), t, || dims().map(zero), || ProductError::Overflow, |gate| ProductError::Gate { gate })? {
+                    return Ok(r_out(u, view));
+                }
+                let dims = dims()?;
                 if dims.contains(&0) { return Ok(RBlock::from_storage(dims[0], Storage::Empty)); }
                 let (block, _) = $this.shaped_r([a, b, c], Some(dims.iter().product()), all_ones(dims), t)?;
                 debug_assert_eq!(block.dims(), dims);
@@ -732,7 +971,12 @@ macro_rules! product_queries {
                 validate($this, &[a, b, c]);
                 let t = Validated(());
                 let n = |x, y, z| $this.__fusion_symbols_validated_nsymbol(x, y, z, t);
-                let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(&$this.__fusion_symbols_validated_dual(a, t), c, b)?]).ok_or(ProductError::Overflow)?;
+                let dims = || -> Result<_, Self::Error> { shape::<Self::Scalar, 2>([n(a, b, c)?, $this.__fusion_symbols_validated_nsymbol(&$this.__fusion_symbols_validated_dual(a, t), c, b, t)?]).ok_or(ProductError::Overflow) };
+                let zero = |dims: [usize; 2]| dims.contains(&0).then(|| View::R(RBlock::from_storage(dims[0], Storage::Empty)));
+                if let Some((u, view)) = exact_route($this, Query::A([a, b, c]), t, || dims().map(zero), || ProductError::Overflow, |gate| ProductError::Gate { gate })? {
+                    return Ok(r_out(u, view));
+                }
+                let dims = dims()?;
                 if dims.contains(&0) { return Ok(RBlock::from_storage(dims[0], Storage::Empty)); }
                 let (block, _) = $this.shaped_a([a, b, c], Some(dims.iter().product()), all_ones(dims), t)?;
                 debug_assert_eq!(block.dims(), dims);
@@ -743,7 +987,12 @@ macro_rules! product_queries {
                 validate($this, &[a, b, c]);
                 let t = Validated(());
                 let n = |x, y, z| $this.__fusion_symbols_validated_nsymbol(x, y, z, t);
-                let dims = shape::<Self::Scalar, 2>([n(a, b, c)?, n(c, &$this.__fusion_symbols_validated_dual(b, t), a)?]).ok_or(ProductError::Overflow)?;
+                let dims = || -> Result<_, Self::Error> { shape::<Self::Scalar, 2>([n(a, b, c)?, $this.__fusion_symbols_validated_nsymbol(c, &$this.__fusion_symbols_validated_dual(b, t), a, t)?]).ok_or(ProductError::Overflow) };
+                let zero = |dims: [usize; 2]| dims.contains(&0).then(|| View::R(RBlock::from_storage(dims[0], Storage::Empty)));
+                if let Some((u, view)) = exact_route($this, Query::B([a, b, c]), t, || dims().map(zero), || ProductError::Overflow, |gate| ProductError::Gate { gate })? {
+                    return Ok(r_out(u, view));
+                }
+                let dims = dims()?;
                 if dims.contains(&0) { return Ok(RBlock::from_storage(dims[0], Storage::Empty)); }
                 let (block, _) = $this.shaped_b([a, b, c], Some(dims.iter().product()), all_ones(dims), t)?;
                 debug_assert_eq!(block.dims(), dims);
@@ -900,6 +1149,12 @@ macro_rules! impl_product {
                 let (dims, data) = Self::compose((Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_a_symbol(&a.0,&b.0,&c.0,ones,t).map_err(ProductError::Factor0)?)?,
                     $(Self::Error::checked_block($i, self.factors.$i.__fusion_symbols_validated_a_symbol(&a.$i,&b.$i,&c.$i,ones,t).map_err(ProductError::$Err)?)?,)+));
                 Ok((RBlock::from_storage(dims[0], data), axes(dims).ok_or(ProductError::Overflow)?))
+            }
+            fn __fusion_symbols_exact_symbol(&self, mut op: ExactOp<'_, '_, Self::Object>, t: Validated) -> Result<ExactAnswer, Self::Error> {
+                let mut fold = Fold::new();
+                fold.step(&mut op, &self.factors.0, |x| &x.0, t, ProductError::Factor0)?;
+                $(fold.step(&mut op, &self.factors.$i, |x| &x.$i, t, ProductError::$Err)?;)+
+                Ok(fold.finish(&op))
             }
             fn __fusion_symbols_validated_b_symbol(&self, a: &Self::Object, b: &Self::Object, c: &Self::Object, ones: Option<[u32; 2]>, t: Validated) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
                 let (dims, data) = Self::compose((Self::Error::checked_block(0, self.factors.0.__fusion_symbols_validated_b_symbol(&a.0,&b.0,&c.0,ones,t).map_err(ProductError::Factor0)?)?,
@@ -1307,6 +1562,23 @@ where
         t: Validated,
     ) -> Result<SymbolWithAxes<RBlock<Self::Scalar>, 2>, Self::Error> {
         self.shaped_b([a, b, c], None, ones, t)
+    }
+    fn __fusion_symbols_exact_symbol(
+        &self,
+        mut op: ExactOp<'_, '_, Self::Object>,
+        t: Validated,
+    ) -> Result<ExactAnswer, Self::Error> {
+        let mut fold = Fold::new();
+        for (index, factor) in self.factors.iter().enumerate() {
+            fold.step(
+                &mut op,
+                factor,
+                |x| &x[index],
+                t,
+                |source| ProductError::Factor { index, source },
+            )?;
+        }
+        Ok(fold.finish(&op))
     }
 }
 
@@ -2006,5 +2278,237 @@ mod tests {
             .map(|z| (z.re.to_bits(), z.im.to_bits()))
             .collect();
         assert_eq!(got, naive);
+    }
+}
+
+/// The exact route of the outer boundary (design §e): search counts, shared
+/// composite entries, unit copies and the publication barriers.
+#[cfg(test)]
+mod exact_route_tests {
+    use super::*;
+    use crate::exact::SignedSqrtRational;
+    use crate::lie::{GroupId, LieGroup, LieIrrep, U1};
+    use malachite_base::num::arithmetic::traits::Pow;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static FETCHES: AtomicUsize = AtomicUsize::new(0);
+    fn count_fetch() {
+        FETCHES.fetch_add(1, Ordering::SeqCst);
+    }
+
+    struct Hook;
+    impl Hook {
+        fn set(f: fn()) -> Self {
+            AFTER_FETCH.with(|h| h.set(Some(f)));
+            Self
+        }
+    }
+    impl Drop for Hook {
+        fn drop(&mut self) {
+            AFTER_FETCH.with(|h| h.set(None));
+        }
+    }
+
+    fn lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::cache::TEST_CACHE_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn searches<T>(f: impl FnOnce() -> T) -> (usize, T) {
+        crate::cache::SEARCHES.with(|n| n.set(0));
+        let out = f();
+        (crate::cache::SEARCHES.with(std::cell::Cell::get), out)
+    }
+
+    fn resident<P: FusionCategory>(p: &P, q: Query<'_, P::Object>) -> bool
+    where
+        P::Error: std::fmt::Debug,
+    {
+        let mut buf = LeafBuf(InlineVec::with_capacity(0));
+        p.__fusion_symbols_exact_symbol(ExactOp::Describe(q, &mut buf), Validated(()))
+            .unwrap();
+        crate::cache::composed_is_resident(q.kind(), &buf)
+    }
+
+    fn su2() -> (LieGroup, [LieIrrep; 3]) {
+        let g = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
+        let x = [1, 0, 2].map(|j| g.irrep(&[j]).unwrap());
+        (g, x)
+    }
+
+    /// A warm query searches once: the composite view of two or more leaves,
+    /// or the one leaf's own view; a unit-class R searches nothing.
+    #[test]
+    fn warm_queries_search_once() {
+        let _guard = lock();
+        let (g, [h, z, one]) = su2();
+        let p = Product::new((g.clone(), g.clone()));
+        let [hh, zz, oo] = [&h, &z, &one].map(|x| (x.clone(), x.clone()));
+        let f = || p.f_symbol(&hh, &hh, &hh, &hh, &zz, &oo).unwrap();
+        let a = || p.a_symbol(&hh, &hh, &oo).unwrap();
+        let r = || p.r_symbol(&hh, &hh, &oo).unwrap();
+        let (cold, _) = (f(), (a(), r()));
+        assert_eq!(searches(f), (1, cold));
+        assert_eq!(searches(a).0, 1);
+        assert_eq!(searches(r).0, 0);
+        let one_leaf = Product::new((g, U1));
+        let u = U1.unit();
+        let [hu, zu, ou] = [&h, &z, &one].map(|x| (x.clone(), u));
+        let f = || one_leaf.f_symbol(&hu, &hu, &hu, &hu, &zu, &ou).unwrap();
+        f();
+        assert_eq!(searches(f).0, 1);
+    }
+
+    /// Four, five and nine leaves (past the inline buffer) round the exact
+    /// product of the leaves once, with one warm search.
+    #[test]
+    fn many_leaves_round_once() {
+        let _guard = lock();
+        let (g, [h, z, one]) = su2();
+        let leaf = crate::lie::su2::f_symbol_exact(1, 1, 1, 1, 0, 2);
+        for k in [4, 5, 9] {
+            let p = Product::new(vec![g.clone(); k]);
+            let [hh, zz, oo] = [&h, &z, &one].map(|x| vec![x.clone(); k]);
+            let f = || p.f_symbol(&hh, &hh, &hh, &hh, &zz, &oo).unwrap();
+            let cold = f();
+            let sign = if leaf.sign() < 0 && k % 2 == 1 { -1 } else { 1 };
+            let exact = SignedSqrtRational::from_radicand(sign, leaf.radicand().pow(k as u64));
+            assert_eq!(
+                cold.as_slice()[0].to_bits(),
+                exact.to_f64().to_bits(),
+                "{k}"
+            );
+            assert_eq!(searches(f), (1, cold), "{k}");
+        }
+    }
+
+    /// Flat, nested and `Vec` products of one leaf set share one composite
+    /// entry: concurrent first requests through all of them build it once.
+    #[test]
+    fn flat_and_nested_requests_build_one_composite() {
+        let _guard = lock();
+        let (g, [h, z, one]) = su2();
+        let flat = Product::new(vec![g.clone(); 3]);
+        let left = Product::new((Product::new((g.clone(), g.clone())), g.clone()));
+        let right = Product::new((g.clone(), Product::new(vec![g.clone(); 2])));
+        crate::cache::reset();
+        FETCHES.store(0, Ordering::SeqCst);
+        let start = std::sync::Barrier::new(6);
+        let values = std::thread::scope(|scope| {
+            let threads: Vec<_> = (0..6)
+                .map(|i| {
+                    let (flat, left, right, start) = (&flat, &left, &right, &start);
+                    let (h, z, one) = (&h, &z, &one);
+                    scope.spawn(move || {
+                        let _hook = Hook::set(count_fetch);
+                        start.wait();
+                        let f = match i % 3 {
+                            0 => {
+                                let [a, e, f] = [h, z, one].map(|x| vec![x.clone(); 3]);
+                                flat.f_symbol(&a, &a, &a, &a, &e, &f).unwrap()
+                            }
+                            1 => {
+                                let [a, e, f] =
+                                    [h, z, one].map(|x| ((x.clone(), x.clone()), x.clone()));
+                                left.f_symbol(&a, &a, &a, &a, &e, &f).unwrap()
+                            }
+                            _ => {
+                                let [a, e, f] =
+                                    [h, z, one].map(|x| (x.clone(), vec![x.clone(); 2]));
+                                right.f_symbol(&a, &a, &a, &a, &e, &f).unwrap()
+                            }
+                        };
+                        f.as_slice()[0].to_bits()
+                    })
+                })
+                .collect();
+            threads
+                .into_iter()
+                .map(|t| t.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(FETCHES.load(Ordering::SeqCst), 1);
+        assert!(values.iter().all(|&v| v == values[0]));
+        let [a, e, f] = [&h, &z, &one].map(|x| vec![x.clone(); 3]);
+        assert!(resident(&flat, Query::F([&a, &a, &a, &a, &e, &f])));
+        crate::cache::reset();
+    }
+
+    /// The unit applies after publication: an odd⊗odd fermion parity pair
+    /// (aggregate `+1`) passes the shared view through without a copy; a
+    /// single odd⊗odd parity (`−1`) negates a copy.
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn units_copy_only_when_not_plus_one() {
+        let _guard = lock();
+        use crate::fermion::{FermionParity, FermionParityIrrep as P};
+        let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+        let o = su3.irrep(&[1, 1]).unwrap();
+        let inner = Product::new((su3.clone(), su3.clone()));
+        let oo = (o.clone(), o.clone());
+        let view = inner.r_symbol(&oo, &oo, &oo).unwrap();
+        let two = Product::new((FermionParity, Product::new((FermionParity, inner.clone()))));
+        let x = (P::ODD, (P::ODD, oo.clone()));
+        let c = (P::EVEN, (P::EVEN, oo.clone()));
+        let shared = two.r_symbol(&x, &x, &c).unwrap();
+        assert_eq!(shared.as_slice().as_ptr(), view.as_slice().as_ptr());
+        let one = Product::new((FermionParity, inner));
+        let (x, c) = ((P::ODD, oo.clone()), (P::EVEN, oo));
+        let negated = one.r_symbol(&x, &x, &c).unwrap();
+        assert_ne!(negated.as_slice().as_ptr(), view.as_slice().as_ptr());
+        let expect: Vec<_> = view.as_slice().iter().map(|v| (-v).to_bits()).collect();
+        let got: Vec<_> = negated.as_slice().iter().map(|v| v.to_bits()).collect();
+        assert_eq!(got, expect);
+    }
+
+    /// A reset between the leaves' exact fetch and the composite publication
+    /// retains neither; a gate rejection publishes nothing; a leaf exact entry
+    /// evicted mid-build still gives the same composite.
+    #[cfg(feature = "lie-generated")]
+    #[test]
+    fn composite_publication_barriers() {
+        use crate::lie::RootSystem;
+        let _guard = lock();
+        let su3 = LieGroup::new(GroupId::su(3).unwrap()).unwrap();
+        let o = su3.irrep(&[1, 1]).unwrap();
+        let p = Product::new((su3.clone(), su3.clone()));
+        let x = (o.clone(), o.clone());
+        let fq = Query::F([&x; 6]);
+        let leaf = || crate::cache::f_exact_is_resident(RootSystem::A(2), [&[1, 1][..]; 6]);
+        let f = || p.f_symbol(&x, &x, &x, &x, &x, &x).unwrap();
+        crate::cache::reset();
+        let good = f();
+        assert!(resident(&p, fq) && leaf());
+
+        crate::cache::reset();
+        let reset = {
+            let _hook = Hook::set(crate::cache::reset);
+            f()
+        };
+        assert_eq!(reset.as_slice(), good.as_slice());
+        assert!(!resident(&p, fq) && !leaf(), "a reset retains neither");
+
+        crate::cache::reset();
+        let evicted = {
+            let _hook = Hook::set(|| {
+                crate::cache::trim_to(crate::cache::CoefficientCacheTier::FSymbol, 0);
+            });
+            f()
+        };
+        assert_eq!(evicted.as_slice(), good.as_slice());
+        assert!(resident(&p, fq), "an evicted leaf still publishes");
+
+        let rq = Query::R([&x; 3]);
+        crate::cache::reset();
+        CORRUPT.with(|c| c.set(true));
+        assert_eq!(
+            p.r_symbol(&x, &x, &x).err(),
+            Some(ProductError::Gate { gate: "R" })
+        );
+        assert!(!resident(&p, rq), "a gate rejection publishes nothing");
+        p.r_symbol(&x, &x, &x).unwrap();
+        assert!(resident(&p, rq));
+        crate::cache::reset();
     }
 }

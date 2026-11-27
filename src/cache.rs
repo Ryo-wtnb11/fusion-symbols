@@ -109,7 +109,7 @@ use std::hash::{BuildHasher, Hash};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, OnceLock};
 
-use crate::category::sealed::{LeafBuf, LeafLabel, LeafRef, SymbolKind};
+use crate::category::sealed::{LeafBuf, LeafLabel, LeafRef, SymbolKind, View};
 use crate::category::{FBlock, RBlock, SymbolBlock};
 use crate::exact::radical::RadicalBlock;
 use crate::exact::SignedSqrtRational;
@@ -122,7 +122,7 @@ use crate::lie::RootSystem;
 mod clock;
 #[cfg(test)]
 use clock::Equivalent;
-#[cfg(all(test, feature = "lie-generated"))]
+#[cfg(test)]
 pub(crate) use clock::SEARCHES;
 #[cfg(feature = "disk-cache")]
 pub(crate) mod disk;
@@ -1085,8 +1085,6 @@ impl<const N: usize> clock::Equivalent<LabelKey> for LabelRef<'_, N> {
 /// The key of a composite view: the symbol and the product's Radical
 /// leaves in depth-first order, each an owned [`LabelKey`] whose `kind` is
 /// the leaf family. Equality compares every leaf's family, root and words.
-// Keys of the composite views; until the product cutover only tests.
-#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ComposedKey {
     symbol: SymbolKind,
@@ -1094,11 +1092,9 @@ pub(crate) struct ComposedKey {
 }
 
 /// Key form of a composite view in the Product tier.
-#[cfg_attr(not(test), allow(dead_code))]
 const COMPOSED: u64 = 0x400;
 
 /// The symbol tag, then each leaf's [`LabelKey::key_hash`], in order.
-#[cfg_attr(not(test), allow(dead_code))]
 fn composed_hash(symbol: SymbolKind, leaves: impl IntoIterator<Item = u64>) -> u64 {
     leaves
         .into_iter()
@@ -1127,13 +1123,11 @@ impl CacheKeyCharge for ComposedKey {
 
 /// [`ComposedKey`] borrowed from a query's leaf buffer: hashed from the
 /// stored fingerprints, with no label buffer.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) struct ComposedRef<'a, 'q> {
     pub(crate) symbol: SymbolKind,
     pub(crate) leaves: &'a LeafBuf<'q>,
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 impl ComposedRef<'_, '_> {
     fn labels<'s>(&self, leaf: &'s LeafRef<'_>) -> &'s [LeafLabel<'s>] {
         &leaf.labels[..self.symbol.labels()]
@@ -1656,8 +1650,40 @@ impl Hash for ProductRef<'_> {
         state.write_u64(key_hash(PRODUCT | u64::from(self.3), self.0, parts));
     }
 }
-impl clock::Equivalent<ProductKey> for ProductRef<'_> {
-    fn equivalent(&self, k: &ProductKey) -> bool {
+/// A Product-tier key: an exact simple-Lie product or a composite view.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ProductTierKey {
+    Fusion(ProductKey),
+    Composed(ComposedKey),
+}
+impl Hash for ProductTierKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Self::Fusion(k) => k.hash(state),
+            Self::Composed(k) => k.hash(state),
+        }
+    }
+}
+impl CacheKeyCharge for ProductTierKey {
+    fn key_bytes(&self) -> usize {
+        match self {
+            Self::Fusion(k) => k.key_bytes(),
+            Self::Composed(k) => k.key_bytes(),
+        }
+    }
+}
+impl clock::Equivalent<ProductTierKey> for ProductRef<'_> {
+    fn equivalent(&self, k: &ProductTierKey) -> bool {
+        matches!(k, ProductTierKey::Fusion(k) if self.equivalent_fusion(k))
+    }
+}
+impl clock::Equivalent<ProductTierKey> for ComposedRef<'_, '_> {
+    fn equivalent(&self, k: &ProductTierKey) -> bool {
+        matches!(k, ProductTierKey::Composed(k) if self.equivalent(k))
+    }
+}
+impl ProductRef<'_> {
+    fn equivalent_fusion(&self, k: &ProductKey) -> bool {
         self.0 == k.0
             && self.1.words == k.1.as_ref()
             && self.2.words == k.2.as_ref()
@@ -1671,7 +1697,7 @@ impl CacheKeyCharge for ProductKey {
             .saturating_add(std::mem::size_of_val(self.2.as_ref()))
     }
 }
-static CACHE_PRODUCT: LazyLock<CoefficientCache<ProductKey, ProductValue, FoldBuild>> =
+static CACHE_PRODUCT: LazyLock<CoefficientCache<ProductTierKey, ProductValue, FoldBuild>> =
     LazyLock::new(|| {
         CoefficientCache::shared(PRODUCT_MAX_ENTRIES, effective_budgets().product_bytes)
     });
@@ -1691,12 +1717,12 @@ pub(crate) fn product<E>(
             ProductValue::Labels(x) => x.clone(),
             _ => unreachable!("projection is part of the key"),
         },
-        || ProductKey(root, a.words.into(), b.words.into(), false),
+        || ProductTierKey::Fusion(ProductKey(root, a.words.into(), b.words.into(), false)),
         |publisher| {
             // The child inherits the label loader's reset epoch, including before its own claim.
             let raw = publisher.get_or_try_compute(
                 &ProductRef(root, a, b, true),
-                || ProductKey(root, a.words.into(), b.words.into(), true),
+                || ProductTierKey::Fusion(ProductKey(root, a.words.into(), b.words.into(), true)),
                 || compute().map(ProductValue::Multiplicities),
             )?;
             match raw {
@@ -1724,9 +1750,39 @@ pub(crate) fn product_multiplicity<E>(
             ProductValue::Multiplicities(x) => x.multiplicity(c),
             _ => unreachable!("projection is part of the key"),
         },
-        || ProductKey(root, a.words.into(), b.words.into(), true),
+        || ProductTierKey::Fusion(ProductKey(root, a.words.into(), b.words.into(), true)),
         |_| compute().map(ProductValue::Multiplicities),
     )
+}
+
+/// The rounded unit-(+1) composite view of a product query's Radical
+/// leaves (two or more), in the Product tier. Its authority is the leaves'
+/// exact blocks and the deterministic composition: no composite exact entry
+/// is stored, and `compute` claims no view.
+pub(crate) fn composed<E>(
+    symbol: SymbolKind,
+    leaves: &LeafBuf<'_>,
+    compute: impl FnOnce() -> Result<View, E>,
+) -> Result<View, E> {
+    let key = ComposedRef { symbol, leaves };
+    CACHE_PRODUCT.get_or_try_sweep(
+        &key,
+        |value| match value {
+            ProductValue::Composite(view) => view.clone(),
+            _ => unreachable!("a composite key stores a view"),
+        },
+        || ProductTierKey::Composed(key.to_key()),
+        |_| compute().map(ProductValue::Composite),
+    )
+}
+
+impl CacheCharge for View {
+    fn value_bytes(&self) -> usize {
+        match self {
+            Self::F(block) => block.value_bytes(),
+            Self::R(block) => block.value_bytes(),
+        }
+    }
 }
 
 fn control(tier: CoefficientCacheTier) -> &'static dyn TierControl {
@@ -1889,6 +1945,30 @@ pub(crate) fn product_multiplicities_are_resident(root: RootSystem, a: &[i64], b
     CACHE_PRODUCT
         .inner
         .peek(&ProductRef(root, Label::new(a), Label::new(b), true))
+        .is_some()
+}
+
+/// Whether the composite view of a product query's leaves is retained.
+#[cfg(test)]
+pub(crate) fn composed_is_resident(symbol: SymbolKind, leaves: &LeafBuf<'_>) -> bool {
+    assert_cache_access_allowed();
+    CACHE_PRODUCT
+        .inner
+        .peek(&ComposedRef { symbol, leaves })
+        .is_some()
+}
+
+/// Whether the exact Cartan F block of the six labels is retained.
+#[cfg(all(test, feature = "lie-generated"))]
+pub(crate) fn f_exact_is_resident(root: RootSystem, parts: [&[i64]; 6]) -> bool {
+    assert_cache_access_allowed();
+    CACHE_F
+        .inner
+        .peek(&FCartanRef(LabelRef {
+            kind: EXACT,
+            root,
+            parts: parts.map(Label::new),
+        }))
         .is_some()
 }
 
@@ -2833,7 +2913,7 @@ mod tests {
         };
         hit(FSymbolKey::Cartan(six.to_key()), &FCartanRef(six));
         hit(
-            ProductKey(root, a.words.into(), b.words.into(), false),
+            ProductTierKey::Fusion(ProductKey(root, a.words.into(), b.words.into(), false)),
             &ProductRef(root, a, b, false),
         );
         // Different kinds and root presentations never collide.
@@ -3214,7 +3294,7 @@ mod tests {
             agree(&FSymbolKey::Cartan(six.0.to_key()), &six, root);
             for flag in [false, true] {
                 agree(
-                    &ProductKey(root, a.words.into(), b.words.into(), flag),
+                    &ProductTierKey::Fusion(ProductKey(root, a.words.into(), b.words.into(), flag)),
                     &ProductRef(root, a, b, flag),
                     root,
                 );
@@ -3234,7 +3314,8 @@ mod tests {
             assert_eq!(FoldBuild.hash_one(&forged), FoldBuild.hash_one(&owned));
             assert!(!forged.equivalent(&owned), "{root:?}");
             let forged = ProductRef(root, Label { hash: a.hash, ..c }, b, true);
-            let owned = ProductKey(root, a.words.into(), b.words.into(), true);
+            let owned =
+                ProductTierKey::Fusion(ProductKey(root, a.words.into(), b.words.into(), true));
             assert_eq!(FoldBuild.hash_one(&forged), FoldBuild.hash_one(&owned));
             assert!(!forged.equivalent(&owned), "{root:?}");
         }

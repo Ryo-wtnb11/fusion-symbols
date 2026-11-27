@@ -19,7 +19,7 @@ use std::hash::{BuildHasher, Hash};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 
 mod table;
-#[cfg(all(test, feature = "lie-generated"))]
+#[cfg(test)]
 pub(crate) use table::SEARCHES;
 pub(crate) use table::{entry_shell, release};
 

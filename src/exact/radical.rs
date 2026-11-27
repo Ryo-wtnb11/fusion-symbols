@@ -572,8 +572,6 @@ impl<const R: usize> RadicalBlock<R> {
     /// The Kronecker product `self ⊗ other`: each axis index is
     /// `l·other.dims[k] + r`, entry `S_l·S_r`, radicands multiplied
     /// (unreduced). `None` when a dimension overflows.
-    // The product composer's; until the product cutover only tests.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn kron(&self, other: &Self) -> Option<Self> {
         let mut dims = [0; R];
         for (d, (&a, &b)) in dims.iter_mut().zip(self.dims.iter().zip(&other.dims)) {

@@ -231,6 +231,14 @@ impl FusionCategory for U1 {
         // |q| ≤ i32::MAX, so both forms fit.
         Ok((if q > 0 { 2 * q - 1 } else { -2 * q }) as u64)
     }
+    #[doc(hidden)]
+    fn __fusion_symbols_exact_symbol(
+        &self,
+        op: crate::category::sealed::ExactOp<'_, '_, Self::Object>,
+        _: crate::category::sealed::Validated,
+    ) -> Result<crate::category::sealed::ExactAnswer, Self::Error> {
+        crate::category::unit_symbol(self, op)
+    }
 }
 
 // The `1x1x1` CGC tensor with its unit multiplicity axis is one scalar; an

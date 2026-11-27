@@ -110,11 +110,11 @@ fn warm_multiplicity_free_products_allocate_nothing() {
         u2.irrep_with_charges(&[1], &[-1]).unwrap(),
         u2.unit(),
     );
-    // Not composition: A and B take the N symbol of a dual object, and the dual
-    // of a `Vec` product object owns one new Vec of its k factor labels.
+    // One Radical leaf (SU(2)): its own warm view, with no N symbol and so
+    // no dual of the `Vec` product object.
     assert_eq!(
         warm_frab(&u2, [&a, &b, &one], [&a, &b, &a, &a, &one, &one]).map(|(calls, _)| calls),
-        [0, 0, 1, 1],
+        [0, 0, 0, 0],
         "U(2)"
     );
 
@@ -157,12 +157,15 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
     fn buffer(len: usize) -> usize {
         usize::from(len > 1)
     }
-    // Warm F and R, and that each hits its SU(3) tier once per SU(3) leaf
-    // without any cache miss.
+    // Warm F and R without any cache miss. A product of `k` exact leaves
+    // (`composite`) hits its composite view once in the Product tier and no
+    // leaf tier; otherwise each SU(3) leaf hits its own tier once.
+    #[allow(clippy::too_many_arguments)]
     fn check<C: FusionCategory>(
         name: &str,
         cat: &C,
         x: &C::Object,
+        composite: bool,
         k: u64,
         f: usize,
         r: usize,
@@ -181,30 +184,52 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
         use cache::{tier_stats, CoefficientCacheTier as Tier};
         let query_f = || cat.f_symbol(x, x, x, x, x, x).unwrap();
         query_f();
-        let (base, generated, hits) = (
+        let leaf_hits = if composite { 0 } else { k };
+        let (base, generated, hits, views) = (
             stats_sum(&BASE_TIERS),
             stats_sum(&PRODUCT_AND_R),
             tier_stats(Tier::FSymbol).hits,
+            tier_stats(Tier::Product).hits,
         );
         let (calls, _, _, _) = counting_alloc::measure(query_f);
         assert!(matches(calls, f), "{name} F: {calls} calls, expected {f}");
         assert_eq!(
             tier_stats(Tier::FSymbol).hits,
-            hits + k,
+            hits + leaf_hits,
             "{name}: factor hits"
         );
+        // The float path's N symbols also hit the Product tier.
+        if composite {
+            assert_eq!(
+                tier_stats(Tier::Product).hits,
+                views + 1,
+                "{name}: composite hits"
+            );
+        }
         assert_eq!(stats_sum(&PRODUCT_AND_R).misses, generated.misses, "{name}");
         assert_eq!(stats_sum(&BASE_TIERS).misses, base.misses, "{name}");
         let query_r = || cat.r_symbol(x, x, x).unwrap();
         query_r();
-        let (generated, hits) = (stats_sum(&PRODUCT_AND_R), tier_stats(Tier::RSymbol).hits);
+        let (generated, hits, views) = (
+            stats_sum(&PRODUCT_AND_R),
+            tier_stats(Tier::RSymbol).hits,
+            tier_stats(Tier::Product).hits,
+        );
         let (calls, _, _, _) = counting_alloc::measure(query_r);
         assert!(matches(calls, r), "{name} R: {calls} calls, expected {r}");
         assert_eq!(
             tier_stats(Tier::RSymbol).hits,
-            hits + k,
+            hits + leaf_hits,
             "{name}: R factor hits"
         );
+        // The float path's N symbols also hit the Product tier.
+        if composite {
+            assert_eq!(
+                tier_stats(Tier::Product).hits,
+                views + 1,
+                "{name}: R composite hits"
+            );
+        }
         assert_eq!(
             stats_sum(&PRODUCT_AND_R).misses,
             generated.misses,
@@ -237,56 +262,34 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
 
     let p = Product::new((su3.clone(), su3.clone()));
     let x = (o.clone(), o.clone());
-    check(
-        "SU3xSU3",
-        &p,
-        &x,
-        2,
-        leaf_f * 2 + buffer(n * n),
-        leaf_r * 2 + buffer(m * m),
-        true,
-    );
+    check("SU3xSU3", &p, &x, true, 2, 0, 0, true);
     let left = Product::new((p.clone(), su3.clone()));
     let y = (x.clone(), o.clone());
-    check(
-        "(SU3xSU3)xSU3",
-        &left,
-        &y,
-        3,
-        3 * leaf_f + buffer(n * n) + buffer(n * n * n),
-        3 * leaf_r + buffer(m * m) + buffer(m * m * m),
-        true,
-    );
+    check("(SU3xSU3)xSU3", &left, &y, true, 3, 0, 0, true);
     let right = Product::new((su3.clone(), p));
     let y = (o.clone(), x);
-    check(
-        "SU3x(SU3xSU3)",
-        &right,
-        &y,
-        3,
-        3 * leaf_f + buffer(n * n) + buffer(n * n * n),
-        3 * leaf_r + buffer(m * m) + buffer(m * m * m),
-        true,
-    );
+    check("SU3x(SU3xSU3)", &right, &y, true, 3, 0, 0, true);
     let flat = Product::new(vec![su3.clone(); 3]);
     check(
         "Vec[SU3;3]",
         &flat,
         &vec![o.clone(); 3],
+        true,
         3,
-        3 * leaf_f + buffer(n * n * n),
-        3 * leaf_r + buffer(m * m * m),
+        0,
+        0,
         true,
     );
-    // The inner `Vec` product adds its k-block holder.
+    // Three Radical leaves fit inline: no leaf buffer at any nesting level.
     let nested = Product::new((Product::new(vec![su3.clone(); 2]), su3.clone()));
     check(
         "Vec[SU3;2]xSU3",
         &nested,
         &(vec![o.clone(); 2], o.clone()),
+        true,
         3,
-        3 * leaf_f + 1 + buffer(n * n) + buffer(n * n * n),
-        3 * leaf_r + 1 + buffer(m * m) + buffer(m * m * m),
+        0,
+        0,
         true,
     );
     let real_first = Product::new((su3.clone(), fib.clone()));
@@ -294,6 +297,7 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
         "SU3xFib",
         &real_first,
         &(o.clone(), tau),
+        false,
         1,
         leaf_f + fib_f + buffer(n),
         leaf_r + fib_r + buffer(m),
@@ -304,6 +308,7 @@ fn warm_product_symbols_allocate_one_buffer_per_product_level() {
         "FibxSU3",
         &complex_first,
         &(tau, o),
+        false,
         1,
         leaf_f + fib_f + buffer(n),
         leaf_r + fib_r + buffer(m),
@@ -362,22 +367,19 @@ fn nested_fusion_construction_allocates_independently_of_channel_count() {
     assert_eq!(measure(&[1, 0]), measure(&[1, 1]));
 }
 
-// Purpose: with every product axis 1, a composite Lie group used as a factor
-// composes its leaves with the known length 1 instead of re-running its own
-// query, so warm unit-label F and R allocate nothing; A and B allocate only
-// the product dual of their first or second object.
+// Purpose: a composite Lie group used as a factor contributes its leaves to
+// the enclosing product's one composite view (here SU(2) and SU(2)), so warm
+// unit-label F, R, A and B allocate nothing: no product dual is formed.
 #[test]
-fn warm_composite_factor_queries_allocate_only_the_product_dual() {
+fn warm_composite_factor_queries_allocate_nothing() {
     use fusion_symbols::product::Product;
     let _serial = counting_alloc::serial();
     let u2 = LieGroup::new(GroupId::u(2).unwrap()).unwrap();
     let su2 = LieGroup::new(GroupId::su(2).unwrap()).unwrap();
     let p = Product::new((u2, su2));
     let one = p.unit();
-    let dual = warm(|| p.dual(&one)).0;
-    assert!(dual > 0);
     assert_eq!(
         warm_frab(&p, [&one; 3], [&one; 6]).map(|(calls, _)| calls),
-        [0, 0, dual, dual]
+        [0, 0, 0, 0]
     );
 }

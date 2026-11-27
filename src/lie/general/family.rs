@@ -664,6 +664,12 @@ impl GeneralFamily {
     }
 
     /// The exact R block of the three labels, shared through the R tier and
+    /// the disk tier.
+    pub(crate) fn r_exact(&self, labels: [Label<'_>; 3]) -> Result<Arc<RadicalBlock<2>>, LieError> {
+        self.r_exact_in(labels, &mut None)
+    }
+
+    /// The exact R block of the three labels, shared through the R tier and
     /// the disk tier; as [`Self::f_exact_in`], retained only once its view
     /// passed gate 6.
     fn r_exact_in(

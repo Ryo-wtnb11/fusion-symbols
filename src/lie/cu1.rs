@@ -323,6 +323,11 @@ fn ab_symbol(is_b: bool, a: &CU1Irrep, b: &CU1Irrep, c: &CU1Irrep) -> RBlock<f64
     if n(a, b, c) == 0 {
         return RBlock::zeros(0);
     }
+    RBlock::one(ab_exact(is_b, a, b, c).to_f64())
+}
+
+/// The exact value of an admissible [`ab_symbol`].
+fn ab_exact(is_b: bool, a: &CU1Irrep, b: &CU1Irrep, c: &CU1Irrep) -> SignedSqrtRational {
     let one = CU1Irrep::VACUUM;
     let f = if is_b {
         exact_f(a, b, b, a, c, &one)
@@ -331,9 +336,13 @@ fn ab_symbol(is_b: bool, a: &CU1Irrep, b: &CU1Irrep, c: &CU1Irrep) -> RBlock<f64
     };
     let d = |x: &CU1Irrep| if x.twice_charge == 0 { 1 } else { 2 };
     let ratio = Rational::from_signeds(d(a) * d(b), d(c));
-    let value =
-        SignedSqrtRational::from_prefactor_radical(Rational::from(f.sign()), f.radicand() * ratio);
-    RBlock::one(value.to_f64())
+    SignedSqrtRational::from_prefactor_radical(Rational::from(f.sign()), f.radicand() * ratio)
+}
+
+/// The CU(1) leaf word `(twice_charge << 2) | s`, widened before the shift:
+/// injective, as `s ∈ {0, 1}` at charge 0 and `s = 2` when charged.
+fn leaf_word(x: &CU1Irrep) -> i64 {
+    (i64::from(x.twice_charge) << 2) | i64::from(x.s)
 }
 
 impl FusionCategory for CU1 {
@@ -494,6 +503,72 @@ impl FusionCategory for CU1 {
             0 => u64::from(a.s),
             q => u64::from(q) + 1,
         })
+    }
+    /// F, A and B are exact Radical leaves; R is `±1` or absent.
+    #[doc(hidden)]
+    fn __fusion_symbols_exact_symbol(
+        &self,
+        op: crate::category::sealed::ExactOp<'_, '_, CU1Irrep>,
+        _: crate::category::sealed::Validated,
+    ) -> Result<crate::category::sealed::ExactAnswer, CU1Error> {
+        use crate::category::sealed::{
+            ExactAnswer, ExactOp, LeafLabel, LeafRef, Query, SymbolKind, Unit, View, LEAF_CU1,
+        };
+        use crate::exact::radical::RadicalBlock;
+        use std::sync::Arc;
+        match op {
+            ExactOp::Class(SymbolKind::R) | ExactOp::Describe(Query::R(_), _) => {
+                crate::category::unit_symbol(self, op)
+            }
+            ExactOp::Class(_) => Ok(ExactAnswer::RadicalClass { leaves: 1 }),
+            ExactOp::Describe(q, buf) => {
+                buf.0.push(match q {
+                    Query::F(x) => LeafRef::new(
+                        LEAF_CU1,
+                        crate::lie::RootSystem::A(1),
+                        x.map(|x| LeafLabel::inline(leaf_word(x))),
+                    ),
+                    Query::R(x) | Query::A(x) | Query::B(x) => LeafRef::new(
+                        LEAF_CU1,
+                        crate::lie::RootSystem::A(1),
+                        x.map(|x| LeafLabel::inline(leaf_word(x))),
+                    ),
+                });
+                Ok(ExactAnswer::Unit(Unit::PlusOne))
+            }
+            ExactOp::Fetch(q, buf) => {
+                match q {
+                    Query::F([a, b, c, d, e, f]) => buf.f.push(Arc::new(
+                        RadicalBlock::from_signed_sqrt(&exact_f(a, b, c, d, e, f)),
+                    )),
+                    Query::A([a, b, c]) => {
+                        buf.r2
+                            .push(Arc::new(RadicalBlock::from_signed_sqrt(&ab_exact(
+                                false, a, b, c,
+                            ))))
+                    }
+                    Query::B([a, b, c]) => {
+                        buf.r2
+                            .push(Arc::new(RadicalBlock::from_signed_sqrt(&ab_exact(
+                                true, a, b, c,
+                            ))))
+                    }
+                    Query::R(_) => unreachable!("CU(1) R is unit-class"),
+                }
+                Ok(ExactAnswer::Done)
+            }
+            ExactOp::View(q, out) => {
+                *out = Some(match q {
+                    Query::F([a, b, c, d, e, f]) => View::F(crate::category::FBlock::one(
+                        self.f_symbol(a, b, c, d, e, f)?,
+                    )),
+                    Query::R([a, b, c]) => View::R(RBlock::one(self.r_symbol(a, b, c)?)),
+                    Query::A([a, b, c]) => View::R(self.a_symbol(a, b, c)?),
+                    Query::B([a, b, c]) => View::R(self.b_symbol(a, b, c)?),
+                });
+                Ok(ExactAnswer::Done)
+            }
+        }
     }
 }
 
@@ -670,5 +745,31 @@ mod tests {
         }
         let control = (2f64.sqrt() * 2f64.sqrt()) * 0.5;
         assert_ne!(control.to_bits(), 0x3ff0000000000000);
+    }
+
+    /// Witness: charged `a = b` (dimension 2), `c = 0+`. The selected F
+    /// entry is exactly `+1/2`, so `A = B = √(2·2/1)·(1/2) = +1` exactly,
+    /// at the leaf and through a product of two leaves; the rounded factors
+    /// multiplied in f64 are not.
+    #[test]
+    fn charged_ab_are_exactly_one() {
+        use crate::category::SymbolBlock;
+        let a = CU1Irrep::new(HalfInt::from_doubled(1), 2).unwrap();
+        let c = CU1Irrep::VACUUM;
+        let quarter = Rational::from_signeds(1, 4);
+        // A's `F(ā, a, b, b, 0+, c)` and B's `F(a, b, b̄, a, c, 0+)` coincide here.
+        assert_eq!(exact_f(&a, &a, &a, &a, &c, &c).signed_square(), quarter);
+        let p = crate::product::Product::new((CU1, CU1));
+        let [pa, pc] = [a, c].map(|x| (x, x));
+        for x in [
+            CU1.a_symbol(&a, &a, &c).unwrap().get([0, 0]),
+            CU1.b_symbol(&a, &a, &c).unwrap().get([0, 0]),
+            p.a_symbol(&pa, &pa, &pc).unwrap().get([0, 0]),
+            p.b_symbol(&pa, &pa, &pc).unwrap().get([0, 0]),
+        ] {
+            assert_eq!(x.to_bits(), 0x3ff0000000000000);
+        }
+        let float = (2f64.sqrt() * 2f64.sqrt()) * 0.5;
+        assert_eq!(float.to_bits(), 0x3ff0000000000001);
     }
 }

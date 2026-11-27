@@ -236,6 +236,14 @@ impl FusionCategory for ZN {
         self.validate(&[a]);
         Ok(u64::from(a.charge))
     }
+    #[doc(hidden)]
+    fn __fusion_symbols_exact_symbol(
+        &self,
+        op: crate::category::sealed::ExactOp<'_, '_, Self::Object>,
+        _: crate::category::sealed::Validated,
+    ) -> Result<crate::category::sealed::ExactAnswer, Self::Error> {
+        crate::category::unit_symbol(self, op)
+    }
 }
 
 impl GroupRepresentations for ZN {

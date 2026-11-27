@@ -158,8 +158,11 @@ fn generated_cache_resource_contract() {
             "warm runtime product re-swept a factor"
         );
         assert_eq!(cold.entries, warm.entries);
-        assert!(warm.hits > cold.hits);
     }
+    // F, A and B hit their composite views (two Radical leaves) in Product;
+    // R has one Radical leaf (SU(2) R is a unit), whose view is in RSymbol.
+    let [product, _, _, r] = [0, 1, 2, 3].map(|i| warm[i].hits > cold[i].hits);
+    assert!(product && r, "warm runtime product hits its views");
 
     // ---- aggregate retained-charge cap ----
     let total = common::stats_sum(&common::PRODUCT_AND_R);

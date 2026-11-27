@@ -3200,4 +3200,43 @@ mod exact_fr {
         );
         check_r(RootSystem::G2, [&G7[..]; 3]);
     }
+
+    /// One generation per distinct key of a cold request: a cold `R^{ab}_c`
+    /// eliminates the seeds of `(a,b,c)` and `(b,a,c)` (one when `a = b`)
+    /// and descends no channel; a cold `F` of six octets descends `(8,8,8)`
+    /// once for its two full legs and eliminates its seeds once for its two
+    /// seed legs. Concurrent tests can only turn a build into a hit, hence
+    /// `≤`; a repeated key would exceed the bound.
+    #[test]
+    fn cold_requests_generate_each_distinct_key_once() {
+        let _guard = crate::cache::TEST_CACHE_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let fam = GeneralFamily::new(RootSystem::A(2));
+        let (t, tb, o) = (&[1i64, 0][..], &[0i64, 1][..], &[1i64, 1][..]);
+        let six = &[2i64, 0][..];
+        let count = |request: &dyn Fn()| {
+            crate::cache::reset();
+            let before = BUILDS.with(std::cell::Cell::get);
+            request();
+            let after = BUILDS.with(std::cell::Cell::get);
+            [after[1] - before[1], after[2] - before[2]]
+        };
+        let r = |l: [&[i64]; 3]| {
+            fam.r_exact(l.map(Label::new)).unwrap();
+        };
+        let [descents, seeds] = count(&|| r([t, tb, o]));
+        assert_eq!(descents, 0, "R descends no channel");
+        assert!(seeds <= 2, "R with a ≠ b: {seeds} eliminations");
+        let [descents, seeds] = count(&|| r([t, t, six]));
+        assert_eq!(descents, 0, "R descends no channel");
+        assert!(seeds <= 1, "R with a = b: {seeds} eliminations");
+        let [descents, seeds] = count(&|| {
+            fam.f_exact([o; 6].map(Label::new)).unwrap();
+        });
+        assert!(
+            descents <= 1 && seeds <= 1,
+            "F of octets: {descents} descents, {seeds} eliminations"
+        );
+    }
 }

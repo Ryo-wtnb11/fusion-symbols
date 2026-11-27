@@ -1,4 +1,4 @@
-//! Purpose: warm leaf A/B allocate nothing, and a product level adds only its own output buffer (counted in allocations).
+//! Purpose: warm leaf and product A/B allocate nothing (counted in allocations).
 #![cfg(feature = "lie-generated")]
 
 use crate::common::counting_alloc;
@@ -74,7 +74,7 @@ fn check<C: FusionCategory<Scalar = f64>>(
 }
 
 // Purpose: warm leaf A/B are cached views (shared or inline, no allocation),
-// and a product level adds its own output buffer. Byte totals depend on std
+// and so are products of exact leaves (one composite view). Byte totals depend on std
 // layouts and are not asserted. The serial guard isolates the cache
 // lifecycle checks.
 #[test]
@@ -94,12 +94,12 @@ fn warm_ab_allocate_only_leaf_blocks_and_one_buffer_per_product_level() {
 
     let p = Product::new((su3.clone(), su3.clone()));
     let x = (oct.clone(), oct.clone());
-    // The one output buffer.
-    check("SU3xSU3", &p, &x, &x, &x, 1);
+    // A warm composite view hit with unit +1: no buffer.
+    check("SU3xSU3", &p, &x, &x, &x, 0);
     let p = Product::new((p, su3));
     let x = (x, oct);
-    // The nested factor's output buffer and the outer one.
-    check("(SU3xSU3)xSU3", &p, &x, &x, &x, 2);
+    // Nested or flat, one composite view of the three leaves.
+    check("(SU3xSU3)xSU3", &p, &x, &x, &x, 0);
 
     // Complex SU(N) and odd-D chiral labels must also dualize without rebuilding.
     for (id, labels) in [

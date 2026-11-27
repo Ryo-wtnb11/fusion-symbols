@@ -58,8 +58,6 @@ pub(crate) mod sealed {
     impl Sealed for num_complex::Complex64 {}
 
     /// The kind of a categorical symbol query.
-    // Keys of the composite views; until the product cutover only tests.
-    #[cfg_attr(not(test), allow(dead_code))]
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum SymbolKind {
         /// `F^{abc}_d[e, f]`.
@@ -72,7 +70,6 @@ pub(crate) mod sealed {
         B,
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     impl SymbolKind {
         /// Labels per query: six for F, three otherwise.
         pub(crate) fn labels(self) -> usize {
@@ -83,16 +80,153 @@ pub(crate) mod sealed {
         }
     }
 
+    /// One symbol query over validated objects.
+    pub enum Query<'q, O> {
+        /// `F^{abc}_d[e, f]` as `[a, b, c, d, e, f]`.
+        F([&'q O; 6]),
+        /// `R^{ab}_c`.
+        R([&'q O; 3]),
+        /// `A^{ab}_c`.
+        A([&'q O; 3]),
+        /// `B^{ab}_c`.
+        B([&'q O; 3]),
+    }
+
+    impl<O> Clone for Query<'_, O> {
+        fn clone(&self) -> Self {
+            *self
+        }
+    }
+    impl<O> Copy for Query<'_, O> {}
+
+    impl<'q, O> Query<'q, O> {
+        pub(crate) fn kind(&self) -> SymbolKind {
+            match self {
+                Self::F(_) => SymbolKind::F,
+                Self::R(_) => SymbolKind::R,
+                Self::A(_) => SymbolKind::A,
+                Self::B(_) => SymbolKind::B,
+            }
+        }
+
+        /// The same query on a factor's (or a composite's) objects.
+        pub(crate) fn map<P>(self, f: impl Fn(&'q O) -> &'q P) -> Query<'q, P> {
+            match self {
+                Self::F(x) => Query::F(x.map(f)),
+                Self::R(x) => Query::R(x.map(f)),
+                Self::A(x) => Query::A(x.map(f)),
+                Self::B(x) => Query::B(x.map(f)),
+            }
+        }
+    }
+
+    /// An operation of the exact product protocol (§e of the design).
+    pub enum ExactOp<'q, 'b, O> {
+        /// Label-free class of a symbol kind; no cache.
+        Class(SymbolKind),
+        /// Append this query's Radical leaves and return its aggregate unit;
+        /// no cache.
+        Describe(Query<'q, O>, &'b mut LeafBuf<'q>),
+        /// Append each own Radical leaf's exact block, in leaf order.
+        Fetch(Query<'q, O>, &'b mut ExactBuf),
+        /// The one Radical leaf's rounded view (a query with one leaf).
+        View(Query<'q, O>, &'b mut Option<View>),
+    }
+
+    impl<'q, 'b, O> ExactOp<'q, 'b, O> {
+        /// The same operation on a composite's product objects.
+        pub(crate) fn map<P>(self, f: impl Fn(&'q O) -> &'q P) -> ExactOp<'q, 'b, P> {
+            match self {
+                Self::Class(k) => ExactOp::Class(k),
+                Self::Describe(q, b) => ExactOp::Describe(q.map(f), b),
+                Self::Fetch(q, b) => ExactOp::Fetch(q.map(f), b),
+                Self::View(q, b) => ExactOp::View(q.map(f), b),
+            }
+        }
+    }
+
+    /// The answer to an [`ExactOp`].
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum ExactAnswer {
+        /// No exact values: the caller takes the float path.
+        Unavailable,
+        /// Every admissible query of the kind is a single unit entry.
+        UnitClass,
+        /// Exact values with this many Radical leaves.
+        RadicalClass { leaves: usize },
+        /// The aggregate unit of a described query.
+        Unit(Unit),
+        /// A fetched or viewed query.
+        Done,
+    }
+
+    /// A unit value: multiplying a correctly rounded value by it is exact.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Unit {
+        Zero,
+        PlusOne,
+        MinusOne,
+    }
+
+    impl Unit {
+        pub(crate) fn times(self, other: Self) -> Self {
+            match (self, other) {
+                (Self::Zero, _) | (_, Self::Zero) => Self::Zero,
+                (a, b) if a == b => Self::PlusOne,
+                _ => Self::MinusOne,
+            }
+        }
+
+        /// `self · x`, exact: `−1` negates both parts of a complex value.
+        pub(crate) fn apply<S: super::Scalar>(self, x: S) -> S {
+            match self {
+                Self::Zero => S::zero(),
+                Self::PlusOne => x,
+                Self::MinusOne => -x,
+            }
+        }
+
+        /// The unit of a unit-class block: empty is an absent channel.
+        pub(crate) fn of<S: super::Scalar>(entries: &[S]) -> Option<Self> {
+            match entries {
+                [] => Some(Self::Zero),
+                &[x] if x == S::zero() => Some(Self::Zero),
+                &[x] if x == S::one() => Some(Self::PlusOne),
+                &[x] if x == -S::one() => Some(Self::MinusOne),
+                _ => None,
+            }
+        }
+    }
+
+    /// The rounded view of one Radical leaf or of a composite: real `f64`.
+    #[derive(Clone, Debug)]
+    pub enum View {
+        F(super::FBlock<f64>),
+        /// R, A or B.
+        R(super::RBlock<f64>),
+    }
+
+    /// The exact blocks of a query's Radical leaves, in leaf order.
+    pub struct ExactBuf {
+        pub(crate) f: InlineVec<std::sync::Arc<crate::exact::radical::RadicalBlock<4>>, 4>,
+        pub(crate) r2: InlineVec<std::sync::Arc<crate::exact::radical::RadicalBlock<2>>, 4>,
+    }
+
+    impl ExactBuf {
+        pub(crate) fn with_capacity(n: usize) -> Self {
+            Self {
+                f: InlineVec::with_capacity(n),
+                r2: InlineVec::with_capacity(n),
+            }
+        }
+    }
+
     /// Family tags of a Radical leaf: its owned key's `kind`.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) const LEAF_SIMPLE: u8 = 0;
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) const LEAF_A1: u8 = 1;
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) const LEAF_CU1: u8 = 2;
 
     /// One label of a Radical leaf, read in place with its fingerprint.
-    #[cfg_attr(not(test), allow(dead_code))]
     #[derive(Clone, Copy, Debug)]
     pub enum LeafLabel<'q> {
         /// A simple factor's rank-length words and their stored fingerprint.
@@ -101,7 +235,6 @@ pub(crate) mod sealed {
         Inline(i64, u64),
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     impl LeafLabel<'_> {
         /// The rank-one label `w`.
         pub(crate) fn inline(w: i64) -> Self {
@@ -126,7 +259,6 @@ pub(crate) mod sealed {
     /// presented root (`A(1)` for rank-one families without one) and the
     /// query's labels in that factor, of which the symbol kind's
     /// [`SymbolKind::labels`] are read.
-    #[cfg_attr(not(test), allow(dead_code))]
     #[derive(Clone, Copy, Debug)]
     pub struct LeafRef<'q> {
         pub(crate) family: u8,
@@ -134,15 +266,32 @@ pub(crate) mod sealed {
         pub(crate) labels: [LeafLabel<'q>; 6],
     }
 
+    impl<'q> LeafRef<'q> {
+        /// The leaf of `labels` (three for R/A/B; the unread rest padded).
+        pub(crate) fn new(
+            family: u8,
+            root: crate::lie::RootSystem,
+            labels: impl IntoIterator<Item = LeafLabel<'q>>,
+        ) -> Self {
+            let mut out = [LeafLabel::Inline(0, 0); 6];
+            for (o, l) in out.iter_mut().zip(labels) {
+                *o = l;
+            }
+            Self {
+                family,
+                root,
+                labels: out,
+            }
+        }
+    }
+
     /// Up to `N` values inline, the rest in one spill vector.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub struct InlineVec<T, const N: usize> {
         len: usize,
         inline: [Option<T>; N],
         spill: Vec<T>,
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     impl<T, const N: usize> InlineVec<T, N> {
         /// Room for `n` values: the spill is reserved once, only past `N`.
         pub(crate) fn with_capacity(n: usize) -> Self {
@@ -167,7 +316,6 @@ pub(crate) mod sealed {
     }
 
     /// The Radical leaves of one product query, depth-first.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub struct LeafBuf<'q>(pub(crate) InlineVec<LeafRef<'q>, 4>);
 }
 
@@ -1093,6 +1241,41 @@ pub trait FusionCategory: Clone + Eq + Hash + Debug {
         };
         Ok((block, n))
     }
+    // The exact product protocol: a product's F/R/A/B are the rounding of
+    // the exact composition of its leaves' exact values when every factor
+    // answers. The default is unavailable, which keeps the float path.
+    #[doc(hidden)]
+    fn __fusion_symbols_exact_symbol(
+        &self,
+        op: sealed::ExactOp<'_, '_, Self::Object>,
+        _: sealed::Validated,
+    ) -> Result<sealed::ExactAnswer, Self::Error> {
+        let _ = op;
+        Ok(sealed::ExactAnswer::Unavailable)
+    }
+}
+
+/// The hook of a unit-class category: `Class` is unit for every kind, and
+/// `Describe` reads the single closed-form entry, with no search.
+pub(crate) fn unit_symbol<C: FusionCategory>(
+    cat: &C,
+    op: sealed::ExactOp<'_, '_, C::Object>,
+) -> Result<sealed::ExactAnswer, C::Error> {
+    use sealed::{ExactAnswer, ExactOp, Query};
+    let q = match op {
+        ExactOp::Class(_) => return Ok(ExactAnswer::UnitClass),
+        ExactOp::Describe(q, _) => q,
+        ExactOp::Fetch(..) | ExactOp::View(..) => return Ok(ExactAnswer::Unavailable),
+    };
+    let unit = match q {
+        Query::F([a, b, c, d, e, f]) => {
+            sealed::Unit::of(cat.f_symbol(a, b, c, d, e, f)?.as_slice())
+        }
+        Query::R([a, b, c]) => sealed::Unit::of(cat.r_symbol(a, b, c)?.as_slice()),
+        Query::A([a, b, c]) => sealed::Unit::of(cat.a_symbol(a, b, c)?.as_slice()),
+        Query::B([a, b, c]) => sealed::Unit::of(cat.b_symbol(a, b, c)?.as_slice()),
+    };
+    Ok(unit.map_or(ExactAnswer::Unavailable, ExactAnswer::Unit))
 }
 
 // `√d_a √d_b / √d_c`, the normalization shared by A and B.
