@@ -385,9 +385,15 @@ fn warm_composite_factor_queries_allocate_nothing() {
     );
 }
 
+fn tuple11<T: Clone>(t: &T) -> (T, T, T, T, T, T, T, T, T, T, T) {
+    let c = || t.clone();
+    (c(), c(), c(), c(), c(), c(), c(), c(), c(), c(), c())
+}
+
 // Purpose: a warm product CGC allocates nothing: two or more Radical leaves
-// are one Product-tier hit and an `Arc` clone, one leaf is that leaf's own
-// shared block, and a unit or absent product is a scalar.
+// are one Product-tier hit and an `Arc` clone, up to the largest tuple
+// arity (11 leaves), one leaf is that leaf's own shared block, and a unit
+// or absent product is a scalar.
 #[test]
 fn warm_product_cgc_allocates_nothing() {
     use fusion_symbols::category::GroupRepresentations;
@@ -405,13 +411,21 @@ fn warm_product_cgc_allocates_nothing() {
     let one = Product::new((g.clone(), z));
     let [oa, ob, oc] = [(x(1), q(1)), (x(1), q(1)), (x(2), q(2))];
     let absent = (x(2), q(0));
+    let five = Product::new((g.clone(), g.clone(), g.clone(), g.clone(), g.clone()));
+    let h5 = (x(1), x(1), x(1), x(1), x(1));
+    let o5 = (x(0), x(2), x(0), x(2), x(0));
+    let eleven = Product::new(tuple11(&g));
+    let h11 = tuple11(&x(1));
+    let o11 = eleven.unit();
     assert_eq!(
         [
             warm(|| two.cgc(&a, &b, &c).unwrap()).0,
             warm(|| three.cgc(&va, &vb, &vc).unwrap()).0,
             warm(|| one.cgc(&oa, &ob, &oc).unwrap()).0,
             warm(|| one.cgc(&oa, &ob, &absent).unwrap()).0,
+            warm(|| five.cgc(&h5, &h5, &o5).unwrap()).0,
+            warm(|| eleven.cgc(&h11, &h11, &o11).unwrap()).0,
         ],
-        [0; 4]
+        [0; 6]
     );
 }

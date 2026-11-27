@@ -337,7 +337,10 @@ pub(crate) mod sealed {
         }
 
         pub(crate) fn iter(&self) -> impl Iterator<Item = &T> {
-            self.inline.iter().flatten().chain(&self.spill)
+            self.inline[..self.len.min(N)]
+                .iter()
+                .flatten()
+                .chain(&self.spill)
         }
 
         pub(crate) fn get(&self, i: usize) -> Option<&T> {
@@ -376,8 +379,17 @@ pub(crate) mod sealed {
     /// The float-route fold of one query's leaf blocks.
     pub struct FloatSink(pub(crate) crate::product::FloatState);
 
-    /// The Radical leaves of one product query, depth-first.
-    pub struct LeafBuf<'q>(pub(crate) InlineVec<LeafRef<'q>, 4>);
+    /// The Radical leaves of one product query, depth-first: inline up to
+    /// the largest tuple product arity, so a warm query of any tuple keeps
+    /// its composite lookup allocation-free; more leaves (a longer `Vec` or
+    /// a nesting) spill once per query.
+    // ponytail: 11 inline leaves cost 1.8 KiB of stack per product query
+    // (168 bytes a leaf); a borrowed key walking the factors would remove
+    // both the stack and the spill if deeper products matter.
+    pub struct LeafBuf<'q>(pub(crate) InlineVec<LeafRef<'q>, INLINE_LEAVES>);
+
+    /// The largest tuple product arity (`impl_product!` in `product.rs`).
+    pub(crate) const INLINE_LEAVES: usize = 11;
 
     /// An operation of the exact product CGC protocol: a product's CGC is
     /// the exact composition of its Radical leaves' exact channels, rounded
