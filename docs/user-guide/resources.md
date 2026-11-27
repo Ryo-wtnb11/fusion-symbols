@@ -178,15 +178,13 @@ eviction and reset.
 ### Warming the cache in one call
 
 `lie::prefill(&request, exec)` evaluates every item of a `PrefillRequest`
-(CGC channels, F and R blocks, tensor products, Frobenius–Schur phases) as
-its serial entry would, so later queries are warm hits. Retention follows
+(CGC channels, F, R, A and B blocks, tensor products, Frobenius–Schur
+phases) as its serial entry would, so later queries are warm hits. Retention follows
 the tier budgets above: `Ok(())` does not mean every value is still
 resident. Every item is attempted; a failure does not roll back successful
 items, and the lowest-index item's error is returned. The call runs in one
 reset epoch, read before its first cache access, so a reset at any point
-during the call retains nothing it generates afterwards. `A^{ab}_c` and
-`B^{ab}_c` are warmed by requesting the F block and phase their definitions
-read (see the `PrefillRequest` docs).
+during the call retains nothing it generates afterwards.
 
 `exec` is the caller's `threadteam` token; this crate creates no thread
 pool. A library passes the token it was given, and a caller without threads

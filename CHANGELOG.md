@@ -7,6 +7,12 @@ value/gauge rule noted below.
 
 ## [Unreleased]
 
+### Added
+
+- `PrefillRequest::{a_symbol, b_symbol}`: A and B are retained as their own
+  rounded blocks, so warming the F block and phase they read no longer
+  warms them.
+
 ### Changed
 
 - **Breaking (values):** CU(1) A and B are formed exactly from its exact F

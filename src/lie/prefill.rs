@@ -6,17 +6,13 @@ use super::{LieError, LieGroup, LieIrrep};
 use crate::category::FusionCategory;
 
 /// A batch of coefficients of one [`LieGroup`] for [`prefill`] to make
-/// resident: CGC channels, F and R blocks, tensor products (every `N^c_{ab}`
-/// and the fusion labels of `a ⊗ b`), and Frobenius–Schur phases.
+/// resident: CGC channels, F, R, A and B blocks, tensor products (every
+/// `N^c_{ab}` and the fusion labels of `a ⊗ b`), and Frobenius–Schur phases.
 ///
 /// Each method adds one item and returns the request, so items chain. An item
 /// is evaluated exactly as the serial entry of the same name evaluates it:
 /// the same dispatch (closed forms, rank-one and composite paths included),
-/// the same cache lookups and the same error. `a_symbol` and `b_symbol` have
-/// no item: `A^{ab}_c` reads `F^{ā a b}_b[𝟙, c]` and the Frobenius–Schur
-/// phase of `a`, and `B^{ab}_c` reads `F^{a b b̄}_a[c, 𝟙]`, so request
-/// `f_symbol(ā, a, b, b, 𝟙, c)` with `frobenius_schur_phase(a)`, or
-/// `f_symbol(a, b, b̄, a, c, 𝟙)`.
+/// the same cache lookups and the same error.
 ///
 /// # Panics
 /// Every method panics on an object of another group, at insertion, as the
@@ -32,6 +28,8 @@ enum Item {
     Cgc([LieIrrep; 3]),
     F([LieIrrep; 6]),
     R([LieIrrep; 3]),
+    A([LieIrrep; 3]),
+    B([LieIrrep; 3]),
     Fusion([LieIrrep; 2]),
     Phase(LieIrrep),
 }
@@ -79,6 +77,16 @@ impl PrefillRequest {
     /// `R^{ab}_c` of [`FusionCategory::r_symbol`](crate::category::FusionCategory::r_symbol).
     pub fn r_symbol(&mut self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> &mut Self {
         self.push([a, b, c], Item::R)
+    }
+
+    /// `A^{ab}_c` of [`FusionCategory::a_symbol`](crate::category::FusionCategory::a_symbol).
+    pub fn a_symbol(&mut self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> &mut Self {
+        self.push([a, b, c], Item::A)
+    }
+
+    /// `B^{ab}_c` of [`FusionCategory::b_symbol`](crate::category::FusionCategory::b_symbol).
+    pub fn b_symbol(&mut self, a: &LieIrrep, b: &LieIrrep, c: &LieIrrep) -> &mut Self {
+        self.push([a, b, c], Item::B)
     }
 
     /// The decomposition of `a ⊗ b`: every `N^c_{ab}` of
@@ -167,11 +175,14 @@ pub fn prefill(request: &PrefillRequest, mut exec: Exec<'_>) -> Result<(), LieEr
 /// runs.
 #[inline(never)]
 fn evaluate(group: &LieGroup, item: &Item, exec: &mut Exec<'_>) -> Result<(), LieError> {
-    // Fusion and phase items reach no channel, so they take the serial entry.
+    // Fusion and phase items reach no channel, so they take the serial entry;
+    // so do A and B, whose entries take no token.
     match item {
         Item::Cgc([a, b, c]) => group.cgc_in(a, b, c, Some(exec)).map(drop),
         Item::F(labels) => group.f_symbol_in(labels.each_ref(), Some(exec)).map(drop),
         Item::R([a, b, c]) => group.r_symbol_in(a, b, c).map(drop),
+        Item::A([a, b, c]) => group.a_symbol(a, b, c).map(drop),
+        Item::B([a, b, c]) => group.b_symbol(a, b, c).map(drop),
         Item::Fusion([a, b]) => group.fusion(a, b).map(drop),
         Item::Phase(a) => group.frobenius_schur_phase(a).map(drop),
     }
@@ -246,6 +257,14 @@ mod tests {
                 let x = group.r_symbol(a, b, c)?;
                 bits(&x.dims(), x.as_slice())
             }
+            Item::A([a, b, c]) => {
+                let x = group.a_symbol(a, b, c)?;
+                bits(&x.dims(), x.as_slice())
+            }
+            Item::B([a, b, c]) => {
+                let x = group.b_symbol(a, b, c)?;
+                bits(&x.dims(), x.as_slice())
+            }
             Item::Fusion([a, b]) => {
                 let mut out = Vec::new();
                 for (c, n) in group.fusion(a, b)? {
@@ -277,6 +296,8 @@ mod tests {
             .f_symbol(&h, &h, &h, &h, &one, &one)
             .f_symbol(&h, &h, &h, &h, &s1, &s1)
             .r_symbol(&h, &h, &s1)
+            .a_symbol(&h, &h, &s1)
+            .b_symbol(&h, &h, &s1)
             .frobenius_schur_phase(&h);
         #[allow(unused_mut)]
         let mut all = vec![su2];
@@ -289,6 +310,8 @@ mod tests {
                 .cgc(&adj, &adj, &adj)
                 .f_symbol(&adj, &adj, &adj, &adj, &adj, &adj)
                 .r_symbol(&adj, &adj, &adj)
+                .a_symbol(&adj, &adj, &adj)
+                .b_symbol(&adj, &adj, &adj)
                 .frobenius_schur_phase(&three);
             let d5 = LieGroup::new(GroupId::spin(10).unwrap()).unwrap();
             let mut phase = PrefillRequest::new(&d5);
