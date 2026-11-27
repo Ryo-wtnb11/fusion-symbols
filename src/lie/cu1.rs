@@ -559,9 +559,16 @@ impl FusionCategory for CU1 {
             }
             ExactOp::View(q, out) => {
                 *out = Some(match q {
-                    Query::F([a, b, c, d, e, f]) => View::F(crate::category::FBlock::one(
-                        self.f_symbol(a, b, c, d, e, f)?,
-                    )),
+                    // An absent channel keeps its vertex multiplicities as axes.
+                    Query::F([a, b, c, d, e, f]) => {
+                        let dims = [(a, b, e), (e, c, d), (b, c, f), (a, f, d)]
+                            .map(|(x, y, z)| n(x, y, z) as usize);
+                        View::F(if dims.contains(&0) {
+                            crate::category::FBlock::zeros(dims)
+                        } else {
+                            crate::category::FBlock::one(self.f_symbol(a, b, c, d, e, f)?)
+                        })
+                    }
                     Query::R([a, b, c]) => View::R(RBlock::one(self.r_symbol(a, b, c)?)),
                     Query::A([a, b, c]) => View::R(self.a_symbol(a, b, c)?),
                     Query::B([a, b, c]) => View::R(self.b_symbol(a, b, c)?),

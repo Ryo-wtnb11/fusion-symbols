@@ -1959,3 +1959,19 @@ fn product_b_is_the_rounded_exact_composition() {
     assert_eq!(leaf, -0.5 * std::f64::consts::FRAC_1_SQRT_2);
     assert_eq!((leaf * leaf).to_bits(), 0x3fc0000000000001);
 }
+
+// A product with one exact leaf returns that leaf's view; an absent CU(1) F
+// channel keeps its vertex multiplicities as axes, as the float path does.
+#[test]
+fn one_leaf_absent_channel_keeps_its_axes() {
+    use fusion_symbols::lie::{CU1Irrep, HalfInt, CU1};
+    let p = Product::new((CU1, U1));
+    let x = (CU1Irrep::VACUUM, U1Irrep::UNIT);
+    let y = (
+        CU1Irrep::new(HalfInt::from_doubled(1), 2).unwrap(),
+        U1Irrep::UNIT,
+    );
+    let f = p.f_symbol(&x, &x, &x, &x, &y, &x).unwrap();
+    assert_eq!(f.dims(), [0, 0, 1, 1]);
+    assert!(f.as_slice().is_empty());
+}
