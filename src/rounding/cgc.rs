@@ -307,8 +307,17 @@ pub(crate) struct ExactLeaf {
     pub(crate) norms: Option<[std::sync::Arc<NormTable>; 3]>,
 }
 
+/// The entry count `Π nnz_i` of a composite sparse block, `None` when it or
+/// its byte size is not representable. Axes that fit `u32` do not bound it,
+/// so it is checked before allocating.
+pub(crate) fn composite_len(lens: impl IntoIterator<Item = usize>) -> Option<usize> {
+    let n = lens.into_iter().try_fold(1usize, usize::checked_mul)?;
+    std::alloc::Layout::array::<MEntry>(n).ok().map(|_| n)
+}
+
 /// The composite channel of a product's Radical leaves, `None` when a
-/// composite axis of a nonempty channel exceeds `u32`.
+/// composite axis of a nonempty channel exceeds `u32` or its entries are
+/// not allocatable ([`composite_len`]).
 ///
 /// Every combination of one exact entry per leaf is one product entry, the
 /// single radical `Π sign · √(Π X² ρ_μ n^a n^b / n^c)` over the
@@ -376,7 +385,7 @@ pub(crate) fn compose_channel(leaves: &[ExactLeaf]) -> Option<CgcChannel> {
         })
         .collect();
     let shapes: Vec<[usize; 4]> = leaves.iter().map(shape).collect();
-    let mut entries = Vec::with_capacity(lists.iter().map(Vec::len).product());
+    let mut entries = Vec::with_capacity(composite_len(lists.iter().map(Vec::len))?);
     let (mut num, mut den) = (Vec::new(), Vec::new());
     let mut pick = vec![0usize; lists.len()];
     'odometer: loop {

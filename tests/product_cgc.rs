@@ -697,3 +697,23 @@ fn a_downstream_factor_keeps_the_float_product() {
         }
     }
 }
+
+// Purpose: a composite whose axes fit `u32` but whose sparse entries
+// (61^10 here, 1.7e19 bytes) cannot be allocated is an overflow error on
+// both the exact and the float path, not an allocation panic.
+#[test]
+fn unallocatable_composite_cgc_is_overflow() {
+    let g = su2();
+    let x = g.irrep(&[8]).unwrap();
+    let a = vec![x; 10];
+    let exact = Product::new(vec![g.clone(); 10]);
+    assert!(matches!(
+        exact.cgc(&a, &a, &a),
+        Err(fusion_symbols::product::ProductError::Overflow)
+    ));
+    let float = Product::new(vec![Forward(g); 10]);
+    assert!(matches!(
+        float.cgc(&a, &a, &a),
+        Err(fusion_symbols::product::ProductError::Overflow)
+    ));
+}

@@ -74,7 +74,7 @@ use crate::exact::radical::RadicalBlock;
 use crate::frcore::MEntry;
 use crate::lie::LieCgc;
 use crate::rounding::blocks::{check_f_block, check_r_block, round_block};
-use crate::rounding::cgc::compose_channel;
+use crate::rounding::cgc::{compose_channel, composite_len};
 use crate::rounding::DimValue;
 use malachite_nz::integer::Integer;
 use num_complex::Complex64;
@@ -717,7 +717,8 @@ fn nonzeros(block: &impl CgcBlock) -> ([usize; 4], Vec<MEntry>) {
 /// The float block of a product with a factor outside the exact protocol:
 /// each entry the left-to-right `f64` product of the factors' entries, last
 /// factor fastest on every axis; `None` when an axis overflows (or, for a
-/// nonempty block, exceeds `u32`).
+/// nonempty block, exceeds `u32`) or the entries are not allocatable
+/// ([`composite_len`]).
 fn float_cgc(factors: Vec<([usize; 4], Vec<MEntry>)>) -> Option<LieCgc> {
     let dims = cgc_dims(factors.iter().map(|f| f.0))?;
     if dims[3] == 0 {
@@ -726,7 +727,7 @@ fn float_cgc(factors: Vec<([usize; 4], Vec<MEntry>)>) -> Option<LieCgc> {
     if dims.iter().any(|&d| d > u32::MAX as usize) {
         return None;
     }
-    let mut entries = Vec::with_capacity(factors.iter().map(|f| f.1.len()).product());
+    let mut entries = Vec::with_capacity(composite_len(factors.iter().map(|f| f.1.len()))?);
     let mut pick = vec![0usize; factors.len()];
     'odometer: while factors.iter().all(|f| !f.1.is_empty()) {
         let mut at = [0usize; 4];
