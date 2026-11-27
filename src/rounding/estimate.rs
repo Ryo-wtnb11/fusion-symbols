@@ -194,6 +194,9 @@ pub(crate) fn entry(x: &[u64], k: Est, sa: Est, sb: Est) -> Option<Est> {
     mul(mul(mul(top_words(x)?, k)?, sa)?, sb)
 }
 
+/// `2^128`, the rounding of every integer in `[2^128, 2^128 + 2^74)`.
+const TWO_128: f64 = f64::from_bits((1023 + 128) << 52);
+
 /// The binades `b` of `V̂ ∈ [2^b, 2^(b+1))` the fast path accepts:
 /// `EMIN + 1 ..= EMAX − 1` of `f64`.
 const BINADES: std::ops::RangeInclusive<i64> = -1021..=1022;
@@ -206,7 +209,11 @@ const BINADES: std::ops::RangeInclusive<i64> = -1021..=1022;
 /// The ends `m ∓ MARGIN` of an interval holding `V/2^e` are rounded by Rust's
 /// `u128 as f64`, which rounds to nearest, ties to even. Rounding is
 /// monotone, so `V/2^e` rounds between the two; when they are equal it
-/// rounds to them. An end past `u128` falls back.
+/// rounds to them. An upper end at or past `2^128` lies in
+/// `[2^128, 2^128 + MARGIN)`, within half a unit in the last place (`2^74`)
+/// of `2^128`, so its rounding is exactly `2^128` and is taken as that
+/// constant: a floor estimate of an exact power of two has `m` just below
+/// `2^128` and must not fall back for it.
 ///
 /// The result is that rounding scaled by `2^e`, done exactly by adding `e`
 /// to the exponent field. Rounding commutes with the scaling when the result
@@ -223,7 +230,7 @@ pub(crate) fn decide(neg: bool, v: Est) -> Option<f64> {
         return None;
     }
     let low = (v.m - MARGIN) as f64;
-    let high = v.m.checked_add(MARGIN)? as f64;
+    let high = v.m.checked_add(MARGIN).map_or(TWO_128, |h| h as f64);
     if low != high {
         return None;
     }

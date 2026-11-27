@@ -211,8 +211,9 @@ fn entry_is_within_nine_one_sided_units() {
 /// both lie below the midpoint `1 + 2^-53` (the upper end may be the
 /// midpoint itself, which ties to the even `1.0`), up when both lie above
 /// it, and `None` when the midpoint lies strictly between them or, at the
-/// lower end, ties to even away from the upper end's rounding. It falls back
-/// when the upper end leaves `u128` and outside the binades `−1021..=1022`,
+/// lower end, ties to even away from the upper end's rounding. An upper end
+/// past `u128` rounds to `2^128`, so a floor estimate just below a power of
+/// two returns it; it falls back outside the binades `−1021..=1022`,
 /// accepts a minimum mantissa whose lower end crosses into the binade
 /// below, scales exactly at both ends of the range, and sets the sign.
 #[test]
@@ -232,7 +233,15 @@ fn decide_rounds_the_ends_and_gates() {
         decide(false, at(half + MARGIN + 1)),
         Some(f64::from_bits(0x3ff0_0000_0000_0001))
     );
-    assert_eq!(decide(false, Est::new(u128::MAX, -128)), None);
+    // A floor estimate just below a power of two: the upper end passes
+    // `u128` and rounds to `2^128`, at an ordinary exponent and at the top
+    // binade, where `2^1023` is still finite.
+    assert_eq!(decide(false, Est::new(u128::MAX, -128)), Some(1.0));
+    assert_eq!(decide(true, Est::new(u128::MAX - 3, -129)), Some(-0.5));
+    assert_eq!(
+        decide(false, Est::new(u128::MAX, 1022 - 127)),
+        Some(f64::from_bits(2046 << 52))
+    );
     assert_eq!(decide(false, Est::new(u128::MAX - MARGIN, -128)), Some(1.0));
     // Binades −1022 and 1023 fall back; −1021 and 1022 decide exactly.
     assert_eq!(decide(false, Est::new(one, -1022 - 127)), None);

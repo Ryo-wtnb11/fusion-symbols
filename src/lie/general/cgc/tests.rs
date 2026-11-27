@@ -1289,7 +1289,9 @@ fn rounded_gates_pass_on_exact_channels() {
 /// the exact conversion.
 #[test]
 fn estimated_entries_equal_the_exact_conversion() {
-    let mut channels: Vec<(RootSystem, Vec<i64>, Vec<i64>, Vec<i64>)> = Vec::new();
+    // `(root, a, b, c)`.
+    type Channel = (RootSystem, Vec<i64>, Vec<i64>, Vec<i64>);
+    let mut channels: Vec<Channel> = Vec::new();
     for (root, a, b) in [
         (RootSystem::G2, G7.to_vec(), G7.to_vec()),
         (RootSystem::G2, G7.to_vec(), G14.to_vec()),
