@@ -11,7 +11,7 @@ pub(crate) mod roots;
 
 use std::sync::LazyLock;
 
-pub(crate) use self::family::{GeneralFamily, RequestModules};
+pub(crate) use self::family::GeneralFamily;
 use self::roots::CartanData;
 use crate::lie::RootSystem;
 

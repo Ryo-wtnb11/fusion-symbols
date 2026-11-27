@@ -11,7 +11,8 @@ use crate::category::{
     f_unitarity_residual, hexagon_residual, BraidingStyle, FBlock, FusionCategory, FusionStyle,
     RBlock, SymbolBlock,
 };
-use crate::lie::general::{GeneralFamily, RequestModules};
+use crate::lie::general::family::RequestModules;
+use crate::lie::general::GeneralFamily;
 use crate::rounding::cgc::{
     check_rounded, gate_bytes, gate_replaced, round_channel, support_runs, worst, BlockEntry,
     GateBlock, GateCounts, GATE_ALLOWANCE, SUPPORT_CHUNK_OVERRIDE, SUPPORT_SECTIONS,

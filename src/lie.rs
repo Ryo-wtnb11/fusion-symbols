@@ -1398,8 +1398,8 @@ impl LieGroup {
                     } else {
                         [bar, la, lb, lb, unit, lc]
                     };
-                    let dims = [la, lb, lc].map(|l| fam.dimension(l));
-                    (fam.f_exact(sextet)?, [dims[0]?, dims[1]?, dims[2]?])
+                    let [da, db, dc] = [la, lb, lc].map(|l| fam.dimension(l));
+                    (fam.f_exact(sextet)?, [da?, db?, dc?])
                 }
                 _ => {
                     let [ja, jb, jc] = [a, b, c].map(LieIrrep::dj);

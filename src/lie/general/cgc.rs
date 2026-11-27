@@ -1269,7 +1269,7 @@ thread_local! {
     pub(super) static CONSTRUCTION_SECTIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// Live exact slots of [`descend`] on this thread: `[current, maximum]`.
     pub(super) static LIVE_EXACT: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
-    /// Modules held by the live [`super::RequestModules`] of this thread:
+    /// Modules held by the live [`super::family::RequestModules`] of this thread:
     /// `[current, maximum]`.
     pub(crate) static REQUEST_MODULES: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0; 2]) };
     /// Modules held by this thread when an F or R contraction last began.
