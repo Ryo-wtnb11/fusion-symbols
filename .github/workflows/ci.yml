@@ -73,7 +73,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo test ${{ matrix.args }}
       - if: matrix.name == 'default'
-        run: cargo test ${{ matrix.args }} --lib -- --ignored --exact --test-threads=1 lie::general::product_contract_tests::exceptional_product_cache_counted lie::general::roots::tests::warm_adapter_does_not_rebuild_context_after_group_drop
+        run: cargo test ${{ matrix.args }} --lib -- --ignored --exact --test-threads=1 lie::general::product_contract_tests::exceptional_product_cache_counted lie::general::roots::tests::warm_adapter_does_not_rebuild_context_after_group_drop lie::general::roots::tests::n_builds_no_channel_dimensions_and_fusion_reuses_the_product lie::general::cgc::tests::warm_exact_loads_are_one_search_without_allocation
 
   # Release-only category identities and regressions, selected by exact name
   # (never a blanket --ignored, which would also run the heavy cases).

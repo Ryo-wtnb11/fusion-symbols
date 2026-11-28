@@ -2797,6 +2797,7 @@ fn stored_norm_tables_are_the_generated_ones() {
 /// cache search with no allocation and generate nothing on this thread.
 #[cfg(feature = "lie-generated")]
 #[test]
+#[ignore = "needs an isolated global cache; light; CI test_suites default job runs it by exact name, single thread"]
 fn warm_exact_loads_are_one_search_without_allocation() {
     let _guard = crate::cache::TEST_CACHE_LOCK
         .lock()
