@@ -99,7 +99,65 @@ fn round_small(x: f64, value: DimValue) -> f64 {
 }
 
 /// The nearest `f64` to `1/√d` for an integer `1 ≤ d < 2^53` (an exact
-/// `x`), without big integers: the definition itself, checked exactly.
+/// `x`): [`fused_pretest`] where fused multiply-add is an instruction, and
+/// [`exact_inv_sqrt`] for every input it does not decide.
+fn inv_sqrt_small(x: f64) -> f64 {
+    if x == 1.0 {
+        return 1.0;
+    }
+    let y = x.sqrt().recip();
+    // Not on every target: without an FMA instruction `mul_add` is a libm
+    // call, and whether three calls still beat the exact tests is not
+    // measured. Both arms return the same bits.
+    if cfg!(any(
+        all(target_arch = "aarch64", target_feature = "neon"),
+        target_feature = "fma"
+    )) {
+        if let Some(r) = fused_pretest(x, y) {
+            return r;
+        }
+    }
+    exact_inv_sqrt(y, x as u64)
+}
+
+/// Half-width lost from each side of a rounding interval: the pre-test's
+/// error is below `2^-50 + 2^-48` in ulp of `y`, so `2^-40` leaves a factor
+/// of more than 200.
+const PRETEST_MARGIN: f64 = 1.0 / (1u64 << 40) as f64;
+
+/// The nearest `f64` to `1/√d` decided from the residual `ρ = 1 − d·y²` of
+/// the start `y = Y·u` (`Y` its 53-bit significand), or `None` when the
+/// residual is too close to a midpoint.
+///
+/// `1/√d > y + h·u` exactly when `ρ·Y/2 > h − (3/2)h²/Y + …`, so
+/// `w = ρ·Y/2` locates `1/√d` in ulp of `y`. `e = d·y − RN(d·y)` is exact by
+/// 2MultFMA, so `ρ` is formed with error at most `2^-103` and `w` with error
+/// below `2^-50`. The candidate `C = Y + k`, `k` the integer nearest `w`, is
+/// accepted only inside `y`'s binade with `w − k` at least the margin inside
+/// its midpoints (`k − 1/4` below a power of two, else `k ± 1/2`). This
+/// binary64 certificate does not decide every input (some next to `2^52`
+/// fall inside the margin), so the exact fallback stays.
+fn fused_pretest(x: f64, y: f64) -> Option<f64> {
+    // 1.5·2^52: adding it rounds `w` (|w| < 3) to an integer, ties to even.
+    const MAGIC: f64 = 6_755_399_441_055_744.0;
+    let p = x * y;
+    let e = x.mul_add(y, -p);
+    let rho = (-e).mul_add(y, (-p).mul_add(y, 1.0));
+    let bits = y.to_bits();
+    let sig = (bits & ((1 << 52) - 1)) | (1 << 52);
+    let w = rho * sig as f64 * 0.5;
+    let s = w + MAGIC;
+    let k = s.to_bits() as i64 - MAGIC.to_bits() as i64;
+    let f = w - (s - MAGIC);
+    let c = sig as i64 + k;
+    let lo = if c == 1 << 52 { -0.25 } else { -0.5 };
+    let inside =
+        (1 << 52..1 << 53).contains(&c) && f > lo + PRETEST_MARGIN && f < 0.5 - PRETEST_MARGIN;
+    inside.then(|| f64::from_bits(bits.wrapping_add_signed(k)))
+}
+
+/// The nearest `f64` to `1/√d`, `1 < d < 2^53`, from a start `y` within a
+/// few ulp, without big integers: the definition itself, checked exactly.
 ///
 /// Bracketing: `y` is the nearest `f64` exactly when `1/√d` lies strictly
 /// between the midpoint below `y` (to `prev(y)`) and the midpoint above it
@@ -107,16 +165,10 @@ fn round_small(x: f64, value: DimValue) -> f64 {
 /// `M > 1` (`A ≥ 2^52` the significand of the smaller neighbour), and
 /// [`above_midpoint`] decides `1/√d > M·2^k` exactly as the integer
 /// comparison `M²·d < 2^(−2k)`. Ties are impossible: `M²·d` has the odd
-/// factor `M² > 1`, so it is never a power of two. The start
-/// `1/(√d)` is within a few ulp; the loop steps one ulp toward `1/√d` until
-/// both midpoint tests bracket it, so the result does not rest on that
-/// bound, only on the two exact tests.
-fn inv_sqrt_small(x: f64) -> f64 {
-    if x == 1.0 {
-        return 1.0;
-    }
-    let d = x as u64;
-    let mut y = x.sqrt().recip();
+/// factor `M² > 1`, so it is never a power of two. The loop steps one ulp
+/// toward `1/√d` until both midpoint tests bracket it, so the result does
+/// not rest on the start's error, only on the two exact tests.
+fn exact_inv_sqrt(mut y: f64, d: u64) -> f64 {
     // `y ∈ (2^-27, 1)` is normal, so its successor is the next bit pattern.
     let next = |y: f64| f64::from_bits(y.to_bits() + 1);
     let prev = |y: f64| f64::from_bits(y.to_bits() - 1);
@@ -731,6 +783,37 @@ mod tests {
             // 2^-1100 underflows to a zero that keeps the sign.
             (r(one.clone(), 2200), 0),
         ]
+    }
+
+    /// The FMA pre-test returns the exact routine's bits wherever it
+    /// decides, and rejects exactly the inputs whose residual lies within
+    /// the margin of a midpoint: next to `2^52` (`2^52 + 1` and `2^52 − s`
+    /// for odd `s ≤ 103`), which the exact loop then decides.
+    #[test]
+    fn inv_sqrt_pretest_agrees_with_the_exact_tests() {
+        let near = |c: u64, r: u64| c.saturating_sub(r)..c + r;
+        let ds = (2..1 << 16)
+            .chain((1..27).flat_map(|j| near(1 << (2 * j), 4096)))
+            .chain(near(1 << 52, 256))
+            .chain((1 << 53) - 4096..1 << 53)
+            .filter(|&d| d > 1);
+        let mut rejected = Vec::new();
+        for d in ds {
+            let x = d as f64;
+            let y = x.sqrt().recip();
+            let exact = exact_inv_sqrt(y, d);
+            assert_eq!(inv_sqrt_small(x).to_bits(), exact.to_bits(), "{d}");
+            match fused_pretest(x, y) {
+                Some(r) => assert_eq!(r.to_bits(), exact.to_bits(), "{d}"),
+                None => rejected.push(d),
+            }
+        }
+        rejected.sort_unstable();
+        rejected.dedup();
+        let mut expected: Vec<u64> = (1..=103).step_by(2).map(|s| (1 << 52) - s).collect();
+        expected.push((1 << 52) + 1);
+        expected.sort_unstable();
+        assert_eq!(rejected, expected);
     }
 
     /// The boundary cases through the factor assembly of [`round_radical`]:
