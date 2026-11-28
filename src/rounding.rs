@@ -786,9 +786,10 @@ mod tests {
     }
 
     /// The FMA pre-test returns the exact routine's bits wherever it
-    /// decides, and rejects exactly the inputs whose residual lies within
-    /// the margin of a midpoint: next to `2^52` (`2^52 + 1` and `2^52 − s`
-    /// for odd `s ≤ 103`), which the exact loop then decides.
+    /// decides, and within these inputs rejects exactly `2^52 + 1` (its
+    /// fraction falls outside the halved lower gap of `C = 2^52`) and
+    /// `2^52 − s` for odd `s ≤ 103` (residual within the margin of a
+    /// midpoint), which the exact loop then decides.
     #[test]
     fn inv_sqrt_pretest_agrees_with_the_exact_tests() {
         let near = |c: u64, r: u64| c.saturating_sub(r)..c + r;
