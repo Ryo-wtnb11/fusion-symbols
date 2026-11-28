@@ -2010,6 +2010,10 @@ pub(crate) fn placeholder_waits() -> u64 {
 }
 
 // Serialize unit tests that reset process-global coefficient caches.
+// It cannot isolate a test from unlocked ones: a flight started before a
+// reset survives it, and a lookup that joins it receives a value the reset
+// keeps from being retained. A test asserting that its first warm lookup is
+// reused therefore runs ignored, by exact name on one thread in CI.
 #[cfg(test)]
 pub(crate) static TEST_CACHE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 

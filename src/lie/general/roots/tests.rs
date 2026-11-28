@@ -670,6 +670,7 @@ fn d_chirality_orbits() {
 }
 
 #[test]
+#[ignore = "needs an isolated global cache; light; CI test_suites default job runs it by exact name, single thread"]
 fn n_builds_no_channel_dimensions_and_fusion_reuses_the_product() {
     let _guard = crate::cache::TEST_CACHE_LOCK
         .lock()

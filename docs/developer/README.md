@@ -195,8 +195,8 @@ The `sun_product` benchmark/test target names remain stable; their tier control
 is `CoefficientCacheTier::Product`. Product retention includes all simple
 Lie families.
 
-The reset-sensitive producer-count and root-context gates run alone in the default CI job:
+The reset-sensitive producer-count, root-context and warm-reuse gates run alone in the default CI job:
 
 ```sh
-cargo test --release --offline --lib -- --ignored --exact --test-threads=1 lie::general::product_contract_tests::exceptional_product_cache_counted lie::general::roots::tests::warm_adapter_does_not_rebuild_context_after_group_drop
+cargo test --release --offline --lib -- --ignored --exact --test-threads=1 lie::general::product_contract_tests::exceptional_product_cache_counted lie::general::roots::tests::warm_adapter_does_not_rebuild_context_after_group_drop lie::general::roots::tests::n_builds_no_channel_dimensions_and_fusion_reuses_the_product lie::general::cgc::tests::warm_exact_loads_are_one_search_without_allocation
 ```
